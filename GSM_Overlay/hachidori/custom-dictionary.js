@@ -14,44 +14,83 @@ export const CUSTOM_DICTIONARY_SOURCE_SCHEMA_VERSION = 1;
 export const EMPTY_CUSTOM_DICTIONARY_SEMANTIC_REVISION =
   "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945";
 
-export function customDictionaryMetadataMatches(value, semanticRevision, entryCount) {
-  return value?.title === CUSTOM_DICTIONARY_TITLE && value.revision === semanticRevision
-    && value.termCount === entryCount
-    && ["frequencyCount", "pitchCount", "kanjiCount", "mediaCount"].every(key => value[key] === 0)
-    && value.isUpdatable === false && value.indexUrl === null && value.downloadUrl === null && value.language === "ja";
+// Each language has its own personal dictionary (docs/languages.md 15).
+// Japanese keeps the package above; another language's fixed id and title
+// come from its registry descriptor, where scripts/sync-languages.mjs stores
+// the first 32 hexadecimal digits of SHA-256("hachidori-custom-dictionary:" +
+// code) and "Hachidori Custom Dictionary ({English name})". Null for a
+// language this context has no descriptor for.
+const JAPANESE_PERSONAL_DICTIONARY = Object.freeze({
+  id: CUSTOM_DICTIONARY_ID, title: CUSTOM_DICTIONARY_TITLE, language: "ja", readingRequired: true,
+});
+
+export function personalDictionaryIdentity(language = "ja") {
+  if (language === "ja") return JAPANESE_PERSONAL_DICTIONARY;
+  const descriptor = globalThis.HDLanguages?.get?.(language);
+  const personal = descriptor?.personalDictionary;
+  if (typeof personal?.id !== "string" || typeof personal.title !== "string") return null;
+  return { id: personal.id, title: personal.title, language,
+    readingRequired: descriptor.capabilities?.readings === "required" };
 }
 
-export function assertCustomDictionaryCommit(dictionaries) {
+// Every personal package this context knows: Japanese's and each pack's.
+function personalDictionaryIdentities() {
+  const codes = Array.isArray(globalThis.HDLanguages?.codes) ? globalThis.HDLanguages.codes : [];
+  return [JAPANESE_PERSONAL_DICTIONARY, ...codes.filter(code => code !== "ja").map(personalDictionaryIdentity)
+    .filter(identity => identity !== null)];
+}
+
+// Every personal title is reserved at import.
+export function isPersonalDictionaryTitle(title) {
+  return typeof title === "string" && personalDictionaryIdentities().some(identity => identity.title === title);
+}
+
+// The language whose personal package a stored row is, or null.
+export function personalDictionaryLanguage(row) {
+  return personalDictionaryIdentities().find(identity => identity.id === row?.id)?.language ?? null;
+}
+
+export function customDictionaryMetadataMatches(value, semanticRevision, entryCount,
+  identity = JAPANESE_PERSONAL_DICTIONARY) {
+  return value?.title === identity.title && value.revision === semanticRevision
+    && value.termCount === entryCount
+    && ["frequencyCount", "pitchCount", "kanjiCount", "mediaCount"].every(key => value[key] === 0)
+    && value.isUpdatable === false && value.indexUrl === null && value.downloadUrl === null
+    && value.language === identity.language;
+}
+
+export function assertCustomDictionaryCommit(dictionaries, identity = JAPANESE_PERSONAL_DICTIONARY) {
   const customIndexes = dictionaries.flatMap((dictionary, index) =>
-    dictionary?.id === CUSTOM_DICTIONARY_ID ? [index] : []);
+    dictionary?.id === identity.id ? [index] : []);
   if (customIndexes.length > 1) {
     throw new Error("the custom dictionary state contains duplicate managed packages");
   }
   if (customIndexes.length === 0) return;
   const custom = dictionaries[customIndexes[0]];
   if (customIndexes[0] !== 0
-      || custom?.title !== CUSTOM_DICTIONARY_TITLE
+      || custom?.title !== identity.title
       || custom?.enabled !== true) {
     throw new Error("the managed custom dictionary must stay enabled and first");
   }
   if (dictionaries.some((dictionary, index) =>
-    index !== customIndexes[0] && dictionary?.title === CUSTOM_DICTIONARY_TITLE)) {
-    throw new Error(`a dictionary named ${CUSTOM_DICTIONARY_TITLE} is already installed`);
+    index !== customIndexes[0] && dictionary?.title === identity.title)) {
+    throw new Error(`a dictionary named ${identity.title} is already installed`);
   }
 }
 
-export function assertCustomSourceState(dictionaries, semanticRevision, entryCount) {
-  const custom = dictionaries.filter((dictionary) => dictionary?.id === CUSTOM_DICTIONARY_ID);
+export function assertCustomSourceState(dictionaries, semanticRevision, entryCount,
+  identity = JAPANESE_PERSONAL_DICTIONARY) {
+  const custom = dictionaries.filter((dictionary) => dictionary?.id === identity.id);
   if (entryCount === 0) {
     if (custom.length !== 0) {
       throw new Error("a zero-entry custom source cannot retain its managed package");
     }
     return;
   }
-  assertCustomDictionaryCommit(dictionaries);
+  assertCustomDictionaryCommit(dictionaries, identity);
   const entry = custom[0];
   if (custom.length !== 1
-      || !customDictionaryMetadataMatches(entry, semanticRevision, entryCount)) {
+      || !customDictionaryMetadataMatches(entry, semanticRevision, entryCount, identity)) {
     throw new Error("the custom dictionary package does not match its source semantics");
   }
 }
@@ -79,6 +118,38 @@ export function emptyCustomDictionaryDocument() {
     semanticRevision: EMPTY_CUSTOM_DICTIONARY_SEMANTIC_REVISION,
     text: "",
   };
+}
+
+// customDictionarySource keeps the Japanese document at its top level, as
+// today, and other languages' documents under `languages`, each
+// { revision, semanticRevision, text } (docs/languages.md 4.3).
+function customDictionaryLanguages(record) {
+  const languages = record?.languages;
+  return languages && typeof languages === "object" && !Array.isArray(languages) ? languages : null;
+}
+
+export function customDictionaryDocumentFor(record, language = "ja") {
+  if (language === "ja") return normaliseCustomDictionaryDocument(record);
+  const entry = customDictionaryLanguages(record)?.[language];
+  return entry === undefined || entry === null ? emptyCustomDictionaryDocument()
+    : normaliseCustomDictionaryDocument({ ...entry, schemaVersion: CUSTOM_DICTIONARY_SOURCE_SCHEMA_VERSION });
+}
+
+// The stored record with one language's document replaced and every other
+// language's kept. Japanese's document on a record without `languages` is the
+// document itself, so a Japanese-only record keeps today's shape.
+export function withCustomDictionaryDocument(record, language, document) {
+  const languages = customDictionaryLanguages(record);
+  if (language === "ja") return languages === null ? document : { ...document, languages };
+  const top = record === null || record === undefined ? emptyCustomDictionaryDocument()
+    : normaliseCustomDictionaryDocument(record);
+  return { ...top, languages: { ...languages,
+    [language]: { revision: document.revision, semanticRevision: document.semanticRevision, text: document.text } } };
+}
+
+// The languages other than Japanese that have a document.
+export function customDictionaryDocumentLanguages(record) {
+  return Object.keys(customDictionaryLanguages(record) ?? {});
 }
 
 export function normaliseCustomDictionaryDocument(value) {
@@ -130,7 +201,9 @@ function decodeDefinition(value) {
   return decoded;
 }
 
-function normaliseEntry(value) {
+// A reading may be empty in a language whose pack does not require one
+// (docs/languages.md 15); Japanese requires it, as before.
+function normaliseEntry(value, { readingRequired = true } = {}) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("the custom dictionary entry must be an object");
   }
@@ -146,7 +219,7 @@ function normaliseEntry(value) {
   if (term.includes(",") || /[\r\n]/u.test(term)) {
     throw new TypeError("the custom dictionary term cannot contain a comma or newline");
   }
-  if (reading === "") throw new TypeError("the custom dictionary reading is empty");
+  if (reading === "" && readingRequired) throw new TypeError("the custom dictionary reading is empty");
   if (reading.includes(",") || /[\r\n]/u.test(reading)) {
     throw new TypeError("the custom dictionary reading cannot contain a comma or newline");
   }
@@ -154,7 +227,7 @@ function normaliseEntry(value) {
   return { term, reading, definition };
 }
 
-export function parseCustomDictionary(value) {
+export function parseCustomDictionary(value, { readingRequired = true } = {}) {
   const source = sourceText(value);
   const parsedSource = source.startsWith("\ufeff") ? source.slice(1) : source;
   const entries = [];
@@ -177,7 +250,7 @@ export function parseCustomDictionary(value) {
     const definition = decodeDefinition(encodedDefinition);
     if (term === "") {
       errors.push({ lineNumber: index + 1, reason: "term is empty" });
-    } else if (reading === "") {
+    } else if (reading === "" && readingRequired) {
       errors.push({ lineNumber: index + 1, reason: "reading is empty" });
     } else if (definition.trim() === "") {
       errors.push({ lineNumber: index + 1, reason: "definition is empty" });
@@ -188,26 +261,39 @@ export function parseCustomDictionary(value) {
   return { entries, errors };
 }
 
-export function serializeCustomDictionaryEntry(value) {
-  const { term, reading, definition } = normaliseEntry(value);
+// A language's rules for its personal source: whether an entry needs a
+// reading (docs/languages.md 15). Japanese's, and a language without an
+// identity's, require one.
+export function personalDictionaryRules(language = "ja") {
+  return { readingRequired: personalDictionaryIdentity(language)?.readingRequired ?? true };
+}
+
+// How many valid entries a language's personal document holds, read by that
+// language's rules (docs/languages.md 14).
+export function languageEntryCount(text, language = "ja") {
+  return parseCustomDictionary(text, personalDictionaryRules(language)).entries.length;
+}
+
+export function serializeCustomDictionaryEntry(value, rules = {}) {
+  const { term, reading, definition } = normaliseEntry(value, rules);
   const encodedDefinition = definition
     .replaceAll("\\", "\\\\")
     .replaceAll("\n", String.raw`\n`);
   return `${term}, ${reading}, ${encodedDefinition}`;
 }
 
-export function appendCustomDictionaryEntry(value, entry) {
+export function appendCustomDictionaryEntry(value, entry, rules = {}) {
   const source = sourceText(value);
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const separator = source === "" || /[\r\n]$/u.test(source) ? "" : newline;
-  return `${source}${separator}${serializeCustomDictionaryEntry(entry)}${newline}`;
+  return `${source}${separator}${serializeCustomDictionaryEntry(entry, rules)}${newline}`;
 }
 
-export async function customDictionarySemanticRevision(values) {
+export async function customDictionarySemanticRevision(values, rules = {}) {
   if (!Array.isArray(values)) {
     throw new TypeError("the custom dictionary entries must be a list");
   }
-  const bytes = encoder.encode(JSON.stringify(values.map(normaliseEntry)));
+  const bytes = encoder.encode(JSON.stringify(values.map(value => normaliseEntry(value, rules))));
   const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
@@ -297,22 +383,22 @@ function writeEndRecord(view, offset, entryCount, centralSize, centralOffset) {
   view.setUint16(offset + 20, 0, true);
 }
 
-export function buildCustomDictionaryZip(values, revision) {
+export function buildCustomDictionaryZip(values, revision, identity = JAPANESE_PERSONAL_DICTIONARY) {
   if (!Array.isArray(values) || values.length === 0) {
     throw new TypeError("the custom dictionary needs at least one entry");
   }
   if (typeof revision !== "string" || revision === "") {
     throw new TypeError("the custom dictionary needs a semantic revision");
   }
-  const entries = values.map(normaliseEntry);
+  const entries = values.map(value => normaliseEntry(value, identity));
   const files = [zipFile("index.json", {
-    title: CUSTOM_DICTIONARY_TITLE,
+    title: identity.title,
     format: 3,
     revision,
     sequenced: true,
     author: "Hachidori",
     description: "Personal entries managed by Hachidori",
-    sourceLanguage: "ja",
+    sourceLanguage: identity.language,
     targetLanguage: "en",
   })];
   for (let offset = 0; offset < entries.length; offset += TERM_BANK_SIZE) {

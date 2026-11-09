@@ -5,7 +5,7 @@ import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { getBaseDir, getDefaultBaseDir } from '../data_dir.js';
+import { getBaseDir, getDefaultBaseDir, getProfileDir, getOwocrConfigPath as resolveOwocrConfigPath } from '../data_dir.js';
 import {
     normalizeSettingsBackupCategories,
     type SettingsBackupCategoryId,
@@ -296,13 +296,13 @@ function isSqliteDatabaseFile(name: string): boolean {
 
 export function getOverlayDataDir(baseDir: string = getBaseDir()): string {
     const defaultBaseDir = getDefaultBaseDir();
-    return path.resolve(baseDir) === path.resolve(defaultBaseDir)
+    return !getProfileDir() && path.resolve(baseDir) === path.resolve(defaultBaseDir)
         ? path.join(process.env.APPDATA || path.join(os.homedir(), '.config'), 'gsm_overlay')
         : path.join(baseDir, 'gsm_overlay');
 }
 
 export function getOwocrConfigPath(): string {
-    return path.join(os.homedir(), '.config', 'owocr_config_gsm.ini');
+    return resolveOwocrConfigPath();
 }
 
 export function shouldIncludeGsmBackupPath(relativePath: string, isDirectory: boolean): boolean {

@@ -11,9 +11,60 @@ export function emptyLookupStats() {
 
 export function assertLookupStatsDescriptor(descriptor) {
   if (!descriptor || !Number.isSafeInteger(descriptor.revision) || descriptor.revision < 0
-      || (descriptor.generation !== null && (typeof descriptor.generation !== "string" || descriptor.generation === ""))) {
+      || (descriptor.generation !== null && (typeof descriptor.generation !== "string" || descriptor.generation === ""))
+      || (descriptor.languages !== undefined && !validLanguageGenerations(descriptor.languages))) {
     throw new Error("Invalid lookup statistics descriptor.");
   }
+}
+
+// Lookup counts are counted per language (docs/languages.md 4.3). Rows keep
+// their key `lookupStats:<generation>:<[term, reading]>`, because the
+// generation names the language: the top-level generation is Japanese's, and
+// `languages` maps every other counted language to its own.
+function validLanguageGenerations(languages) {
+  return languages !== null && typeof languages === "object" && !Array.isArray(languages)
+    && Object.entries(languages).every(([code, generation]) => /^[a-z]{2,3}$/u.test(code) && code !== "ja"
+      && typeof generation === "string" && generation !== "");
+}
+
+function lookupStatsGeneration(descriptor, language = "ja") {
+  return language === "ja" ? descriptor.generation : descriptor.languages?.[language] ?? null;
+}
+
+// The descriptor-shaped view whose generation keys one language's rows.
+export function lookupStatsLanguageView(descriptor, language = "ja") {
+  return language === "ja" ? descriptor : { generation: lookupStatsGeneration(descriptor, language), revision: descriptor.revision };
+}
+
+// One revision up, with `language`'s generation set: Japanese's at the top
+// level, another language's entry under `languages`. The rest is kept.
+export function withLookupStatsGeneration(descriptor, language, generation) {
+  const next = language === "ja"
+    ? { ...descriptor, generation, revision: descriptor.revision + 1 }
+    : { ...descriptor, revision: descriptor.revision + 1, languages: { ...descriptor.languages, [language]: generation } };
+  assertLookupStatsDescriptor(next);
+  return next;
+}
+
+// One revision up, without `language`'s generation: another language's entry
+// is dropped, Japanese's top-level generation is replaced by a fresh one.
+export function withoutLookupStatsLanguage(descriptor, language) {
+  if (language === "ja") return withLookupStatsGeneration(descriptor, "ja", crypto.randomUUID());
+  const languages = { ...descriptor.languages };
+  delete languages[language];
+  const next = { generation: descriptor.generation, revision: descriptor.revision + 1,
+    ...(Object.keys(languages).length > 0 ? { languages } : {}) };
+  assertLookupStatsDescriptor(next);
+  return next;
+}
+
+// The stored keys of rows outside every live generation: the top-level one
+// and each `languages` entry's. hd_lookup_stats_cleanup and the unlink cleanup
+// share it, so an erased or dropped language's rows never stay reachable.
+export function unreachableLookupStatsKeys(storedKeys, descriptor) {
+  const live = [lookupStatsPrefix(descriptor),
+    ...Object.values(descriptor.languages ?? {}).map(generation => lookupStatsPrefix({ generation }))];
+  return storedKeys.filter(key => key.startsWith(LOOKUP_STATS_ROW_PREFIX) && !live.some(prefix => key.startsWith(prefix)));
 }
 
 // A reset publishes a new, empty generation one revision above the current

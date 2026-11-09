@@ -63,8 +63,8 @@ test('short choices require exact normalized text and credible menu geometry', (
   assert.equal(findChoice([line('本当に大丈夫なの？', 0.3), line('やめておこう', 0.43)], '大丈夫'), null);
   assert.ok(findChoice([line('「大丈夫」', 0.3), line('やめておこう', 0.43)], '大丈夫'));
   assert.equal(findChoice([line('大丈夫', 0.3)], '大丈夫'), null);
-  assert.equal(findChoice([line('大丈夫', 0.8), line('そう言って彼女は笑った。', 0.84)], '大丈夫'), null);
-  assert.equal(findChoice([line('大丈夫', 0.3), line('続きの台詞', 0.338)], '大丈夫'), null);
+  assert.equal(findChoice([line('大丈夫だと言って', 0.8), line('彼女は笑った。', 0.84)], '大丈夫'), null);
+  assert.equal(findChoice([line('大丈夫だろう', 0.3), line('続きの台詞', 0.338)], '大丈夫'), null);
   assert.equal(findChoice([line('大丈夫', 0.3), line('別の文字', 0.43, 0.02)], '大丈夫'), null);
   assert.equal(findChoice([{ text: '大丈夫' }, { text: 'やめておこう' }], '大丈夫'), null);
 });
@@ -87,14 +87,14 @@ test('isolated choices tolerate small OCR errors at similar lengths anywhere on 
   assert.ok(findChoice([line(expected, .8, .08)], expected));
 });
 
-test('fuzzy choices reject short, dissimilar, ambiguous, and paragraph text', () => {
+test('fuzzy choices reject short, dissimilar, ambiguous, and embedded or wrapped text', () => {
   const expected = 'わたしは首を横に振る';
   for (const data of [
     menu('わたしは腕を縦に振る'),
     menu('わたしは首を横に振ると言った'),
     [line('わたしは首を横に振ろ', .3), line('わたしは首を横に振れ', .43)],
-    [line('わたしは首を横に振ろ', .8), line('そのまま話を続けた', .84)],
-    [line('わたしは首を横に振ろ', .3), line('そのまま話を続けた', .338), line('別の選択肢', .5)],
+    [line('わたしは首を', .8), line('横に振ろと言った', .84)],
+    [line('わたしは首を横に振ろと言い', .3), line('そのまま話を続けた', .338), line('別の選択肢', .5)],
     [{ text: 'わたしは首を横に振ろ' }],
   ]) assert.equal(findChoice(data, expected), null);
   assert.equal(findChoice(menu('大丈犬'), '大丈夫'), null);
@@ -102,12 +102,13 @@ test('fuzzy choices reject short, dissimilar, ambiguous, and paragraph text', ()
   assert.ok(findChoice([line(expected, .3), line('わたしは首を横に振ろ', .43)], expected), 'an exact option takes precedence');
 });
 
-test('fuzzy confidence uses menu and center bonuses without relaxing the edit or length limits', () => {
+test('fuzzy confidence is independent of screen position without relaxing the edit or length limits', () => {
   const expected = '君と一緒に帰りたい';
   const observed = '君と一緒に帰りたぃ';
-  assert.ok(findChoice([line(observed, .4)], expected), 'a centered isolated block gets a small confidence bonus');
-  assert.equal(findChoice([line(observed, .8, .08)], expected), null);
-  assert.ok(findChoice([line(observed, .8, .08), line('ひとりで帰る', .64, .08)], expected), 'an off-center menu supplies the same extra confidence');
+  for (const [x, y] of [[.4, .4], [.08, .8], [.75, .1]]) {
+    assert.ok(findChoice([line(observed, y, x)], expected), 'the same isolated text matches anywhere on screen');
+  }
+  assert.ok(findChoice([line(observed, .8, .08), line('ひとりで帰る', .64, .08)], expected));
   const long = 'abcdefghijklmnopqr';
   assert.ok(findChoice(menu('xbcdefghijklmnopqs'), long), 'long choices can tolerate two errors');
   assert.equal(findChoice(menu('xycdefghijklmnopqs'), long), null, 'three errors are never allowed');
@@ -472,7 +473,7 @@ test('hook corroboration rejects stale batches, dialogue, partial scans and miss
 test('look-ahead rejects dialogue, partial/supplemental/stale frames, and manual-only mode', () => {
   const guide = tracker(['大丈夫', '進む', '待つ']);
   for (const payload of [
-    frame([line('進む', .8), line('これは会話です', .84)]),
+    frame([line('進むことにした', .8), line('これは会話です', .84)]),
     frame(menu('進む'), { is_final: false }),
     frame(menu('進む'), { supplemental: true }),
     frame([line('進む', .3)]),

@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { configureLinuxDesktopIdentity } from './linux_desktop_identity.js';
 import { USE_IN_PROCESS_OVERLAY } from './overlay_runtime_config.js';
 import { getBaseDir } from './data_dir.js';
+import { configureDataPaths } from './profile_bootstrap.js';
 import { captureRendererDiagnostics, initializeDesktopLogging } from './services/logging.js';
 import { CHANGELOG_PROTOCOL_SCHEME } from './services/changelog_protocol.js';
 
@@ -14,6 +15,14 @@ const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
 const OVERLAY_RESOURCES_ARG = '--gsm-overlay-resources';
 const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
 const AGENT_HOST_ARG = '--gsm-agent-host';
+
+try {
+    configureDataPaths(app);
+} catch (error) {
+    dialog.showErrorBox('GSM Startup Failed', error instanceof Error ? error.message : String(error));
+    app.exit(1);
+    throw error;
+}
 
 // Portals identify an unpackaged Linux process by its installed .desktop file.
 // Resolve that identity before Electron is ready and pass the matching app ID to
@@ -102,7 +111,10 @@ if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG)) {
 }
 
 if (process.argv.includes(AGENT_HOST_ARG)) {
-    app.setPath('userData', path.join(app.getPath('userData'), 'agent-host'));
+    const agentData = path.join(app.getPath('userData'), 'agent-host');
+    fs.mkdirSync(agentData, { recursive: true });
+    app.setPath('userData', agentData);
+    app.setPath('sessionData', agentData);
     void import('./ui/agent_host.js')
         .then(({ runDetachedAgentHost }) => runDetachedAgentHost())
         .catch((error) => {

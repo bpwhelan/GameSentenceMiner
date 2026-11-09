@@ -1,4 +1,38 @@
 {
+  "gameLauncher": {
+    "title": "ゲーム起動",
+    "launch": "ゲームを起動",
+    "working": "処理中…",
+    "options": "起動オプション",
+    "help": "可能な場合、OBSでキャプチャ中のゲームの実行ファイルをGSMが記憶します。手動でも選択できます。起動オプションはゲームごとに保存されます。",
+    "executablePath": "ゲームの実行ファイル",
+    "arguments": "ゲームの起動引数",
+    "workingDirectory": "作業フォルダー",
+    "gameFolder": "ゲームのフォルダー（既定）",
+    "launcherPath": "カスタムランチャー（任意）",
+    "launcherArguments": "ランチャーの引数",
+    "launcherHelp": "Special KのSKIFやLocale Emulatorなど、インストール済みのランチャーを使用できます。空欄の場合はゲームを直接起動します。",
+    "templateHelp": "{game}はゲームのパス、{args}はゲームの引数に置き換わります。既定値: \"{game}\" {args}。LEProcの場合: -run \"{game}\" {args}。{args}は独立した引数として指定してください。シェルコマンドや環境変数は展開されません。",
+    "browse": "参照",
+    "browseField": "参照: {field}",
+    "detect": "実行中のゲームから検出",
+    "notDetected": "このキャプチャに対応する実行ファイルを一意に特定できませんでした。ゲームを実行して再試行するか、参照から選択してください。",
+    "chooseExecutable": "以下でゲームの実行ファイルを選択し、保存または起動してください。",
+    "save": "保存",
+    "cancel": "キャンセル",
+    "saved": "起動オプションを保存しました。",
+    "launched": "起動を要求しました。",
+    "errors": {
+      "unsupported": "ゲームの起動はWindowsのみ対応しています。",
+      "invalidScene": "先にゲームを選択してください。",
+      "missingExecutable": "存在するゲームの実行ファイルを選択してください。",
+      "missingLauncher": "存在するランチャーの実行ファイルを選択してください。",
+      "invalidWorkingDirectory": "存在する作業フォルダーを選択してください。",
+      "invalidArguments": "起動引数を確認してください。ランチャーのテンプレートでは{args}を独立した引数として指定してください。",
+      "busy": "このゲームの起動要求を処理中です。",
+      "failed": "起動要求を完了できませんでした。{error}"
+    }
+  },
   "gamePrivileges": {
     "title": "{game} は管理者として実行されています",
     "description": "GSM は管理者権限なしで実行されています。この権限の違いにより、OBS のキャプチャ、テキストフック、オーバーレイ、ホットキーが正常に動作しない場合があります。GSM を管理者として再起動することをおすすめします。",
@@ -2129,6 +2163,23 @@
       "installing": "OBS をインストール中…",
       "validating": "更新後の OBS 接続を確認中…",
       "error": "OBS の更新に失敗しました"
+    }
+  },
+  "textProcessing": {
+    "processors": {
+      "languageFilter": "対象言語フィルター",
+      "languageFilterDesc": "対象言語の文字体系に基づいて取得したテキストを絞り込みます",
+      "removeNonJapanese": "Shift-JIS 外の文字を削除"
+    },
+    "languageFilter": {
+      "mode": "フィルターの強さ",
+      "blocks": "1. ブロックを絞り込む",
+      "trim": "2. ブロックを絞り込み、前後の不要な文字を削除",
+      "strict": "3. 一致する文字のみ残す",
+      "blocksDescription": "受信イベントの各行をブロックとして扱います。対象言語の文字がないブロックを削除し、複数の言語が混在するブロックはそのまま残します。一致する文字がないイベントは空になります。",
+      "trimDescription": "ブロックを絞り込んだ後、残った各ブロックの先頭と末尾から対象言語以外の文字を削除します。内部の混在テキストと隣接する句読点は残します。",
+      "strictDescription": "一致しない文字をすべて空文字に置換します。空白、数字、句読点も削除されます。",
+      "targetHint": "設定の対象言語を使用します。文字体系で判定するため、同じ文字体系を使う言語同士は区別できません。ブロックの区切りを保つため、「改行を削除」より前に配置してください。"
     }
   }
 }

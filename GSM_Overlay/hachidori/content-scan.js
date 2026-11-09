@@ -12,15 +12,29 @@
 (function () {
   "use strict";
 
+  // Same character set PR #549 gates lookups on: kana, halfwidth katakana, CJK
+  // ideographs (including ext-A and ext-B), and the iteration/repeat marks.
+  // Without profiles, or with Japanese used for lookups, the search page's
+  // Clipboard monitor (search-shell.js) passes on only text with one, as the
+  // reader's isLookupWorthy searches only such text.
+  const JAPANESE_CHARACTER_PATTERN =
+    /[々-〇〻぀-ヿㇰ-ㇿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ\u{20000}-\u{2fa1f}]/u;
+
+  // Yomitan's search looks its query up from the first character, as a hover
+  // there would. A pasted line often opens with a bracket, an ellipsis, a space
+  // or a wave dash (〜, or ～ from a Windows IME), which no word starts with, so
+  // the search page's lookup starts after them (#610), and its cursor with it
+  // (search.js); a text of nothing else is looked up from its start.
+  const LEADING_PUNCTUATION_PATTERN = /^[\p{P}\p{Z}\s～]+/u;
+  function searchStart(text) {
+    const skipped = text.match(LEADING_PUNCTUATION_PATTERN)?.[0].length ?? 0;
+    return skipped < text.length ? skipped : 0;
+  }
+
   // `isOurNode(node)` is content.js's test for the reader's own popup host and
   // text-field imposter, which a scan never reads as page text.
   function createPageScanner({ isOurNode }) {
     const { SENTENCE_SCAN_EXTENT, extractSentence } = globalThis.HDSentence;
-
-    // Same character set PR #549 gates lookups on: kana, halfwidth katakana, CJK
-    // ideographs (including ext-A and ext-B), and the iteration/repeat marks.
-    const JAPANESE_CHARACTER_PATTERN =
-      /[々-〇〻぀-ヿㇰ-ㇿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ\u{20000}-\u{2fa1f}]/u;
     const TOKEN_BOUNDARY_PATTERN = /[\p{White_Space}\p{Punctuation}\p{Symbol}]/u;
     const COLLAPSIBLE_WHITESPACE_PATTERN = /[\t\n\r\f ]/u;
     const SEGMENT_BREAK_PATTERN = /[\n\r]/u;
@@ -67,8 +81,26 @@
     ]);
 
     function isJapaneseToken(text) {
+      return isLanguageToken(text, JAPANESE_CHARACTER_PATTERN);
+    }
+
+    // The text gate with a language pack's `text.pattern` (docs/languages.md
+    // 8.2): the scan's first token holds text in the language.
+    function isLanguageToken(text, pattern) {
       const token = text.split(TOKEN_BOUNDARY_PATTERN, 1)[0];
-      return JAPANESE_CHARACTER_PATTERN.test(token);
+      return pattern.test(token);
+    }
+
+    // A word pack's gate (8.3): its scan can start at a word character outside
+    // its text pattern, such as Esperanto's opening apostrophe ('jes', ’Ĉu),
+    // so the token after those characters decides.
+    function isWordLanguageToken(text, pattern, word) {
+      let index = 0;
+      for (const character of text) {
+        if (!word.test(character) || pattern.test(character)) break;
+        index += character.length;
+      }
+      return isLanguageToken(text.slice(index), pattern);
     }
 
     function computedStyleFor(element, styleCache) {
@@ -333,9 +365,12 @@
     }
 
     function refineSentence(candidate, matchLength) {
-      // An exact selection's match is the selection, where selectionSentence put it.
+      // An exact selection's match is the selection, where selectionSentence put
+      // it. A candidate of a language pack carries the pack's sentence rules
+      // (docs/languages.md 8.4); without them, today's tables.
       const { sentence, matchOffset } = extractSentence(candidate.sentenceSource,
-        candidate.selectionOffset ?? candidate.sourceOffset, candidate.selectionLength ?? matchLength);
+        candidate.selectionOffset ?? candidate.sourceOffset, candidate.selectionLength ?? matchLength,
+        undefined, candidate.sentenceRules);
       candidate.sentence = sentence;
       candidate.matchOffset = matchOffset;
       return candidate;
@@ -482,14 +517,16 @@
       }
     }
 
-    function collectScanEntries(startNode, startOffset, root, scanLength, styleCache) {
+    // `words` ({ word, internal, limit }) extends the scan to the end of its
+    // last word, for a language looked up by whole words.
+    function collectScanEntries(startNode, startOffset, root, scanLength, styleCache, words = null) {
       const walker = createScanWalker(root, styleCache);
       walker.currentNode = startNode;
 
       const entries = [];
       // Collapsing and segment-break removal can only shorten the scan, so
       // over-collect and trim once the string is final.
-      const budget = scanLength * 3 + 32;
+      const budget = (words === null ? scanLength : Math.max(scanLength, words.limit)) * 3 + 32;
       let node = startNode;
       let offset = startOffset;
       while (node && node.nodeType === Node.TEXT_NODE && entries.length < budget) {
@@ -505,7 +542,76 @@
         }
       }
       dropCjkSegmentBreaks(entries);
-      return entries.slice(0, scanLength);
+      return words === null ? entries.slice(0, scanLength) : extendToWordEnd(entries, scanLength, words, words.limit);
+    }
+
+    // The text node before `node` in the same block that a scan from it would
+    // have read, or null at a block boundary, a line break or a control.
+    function previousScanText(walker, node, styleCache) {
+      walker.currentNode = node;
+      const previous = walker.previousNode();
+      if (!previous || previous.nodeType !== Node.TEXT_NODE || BLOCK_SEPARATOR_PATTERN.test(previous.nodeValue || "")
+          || preservesWhitespace(previous.parentElement, styleCache)
+          || isEditingElement(previous.parentElement?.closest(EDITING_SELECTOR))
+          || blockAncestor(previous.parentElement, styleCache) !== blockAncestor(node.parentElement, styleCache)) return null;
+      return previous;
+    }
+
+    /**
+     * Where a scan starts for a language that starts at the hovered word
+     * (`scanStart: "word"`, docs/languages.md 8.3): back over the word's
+     * characters, and over a word-internal character (the Ukrainian apostrophe
+     * of м’ясо) that has a word character before it, across the text nodes a
+     * scan reads. A hover that is not on a word keeps its own start.
+     */
+    function wordStart(node, offset, root, { word, internal }, styleCache) {
+      const isWord = character => character !== undefined && word.test(character);
+      const isInternal = character => character !== undefined && internal !== null && internal.test(character);
+      const walker = createScanWalker(root, styleCache);
+      // The characters before the hovered one, nearest first.
+      let current = node;
+      let index = offset;
+      function previous() {
+        while (index <= 0) {
+          current = previousScanText(walker, current, styleCache);
+          if (current === null) return undefined;
+          index = (current.nodeValue || "").length;
+        }
+        const value = current.nodeValue;
+        const low = value.charCodeAt(index - 1);
+        index -= index >= 2 && low >= 0xdc00 && low <= 0xdfff ? 2 : 1;
+        return { node: current, offset: index, character: String.fromCodePoint(value.codePointAt(index)) };
+      }
+      const at = String.fromCodePoint((node.nodeValue || "").codePointAt(offset) ?? 0);
+      let start = { node, offset };
+      let before = previous();
+      if (!isWord(at) && !(isInternal(at) && isWord(before?.character))) return start;
+      while (before !== undefined) {
+        if (isInternal(before.character)) {
+          const beyond = previous();
+          if (!isWord(beyond?.character)) break;
+          before = beyond;
+        } else if (!isWord(before.character)) break;
+        start = { node: before.node, offset: before.offset };
+        before = previous();
+      }
+      return start;
+    }
+
+    // A scan of a language looked up by whole words reaches the end of its last
+    // word (docs/languages.md 8.3), up to `limit` entries.
+    function extendToWordEnd(entries, length, { word, internal }, limit) {
+      let end = Math.min(length, entries.length);
+      const continues = index => {
+        const entry = entries[index];
+        if (!entry || entry.collapsed) return false;
+        if (word.test(entry.text)) return true;
+        const next = entries[index + 1];
+        return internal !== null && internal.test(entry.text) && Boolean(next) && !next.collapsed && word.test(next.text);
+      };
+      if (end === 0 || !continues(end - 1)) return entries.slice(0, end);
+      while (end < limit && continues(end)) end += 1;
+      return entries.slice(0, end);
     }
 
     function rangeOffsetWithin(container, node, offset) {
@@ -524,12 +630,15 @@
       return textBlockOf(node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement, new Map());
     }
 
-    /** The blocks under `root`, or holding a text node `root`, whose own text includes Japanese. */
-    function textBlocks(root) {
+    /**
+     * The blocks under `root`, or holding a text node `root`, whose own text
+     * includes Japanese, or text `isText` accepts (docs/languages.md 8.5).
+     */
+    function textBlocks(root, isText = (text) => JAPANESE_CHARACTER_PATTERN.test(text)) {
       const styleCache = new Map();
       const blocks = new Set();
       const add = (node) => {
-        if (JAPANESE_CHARACTER_PATTERN.test(node.nodeValue || "") && isScannableTextNode(node, styleCache)) {
+        if (isText(node.nodeValue || "") && isScannableTextNode(node, styleCache)) {
           blocks.add(textBlockOf(node.parentElement, styleCache));
         }
       };
@@ -711,11 +820,12 @@
     return {
       EDITING_SELECTOR, JAPANESE_CHARACTER_PATTERN, OPAQUE_TAGS, blockOf, candidateSignature, candidateStart,
       caretRangeAt, collectScanEntries, collectSentenceSources, computedStyleFor, expandCandidateAnchor, glyphAtPoint,
-      hasVisibleContent, isEditingElement, isHiddenElement, isJapaneseToken, isScannableElement, isScannableTextNode,
-      rangeOffsetWithin, rawMatchedText, refineSentence, runEntries, sameAnchorNode, selectionSentence,
-      sentenceMatchedText, sourceOffset, textBlocks, textRuns, withSentence,
+      hasVisibleContent, isEditingElement, isHiddenElement, isJapaneseToken, isLanguageToken, isScannableElement,
+      isWordLanguageToken,
+      isScannableTextNode, rangeOffsetWithin, rawMatchedText, refineSentence, runEntries, sameAnchorNode,
+      selectionSentence, sentenceMatchedText, sourceOffset, textBlocks, textRuns, withSentence, wordStart,
     };
   }
 
-  globalThis.HDContent = { ...globalThis.HDContent, createPageScanner };
+  globalThis.HDContent = { ...globalThis.HDContent, createPageScanner, JAPANESE_CHARACTER_PATTERN, searchStart };
 }());

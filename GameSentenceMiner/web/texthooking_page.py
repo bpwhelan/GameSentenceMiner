@@ -929,7 +929,7 @@ def check_for_lines_outside_replay_buffer():
 
 
 async def add_event_to_texthooker(line):
-    new_event = event_manager.add_gameline(line)
+    new_event = event_manager.add_gameline(line, on_selection_expired=_notify_selection_reset)
     await websocket_manager.send(
         ID_HOOKER,
         {
@@ -947,7 +947,9 @@ def project_text_domain_event(event, line):
     from GameSentenceMiner.text_pipeline.models import TextEventKind
     from GameSentenceMiner.web.gsm_websocket import ID_PLAINTEXT, websocket_manager
 
-    event_manager.upsert_gameline(line)
+    event_manager.upsert_gameline(
+        line, age_selection=event.kind is TextEventKind.APPENDED, on_selection_expired=_notify_selection_reset
+    )
     websocket_manager.send_textfeed_v2_nowait(event.to_wire())
 
     if event.kind is TextEventKind.EXPIRED:
@@ -985,7 +987,9 @@ async def send_manual_background_to_overlay(image_data_url):
 
 @app.route("/update_checkbox", methods=["POST"])
 def update_event():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid selection update"}), 400
     event_id = data.get("id")
 
     if event_id is None:
@@ -993,12 +997,42 @@ def update_event():
     event = event_manager.get(event_id)
     if event is None:
         return jsonify({"error": "Invalid id"}), 404
-    event.checked = not event.checked
-    if event.checked:
+    if "checked" in data and not isinstance(data["checked"], bool):
+        return jsonify({"error": "'checked' must be a boolean"}), 400
+    checked = data.get("checked", not event.checked)
+    event_manager.set_checked_lines({event_id: checked})
+    if checked and event.state == "provisional":
         from GameSentenceMiner.gametext import freeze_authoritative_text_line
 
         freeze_authoritative_text_line(event_id)
-    return jsonify({"message": "Event updated successfully"}), 200
+    selected = event_manager.get_state()["selected_ids"]
+    return jsonify({"message": "Event updated successfully", "selected_ids": selected}), 200
+
+
+@app.route("/update_checkboxes", methods=["POST"])
+def update_checkboxes():
+    data = request.get_json(silent=True)
+    updates = data.get("updates") if isinstance(data, dict) else None
+    if not isinstance(updates, list) or len(updates) > 10_000:
+        return jsonify({"error": "Provide a list of selection updates"}), 400
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("id"), str)
+        or not item["id"]
+        or not isinstance(item.get("checked"), bool)
+        for item in updates
+    ):
+        return jsonify({"error": "Each update needs a line id and boolean checked state"}), 400
+    desired = {item["id"]: item["checked"] for item in updates}
+    updated = event_manager.set_checked_lines(desired)
+    for event_id in updated:
+        event = event_manager.get(event_id)
+        if desired[event_id] and event is not None and event.state == "provisional":
+            from GameSentenceMiner.gametext import freeze_authoritative_text_line
+
+            freeze_authoritative_text_line(event_id)
+    selected = event_manager.get_state()["selected_ids"]
+    return jsonify({"selected_ids": selected, "updated_ids": updated}), 200
 
 
 @app.route("/get-screenshot", methods=["Post"])
@@ -1366,10 +1400,11 @@ def translate_line():
         line,
         get_current_game(),
         custom_prompt=prompt,
+        force_refresh=data.get("force_refresh") is True,
+        translation_only=True,
     )
     if not translation or translation.startswith("Processing failed:"):
         return jsonify({"error": ai_error_message(translation), "code": "ai_request_failed"}), 502
-    line.set_TL(translation)
     return jsonify({"TL": translation}), 200
 
 
@@ -1438,6 +1473,8 @@ def translate_multiple():
         lines[0],
         get_current_game(),
         custom_prompt=translate_multiple_lines_prompt,
+        force_refresh=data.get("force_refresh") is True,
+        translation_only=True,
     )
 
     if not translation or translation.startswith("Processing failed:"):
@@ -1698,6 +1735,10 @@ def are_lines_selected():
 
 def reset_checked_lines():
     event_manager.reset_checked_lines()
+    _notify_selection_reset()
+
+
+def _notify_selection_reset():
     websocket_manager.send_nowait(ID_HOOKER, {"event": "reset_checkboxes"})
 
 

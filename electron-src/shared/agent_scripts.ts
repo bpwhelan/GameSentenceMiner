@@ -245,7 +245,7 @@ const CONTEXT_STOP_WORDS = new Set([
   "main", "launcher", "loading", "release", "debug", "build", "shipping", "client",
   "win32", "win64", "x32", "x64", "x86", "windows", "bit", "fps", "version",
   "vulkan", "opengl", "directx", "msvc", "nintendo", "switch",
-  "yuzu", "suyu", "ryujinx", "eden", "citron", "sudachi", "torzu",
+  "yuzu", "suyu", "ryujinx", "eden", "lichii", "citron", "sudachi", "torzu",
   "citra", "ppsspp", "rpcs3", "pcsx2", "retroarch", "desmume", "melonDS",
   "unity", "unityplayer", "unreal", "ue4game", "ue5game", "nw", "node", "java",
   "python", "pythonw", "krkr", "krkrz", "kirikiri", "tvp",

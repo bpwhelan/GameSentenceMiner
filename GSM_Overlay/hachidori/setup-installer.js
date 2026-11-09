@@ -18,7 +18,6 @@ import { RECOMMENDED_DICTIONARIES } from "./recommended-dictionaries.js";
 export const SETUP_EVENTS_TARGET = "hachidori-setup-events";
 const ENGINE_TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
-const ENGINE_BUSY = "the dictionary engine is busy mutating";
 const IDLE_POLL_MS = 250;
 const RECORD_RETRY_MS = 250;
 const RECORD_RETRY_MAX_MS = 2000;
@@ -117,24 +116,22 @@ export function createSetupInstaller({ dispatch, ask, notify, broadcast, now = (
   async function importEntry(entry, source, last) {
     entry.phase = "downloading";
     emit();
-    let reply;
-    do {
-      await awaitIdleEngine();
-      // The wait may have been another import of this very source, from
-      // Settings or an earlier run: an installed source is never reimported.
-      if (recommendedDictionaryInstalled(source, await inventory())) {
-        await settle(entry, { status: "already-installed" }, last);
-        return;
-      }
-      reply = await dispatch({
-        target: ENGINE_TARGET,
-        type: "hd_import",
-        requestId: requestId("import", entry.sourceId),
-        sourceId: source.sourceId,
-        archiveUrl: source.downloadUrl,
-        fileName: source.archiveName,
-      });
-    } while (reply?.ok !== true && reply?.error === ENGINE_BUSY);
+    await awaitIdleEngine();
+    // The wait may have been another import of this very source, from
+    // Settings or an earlier run: an installed source is never reimported.
+    if (recommendedDictionaryInstalled(source, await inventory())) {
+      await settle(entry, { status: "already-installed" }, last);
+      return;
+    }
+    // The bridge queues this behind any change that started meanwhile.
+    const reply = await dispatch({
+      target: ENGINE_TARGET,
+      type: "hd_import",
+      requestId: requestId("import", entry.sourceId),
+      sourceId: source.sourceId,
+      archiveUrl: source.downloadUrl,
+      fileName: source.archiveName,
+    });
     const seconds = entry.installStartedAt === null ? null : (now() - entry.installStartedAt) / 1000;
     if (reply?.ok === true && reply.report?.success === true) {
       await settle(entry, { status: "installed", seconds: seconds ?? 0 }, last);

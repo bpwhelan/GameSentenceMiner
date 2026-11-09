@@ -337,6 +337,9 @@ class ConfigSearchController:
         if tab_widget is not None:
             tab_widget.show()
         self._active = False
+        update_confirmation = getattr(self.window, "_update_confirmation_settings_visibility", None)
+        if update_confirmation is not None:
+            update_confirmation()
 
     # --- helpers -------------------------------------------------------------
     def _update_tab_labels(self, root_counts, subtab_counts):

@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "code": "la",
+  "iso639_3": "lat",
+  "name": "Latin",
+  "nativeName": "Lingua Latina",
+  "bcp47": "la",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF]",
+    "mark": "[\\u0300-\\u036F\\u1DC0-\\u1DFF]",
+    "word": "[{letter}{mark}0-9]"
+  },
+  "text": {
+    "pattern": "[{letter}{mark}]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["“", "”"], ["‘", "’"], ["«", "»"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "removeAlphabeticDiacritics",
+        "name": "Remove Alphabetic Diacritics",
+        "variants": [[{"normalize": "NFD"}, {"strip": "[\\u0300-\\u036F]"}]]
+      },
+      {
+        "id": "processDiphtongs",
+        "name": "Convert æ to ae",
+        "variants": [[{"map": {"æ": "ae", "Æ": "AE", "œ": "oe", "Œ": "OE"}}], [{"map": {"ae": "æ", "AE": "Æ", "oe": "œ", "OE": "Œ"}}]]
+      },
+      {
+        "id": "jToI",
+        "name": "Write j as i",
+        "variants": [[{"map": {"j": "i", "J": "I"}}]]
+      },
+      {
+        "id": "vToU",
+        "name": "Read capital V as U",
+        "variants": [[{"map": {"V": "U"}}]]
+      },
+      {
+        "id": "uToV",
+        "name": "Read u as v",
+        "variants": [[{"alternatives": {"u": ["v"], "U": ["V"]}, "limit": 64}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "enclitics",
+        "name": "Remove -que, -ne or -ve",
+        "variants": [[{"map": {"aque": "a", "bque": "b", "cque": "c", "dque": "d", "eque": "e", "fque": "f", "gque": "g", "hque": "h", "ique": "i", "jque": "j", "kque": "k", "lque": "l", "mque": "m", "nque": "n", "oque": "o", "pque": "p", "qque": "q", "rque": "r", "sque": "s", "tque": "t", "uque": "u", "vque": "v", "wque": "w", "xque": "x", "yque": "y", "zque": "z"}, "at": "end"}], [{"map": {"ane": "a", "bne": "b", "cne": "c", "dne": "d", "ene": "e", "fne": "f", "gne": "g", "hne": "h", "ine": "i", "jne": "j", "kne": "k", "lne": "l", "mne": "m", "nne": "n", "one": "o", "pne": "p", "qne": "q", "rne": "r", "sne": "s", "tne": "t", "une": "u", "vne": "v", "wne": "w", "xne": "x", "yne": "y", "zne": "z"}, "at": "end"}], [{"map": {"ave": "a", "bve": "b", "cve": "c", "dve": "d", "eve": "e", "fve": "f", "gve": "g", "hve": "h", "ive": "i", "jve": "j", "kve": "k", "lve": "l", "mve": "m", "nve": "n", "ove": "o", "pve": "p", "qve": "q", "rve": "r", "sve": "s", "tve": "t", "uve": "u", "vve": "v", "wve": "w", "xve": "x", "yve": "y", "zve": "z"}, "at": "end"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "optional",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {
+      "reading": "Vowel length"
+    },
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "la",
+    "audioLanguage": "la",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "ptcpl": "Participle",
+        "pron": "Pronoun",
+        "det": "Determiner",
+        "prep": "Preposition",
+        "postp": "Postposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "ptcl": "Particle",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "abbv": "Abbreviation",
+        "decl-1": "First declension",
+        "decl-2": "Second declension",
+        "decl-3": "Third declension",
+        "decl-4": "Fourth declension",
+        "decl-5": "Fifth declension",
+        "indecl": "Indeclinable",
+        "masc": "Masculine",
+        "fem": "Feminine",
+        "neut": "Neuter",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "impers": "Impersonal verb",
+        "char": "Character",
+        "prov": "Proverb",
+        "prep-phrase": "Prepositional phrase",
+        "vr": "Reflexive verb",
+        "artic": "Article",
+        "vdt": "Ditransitive verb"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "wty-la-en (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Latin-English dictionary from English Wiktionary, with macrons as readings and a form-of entry for each inflected form.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "amat",
+      "practice": {
+        "text": "Arma virumque canō, Trōiae quī prīmus ab ōrīs Ītaliam vēnit.",
+        "lookup": "virumque"
+      },
+      "entry": {
+        "expression": "vir",
+        "reading": "vir",
+        "glossary": ["man", "husband"],
+        "definitionTags": "n",
+        "matched": "virumque",
+        "trace": ["accusative singular"]
+      },
+      "character": null
+    }
+  }
+}

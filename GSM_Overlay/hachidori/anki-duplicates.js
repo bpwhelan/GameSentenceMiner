@@ -44,6 +44,33 @@ function overwriteValue(existing, incoming, mode) {
   return existing || incoming;
 }
 
+// The markers a template fills from the lookup's sentence, and the media that
+// go with a sentence: Senren's scene switching pairs each sentence with its
+// picture and line audio, in order.
+const SENTENCE_MARKERS = new Set(["sentence", "sentence-furigana", "sentence-furigana-plain", "cloze-prefix", "cloze-body", "cloze-suffix"]);
+const SCENE_MEDIA_MARKERS = new Set(["screenshot", "gif", "sentence-audio"]);
+
+// Whether updating a note from `request` leaves the field made by `template`
+// as it is. A lookup whose sentence is only the word it matched, with no cloze
+// prefix or suffix, has no sentence to give the note (#655), so it adds no
+// sentence and none of the media that would pair with one. The search page
+// takes a word typed alone for its sentence, as Yomitan's does
+// (yomidevs/yomitan@ac1d839 search-display-controller.js, `sentence: {text:
+// query, offset: 0}`), where Append then adds the word to the note's sentences
+// (display-anki.js `_getOverwrittenField`). A Netflix or YouTube cue is a line
+// even when it is one word: its own audio and GIF go with it.
+export function ankiUpdateKeepsField(template, request) {
+  const markers = ankiTemplateMarkerNames(template.value);
+  const scene = markers.some(name => SENTENCE_MARKERS.has(name))
+    || (markers.length > 0 && markers.every(name => SCENE_MEDIA_MARKERS.has(name)));
+  if (!scene || request.netflix?.cue || request.youtube?.cue) return false;
+  // Only the sentence markers need the request's sentence to render, so a
+  // request without one can still fill media fields: it follows the modes.
+  const { sentence, matchOffset, matched } = request;
+  return typeof sentence === "string" && typeof matched === "string"
+    && sentence.slice(0, matchOffset) === "" && sentence.slice(matchOffset + matched.length) === "";
+}
+
 export function canonicalAnkiFields(fields, templates, existing) {
   const names = new Map(Object.keys(existing).map(name => [name.toLowerCase(), name]));
   const canonicalTemplates = [], incoming = [];
@@ -73,24 +100,28 @@ function checkResults(result, count, detailed) {
   return result;
 }
 
-const checkResult = (result, detailed) => checkResults(result, 1, detailed)[0];
-
-export async function checkAnkiDuplicate(invoke, note) {
+export async function checkAnkiDuplicates(invoke, notes) {
   // Anki also validates clozes in non-first fields. Keep all rendered fields,
   // but omit media-upload objects: preflight must not write collection media.
-  const checkNote = allowDuplicate => ({ deckName: note.deckName, modelName: note.modelName, fields: note.fields, tags: note.tags,
-    options: { ...note.options, allowDuplicate } });
+  const checkNotes = allowDuplicate => notes.map(note => ({ deckName: note.deckName, modelName: note.modelName,
+    fields: note.fields, tags: note.tags, options: { ...note.options, allowDuplicate } }));
   let result;
   try {
-    result = checkResult(await invoke("canAddNotesWithErrorDetail", { notes: [checkNote(false)] }), true);
+    result = checkResults(await invoke("canAddNotesWithErrorDetail", { notes: checkNotes(false) }), notes.length, true);
   } catch (error) {
     if (!/unsupported action/iu.test(error.message)) throw error;
-    const allowed = checkResult(await invoke("canAddNotes", { notes: [checkNote(true)] }), false);
-    const prevented = checkResult(await invoke("canAddNotes", { notes: [checkNote(false)] }), false);
-    return { duplicate: allowed && !prevented, addable: allowed && prevented, error: null };
+    const allowed = checkResults(await invoke("canAddNotes", { notes: checkNotes(true) }), notes.length, false);
+    const prevented = checkResults(await invoke("canAddNotes", { notes: checkNotes(false) }), notes.length, false);
+    return allowed.map((value, index) => ({ duplicate: value && !prevented[index], addable: value && prevented[index], error: null }));
   }
-  const error = typeof result.error === "string" && result.error ? result.error : null;
-  return { duplicate: isAnkiDuplicateError(error), addable: result.canAdd && !error, error };
+  return result.map(item => {
+    const error = typeof item.error === "string" && item.error ? item.error : null;
+    return { duplicate: isAnkiDuplicateError(error), addable: item.canAdd && !error, error };
+  });
+}
+
+export async function checkAnkiDuplicate(invoke, note) {
+  return (await checkAnkiDuplicates(invoke, [note]))[0];
 }
 
 // Anki's add check for every note in one request, in order, without its

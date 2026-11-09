@@ -16,6 +16,7 @@ import {
 } from 'electron';
 import {
     sendAgentRestartNotification,
+    sendGSMCrashNotification,
     sendGSMReadyNotification,
     sendGamePrivilegeWarningNotification,
     sendGSMStillRunningInTrayNotification,
@@ -48,6 +49,7 @@ import {
 import {
     getDefaultBaseDir,
     getPointerFilePath,
+    getProfileDir,
     writeDataDirPointer,
     writeDataDirRegistry,
 } from './data_dir.js';
@@ -180,6 +182,7 @@ import {
     syncLockedEnvironment,
 } from './services/python_ops.js';
 import { BackendProcessError } from './services/managed_python_repair.js';
+import { runBackendWithCrashRecovery } from './services/backend_recovery.js';
 import {
     getDevPyprojectSyncState,
     type DevPyprojectSyncState,
@@ -353,7 +356,6 @@ let quitFromWindowCloseInProgress = false;
 let quitPromise: Promise<void> | null = null;
 let quitCleanupComplete = false;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
-const STARTUP_REPAIR_WINDOW_MS = 15_000;
 const TRAY_READY_INDICATOR_MS = 10_000;
 const BACKEND_STATUS_POLL_MS = 2_000;
 const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
@@ -979,6 +981,7 @@ function applyMainWindowAppDetails(): void {
     // Windows taskbar groups/pinned entries also need shell metadata; setIcon
     // alone only changes the native window icon.
     mainWindow.setAppDetails(getWindowsAppDetails({
+        profileDir: getProfileDir(),
         isPackaged: app.isPackaged,
         executable: process.execPath,
         appPath: app.getAppPath(),
@@ -1507,7 +1510,7 @@ function handleBackendMessage(msg: BackendMessage): void {
     }
     if (msg.function === 'notification' && msg.data) {
         try {
-            sendNotificationFromPython(msg.data);
+            sendNotificationFromPython(msg.data, () => { sendBackendCommand('open_session_review'); });
         } catch (e) {
             console.error('Failed to route notification from Python:', e);
         }
@@ -2656,21 +2659,36 @@ async function ensureAndRunGSM(
             simulatedStartupFailureTriggered = true;
             throw new Error(SIMULATED_STARTUP_FAILURE_MESSAGE);
         }
-        return await runGSM(runtimePythonPath, args, options?.onSpawn);
+        let supervisedProcess: ChildProcessWithoutNullStreams | null = null;
+        return await runBackendWithCrashRecovery(() => {
+            const lifetime = runGSM(runtimePythonPath, args, options?.onSpawn);
+            supervisedProcess = pyProc;
+            return lifetime;
+        }, {
+            canRestart: () => !isQuitting && !restartingGSM && !updateManager.anyUpdateInProgress
+                && pyProc === supervisedProcess
+                && (!supervisedProcess || !intentionalBackendStops.has(supervisedProcess)),
+            notify: (restarting, error) => {
+                console.error(restarting ? 'GSM crashed; restarting the backend.' : 'GSM keeps crashing; automatic restarts stopped.', error);
+                sendGSMCrashNotification(restarting);
+            },
+        });
     } catch (err) {
         if (isQuitting) {
             return;
         }
+        if (err instanceof BackendProcessError && !err.beforeInitialization) {
+            // The crash supervisor already attempted ordinary restarts. Runtime
+            // crashes must never trigger package or dependency reinstallation.
+            throw err;
+        }
         console.error('Failed to start GameSentenceMiner:', err);
         console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
         const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
-        const failedSoonAfterLaunch = backendRuntimeMs <= STARTUP_REPAIR_WINDOW_MS;
-        const failedBeforeInitialization = err instanceof BackendProcessError && err.beforeInitialization;
-        const eligibleForRepair = failedBeforeInitialization || failedSoonAfterLaunch;
-        const startupFailureDetails = `[Startup] Backend launch failure details: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, beforeInitialization=${failedBeforeInitialization}, withinRepairWindow=${failedSoonAfterLaunch}, thresholdMs=${STARTUP_REPAIR_WINDOW_MS}, pythonPath=${runtimePythonPath}`;
+        const startupFailureDetails = `[Startup] Backend initialization failure: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, pythonPath=${runtimePythonPath}`;
         console.error(startupFailureDetails);
         console.log(startupFailureDetails);
-        if (retry > 0 && eligibleForRepair) {
+        if (retry > 0) {
             const repairStartedAt = Date.now();
             const repairSpecifier = getBundledBackendSpecifier();
             console.log(
@@ -2786,11 +2804,6 @@ async function ensureAndRunGSM(
             );
             return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
         }
-        if (retry > 0 && !eligibleForRepair) {
-            console.warn(
-                `Skipping automatic repair because backend failed after ${backendRuntimeMs}ms (threshold ${STARTUP_REPAIR_WINDOW_MS}ms).`
-            );
-        }
         await new Promise((resolve) => setTimeout(resolve, 2000));
         updateInstallStage(
             'backend_boot',
@@ -2818,7 +2831,9 @@ async function handleBackendStartupFailure(error: unknown): Promise<void> {
         // ensureAndRunGSM has already handled the bounded startup repair.
         // A forced update here would start it all over again.
         console.error('GSM backend process failed:', error);
-        finishInstallSession('failed', 'Failed to start the GSM backend process.', error.message);
+        finishInstallSession('failed', error.beforeInitialization
+            ? 'Failed to initialize the GSM backend process.'
+            : 'GSM stopped after repeated crashes.', error.message);
         return;
     }
     console.log('Failed to run GSM, attempting repair of python package...', error);
@@ -3394,6 +3409,9 @@ function registerDataRelocateIPC(): void {
     ipcMain.handle('data.getPointerPath', () => getPointerFilePath());
 
     ipcMain.handle('data.relocate', async () => {
+        if (getProfileDir()) {
+            return { success: false, error: 'This launch uses -profile. Close GSM and launch with a different profile folder to change it.' };
+        }
         const win = mainWindow ?? undefined;
 
         const picked = await dialog.showOpenDialog(win as BrowserWindow, {
@@ -3442,6 +3460,9 @@ function registerDataRelocateIPC(): void {
     });
 
     ipcMain.handle('data.restoreDefault', async () => {
+        if (getProfileDir()) {
+            return { success: false, error: 'This launch uses -profile. Close GSM and launch without -profile to use your normal data folder.' };
+        }
         const defaultDir = getDefaultBaseDir();
         if (path.resolve(BASE_DIR) === path.resolve(defaultDir)) {
             return { success: true };
@@ -3504,6 +3525,7 @@ export function sendReloadSettings() {
     sendBackendCommand('reload_settings');
 }
 const CHANGELOG_SETTING_CHOICES = new Set([
+    'review-after-session:enable',
     'overlay-presence-invalidation:enable',
     'overlay-presence-invalidation:disable',
 ]);
@@ -3564,8 +3586,8 @@ export function sendTextHookLine(payload: TextHookLinePayload): void {
         sourceInstance: payload.hookId || `${payload.engine ?? 'hook'}:${payload.exeName ?? ''}`,
         sourceDisplayName: displayParts.join(' · '),
         capturedAt: payload.capturedAt ?? Date.now(),
-        revisionWindowMs: payload.revisionWindowMs ?? 100,
-        mergeFragments: payload.mergeFragments ?? true,
+        revisionWindowMs: 0,
+        mergeFragments: false,
     });
 }
 

@@ -1,0 +1,211 @@
+{
+  "schema": 1,
+  "code": "it",
+  "iso639_3": "ita",
+  "name": "Italian",
+  "nativeName": "Italiano",
+  "bcp47": "it",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "lower": "[a-z\\u00DF-\\u00F6\\u00F8-\\u00FF]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "normalizeApostrophe",
+        "name": "Write apostrophes as '",
+        "variants": [[{"map": {"\u2019": "'", "\u02BC": "'"}}]]
+      },
+      {
+        "id": "removeElision",
+        "name": "Remove an elided article, preposition or pronoun",
+        "variants": [[{"map": {
+          "l'": "", "L'": "", "gl'": "", "Gl'": "", "un'": "", "Un'": "",
+          "dell'": "", "Dell'": "", "all'": "", "All'": "", "dall'": "", "Dall'": "", "nell'": "", "Nell'": "",
+          "sull'": "", "Sull'": "", "coll'": "", "Coll'": "", "pell'": "", "Pell'": "",
+          "quest'": "", "Quest'": "", "quell'": "", "Quell'": "", "bell'": "", "Bell'": "", "buon'": "", "Buon'": "",
+          "sant'": "", "Sant'": "", "grand'": "", "Grand'": "", "mezz'": "", "Mezz'": "", "pover'": "", "Pover'": "",
+          "nessun'": "", "Nessun'": "", "ciascun'": "", "Ciascun'": "", "alcun'": "", "Alcun'": "",
+          "tutt'": "", "Tutt'": "", "nient'": "", "Nient'": "", "quant'": "", "Quant'": "", "tant'": "", "Tant'": "",
+          "cent'": "", "Cent'": "", "senz'": "", "Senz'": "", "anch'": "", "Anch'": "", "ch'": "", "Ch'": "",
+          "com'": "", "Com'": "", "cos'": "", "Cos'": "", "dov'": "", "Dov'": "", "quand'": "", "Quand'": "",
+          "dev'": "", "Dev'": "", "sott'": "", "Sott'": "", "gliel'": "", "Gliel'": "",
+          "c'": "", "C'": "", "d'": "", "D'": "", "n'": "", "N'": "", "s'": "", "S'": "",
+          "m'": "", "M'": "", "t'": "", "T'": "", "v'": "", "V'": ""
+        }, "at": "start"}]]
+      },
+      {
+        "id": "addElisionApostrophe",
+        "name": "Add the apostrophe of an elided word",
+        "keepInput": false,
+        "variants": [[{"pattern": "^(.* )?(l|gl|dell|all|dall|nell|sull|coll|quest|quell|bell|sant|grand|mezz|tutt|nient|senz|anch|com|cos|dov|quand|dev|sott|c|d|n|s|m|t|v|po|mo|be|to)$", "replace": "$1$2'"}]]
+      },
+      {
+        "id": "acuteFinalE",
+        "name": "Write -chè as -ché",
+        "variants": [[{"map": {"ch\u00E8": "ch\u00E9"}, "at": "end"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}, {"map": {"I": "i"}, "at": "end"}]]
+      },
+      {
+        "id": "removeAlphabeticDiacritics",
+        "name": "Remove alphabetic diacritics",
+        "variants": [[
+          {"normalize": "NFD"},
+          {"pattern": "^([^A-Z\\u00C0-\\u00DE\\u0300-\\u036F ][^\\u0300-\\u036F ]*)[\\u0300-\\u036F]([^ ]*)$", "replace": "$1$2", "repeat": true},
+          {"normalize": "NFC"}
+        ]]
+      },
+      {
+        "id": "removeApostrophedWords",
+        "name": "Remove common apostrophed words",
+        "variants": [[{"pattern": "(l|dell|all|dall|nell|sull|coll|un|quest|quell|c|n)['\\u2019]", "replace": "", "global": true}]]
+      },
+      {
+        "id": "addFinalAccent",
+        "name": "Add an accent to the last vowel",
+        "optional": true,
+        "variants": [
+          [{"map": {"a": "\u00E0"}, "at": "end"}],
+          [{"map": {"e": "\u00E8"}, "at": "end"}],
+          [{"map": {"e": "\u00E9"}, "at": "end"}],
+          [{"map": {"i": "\u00EC"}, "at": "end"}],
+          [{"map": {"o": "\u00F2"}, "at": "end"}],
+          [{"map": {"u": "\u00F9"}, "at": "end"}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "missingAccents",
+      "type": "boolean",
+      "default": false,
+      "label": "Text without accents",
+      "description": "Also look words up with an accent on the last vowel, for text that leaves it out (puo → può, piu → più). A reading of the word as written still comes first (citta shows citta before città, fara shows faro before fare). Adds less likely readings and makes lookups slower.",
+      "group": "lookup",
+      "effect": {"preprocessor": "addFinalAccent"}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "it-IT",
+    "audioLanguage": "it",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "artic": "Article",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcpl": "Participle",
+        "ptcl": "Particle",
+        "char": "Character",
+        "abbv": "Abbreviation",
+        "contr": "Contraction",
+        "prep-phrase": "Prepositional phrase"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Italian-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Italian words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary Italian-Italian (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Italian words with Italian definitions from Italian Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "parlando",
+      "practice": {
+        "text": "Ieri abbiamo mangiato in una piccola trattoria vicino al porto.",
+        "lookup": "mangiato"
+      },
+      "entry": {
+        "expression": "mangiare",
+        "reading": "mangiare",
+        "glossary": ["to eat"],
+        "definitionTags": "v",
+        "matched": "mangiato",
+        "trace": ["past participle"]
+      },
+      "character": null
+    }
+  }
+}

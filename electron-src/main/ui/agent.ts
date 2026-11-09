@@ -6,7 +6,8 @@ import * as path from 'node:path';
 import { exec } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { getBaseDir } from '../data_dir.js';
-import { sanitizeTextHookText, setRuntimeTextHookMaxBufferSize } from './text_hook_sanitize.js';
+import { HARD_TEXT_HOOK_REJECTION_LIMIT, sanitizeTextHookText, setRuntimeTextHookMaxBufferSize } from './text_hook_sanitize.js';
+import { appendHookFragment } from './text_hook_buffer.js';
 import type { StartHookResult, TextHookArchitecture, TextHookStartSource } from './texthook.js';
 import type { WineProcessConnection } from './wine_frida.js';
 
@@ -487,9 +488,12 @@ function flushAgentText(): void {
     const pending = agentSession.outputCollector;
     agentSession.outputCollector = [];
     const last = pending[pending.length - 1];
+    const sanitized = sanitizeTextHookText(pending.map((item) => item.text).join('\n'));
+    if (!sanitized) return;
     const merged = {
         ...last,
-        text: pending.map((item) => item.text).join('\n'),
+        capturedAt: pending[0].capturedAt,
+        text: sanitized.text,
     };
     updateAgentHookPreview(merged.text);
     sendAgentText(merged);
@@ -511,11 +515,22 @@ function queueAgentText(text: string): void {
         exeName: agentSession.exeName,
         copyToClipboard: agentSession.copyToClipboard,
         capturedAt: Date.now(),
-        revisionWindowMs: Math.max(0, Math.round(agentSession.flushDelayMs)),
-        mergeFragments: true,
+        revisionWindowMs: 0,
+        mergeFragments: false,
     };
     updateAgentHookPreview(sanitizedText.text);
-    sendAgentText(payload);
+    const delayMs = Math.max(0, Math.round(agentSession.flushDelayMs));
+    if (delayMs <= 0) {
+        sendAgentText(payload);
+        return;
+    }
+    appendHookFragment(agentSession.outputCollector, payload);
+    if (agentSession.outputCollector.reduce((size, item) => size + item.text.length + 1, 0) >= HARD_TEXT_HOOK_REJECTION_LIMIT) {
+        flushAgentText();
+        return;
+    }
+    if (agentSession.outputFlushTimer) clearTimeout(agentSession.outputFlushTimer);
+    agentSession.outputFlushTimer = setTimeout(flushAgentText, delayMs);
 }
 
 function handleAgentPayload(current: AgentHookSession, payload: any, data: Buffer | null): void {

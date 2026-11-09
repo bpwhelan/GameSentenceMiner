@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { selectedAudioPlan, undecodableRecording } from "./audio-repository.js";
+import { pronunciationLanguage } from "./audio-sources.js";
 import { ankiMediaFilename } from "./anki-resources.js";
 
 const MIME_EXTENSIONS = { "audio/aac": "aac", "audio/flac": "flac", "audio/mp4": "m4a", "audio/mpeg": "mp3",
@@ -82,13 +83,17 @@ async function speechFile(window, recording, signal) {
 
 // Read-only discovery/decoding, separate from the playback owner. The returned
 // exact bytes and digest stay paired through duplicate check and later upload.
+// `language` is the language of the note's profile, whose pack fills
+// {language} in URL templates (docs/languages.md 13).
 export async function exportAnkiAudio(window, repository, {
   sources,
   term,
   selection,
   recordSpeech = true,
+  language: code,
 }, signal, { recordSpeechAudio } = {}) {
-  const plan = selection ? await selectedAudioPlan(repository, sources, term, selection, signal) : { sources };
+  const language = pronunciationLanguage(code);
+  const plan = selection ? await selectedAudioPlan(repository, sources, term, selection, signal, language) : { sources };
   let failure;
   for (const source of plan.sources) {
     if (source.type.startsWith("text-to-speech")) {
@@ -106,7 +111,7 @@ export async function exportAnkiAudio(window, repository, {
       continue;
     }
     try {
-      const candidates = plan.candidate ? [plan.candidate] : await repository.candidates(source, term, signal);
+      const candidates = plan.candidate ? [plan.candidate] : await repository.candidates(source, term, signal, language);
       for (const [index, candidate] of candidates.entries()) {
         try {
           return { ...await candidateFile(window, repository, { ...candidate, index: candidate.index ?? index }, signal), sourceId: source.id };

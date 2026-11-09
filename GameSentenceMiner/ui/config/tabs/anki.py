@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 
 from GameSentenceMiner.ui.config.anki_setup import open_recommended_anki_setup
 from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback
+from GameSentenceMiner.ui.config.tabs.session_review import build_session_review_settings
 from GameSentenceMiner.util.config.configuration import PACKAGE_NAME
 from GameSentenceMiner.util.docs import DOCS_URLS
 
@@ -289,12 +290,59 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
-            "show_update_confirmation_dialog",
+            "confirmation_enabled",
             color=LabelColor.RECOMMENDED,
             bold=True,
         ),
         window.show_update_confirmation_dialog_check,
     )
+
+    timing = QWidget()
+    timing_layout = QVBoxLayout(timing)
+    timing_layout.setContentsMargins(16, 0, 0, 0)
+    for key, fallback, radio in (
+        ("confirmation_immediate", "As soon as possible", window.anki_confirmation_immediate_radio),
+        ("confirmation_after_session", "After session", window.anki_confirmation_after_session_radio),
+    ):
+        data = tabs_i18n.get("anki", {}).get(key, {})
+        radio.setText(data.get("label", fallback))
+        radio.setToolTip(data.get("tooltip", ""))
+        timing_layout.addWidget(radio)
+    window.anki_confirmation_timing_widget = timing
+    layout.addRow(timing)
+
+    window.anki_confirmation_session_settings = build_session_review_settings(window, window.binder, i18n)
+    layout.addRow(window.anki_confirmation_session_settings)
+
+    audio_settings = QWidget()
+    audio_layout = QFormLayout(audio_settings)
+    audio_layout.setContentsMargins(0, 0, 0, 0)
+    audio_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+    audio_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "autoplay_audio",
+            "Automatically play the selected audio range when the dialog opens.",
+        ),
+        window.anki_confirmation_autoplay_audio_check,
+    )
+    audio_layout.addRow(
+        window._create_labeled_widget(
+            tabs_i18n,
+            "anki",
+            "replay_audio_on_tts_generation",
+            "Automatically replay audio after generating TTS in the dialog.",
+        ),
+        window.anki_confirmation_replay_audio_on_tts_generation_check,
+    )
+    window.anki_confirmation_audio_settings = audio_settings
+    layout.addRow(audio_settings)
+
+    immediate_settings = QWidget()
+    immediate_layout = QFormLayout(immediate_settings)
+    immediate_layout.setContentsMargins(0, 0, 0, 0)
+    immediate_layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
     skip_unvoiced_label = window._create_labeled_widget(
         tabs_i18n,
         "anki",
@@ -308,8 +356,8 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         bold=True,
     )
     window.anki_skip_confirmation_for_unvoiced_check.setToolTip(skip_unvoiced_label.toolTip())
-    layout.addRow(skip_unvoiced_label, window.anki_skip_confirmation_for_unvoiced_check)
-    layout.addRow(
+    immediate_layout.addRow(skip_unvoiced_label, window.anki_skip_confirmation_for_unvoiced_check)
+    immediate_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
@@ -349,8 +397,8 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     )
     window.anki_confirmation_restore_focus_check.setToolTip(restore_focus_label.toolTip())
     focus_layout.addRow(restore_focus_label, window.anki_confirmation_restore_focus_check)
-    layout.addRow(focus_group)
-    layout.addRow(
+    immediate_layout.addRow(focus_group)
+    immediate_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
@@ -359,7 +407,7 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         ),
         window.anki_confirmation_audio_step_combo,
     )
-    layout.addRow(
+    immediate_layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "anki",
@@ -394,30 +442,12 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
             window._create_labeled_widget(tabs_i18n, "anki", label_key),
             combo,
         )
-    layout.addRow(gamepad_bindings_group)
-    layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "anki",
-            "autoplay_audio",
-            "Automatically play the selected audio range when the dialog opens.",
-        ),
-        window.anki_confirmation_autoplay_audio_check,
-    )
-    layout.addRow(
-        window._create_labeled_widget(
-            tabs_i18n,
-            "anki",
-            "replay_audio_on_tts_generation",
-            "Automatically replay audio after generating TTS in the dialog.",
-        ),
-        window.anki_confirmation_replay_audio_on_tts_generation_check,
-    )
+    immediate_layout.addRow(gamepad_bindings_group)
     separator = QFrame()
     separator.setFrameShape(QFrame.Shape.HLine)
     separator.setFrameShadow(QFrame.Shadow.Sunken)
-    layout.addRow(separator)
-    layout.addRow(QLabel("Confirmation Dialog Preview"))
+    immediate_layout.addRow(separator)
+    immediate_layout.addRow(QLabel("Confirmation Dialog Preview"))
 
     preview_label = QLabel(
         "Add an image at `GameSentenceMiner/assets/anki_confirmation_example.png` to enable preview."
@@ -434,13 +464,27 @@ def build_anki_confirmation_tab(window: ConfigWindow, i18n: dict) -> QWidget:
                     name="anki.preview_confirmation_dialog",
                 )
             )
-            layout.addRow("Dialog Example:", preview_trigger)
+            immediate_layout.addRow("Dialog Example:", preview_trigger)
         else:
-            layout.addRow("Dialog Example:", preview_label)
+            immediate_layout.addRow("Dialog Example:", preview_label)
     else:
-        layout.addRow("Dialog Example:", preview_label)
+        immediate_layout.addRow("Dialog Example:", preview_label)
 
-    reset_widget = window._create_reset_button("anki", window._create_anki_confirmation_tab)
+    window.anki_confirmation_immediate_settings = immediate_settings
+    layout.addRow(immediate_settings)
+
+    for control in (
+        window.show_update_confirmation_dialog_check,
+        window.anki_confirmation_immediate_radio,
+        window.anki_confirmation_after_session_radio,
+    ):
+        control.toggled.connect(
+            safe_config_callback(window._update_confirmation_settings_visibility, name="anki.confirmation_mode")
+        )
+
+    reset_widget = window._create_reset_button(
+        ("anki", "features.review_after_session"), window._create_anki_confirmation_tab
+    )
     layout.addRow(reset_widget)
     return widget
 

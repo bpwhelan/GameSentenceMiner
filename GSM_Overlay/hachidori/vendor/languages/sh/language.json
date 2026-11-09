@@ -1,0 +1,174 @@
+{
+  "schema": 1,
+  "code": "sh",
+  "iso639_3": "hbs",
+  "name": "Serbo-Croatian",
+  "nativeName": "Srpskohrvatski / Српскохрватски",
+  "bcp47": "sh",
+  "scripts": ["Latn", "Cyrl"],
+  "direction": "ltr",
+  "classes": {
+    "latin": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF]",
+    "cyrillic": "[\\u0400-\\u0481\\u048A-\\u052F]",
+    "letter": "[{latin}{cyrillic}]",
+    "mark": "[\\u0300-\\u036F]",
+    "word": "[{letter}{mark}\\p{Nd}]",
+    "stem": "[^ ]",
+    "lowerStem": "[^ A-ZČĆĐŠŽ]",
+    "consonant": "[bcčćdđfghjklmnpqrsštvwxzž]",
+    "palatal": "[cčćđjšž]",
+    "softNeuter": "[cčćđjšžrt]",
+    "palatalOrR": "[cčćđjšžr]",
+    "afterA": "[čšžj]",
+    "nonJotated": "[rčjšž]",
+    "stemVowel": "[aeiu]"
+  },
+  "text": {
+    "pattern": "[{letter}{mark}]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "['\\u2019]",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["„", "“"], ["„", "”"], ["”", "”"], ["»", "«"], ["«", "»"], ["“", "”"], ["‚", "‘"], ["‘", "’"], ["’", "’"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [
+          [{"normalize": "NFKC"}]
+        ]
+      },
+      {
+        "id": "cyrillicToLatin",
+        "name": "Cyrillic to Latin",
+        "variants": [
+          [{"normalize": "NFD"}, {"map": {"А": "A", "Б": "B", "В": "V", "Г": "G", "Д": "D", "Ђ": "Đ", "Е": "E", "Ж": "Ž", "З": "Z", "И": "I", "Ј": "J", "К": "K", "Л": "L", "Љ": "Lj", "М": "M", "Н": "N", "Њ": "Nj", "О": "O", "П": "P", "Р": "R", "С": "S", "Т": "T", "Ћ": "Ć", "У": "U", "Ф": "F", "Х": "H", "Ц": "C", "Ч": "Č", "Џ": "Dž", "Ш": "Š", "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "ђ": "đ", "е": "e", "ж": "ž", "з": "z", "и": "i", "ј": "j", "к": "k", "л": "l", "љ": "lj", "м": "m", "н": "n", "њ": "nj", "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "ћ": "ć", "у": "u", "ф": "f", "х": "h", "ц": "c", "ч": "č", "џ": "dž", "ш": "š"}}, {"normalize": "NFC"}]
+        ]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [
+          [{"case": "lower"}]
+        ]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [
+          [{"case": "upperFirst"}]
+        ]
+      },
+      {
+        "id": "removeSerboCroatianAccentMarks",
+        "name": "Remove vowel accents",
+        "variants": [
+          [{"normalize": "NFD"}, {"pattern": "([aeiourAEIOUR])[\\u0300-\\u036F]", "replace": "$1", "global": true}]
+        ]
+      },
+      {
+        "id": "addSerboCroatianDiacritics",
+        "name": "Add diacritics",
+        "keepInput": false,
+        "variants": [
+          [{"alternatives": {"c": ["č", "ć"], "C": ["Č", "Ć"], "s": ["š"], "S": ["Š"], "z": ["ž"], "Z": ["Ž"], "dj": ["đ"], "dJ": ["đ"], "Dj": ["Đ"], "DJ": ["Đ"]}, "limit": 4096}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": "\"Noto Sans\", system-ui, sans-serif",
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "hr-HR",
+    "audioLanguage": "sh",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "num": "Numeral",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "ptcl": "Particle",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "idio": "Idiom",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "abbv": "Abbreviation",
+        "char": "Character",
+        "masc": "Masculine",
+        "fem": "Feminine",
+        "neut": "Neuter",
+        "impf": "Imperfective",
+        "pf": "Perfective"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Serbo-Croatian-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Serbo-Croatian words in Latin and Cyrillic script with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "kućama",
+      "practice": {
+        "text": "Jučer smo išli kod bake na ručak.",
+        "lookup": "išli"
+      },
+      "entry": {
+        "expression": "ići",
+        "reading": "ići",
+        "glossary": ["to go"],
+        "definitionTags": "v",
+        "matched": "išli",
+        "trace": ["past (l-participle), masc. pl."]
+      },
+      "character": null
+    }
+  }
+}

@@ -152,6 +152,8 @@ function createChangelogSnapshot(
             '',
             '[Keep disappearance invalidation disabled](https://gsm-setting.invalid/overlay-presence-invalidation/disable)',
             '',
+            '[Enable after-session review](https://gsm-setting.invalid/review-after-session/enable)',
+            '',
             '![Screenshot](1.0.1/shot.png)',
             '',
             '![Demo](1.0.1/demo.mp4)',
@@ -814,6 +816,23 @@ describe('App install-session integration', () => {
             'overlay-presence-invalidation:enable'
         );
         expect(container.textContent).toContain('Enabled for this profile.');
+
+        const enableReviewButton = Array.from(container.querySelectorAll('button')).find(
+            (button) => button.textContent === 'Enable after-session review'
+        );
+        expect(enableReviewButton).toBeDefined();
+        expect(enableReviewButton?.hasAttribute('disabled')).toBe(false);
+
+        await act(async () => {
+            enableReviewButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            await Promise.resolve();
+        });
+
+        expect(invokeMock).toHaveBeenCalledWith(
+            'changelog.applySettingChoice',
+            'review-after-session:enable'
+        );
+        expect(container.querySelector('[data-changelog-setting="review-after-session"]')?.tagName).toBe('SPAN');
 
         await act(async () => {
             continueButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));

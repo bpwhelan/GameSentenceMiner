@@ -1,0 +1,185 @@
+{
+  "schema": 1,
+  "code": "ja",
+  "iso639_3": "jpn",
+  "name": "Japanese",
+  "nativeName": "日本語",
+  "bcp47": "ja",
+  "scripts": ["Jpan"],
+  "direction": "ltr",
+  "classes": {
+    "kanji": "[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u{20000}-\\u{2FA1F}]",
+    "japanese": "[\\u3005-\\u3007\\u303B\\u3040-\\u30FF\\u31F0-\\u31FF\\uFF66-\\uFF9F{kanji}]"
+  },
+  "text": {
+    "pattern": "{japanese}",
+    "scanStart": "cursor",
+    "segmentation": "scan",
+    "wordCharacters": "{japanese}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": ["。", "．", ".", "！", "!", "？", "?", "…", "︒", "︕", "︖", "︙"],
+      "quotePairs": [
+        ["「", "」"], ["『", "』"], ["（", "）"], ["(", ")"], ["［", "］"], ["[", "]"],
+        ["｛", "｝"], ["{", "}"], ["〈", "〉"], ["《", "》"], ["【", "】"], ["〔", "〕"],
+        ["〘", "〙"], ["〚", "〛"], ["“", "”"], ["‘", "’"]
+      ]
+    },
+    "highlightBreaks": {
+      "sentenceEnd": ["。", "．", "！", "？", "!", "?", "…", "‥"],
+      "clauseEnd": ["、", "，", ",", " ", "　"]
+    },
+    "lineJoiner": ""
+  },
+  "lookup": {
+    "searchResolution": "character",
+    "preprocessors": [
+      {
+        "id": "nfkc",
+        "name": "NFKC normalisation",
+        "variants": [[{"builtin": "ja.nfkc"}]]
+      },
+      {
+        "id": "kana",
+        "name": "Convert hiragana and katakana",
+        "variants": [[{"builtin": "ja.katakanaToHiragana"}], [{"builtin": "ja.hiraganaToKatakana"}]]
+      },
+      {
+        "id": "collapseEmphaticSequences",
+        "name": "Collapse emphatic character sequences",
+        "variants": [[{"builtin": "ja.collapseEmphatic"}], [{"builtin": "ja.collapseEmphaticFull"}]]
+      },
+      {
+        "id": "fullwidthAlphanumeric",
+        "name": "Convert alphanumeric characters to full width",
+        "variants": [[{"builtin": "ja.fullwidthAlphanumeric"}]]
+      },
+      {
+        "id": "standardizeKanji",
+        "name": "Convert kanji variants to their modern standard form",
+        "variants": [[{"builtin": "ja.standardizeKanji"}]]
+      },
+      {
+        "id": "expandIterationMarks",
+        "name": "Expand iteration marks",
+        "variants": [[{"builtin": "ja.expandIterationMarks"}]]
+      },
+      {
+        "id": "kanjiNumbers",
+        "name": "Convert full-width digits to kanji numbers",
+        "variants": [[{"builtin": "ja.kanjiNumbers"}]]
+      },
+      {
+        "id": "stripMiddleDots",
+        "name": "Remove katakana middle dots",
+        "variants": [[{"builtin": "ja.stripMiddleDots"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "first",
+    "formOf": "asTerm",
+    "functionWords": [
+      "が", "を", "に", "へ", "で", "と", "から", "より", "まで", "の", "は", "も",
+      "こそ", "さえ", "でも", "しか", "だけ", "ばかり", "など", "なんか", "くらい", "ぐらい",
+      "ほど", "って", "とか", "やら", "ずつ", "て", "ば", "ても", "けど", "けれど",
+      "けれども", "し", "ので", "のに", "ながら", "たり", "か", "ね", "ねえ", "よ",
+      "な", "なあ", "ぞ", "ぜ", "わ", "さ", "かな", "かしら", "よね", "っけ",
+      "や", "には", "では", "とは", "にも", "へと", "だ", "です", "である", "だった",
+      "だろう", "だろ", "でしょう", "でしょ", "じゃ", "じゃない", "ではない", "ん", "のだ", "んだ",
+      "のです", "んです", "そして", "しかし", "だから", "だけど", "だったら", "それで", "それでは", "また",
+      "だが", "ところが", "すると"
+    ],
+    "variantPasses": [
+      {"id": "nekoSpeech", "builtin": "ja.nekoSpeech", "optional": true}
+    ]
+  },
+  "capabilities": {
+    "readings": "required",
+    "ruby": {"alignment": "kana"},
+    "pitchAccent": true,
+    "characterView": {
+      "name": "Kanji",
+      "pattern": "{kanji}",
+      "readingLabels": {"onyomi": "On", "kunyomi": "Kun"},
+      "readingSeparator": "、"
+    },
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {
+      "reading": "Reading",
+      "traceMarker": "～",
+      "readingBrackets": ["《", "》"],
+      "senseSeparator": "; ",
+      "listSeparator": "、"
+    },
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "ja-JP",
+    "audioLanguage": "ja",
+    "anki": {
+      "noteTypeFamilies": ["kiku", "lapis", "senren"],
+      "fieldAliases": {},
+      "partOfSpeechLabels": {
+        "v1": "Ichidan verb",
+        "v5": "Godan verb",
+        "vk": "Kuru verb",
+        "vs": "Suru verb",
+        "vz": "Zuru verb",
+        "adj-i": "I-adjective",
+        "n": "Noun"
+      }
+    },
+    "frequencySamples": {
+      "common": ["来る", "言う", "出る", "入る", "方", "男", "女", "今", "何", "時"],
+      "rare": ["行なう", "論じる", "過す", "行方", "人口", "猫", "犬", "滝", "理", "暁"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Jitendex",
+        "url": "https://jitendex.org/",
+        "description": "Japanese–English terms, from JMdict.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "JMnedict for Yomitan",
+        "url": "https://github.com/yomidevs/jmdict-yomitan",
+        "description": "Japanese proper names, from the EDRDG's JMnedict.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "食べました",
+      "practice": {
+        "text": "踏切の向こうから蝉の声が響く。喧騒を離れて路地に佇むと、古びた辞書で見つけた言葉が、目の前の景色と少しずつ結びついていく。",
+        "lookup": "辞書"
+      },
+      "entry": {
+        "expression": "食べる",
+        "reading": "たべる",
+        "glossary": ["to eat", "to live on (e.g. a salary)", "to have a meal"],
+        "definitionTags": "v1",
+        "matched": "食べました",
+        "trace": ["-た", "-ます"]
+      },
+      "character": {
+        "character": "食",
+        "onyomi": "ショク ジキ",
+        "kunyomi": "た.べる く.う",
+        "tags": "常用",
+        "definitions": ["eat", "food"],
+        "stats": {"strokes": "9", "grade": "2"}
+      }
+    }
+  }
+}

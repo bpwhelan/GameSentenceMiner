@@ -57,14 +57,6 @@ GENERAL_FIELDS = [
         bold=True,
     ),
     FieldSpec(
-        ("profile", "general", "merge_matching_sequential_text"),
-        "general",
-        "merge_sequential_text",
-        "merge_matching_sequential_text_check",
-        color=LabelColor.ADVANCED,
-        bold=True,
-    ),
-    FieldSpec(
         ("profile", "general", "remove_matching_prefix_on_subsequent_lines"),
         "general",
         "remove_matching_prefix_on_subsequent_lines",

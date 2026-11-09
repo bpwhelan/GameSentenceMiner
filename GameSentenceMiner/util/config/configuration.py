@@ -8,6 +8,8 @@ import sys
 import threading
 import toml
 from dataclasses import dataclass, field
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses_json import dataclass_json
 from enum import Enum
 from importlib import metadata
@@ -16,6 +18,8 @@ from sys import platform
 from typing import Any, Callable, List, Dict, Optional, ClassVar
 
 from GameSentenceMiner.util.data_directory import (
+    get_shared_app_directory,
+    get_default_recordings_directory,
     get_app_directory,
     get_default_app_directory,  # noqa: F401 - public compatibility import
 )
@@ -45,6 +49,7 @@ AI_OLLAMA = "Ollama"
 AI_LM_STUDIO = "LM Studio"
 AI_GSM_CLOUD = "GSM Cloud"
 AI_DEEPL = "DeepL"
+OPENAI_REASONING_EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_GEMINI_BACKUP_MODEL = "gemma-4-31b-it"
@@ -725,6 +730,12 @@ class UnicodeNormalizeConfig:
 
 @dataclass_json
 @dataclass
+class LanguageFilterConfig:
+    mode: str = "blocks"  # blocks, trim, strict
+
+
+@dataclass_json
+@dataclass
 class TextProcessing:
     string_replacement: StringReplacement = field(default_factory=StringReplacement)
     processor_order: List[str] = field(
@@ -733,6 +744,7 @@ class TextProcessing:
             "remove_repeated_chars",
             "remove_repeated_lines",
             "remove_control_chars",
+            "language_filter",
             "remove_non_japanese",
             "remove_newlines",
             "remove_numbers",
@@ -749,6 +761,8 @@ class TextProcessing:
     remove_repeated_lines_v2: bool = True  # Give existing profiles the new default once; later opt-outs stay saved.
     remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
     remove_control_chars: bool = False
+    language_filter: bool = False
+    language_filter_config: LanguageFilterConfig = field(default_factory=LanguageFilterConfig)
     remove_non_japanese: bool = False
     remove_newlines: bool = False
     remove_numbers: bool = False
@@ -760,6 +774,20 @@ class TextProcessing:
     extract_lines_config: ExtractLinesConfig = field(default_factory=ExtractLinesConfig)
     unicode_normalize: bool = False
     unicode_normalize_config: UnicodeNormalizeConfig = field(default_factory=UnicodeNormalizeConfig)
+
+    def __post_init__(self):
+        # Existing saved pipelines need the new step before line boundaries disappear.
+        if "language_filter" not in self.processor_order:
+            self.processor_order = list(self.processor_order)
+            position = next(
+                (
+                    i
+                    for i, name in enumerate(self.processor_order)
+                    if name in ("remove_non_japanese", "remove_newlines")
+                ),
+                len(self.processor_order),
+            )
+            self.processor_order.insert(position, "language_filter")
 
     @property
     def remove_repeated_lines(self) -> bool:
@@ -774,8 +802,8 @@ class TextProcessing:
 @dataclass_json
 @dataclass
 class Paths:
-    folder_to_watch: str = sanitize_and_resolve_path("~/Videos/GSM")
-    output_folder: str = sanitize_and_resolve_path("~/Videos/GSM/Output")
+    folder_to_watch: str = sanitize_and_resolve_path(get_default_recordings_directory())
+    output_folder: str = sanitize_and_resolve_path(os.path.join(get_default_recordings_directory(), "Output"))
     copy_temp_files_to_output_folder: bool = False
     open_output_folder_on_card_creation: bool = False
     copy_trimmed_replay_to_output_folder: bool = False
@@ -1032,6 +1060,19 @@ for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
 
 @dataclass_json
 @dataclass
+class ReviewAfterSession:
+    enabled: bool = False
+    open_on_game_close: bool = True
+    delay_seconds: int = 3
+    auto_advance: bool = True
+    delete_local_after_review: bool = True
+    cleanup_anki_media: bool = True
+    max_future_context_lines: int = 3
+    notify_on_startup: bool = True
+
+
+@dataclass_json
+@dataclass
 class Features:
     full_auto: bool = True
     notify_on_update: bool = True
@@ -1045,6 +1086,7 @@ class Features:
     open_anki_in_browser: bool = False
     browser_query: str = ""
     generate_longplay: bool = False
+    review_after_session: ReviewAfterSession = field(default_factory=ReviewAfterSession)
 
 
 @dataclass_json
@@ -1416,6 +1458,7 @@ class Ai:
     open_ai_model: str = ""
     open_ai_backup_model: str = ""
     open_ai_api_key: str = ""
+    open_ai_reasoning_effort: str = ""  # Empty lets the model choose its default.
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3"
     ollama_backup_model: str = ""
@@ -1497,6 +1540,9 @@ class Ai:
         self.groq_backup_model = str(self.groq_backup_model or "").strip()
         self.open_ai_model = str(self.open_ai_model or "").strip()
         self.open_ai_backup_model = str(self.open_ai_backup_model or "").strip()
+        self.open_ai_reasoning_effort = str(self.open_ai_reasoning_effort or "").strip().lower()
+        if self.open_ai_reasoning_effort not in OPENAI_REASONING_EFFORTS:
+            self.open_ai_reasoning_effort = ""
         self.ollama_model = str(self.ollama_model or "").strip()
         self.ollama_backup_model = str(self.ollama_backup_model or "").strip()
         self.lm_studio_model = str(self.lm_studio_model or "").strip()
@@ -2506,6 +2552,10 @@ class Config:
 
 def apply_changelog_setting_choice(config: Config, choice: str) -> bool:
     """Apply an allowlisted setting choice selected from Markdown release notes."""
+    if choice == "review-after-session:enable":
+        config.get_config().features.review_after_session.enabled = True
+        return True
+
     overlay = config.get_config().overlay
     if choice == "overlay-presence-invalidation:enable":
         # Invalidation relies on the lightweight presence monitor, so accepting
@@ -2536,7 +2586,7 @@ def get_default_anki_media_collection_path():
 
 
 def get_gpu_support_path():
-    return os.path.join(get_app_directory(), "gpu_support")
+    return os.path.join(get_shared_app_directory(), "gpu_support")
 
 
 def add_gpu_dlls_to_path():
@@ -2681,9 +2731,22 @@ def load_config():
 
 
 config_instance: Config = None
+_profile_context = ContextVar("gsm_profile_context", default=None)
+
+
+@contextmanager
+def use_profile_config(profile):
+    """Keep background work on its captured profile without changing the active profile."""
+    token = _profile_context.set(profile)
+    try:
+        yield
+    finally:
+        _profile_context.reset(token)
 
 
 def get_config():
+    if (profile := _profile_context.get()) is not None:
+        return profile
     global config_instance
     if config_instance is None:
         config_instance = load_config()
@@ -2907,7 +2970,7 @@ gsm_state = GsmAppState()
 
 
 def get_ffmpeg_path():
-    path = os.path.join(get_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
+    path = os.path.join(get_shared_app_directory(), "ffmpeg", "ffmpeg.exe") if is_windows() else "ffmpeg"
     if shutil.which(path) is not None:
         return path
     elif is_mac():
@@ -2917,7 +2980,7 @@ def get_ffmpeg_path():
 
 
 def get_ffprobe_path():
-    path = os.path.join(get_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
+    path = os.path.join(get_shared_app_directory(), "ffmpeg", "ffprobe.exe") if is_windows() else "ffprobe"
     if shutil.which(path) is not None:
         return path
     elif is_mac():

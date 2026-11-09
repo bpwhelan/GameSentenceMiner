@@ -57,7 +57,7 @@
       fields: [
         field("showFurigana", "Show furigana / pinyin"),
         field("readingLanguage", "Reading language"),
-        field("showTextIndicators", "Red borders around captured text"),
+        field("showTextIndicators", "Subtle borders around captured text"),
       ],
       links: [
         ["reading-readings", "Reading settings →"],

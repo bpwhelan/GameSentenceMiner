@@ -262,8 +262,9 @@
 .setup-card .is-error {
   color: var(--error);
 }
-.setup-status:not(.is-error) {
-  /* Outcomes are announced once without duplicating the visible heading/rows. */
+.setup-status:not(.is-error):not(:focus-visible) {
+  /* Outcomes are announced once without duplicating the visible heading/rows.
+     Keyboard focus that Copy error details hands over when it hides stays visible. */
   position: absolute;
   width: 1px;
   height: 1px;

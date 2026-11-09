@@ -10,9 +10,11 @@ export function getWindowsAppDetails(options: {
     executable: string;
     appPath: string;
     iconPath: string;
+    profileDir?: string | null;
 }): AppDetailsOptions {
     const command = [options.executable];
     if (!options.isPackaged) command.push(options.appPath);
+    if (options.profileDir) command.push('-profile', options.profileDir);
     return {
         appId: getWindowsAppId(options.isPackaged),
         appIconPath: options.iconPath,

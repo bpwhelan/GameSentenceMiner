@@ -3,6 +3,7 @@ import { invokeIpc } from "../../lib/ipc";
 import { useTranslation } from "../../i18n";
 import { TextCaptureWizard } from "../TextCaptureWizard";
 import { GameBackgroundSettings } from "../GameBackgroundSettings";
+import { GameLaunchControls } from "../GameLaunchControls";
 import { WorkspaceIcon } from "../Workspace";
 import { HomeGameMenu } from "./HomeGameMenu";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
@@ -1392,6 +1393,9 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   </div>
                 </div>
               </header>
+              {isWindows && selectedScene && !isHelperScene && (
+                <GameLaunchControls key={selectedScene.id} sceneId={selectedScene.id} active={active} />
+              )}
               {/* Scene profile selector — only when more than the Default profile exists */}
               {showSceneProfileRow && (
                 <div className="home-row">

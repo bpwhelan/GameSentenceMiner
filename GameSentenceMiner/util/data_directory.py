@@ -41,6 +41,8 @@ def _read_pointer(pointer: Path) -> dict | None:
 
 
 def write_data_dir_pointer(data: dict, *, only_if_missing: bool = False) -> None:
+    if get_profile_directory():
+        raise ValueError("The data folder cannot be changed while using a portable profile")
     pointer = get_pointer_path()
     pointer.parent.mkdir(parents=True, exist_ok=True)
     temporary = pointer.with_name(f"{pointer.name}.{uuid.uuid4().hex}.tmp")
@@ -61,7 +63,7 @@ def write_data_dir_pointer(data: dict, *, only_if_missing: bool = False) -> None
         temporary.unlink(missing_ok=True)
 
 
-def read_data_dir_pointer() -> dict | None:
+def read_data_dir_pointer(*, migrate: bool = True) -> dict | None:
     pointer = get_pointer_path()
     legacy = Path(get_default_app_directory()) / "data_dir.json"
     data = _read_pointer(pointer)
@@ -75,6 +77,8 @@ def read_data_dir_pointer() -> dict | None:
             return None
     if data is None:
         return None
+    if not migrate:
+        return data
     migrated = {**data, "version": 2}
     if os.path.normcase(data["dataDir"]) != os.path.normcase(get_default_app_directory()):
         migrated["legacyDatabaseDir"] = get_default_app_directory()
@@ -83,11 +87,44 @@ def read_data_dir_pointer() -> dict | None:
 
 
 def resolve_data_directory() -> str:
+    profile = get_profile_directory()
+    if profile:
+        return profile
     override = os.environ.get("GSM_DATA_DIR", "").strip()
     if override:
         return _normalize_directory(override)
     pointer = read_data_dir_pointer()
     return pointer["dataDir"] if pointer else get_default_app_directory()
+
+
+def get_profile_directory() -> str | None:
+    value = os.environ.get("GSM_PROFILE_DIR", "").strip()
+    return _normalize_directory(value) if value else None
+
+
+def get_shared_app_directory() -> str:
+    """Runtime installations, never user settings or selected model preferences."""
+    override = os.environ.get("GSM_SHARED_DATA_DIR", "").strip()
+    if override:
+        directory = _normalize_directory(override)
+    elif get_profile_directory():
+        pointer = read_data_dir_pointer(migrate=False)
+        directory = pointer["dataDir"] if pointer else get_default_app_directory()
+    else:
+        directory = resolve_data_directory()
+    Path(directory).mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def get_owocr_config_path() -> str:
+    profile = get_profile_directory()
+    return str(Path(profile) / "owocr_config_gsm.ini" if profile else Path.home() / ".config" / "owocr_config_gsm.ini")
+
+
+def get_default_recordings_directory() -> str:
+    profile = get_profile_directory()
+    # Preserve the legacy mixed-slash spelling used to repair old OBS INI paths.
+    return str(Path(profile) / "recordings") if profile else f"{os.path.expanduser('~')}/Videos/GSM"
 
 
 def get_app_directory() -> str:

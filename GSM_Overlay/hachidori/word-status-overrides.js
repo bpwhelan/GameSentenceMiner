@@ -60,8 +60,59 @@
     return next;
   }
 
+  // Marks are kept per language (docs/languages.md 4.3): Japanese's at the top
+  // level, as before, and every other language's under `languages`, each
+  // { known, ignored }. The record has one revision.
+  function overrideLanguages(value) {
+    const languages = value?.languages;
+    return languages && typeof languages === "object" && !Array.isArray(languages) ? languages : null;
+  }
+
+  // One language's marks as a record of their own, with the record's revision.
+  function wordStatusOverridesFor(value, language = "ja") {
+    if (language === "ja") return normaliseWordStatusOverrides(value);
+    return normaliseWordStatusOverrides({ ...overrideLanguages(value)?.[language], revision: value?.revision });
+  }
+
+  function wordStatusOverrideMapFor(value, language = "ja") {
+    return wordStatusOverrideMap(wordStatusOverridesFor(value, language));
+  }
+
+  // The stored record with one language's marks replaced and every other
+  // language's kept, at `languageRecord`'s revision. Without `languages` it is
+  // the Japanese record itself, today's shape.
+  function withLanguageWordStatusOverrides(value, language, languageRecord) {
+    const languages = {};
+    for (const [code, entry] of Object.entries(overrideLanguages(value) ?? {})) {
+      const { known, ignored } = normaliseWordStatusOverrides(entry);
+      languages[code] = { known, ignored };
+    }
+    let top = normaliseWordStatusOverrides(value);
+    if (language === "ja") top = languageRecord;
+    else {
+      languages[language] = { known: languageRecord.known, ignored: languageRecord.ignored };
+      top = { ...top, revision: languageRecord.revision };
+    }
+    for (const [code, entry] of Object.entries(languages)) {
+      if (entry.known.length === 0 && entry.ignored.length === 0) delete languages[code];
+    }
+    return Object.keys(languages).length === 0 ? top : { ...top, languages };
+  }
+
+  // `headword` of `language` set to `status`, or cleared with null, one
+  // revision up; the record itself when that is no change. Japanese on a
+  // record without `languages` is exactly withWordStatusOverride.
+  function withLanguageWordStatusOverride(value, language, headword, status) {
+    const current = wordStatusOverridesFor(value, language);
+    const next = withWordStatusOverride(current, headword, status);
+    if (next === current) return value;
+    if (language === "ja" && overrideLanguages(value) === null) return next;
+    return withLanguageWordStatusOverrides(value, language, next);
+  }
+
   globalThis.HDWordStatusOverrides = {
     WORD_STATUS_OVERRIDES_KEY, OVERRIDE_STATUSES,
     emptyWordStatusOverrides, normaliseWordStatusOverrides, wordStatusOverrideMap, withWordStatusOverride,
+    wordStatusOverridesFor, wordStatusOverrideMapFor, withLanguageWordStatusOverride, withLanguageWordStatusOverrides,
   };
 }());

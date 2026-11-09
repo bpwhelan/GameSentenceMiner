@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiTemplateMarkerNames } from "./anki-templates.js";
-import { canonicalAnkiFields, overwriteAnkiFields } from "./anki-duplicates.js";
+import { ankiUpdateKeepsField, canonicalAnkiFields, overwriteAnkiFields } from "./anki-duplicates.js";
 import { readAnkiNoteFields, verifyAnkiFields } from "./anki-mining.js";
 
 function pronunciationFields(incoming, current, appliedFields, existingFields, warnings) {
@@ -28,7 +28,7 @@ export async function enrichAnkiNote(context, { audio, render, store }) {
   const canonical = existingFields ? canonicalAnkiFields({}, resolved.templates, existingFields).templates : resolved.templates;
   const templates = Object.fromEntries(Object.entries(canonical).filter(([field, template]) => {
     if (!ankiTemplateMarkerNames(template.value).includes("audio")) return false;
-    return !existingFields || (template.overwriteMode !== "skip"
+    return !existingFields || (template.overwriteMode !== "skip" && !ankiUpdateKeepsField(template, request)
       && !(template.overwriteMode === "coalesce" && existingFields[field]));
   }));
   // No enabled audio source means no pronunciation, like a screenshot turned off.

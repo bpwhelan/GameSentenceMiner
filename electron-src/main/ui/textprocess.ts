@@ -29,6 +29,8 @@ interface TextProcessingConfig {
     remove_repeated_lines_v2: boolean;
     remove_repeated_lines_config: { repeat_count: number };
     remove_control_chars: boolean;
+    language_filter: boolean;
+    language_filter_config: { mode: string };
     remove_non_japanese: boolean;
     remove_newlines: boolean;
     remove_numbers: boolean;
@@ -45,6 +47,7 @@ interface TextProcessingConfig {
 interface TextProcessingPreviewPayload {
     text: string;
     config: TextProcessingConfig;
+    target_language?: string;
 }
 
 type TextProcessingPreviewResult =
@@ -130,7 +133,11 @@ export function registerTextProcessIPC(): void {
         async (_, payload: TextProcessingPreviewPayload): Promise<TextProcessingPreviewResult> => {
             try {
                 const pythonPath = await getOrInstallPython();
-                const result = await runTextProcessingPreview(pythonPath, payload);
+                const profile = getActiveProfileConfig(readGSMConfig());
+                const result = await runTextProcessingPreview(pythonPath, {
+                    ...payload,
+                    target_language: profile?.general?.target_language || 'ja',
+                });
                 return { success: true, result };
             } catch (error: any) {
                 console.error('Failed to preview text processing config:', error);
@@ -240,6 +247,7 @@ function getDefaultTextProcessing(): TextProcessingConfig {
             'remove_repeated_chars',
             'remove_repeated_lines',
             'remove_control_chars',
+            'language_filter',
             'remove_non_japanese',
             'remove_newlines',
             'remove_numbers',
@@ -255,6 +263,8 @@ function getDefaultTextProcessing(): TextProcessingConfig {
         remove_repeated_lines_v2: true,
         remove_repeated_lines_config: { repeat_count: 1 },
         remove_control_chars: false,
+        language_filter: false,
+        language_filter_config: { mode: 'blocks' },
         remove_non_japanese: false,
         remove_newlines: false,
         remove_numbers: false,

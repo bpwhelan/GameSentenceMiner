@@ -1,6 +1,7 @@
 // electron-src/main/launchers/obs.ts
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import path from 'path';
+import { getDefaultRecordingsDir } from '../data_dir.js';
 import {
     BASE_DIR,
     execFileAsync,
@@ -18,7 +19,6 @@ import OBSWebSocket from 'obs-websocket-js';
 import Store from 'electron-store';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
-import { homedir } from 'node:os';
 import { inflateSync } from 'node:zlib';
 import { sendStartOBS } from '../main.js';
 import axios from 'axios';
@@ -146,8 +146,8 @@ const WINDOW_FILTERS: WindowFilter[] = [
     { exeName: 'pythonw.exe', titlePattern: 'Preview' }, // Anki only
     // Exact title match
     { exeName: 'GameSentenceMiner.exe'},
-    // Eden/Yuzu settings dialogs share the emulator executable with the game.
-    { titlePattern: /^(?:Eden|yuzu)\s+Configuration(?:\s+-.*)?$/i },
+    // Eden/Yuzu/Lichii settings dialogs share the emulator executable with the game.
+    { titlePattern: /^(?:Eden|yuzu|Lichii)\s+Configuration(?:\s+-.*)?$/i },
     { titlePattern: 'GSM Overlay' },
     { titlePattern: 'GitHub Desktop' },
     { titlePattern: 'OBS Studio' },
@@ -193,25 +193,27 @@ const TITLE_MATCHERS: TitleMatcher[] = [
         getSwitcherPattern: (n) => `Vita3K.*?\\|.*${escapeRegexCharacters(n.trim())}.*\\(.*`
     },
     {
-        name: 'Eden/Yuzu/Suyu (extra segments)',
+        name: 'Eden/Yuzu/Suyu/Lichii (extra segments)',
         // Patterns:
         //   Eden | v0.0.4-rc1 | MSVC ... | Game Name (64-bit) | ...
         //   yuzu Early Access 4175 | Game Name (64-bit) | 1.0.0 | NVIDIA
+        //   Lichii | v0.0.4 | MSVC ... | Game Name (64-bit) | ...
         // Allows emulator build text before the first pipe and additional pipe-separated
         // metadata before the segment marked with (64-bit) or (32-bit).
-        pattern: /^(?:Eden|yuzu|suyu)\b[^|]*\|\s*(?:[^|]*\|\s*)*([^|]+?)\s*\((?:64|32)-bit\)(?:\s*\||$)/i,
+        pattern: /^(?:Eden|yuzu|suyu|Lichii)\b[^|]*\|\s*(?:[^|]*\|\s*)*([^|]+?)\s*\((?:64|32)-bit\)(?:\s*\||$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu)[^|]*\\|.*${escapeRegexCharacters(n.trim())}.*\\((?:64|32)-bit\\).*`,
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu|Lichii)[^|]*\\|.*${escapeRegexCharacters(n.trim())}.*\\((?:64|32)-bit\\).*`,
         priority: 45,
     },
     {
-        name: 'Eden/Yuzu/Suyu',
+        name: 'Eden/Yuzu/Suyu/Lichii',
         // Pattern: Eden | v0.0.3 | Game Name (64-bit) | ...
         // Pattern: yuzu | v0.0.3 | Game Name (64-bit) | ...
         // Pattern: suyu | v0.0.3 | Game Name (64-bit) | ...
-        pattern: /^(?:Eden|yuzu|suyu)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
+        // Pattern: Lichii | v0.0.4 | Game Name (64-bit) | ...
+        pattern: /^(?:Eden|yuzu|suyu|Lichii)\s*\|\s*v[\d.]+\s*\|\s*(.+?)\s*(\(64-bit\)|\(32-bit\)|\||$)/i,
         getName: (m) => m[1].trim(),
-        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
+        getSwitcherPattern: (n) => `(?:Eden|yuzu|suyu|Lichii).*\\|.*?\\|.*${escapeRegexCharacters(n.trim())}.*`
     },
     {
         name: 'RPCS3',
@@ -1060,7 +1062,7 @@ function writeObsSeedConfigs(packedVersion: number | null): void {
     }
 
     // Replay-buffer profiles (GSM + Untitled).
-    const videosDir = `${homedir()}/Videos/GSM`;
+    const videosDir = getDefaultRecordingsDir().replace(/\\/g, '/');
     const profileIni = buildObsReplayBufferProfileIni(videosDir);
     for (const profileName of ['GSM', 'Untitled']) {
         const profileDir = path.join(

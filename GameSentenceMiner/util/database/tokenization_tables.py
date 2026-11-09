@@ -407,6 +407,9 @@ def _deduplicate_table_rows(
 
 def create_tokenization_indexes(db: SQLiteDB):
     """Create all indexes for the tokenization tables."""
+    # Existing occurrence triggers may still refer to a cache dropped during
+    # schema repair. Recreate it before deduplication can fire those triggers.
+    create_word_stats_cache_table(db)
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_words_word ON words(word)", commit=True)
     db.execute("CREATE INDEX IF NOT EXISTS idx_words_in_anki ON words(in_anki)", commit=True)
     db.execute("CREATE INDEX IF NOT EXISTS idx_words_pos ON words(pos)", commit=True)
@@ -463,7 +466,6 @@ def create_tokenization_indexes(db: SQLiteDB):
         commit=True,
     )
 
-    create_word_stats_cache_table(db)
     create_word_stats_cache_indexes(db)
     create_global_frequency_tables(db, create_indexes=False)
 

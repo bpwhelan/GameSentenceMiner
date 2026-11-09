@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "code": "fr",
+  "iso639_3": "fra",
+  "name": "French",
+  "nativeName": "Français",
+  "bcp47": "fr",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\uFB00-\\uFB06]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "vowel": "[aeiouyàâäæéèêëîïôöœùûüÿAEIOUYÀÂÄÆÉÈÊËÎÏÔÖŒÙÛÜŸ]",
+    "elidable": "[{vowel}hH]",
+    "notSpace": "[^ ]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["‹", "›"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "otherApostrophes",
+        "name": "Modifier letter apostrophe and left quotation mark to apostrophe",
+        "variants": [[{"map": {"ʼ": "'", "‘": "'"}}]]
+      },
+      {
+        "id": "apostropheVariants",
+        "name": "Search for apostrophe variants",
+        "variants": [[{"map": {"'": "’"}}], [{"map": {"’": "'"}}]]
+      },
+      {
+        "id": "oeLigature",
+        "name": "oe to œ",
+        "variants": [[{"map": {"oe": "œ", "Oe": "Œ", "OE": "Œ"}}]]
+      },
+      {
+        "id": "joinPronoun",
+        "name": "Join a reflexive pronoun to the verb after it",
+        "variants": [[{"map": {"me ": "me+", "te ": "te+", "se ": "se+", "m'en ": "m'en+", "t'en ": "t'en+", "s'en ": "s'en+", "m'y ": "m'y+", "t'y ": "t'y+", "s'y ": "s'y+"}, "at": "start"}]]
+      }
+    ],
+    "postprocessors": [
+      {
+        "id": "unjoinPronoun",
+        "name": "Space after a joined pronoun",
+        "keepInput": false,
+        "variants": [[{"map": {"me+": "me ", "te+": "te ", "se+": "se ", "m'en+": "m'en ", "t'en+": "t'en ", "s'en+": "s'en ", "m'y+": "m'y ", "t'y+": "t'y ", "s'y+": "s'y ", "me*": "me ", "te*": "te ", "m'en*": "m'en ", "t'en*": "t'en ", "m'y*": "m'y ", "t'y*": "t'y ", "m'*": "m'", "t'*": "t'"}, "at": "start"}]]
+      },
+      {
+        "id": "typographicApostrophe",
+        "name": "Straight apostrophe to typographic apostrophe",
+        "variants": [[{"map": {"'": "’"}}]]
+      }
+    ],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "fr-FR",
+    "audioLanguage": "fr",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "artic": "Article",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "char": "Character",
+        "prep-phrase": "Prepositional phrase",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "postp": "Postposition"
+      }
+    },
+    "frequencySamples": {
+      "common": ["de", "je", "est", "pas", "le", "que", "la", "vous", "tu", "un"],
+      "rare": ["pissenlit", "girouette", "serpillière", "hérisson", "cornemuse", "libellule", "brindille", "sauterelle", "hirondelle", "tournesol"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary French-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "French words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary French-French (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "French words with French definitions from French Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "parlant",
+      "practice": {
+        "text": "Elles finissaient leurs devoirs avant le dîner.",
+        "lookup": "finissaient"
+      },
+      "entry": {
+        "expression": "finir",
+        "reading": "finir",
+        "glossary": ["to finish"],
+        "definitionTags": "v",
+        "matched": "finissaient",
+        "trace": ["imperfect (ils)"]
+      },
+      "character": null
+    }
+  }
+}

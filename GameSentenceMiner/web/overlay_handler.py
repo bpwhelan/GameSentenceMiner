@@ -264,9 +264,7 @@ class OverlayRequestHandler:
 
             # Perform translation using AI
             # Run in executor to avoid blocking the event loop
-            loop = asyncio.get_event_loop()
-            translation = await loop.run_in_executor(
-                None,
+            translation = await asyncio.to_thread(
                 get_ai_prompt_result,
                 lines,
                 sentence,  # This is the actual text to translate
@@ -274,6 +272,7 @@ class OverlayRequestHandler:
                 game_title,
                 False,
                 build_translation_prompt(get_config().general.get_native_language_name()),
+                translation_only=True,
             )
 
             if not translation or translation.startswith("Processing failed:"):

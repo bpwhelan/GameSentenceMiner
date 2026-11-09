@@ -5,7 +5,9 @@ import { extensionApi as chrome } from "./browser-api.js";
 import { describeErrorOrJson } from "./error-text.js";
 import { ANKI_INDEX_ALARM } from "./anki-index-cache.js";
 import { createBackupDownloads } from "./backup-downloads.js";
-import { assertBackupSnapshot } from "./backup-state.js";
+import {
+  assertBackupProfiles, assertBackupSnapshot, personalEntryCount, profileBackupPayload,
+} from "./backup-state.js";
 import {
   AUTOMATIC_BACKUP_ALARM, AUTOMATIC_BACKUPS_KEY, automaticBackupDue, automaticBackupStore, nextAutomaticBackupTime,
   replaceAutomaticBackup,
@@ -18,15 +20,16 @@ import {
 } from "./lookup-stats.js";
 import { normaliseUpdateSettings } from "./managed-dictionary-source.js";
 import { normaliseCustomDictionaryDocument, parseCustomDictionary } from "./custom-dictionary.js";
+import { japaneseDictionaryView } from "./profile-state.js";
 import { sameJsonValue } from "./json-value.js";
 import {
   normaliseOptions, projectStoredOptions, normaliseWordStatusOverrides, OFFSCREEN_DOCUMENT, TARGET, relay,
-  optionsRevision, serialiseStorage,
+  optionsRevision, serialiseStorage, hasProfiles, hasDictionaryProfiles,
 } from "./background-core.js";
 import { WORKER_HANDLERS } from "./background-requests.js";
 import { reconcileAnkiIndex } from "./background-anki.js";
 import { UPDATE_ALARM, queueManagedUpdate } from "./background-updates.js";
-import { getSharingHost, sharingLinked, forwardToHost } from "./background-sharing.js";
+import { getSharingHost, sharingLinked, forwardToHost, forwardProfileRequest } from "./background-sharing.js";
 import { alarms, sharingReady } from "./background.js";
 
 let backupDownloads;
@@ -49,19 +52,31 @@ function assertBackupEngineSender(sender) {
 
 class AutomaticBackupNotReadyError extends Error {}
 
-async function readBackupPayload() {
-  const { snapshot } = await WORKER_HANDLERS.hd_backup_base_read();
-  const stored = await chrome.storage.local.get(null);
-  const descriptor = stored[LOOKUP_STATS_KEY] === undefined ? emptyLookupStats() : stored[LOOKUP_STATS_KEY];
-  assertLookupStatsDescriptor(descriptor);
+// The stored rows of one count generation, each checked against its key.
+function storedLookupRows(stored, descriptor) {
   const prefix = lookupStatsPrefix(descriptor);
-  const lookupStatsRows = Object.entries(stored).filter(([key]) => key.startsWith(prefix)).map(([key, row]) => {
+  const rows = Object.entries(stored).filter(([key]) => key.startsWith(prefix)).map(([key, row]) => {
     if (lookupStatsKey(descriptor, row) !== key) throw new Error("The lookup statistics row does not match its key.");
     return row;
   });
-  assertLookupStatsRows(descriptor, lookupStatsRows);
+  assertLookupStatsRows(descriptor, rows);
+  return rows;
+}
+
+// A backup of records with profiles holds their Japanese view (docs/languages.md
+// 17.1) as its version 3 snapshot and the complete records beside it in
+// `profiles` (17.2); archives, automatic snapshots and the Relay dictionary
+// download all start here.
+async function readBackupPayload() {
+  const { snapshot } = await WORKER_HANDLERS.hd_backup_base_read();
+  const stored = await chrome.storage.local.get(null);
+  if (hasProfiles(snapshot.options)) return profileBackupPayload(snapshot, view => storedLookupRows(stored, view));
+  let descriptor = stored[LOOKUP_STATS_KEY] === undefined ? emptyLookupStats() : stored[LOOKUP_STATS_KEY];
+  assertLookupStatsDescriptor(descriptor);
+  if (descriptor.languages !== undefined) descriptor = { generation: descriptor.generation, revision: descriptor.revision };
+  const lookupStatsRows = storedLookupRows(stored, descriptor);
   return { snapshot: {
-    state: snapshot.state,
+    state: hasDictionaryProfiles(snapshot.state) ? japaneseDictionaryView(snapshot.state) : snapshot.state,
     options: { ...projectStoredOptions(snapshot.options), revision: optionsRevision(snapshot.options) },
     document: normaliseCustomDictionaryDocument(snapshot.document),
     updates: normaliseUpdateSettings(snapshot.updates),
@@ -93,7 +108,17 @@ async function commitAutomaticBackupStore(current, next) {
   }
 }
 
+// A snapshot with profiles lists every package of its records and counts the
+// personal entries of every language.
 function automaticBackupSummary(record) {
+  if (record.profiles !== undefined) {
+    return {
+      id: record.id,
+      createdAt: record.createdAt,
+      dictionaries: globalThis.HDReaderOptions.allPackages(record.profiles.dictionaryState).map(({ title, enabled }) => ({ title, enabled })),
+      customEntryCount: personalEntryCount(record.snapshot, record.profiles),
+    };
+  }
   return {
     id: record.id,
     createdAt: record.createdAt,
@@ -131,6 +156,7 @@ async function reconcileAutomaticBackups() {
     const payload = await readBackupPayload();
     try {
       await assertBackupSnapshot(payload.snapshot);
+      if (payload.profiles !== undefined) await assertBackupProfiles(payload.snapshot, payload.profiles);
     } catch (error) {
       throw new AutomaticBackupNotReadyError(describeErrorOrJson(error), { cause: error });
     }
@@ -143,6 +169,7 @@ async function reconcileAutomaticBackups() {
       createdAt: new Date(createdAt).toISOString(),
       snapshot: payload.snapshot,
       lookupStatsRows: payload.lookupStatsRows,
+      ...(payload.profiles === undefined ? {} : { profiles: payload.profiles }),
     };
     const next = await replaceAutomaticBackup(store, record, normaliseOptions(payload.snapshot.options).automaticBackupDays);
     await commitAutomaticBackupStore(current, next);
@@ -206,9 +233,16 @@ let backupCancelTail = Promise.resolve();
 
 async function relayEngineRequest(message) {
   // Pushed by the options storage listener only; a page cannot relay it.
-  if (message.type === "hd_engine_config") throw new Error("Unknown engine request.");
+  if (["hd_engine_config", "hd_engine_link"].includes(message.type)) throw new Error("Unknown engine request.");
   await sharingReady;
-  if (sharingLinked && forwardableRequest(message)) return forwardToHost(message);
+  // A linked browser's languages are the host's (docs/languages.md 17.3).
+  if (sharingLinked && ["hd_profile_add", "hd_profile_remove"].includes(message.type)) return forwardProfileRequest(message);
+  if (sharingLinked && forwardableRequest(message)) {
+    if (["hd_memory", "hd_memory_total"].includes(message.type)) {
+      return { ...await forwardToHost(message), memorySource: "host" };
+    }
+    return forwardToHost(message);
+  }
   if (message.type === "hd_backup_cancel") {
     const preparation = backupPreparations.get(message.token);
     if (preparation) preparation.cancelled = true;

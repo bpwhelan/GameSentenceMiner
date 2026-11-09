@@ -241,6 +241,10 @@ export function createAnkiGateway({ fetch = globalThis.fetch, timeoutMs = 10_000
   return { discover, invoke };
 }
 
+// What availability says of a Template that names no deck, as a new
+// profile's Templates do until one is chosen (docs/languages.md 6.3).
+export const ANKI_DECK_UNSET = "Choose an available deck.";
+
 // Shared by Settings and authoritative mining readiness checks. Validation
 // reports missing choices instead of changing a saved or in-progress mapping.
 export function ankiAvailability(config, discovery, resolvedTemplates) {
@@ -250,7 +254,7 @@ export function ankiAvailability(config, discovery, resolvedTemplates) {
   if (!discovery.decks.includes(config.deck)) {
     errors.push(config.deck
       ? `Anki has no deck named “${config.deck}”. Choose an available deck.`
-      : "Choose an available deck.");
+      : ANKI_DECK_UNSET);
   }
   if (!discovery.models.includes(config.model)) {
     errors.push(config.model

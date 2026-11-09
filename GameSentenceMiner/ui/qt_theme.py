@@ -135,6 +135,7 @@ QDialog[reviewLayout="split"] QLabel#ConfirmationAudioTitle {
 }
 QDialog[reviewLayout="split"] QTextEdit {
     background: @surface-0@; border: 1px solid @border-default@; border-radius: 5px; font-size: 14px;
+    padding: 3px 6px;
 }
 QDialog[reviewLayout="split"] QLabel[role="timeline"] {
     background: @surface-0@; border: 0; padding: 4px 6px;
@@ -142,6 +143,19 @@ QDialog[reviewLayout="split"] QLabel[role="timeline"] {
 QDialog[reviewLayout="split"] QLabel#ConfirmationScreenshot,
 QDialog[reviewLayout="split"] QLabel#ConfirmationPreviousScreenshot {
     background: @surface-0@; border: 1px solid @border-subtle@; border-radius: 4px;
+}
+QFrame#ConfirmationAudioPanel QPushButton { padding: 5px 9px; border-radius: 6px; }
+QFrame#ConfirmationAudioPanel QPushButton:default { background: @surface-1@; border-color: @accent@; }
+QPushButton#AudioPreviewButton {
+    color: @accent-text@; background: @accent-soft@; border-color: @accent-border@; font-weight: 600;
+    min-width: 70px;
+}
+QPushButton#AudioPreviewButton:hover { border-color: @accent@; }
+QPushButton#AudioCutButton:checked {
+    color: @danger-text@; background: @danger-soft@; border-color: @danger-border@;
+}
+QFrame#ConfirmationAudioPanel QPushButton[gsmStatusTone="warning"] {
+    color: @warning-text@; background: @warning-soft@; border-color: @warning-border@;
 }
 """
 
@@ -249,6 +263,8 @@ class _DesktopThemeController(QObject):
         for waveform in self.window.findChildren(AudioWaveformWidget):
             cut_color = QColor(colors["danger"])
             cut_color.setAlpha(155)
+            dim_color = QColor(colors["surface-0"])
+            dim_color.setAlpha(100)
             waveform.color_cut = cut_color
             waveform.color_cut_border = QColor(colors["danger-text"])
             waveform.set_colors(
@@ -258,15 +274,12 @@ class _DesktopThemeController(QObject):
                     "waveform_selected": colors["accent"],
                     "handle": colors["accent"],
                     "handle_hover": colors["accent-strong"],
-                    "cursor": colors["danger-text"],
+                    "cursor": colors["text-primary"],
                     "border": colors["border-default"],
+                    "text": colors["text-primary"],
+                    "text_muted": colors["text-muted"],
+                    "dim": dim_color,
                 }
-            )
-            waveform.expand_start_button.setStyleSheet("")
-            waveform.expand_end_button.setStyleSheet("")
-            waveform.range_chip.setStyleSheet(
-                f"color: {colors['text-primary']}; background: {colors['surface-1']}; "
-                f"border: 1px solid {colors['border-default']}; border-radius: 4px; padding: 1px 6px;"
             )
 
     def eventFilter(self, watched, event):

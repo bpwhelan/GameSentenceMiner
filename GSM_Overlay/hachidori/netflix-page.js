@@ -1,11 +1,22 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Experimental Netflix mining, the page's side. netflix.js registers this script
-// in the main world of https://www.netflix.com/* at document_start while
-// Settings → Advanced → Experimental features → Netflix mining is on, so the
-// JSON hooks are in place before Netflix's own bundle runs. No extension API is
-// available here; it talks to netflix-content.js through DOM events whose
-// detail is a JSON string.
+// Experimental Netflix and YouTube mining, the page's side. netflix.js registers
+// this script in the main world of https://www.netflix.com/* at document_start
+// while Settings → Advanced → Experimental features → Netflix mining is on, so
+// the JSON hooks are in place before Netflix's own bundle runs, and youtube.js
+// registers it in the main world of https://www.youtube.com/* while YouTube
+// mining is on, so the caption hook is in place before YouTube's player loads a
+// caption file. No extension API is available here; it talks to the site's
+// reader (netflix-content.js) through DOM events whose detail is a JSON string.
+// Both sites share the replay, pause and resume below; each has its own way of
+// reading subtitles and its own player controls.
+//
+// YouTube's player loads the caption track it shows as json3 from
+// /api/timedtext, with a proof-of-origin token that a request of Hachidori's
+// own would lack (YouTube then answers with an empty file). So on YouTube this
+// script requests nothing: it posts the text of each caption file the player
+// receives, with the video and language it is for, and which video the player
+// plays.
 //
 // The JSON.stringify hook that asks Netflix for a WebVTT download of every text
 // track, the profile list it looks for, and the JSON.parse hook and track filter
@@ -37,8 +48,10 @@
 (function () {
   "use strict";
 
-  const PAGE_EVENT = "hachidori-netflix-page";
-  const COMMAND_EVENT = "hachidori-netflix-command";
+  // The site this script serves: YouTube on www.youtube.com, else Netflix.
+  const YOUTUBE = location.hostname === "www.youtube.com";
+  const PAGE_EVENT = YOUTUBE ? "hachidori-youtube-page" : "hachidori-netflix-page";
+  const COMMAND_EVENT = YOUTUBE ? "hachidori-youtube-command" : "hachidori-netflix-command";
   // Subadub's profile: asked for, Netflix lists a WebVTT download for each track.
   const WEBVTT_PROFILE = "webvtt-lssdh-ios8";
   // Subadub's profiles, which identify the manifest request's profile list.
@@ -58,15 +71,29 @@
   // A seek that lands after the clip's start is retried this much earlier.
   const PREROLL_MS = 2000;
   const WATCH_PATH = /^\/watch\/(\d+)/u;
+  // A YouTube video ID, and a caption file's language as YouTube names it.
+  const VIDEO_ID = /^[\w-]{11}$/u;
+  const LANGUAGE_TAG = /^[A-Za-z]{2,3}(?:-[A-Za-z\d]{1,8})*$/u;
+  // The events after which YouTube's player may play another video.
+  const NAVIGATION_EVENTS = ["yt-navigate-finish", "yt-player-updated"];
+  const MEDIA_EVENTS = ["loadstart", "loadedmetadata", "playing"];
 
   const originalStringify = JSON.stringify;
   const originalParse = JSON.parse;
   const fetchText = window.fetch.bind(window);
   // The subtitles already posted, by movie and track, so a reader that missed
   // them can ask again. Only the movie being watched and the latest manifest's
-  // movie (the next episode Netflix prepares) are kept.
+  // movie (the next episode Netflix prepares) are kept; on YouTube, the video
+  // the player plays and the latest one a caption file came for.
   const posted = new Map();
+  // Their manifests' tracks, so another reading language can be read from them.
+  const manifests = new Map();
+  // The reading language's primary subtag (docs/languages.md 8.5): Japanese
+  // until the reader names another.
+  let subtitleLanguage = "ja";
   let replaying = false;
+  // The video YouTube's player plays, as last posted.
+  let reported = { movieId: null, live: false };
 
   const post = message => {
     document.dispatchEvent(new CustomEvent(PAGE_EVENT, { detail: Reflect.apply(originalStringify, JSON, [message]) }));
@@ -109,9 +136,9 @@
     return null;
   }
 
-  function japanese(track) {
+  function wanted(track) {
     const language = String(track.language ?? track.bcp47 ?? "").toLowerCase();
-    return language === "ja" || language.startsWith("ja-");
+    return language === subtitleLanguage || language.startsWith(`${subtitleLanguage}-`);
   }
 
   function trackId(track, index) {
@@ -121,7 +148,11 @@
 
   function retain(movieId) {
     const watched = WATCH_PATH.exec(location.pathname)?.[1];
-    for (const id of posted.keys()) if (id !== movieId && id !== watched) posted.delete(id);
+    for (const id of posted.keys()) {
+      if (id === movieId || id === watched) continue;
+      posted.delete(id);
+      manifests.delete(id);
+    }
     if (!posted.has(movieId)) posted.set(movieId, new Map());
   }
 
@@ -136,9 +167,11 @@
     const movieId = String(result.movieId);
     if (!/^\d+$/u.test(movieId)) return;
     retain(movieId);
+    manifests.set(movieId, result.textTracks);
+    const language = subtitleLanguage;
     // Subadub's filter, plus image subtitles, which have no text to time.
     const tracks = result.textTracks.filter(track => track && typeof track === "object"
-      && !track.isForcedNarrative && !track.isNoneTrack && japanese(track));
+      && !track.isForcedNarrative && !track.isNoneTrack && wanted(track));
     const text = tracks.map((track, index) => ({ track, index, file: track.isImageBased ? null : download(track) }))
       .filter(entry => entry.file !== null);
     if (text.length === 0) {
@@ -153,39 +186,144 @@
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           return response.text();
         })
-        .then(body => publish(movieId, id, { kind: "subtitle", movieId, trackId: id, closedCaptions, format: file.format, text: body }))
-        .catch(() => publish(movieId, "status", { kind: "status", movieId, subtitles: "failed" }));
+        .then(body => {
+          // A track of a language the reader has since left is not posted.
+          if (language === subtitleLanguage) {
+            publish(movieId, id, { kind: "subtitle", movieId, trackId: id, closedCaptions, format: file.format, text: body });
+          }
+        })
+        .catch(() => {
+          if (language === subtitleLanguage) publish(movieId, "status", { kind: "status", movieId, subtitles: "failed" });
+        });
     }
   }
 
-  JSON.stringify = function stringify() {
-    const text = Reflect.apply(originalStringify, this, arguments);
-    // Most of Netflix's calls carry no profile list. One scan of their output
-    // decides, so only the manifest request is searched and written again.
-    if (typeof text !== "string" || !PROFILE_MARKER.test(text)) return text;
-    try {
-      const profiles = profileList(arguments[0]);
-      if (profiles === null || profiles.includes(WEBVTT_PROFILE)) return text;
-      profiles.unshift(WEBVTT_PROFILE);
-    } catch {
-      // A value Hachidori cannot inspect is stringified exactly as Netflix asked.
-      return text;
-    }
-    return Reflect.apply(originalStringify, this, arguments);
-  };
+  // YouTube's player element, its main video, and whether an ad plays.
+  const youtubePlayer = () => document.getElementById("movie_player");
+  const youtubeVideo = () => document.querySelector("#movie_player video.html5-main-video")
+    ?? document.querySelector("#movie_player video");
+  const adShowing = () => youtubePlayer()?.classList.contains("ad-showing") === true;
 
-  JSON.parse = function parse() {
-    const value = Reflect.apply(originalParse, this, arguments);
+  // Keeps a YouTube post, so a reader that missed it can ask again, and posts it.
+  function publishCaption(movieId, key, message) {
+    for (const id of posted.keys()) if (id !== movieId && id !== reported.movieId) posted.delete(id);
+    if (!posted.has(movieId)) posted.set(movieId, new Map());
+    posted.get(movieId).set(key, message);
+    post(message);
+  }
+
+  // The video YouTube's player has, from its own data, and whether it is live.
+  function playerVideo() {
     try {
-      const result = value?.result;
-      if (result && typeof result === "object" && result.movieId !== undefined && Array.isArray(result.textTracks)) {
-        readTracks(result);
-      }
+      const data = youtubePlayer()?.getVideoData?.();
+      const movieId = typeof data?.video_id === "string" && VIDEO_ID.test(data.video_id) ? data.video_id : null;
+      return { movieId, live: movieId !== null && data.isLive === true };
     } catch {
-      // Netflix gets its value whatever this script makes of it.
+      return { movieId: null, live: false };
     }
-    return value;
-  };
+  }
+
+  // Posts which video the player plays when that changes, or when the reader
+  // asks. A live stream's captions are not read: their times are the stream's.
+  function report(always = false) {
+    const current = playerVideo();
+    const changed = current.movieId !== reported.movieId || current.live !== reported.live;
+    reported = current;
+    if (changed || always) post({ kind: "video", movieId: current.movieId });
+    if (changed && current.live) {
+      publishCaption(current.movieId, "status", { kind: "status", movieId: current.movieId, subtitles: "live" });
+    }
+  }
+
+  // A caption file YouTube's player asked for: /api/timedtext on this origin,
+  // as json3, for one video in one language (a translation's `tlang`).
+  function captionFile(url) {
+    let address;
+    try {
+      address = new URL(url, location.href);
+    } catch {
+      return null;
+    }
+    if (address.origin !== location.origin || address.pathname !== "/api/timedtext") return null;
+    const params = address.searchParams;
+    const movieId = params.get("v") ?? "";
+    const language = params.get("tlang") || params.get("lang") || "";
+    if (!VIDEO_ID.test(movieId) || !LANGUAGE_TAG.test(language) || params.get("fmt") !== "json3") return null;
+    return { movieId, language };
+  }
+
+  // The player shows one track at a time and loads it again when it is chosen
+  // again, so a video's latest file is the one on screen: it is posted as that
+  // video's only track.
+  function keepCaption(file, text) {
+    report();
+    if (file.movieId === reported.movieId && reported.live) return;
+    publishCaption(file.movieId, "track", { kind: "subtitle", movieId: file.movieId, trackId: "shown",
+      closedCaptions: false, format: "json3", language: file.language, text });
+  }
+
+  // The player's caption requests are read as they load; every request is
+  // opened exactly as the player asked.
+  function hookCaptions() {
+    const originalOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function open() {
+      try {
+        const file = captionFile(String(arguments[1]));
+        if (file !== null) {
+          this.addEventListener("load", () => {
+            try {
+              if (this.status === 200 && (this.responseType === "" || this.responseType === "text") && this.responseText) {
+                keepCaption(file, this.responseText);
+              }
+            } catch {
+              // The player gets its response whatever this script makes of it.
+            }
+          });
+        }
+      } catch {
+        // A request Hachidori cannot read is opened exactly as the player asked.
+      }
+      return Reflect.apply(originalOpen, this, arguments);
+    };
+    for (const type of NAVIGATION_EVENTS) document.addEventListener(type, () => report());
+    for (const type of MEDIA_EVENTS) {
+      document.addEventListener(type, event => { if (event.target === youtubeVideo()) report(); }, true);
+    }
+    report();
+  }
+
+  if (YOUTUBE) {
+    hookCaptions();
+  } else {
+    JSON.stringify = function stringify() {
+      const text = Reflect.apply(originalStringify, this, arguments);
+      // Most of Netflix's calls carry no profile list. One scan of their output
+      // decides, so only the manifest request is searched and written again.
+      if (typeof text !== "string" || !PROFILE_MARKER.test(text)) return text;
+      try {
+        const profiles = profileList(arguments[0]);
+        if (profiles === null || profiles.includes(WEBVTT_PROFILE)) return text;
+        profiles.unshift(WEBVTT_PROFILE);
+      } catch {
+        // A value Hachidori cannot inspect is stringified exactly as Netflix asked.
+        return text;
+      }
+      return Reflect.apply(originalStringify, this, arguments);
+    };
+
+    JSON.parse = function parse() {
+      const value = Reflect.apply(originalParse, this, arguments);
+      try {
+        const result = value?.result;
+        if (result && typeof result === "object" && result.movieId !== undefined && Array.isArray(result.textTracks)) {
+          readTracks(result);
+        }
+      } catch {
+        // Netflix gets its value whatever this script makes of it.
+      }
+      return value;
+    };
+  }
 
   const wallClock = () => performance.timeOrigin + performance.now();
 
@@ -218,11 +356,69 @@
     }
   }
 
-  const mainVideo = () => document.querySelector(".watch-video video") ?? document.querySelector("video");
-  const play = (player, video) => Promise.resolve(typeof player.play === "function" ? player.play() : video.play());
-  const pause = (player, video) => (typeof player.pause === "function" ? player.pause() : video.pause());
+  const netflixVideo = () => document.querySelector(".watch-video video") ?? document.querySelector("video");
 
-  function seek(player, video, ms) {
+  // What the replay, pause and resume do to a site's player: its <video>,
+  // seeking to a media time in ms, playing and pausing, its position (ms) and
+  // speed, and why a replay must stop (an ad on YouTube), or null.
+  // Netflix's go through its player API, falling back to the element's own
+  // play and pause; writing <video>.currentTime would stop Netflix.
+  function netflixControls(player, video) {
+    return {
+      video,
+      seek: ms => Promise.resolve(player.seek(Math.max(0, Math.round(ms)))).catch(() => {}),
+      play: () => Promise.resolve(typeof player.play === "function" ? player.play() : video.play()),
+      pause: () => (typeof player.pause === "function" ? player.pause() : video.pause()),
+      position: () => currentPosition(player, video),
+      rate: () => video.playbackRate,
+      setRate: rate => { video.playbackRate = rate; },
+      interrupted: () => null,
+    };
+  }
+
+  // YouTube's go through its player element's methods, which keep its
+  // controls in step with the video; the element's stand in for any it lacks.
+  function youtubeControls(api, video) {
+    return {
+      video,
+      seek(ms) {
+        const seconds = Math.max(0, Math.round(ms)) / 1000;
+        if (typeof api?.seekTo === "function") api.seekTo(seconds, true);
+        else video.currentTime = seconds;
+      },
+      play: () => Promise.resolve(typeof api?.playVideo === "function" ? api.playVideo() : video.play()),
+      pause: () => (typeof api?.pauseVideo === "function" ? api.pauseVideo() : video.pause()),
+      position() {
+        const reportedMs = typeof api?.getCurrentTime === "function" ? Number(api.getCurrentTime()) * 1000 : Number.NaN;
+        return Number.isFinite(reportedMs) ? reportedMs : video.currentTime * 1000;
+      },
+      rate() {
+        const rate = typeof api?.getPlaybackRate === "function" ? Number(api.getPlaybackRate()) : Number.NaN;
+        return Number.isFinite(rate) && rate > 0 ? rate : video.playbackRate;
+      },
+      setRate(rate) {
+        if (typeof api?.setPlaybackRate === "function") api.setPlaybackRate(rate);
+        else video.playbackRate = rate;
+      },
+      interrupted: () => (adShowing() ? "ad" : null),
+    };
+  }
+
+  // The controls a replay uses, or why there are none: Netflix needs its
+  // player session, YouTube its video and no ad playing.
+  function replayTarget() {
+    if (YOUTUBE) {
+      const video = youtubeVideo();
+      if (video === null) return { error: "player" };
+      return adShowing() ? { error: "ad" } : { controls: youtubeControls(youtubePlayer(), video) };
+    }
+    const player = netflixPlayer();
+    const video = netflixVideo();
+    return player === null || video === null ? { error: "player" } : { controls: netflixControls(player, video) };
+  }
+
+  function seek(controls, ms) {
+    const { video } = controls;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         video.removeEventListener("seeked", done);
@@ -233,18 +429,18 @@
         resolve(video.currentTime * 1000);
       }
       video.addEventListener("seeked", done, { once: true });
-      Promise.resolve(player.seek(Math.max(0, Math.round(ms)))).catch(() => {});
+      controls.seek(ms);
     });
   }
 
   // Each part of the viewer's state is restored on its own, whatever the
   // others do. A line played on stays where it ended.
-  function restore(player, video, saved, seekBack) {
+  function restore(controls, saved, seekBack) {
     const steps = [
-      () => pause(player, video),
-      () => { if (seekBack) Promise.resolve(player.seek(Math.max(0, Math.round(saved.positionMs)))).catch(() => {}); },
-      () => { video.playbackRate = saved.rate; },
-      () => { if (!saved.paused) play(player, video).catch(() => {}); },
+      () => controls.pause(),
+      () => { if (seekBack) controls.seek(saved.positionMs); },
+      () => controls.setRate(saved.rate),
+      () => { if (!saved.paused) controls.play().catch(() => {}); },
     ];
     for (const step of steps) {
       try {
@@ -267,12 +463,20 @@
   }
 
   // (wall-clock ms, media ms) pairs while the video plays forward, until media
-  // time `to`; a replay that has not got there by `deadline` failed.
-  function sample(video, to, deadline) {
+  // time `to`; a replay that has not got there by `deadline`, or that its
+  // site interrupts, failed.
+  function sample(controls, to, deadline) {
+    const { video } = controls;
     return new Promise((resolve, reject) => {
       const anchors = [];
       let previous = null;
       const timer = setInterval(() => {
+        const interruption = controls.interrupted();
+        if (interruption !== null) {
+          clearInterval(timer);
+          reject(Object.assign(new Error(interruption), { code: interruption }));
+          return;
+        }
         const media = video.currentTime * 1000;
         if (!video.paused && !video.seeking && previous !== null && media > previous) anchors.push([wallClock(), media]);
         previous = media;
@@ -295,47 +499,60 @@
   // it plays from where the video stands, without seeking, and stays at the
   // clip's end: the reader has heard the rest of the line already.
   async function replay({ id, startMs, endMs, padMs, keepPaused, playOn }) {
-    const player = netflixPlayer();
-    const video = mainVideo();
-    if (player === null || video === null || replaying) {
-      post({ kind: "replay", id, ok: false, error: replaying ? "busy" : "player" });
+    const target = replayTarget();
+    if (target.error !== undefined || replaying) {
+      post({ kind: "replay", id, ok: false, error: replaying ? "busy" : target.error });
       return;
     }
+    const { controls } = target;
+    const { video } = controls;
     replaying = true;
-    const saved = { positionMs: currentPosition(player, video), paused: video.paused || keepPaused === true,
-      rate: video.playbackRate };
+    const saved = { positionMs: controls.position(), paused: video.paused || keepPaused === true, rate: controls.rate() };
     const from = Math.max(0, startMs - padMs);
     const to = endMs + padMs;
     let reply;
     try {
-      video.playbackRate = 1;
+      controls.setRate(1);
       if (playOn !== true) {
-        const landed = await seek(player, video, from);
-        if (landed > from + 50 && from > 0) await seek(player, video, from - PREROLL_MS);
+        const landed = await seek(controls, from);
+        if (landed > from + 50 && from > 0) await seek(controls, from - PREROLL_MS);
       }
-      await play(player, video);
-      const anchors = await sample(video, to, wallClock() + (to - from) + REPLAY_SLACK_MS);
+      await controls.play();
+      const anchors = await sample(controls, to, wallClock() + (to - from) + REPLAY_SLACK_MS);
       reply = { kind: "replay", id, ok: true, anchors };
     } catch (error) {
       reply = { kind: "replay", id, ok: false, error: error?.code ?? "replay" };
     } finally {
-      restore(player, video, saved, playOn !== true);
+      restore(controls, saved, playOn !== true);
       replaying = false;
     }
     post(reply);
   }
 
+  // The controls hover pause uses: on Netflix's watch page, its player session,
+  // or the watch video's native media methods when the session's metadata is
+  // unavailable, since hover needs only play/pause, not the private seek API
+  // replay requires; on YouTube, its player's.
+  function hoverControls() {
+    if (YOUTUBE) {
+      const video = youtubeVideo();
+      return video === null ? null : youtubeControls(youtubePlayer(), video);
+    }
+    const video = netflixVideo();
+    if (video === null || !WATCH_PATH.test(location.pathname)) return null;
+    return netflixControls(netflixPlayer() ?? video, video);
+  }
+
   // Hovering a subtitle pauses and resumes through the player like the replay,
   // which owns the player until it has restored the viewer's state.
   function pauseOrResume(type) {
-    const player = netflixPlayer();
-    const video = mainVideo();
-    if (replaying || player === null || video === null) return;
+    const controls = replaying ? null : hoverControls();
+    if (controls === null) return;
     try {
-      if (type === "pause") pause(player, video);
-      else play(player, video).catch(() => {});
+      if (type === "pause") controls.pause();
+      else controls.play().catch(() => {});
     } catch {
-      // Netflix's player stays as it was.
+      // The site's player stays as it was.
     }
   }
 
@@ -348,11 +565,25 @@
     }
     if (command?.type === "resend" && typeof command.movieId === "string") {
       for (const message of posted.get(command.movieId)?.values() ?? []) post(message);
+    } else if (YOUTUBE && command?.type === "state") {
+      // YouTube's reader asks which video the player plays as it starts.
+      report(true);
     } else if (command?.type === "replay" && typeof command.id === "string"
         && [command.startMs, command.endMs, command.padMs].every(Number.isFinite) && command.startMs <= command.endMs) {
       void replay(command);
     } else if (command?.type === "pause" || command?.type === "resume") {
       pauseOrResume(command.type);
+    } else if (!YOUTUBE && command?.type === "language" && typeof command.language === "string"
+        && /^[a-z]{2,3}$/u.test(command.language) && command.language !== subtitleLanguage) {
+      // The reader reads another language: the kept manifests' tracks of it
+      // are posted instead (docs/languages.md 8.5).
+      subtitleLanguage = command.language;
+      // A copy: readTracks() → retain() deletes the other movies' manifests
+      // while the loop runs, and each kept manifest is posted again.
+      for (const [movieId, textTracks] of [...manifests]) { // NOSONAR: the copy is needed, see above
+        posted.set(movieId, new Map());
+        readTracks({ movieId, textTracks });
+      }
     }
   });
 }());

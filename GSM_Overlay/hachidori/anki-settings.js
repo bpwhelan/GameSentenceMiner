@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiAvailability } from "./anki.js";
 import { ankiSetupFamily } from "./anki-setup.js";
-import { ANKI_TEMPLATE_MARKER_OPTIONS, ankiFieldNames, ankiMappedFieldNames, ankiTemplateErrors, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
+import { ANKI_MARKER_REQUIREMENTS, ANKI_TEMPLATE_MARKER_OPTIONS, ankiFieldNames, ankiMappedFieldNames, ankiTemplateErrors, applyAnkiPreset, resolveAnkiTemplates } from "./anki-templates.js";
 import { reorderSettingsRows, setStatusOutput } from "./settings-dom.js";
 
 function setAttributeIfChanged(element, name, value) {
@@ -324,16 +324,39 @@ export function createAnkiSettingsController({
   send,
   capabilities = { screenshot: true },
   readOwnerKey = () => "",
-  // The stored experimental flags: a feature's markers are listed only while it is on.
+  // The stored experimental flags: a feature's markers are listed only while one of its flags is on.
   readExperimental = () => ({}),
+  // The edited profile `{ id, language, packSettings }`, or null: every marker,
+  // family and suggestion, as for Japanese.
+  readProfile = () => null,
 }) {
-  const { ANKI_FIELDS, ANKI_OVERWRITE_MODES, normaliseAnkiConnectUrl } = document.defaultView.HDReaderOptions;
+  const { ANKI_FIELDS, ANKI_OVERWRITE_MODES, normaliseAnkiConnectUrl, optionRequirementMet } = document.defaultView.HDReaderOptions;
+  // docs/languages.md 12: markers the edited profile's language lacks are not
+  // offered, note-type families (Kiku, Lapis, Senren) run only where its pack
+  // lists them, as their controls' data-requires says, and its pack's field
+  // aliases join the automatic suggestions.
+  const requirementMet = requirement => {
+    const profile = readProfile();
+    return profile === null || optionRequirementMet(requirement, profile.language, profile.packSettings);
+  };
+  const markerAvailable = marker => ANKI_MARKER_REQUIREMENTS[marker] === undefined
+    || requirementMet(ANKI_MARKER_REQUIREMENTS[marker]);
+  const familiesListed = () => requirementMet("ankiNoteTypeFamilies");
+  const modelFamily = model => (familiesListed() ? ankiSetupFamily(model) : null);
+  const fieldAliases = () => {
+    const profile = readProfile();
+    const aliases = profile === null ? null : document.defaultView.HDLanguages?.get?.(profile.language)?.host?.anki?.fieldAliases;
+    return aliases && typeof aliases === "object" && !Array.isArray(aliases) ? aliases : {};
+  };
+  // A language without families applies Automatic suggestions, whatever its hidden select holds.
+  const chosenPreset = () => (familiesListed() ? element("anki-preset").value : "automatic");
   const element = id => document.getElementById(id);
   const selects = new WeakMap();
   let discovery = null;
   let discoveryKey = null;
   let pendingPreset = null;
   let presetModel = null;
+  let presetFamilies = null;
   let requestSequence = 0;
   let requestedKey = null;
   let loading = false;
@@ -408,7 +431,8 @@ export function createAnkiSettingsController({
     const id = `opt-anki-template-${++nextTemplateId}`;
     let record;
     const combobox = createMarkerCombobox(document, id, field, value => editTemplate(record.field, { value }),
-      marker => !marker.experimental || readExperimental()[marker.experimental] === true);
+      marker => (!marker.experimental || marker.experimental.some(flag => readExperimental()[flag] === true))
+        && markerAvailable(marker.marker));
     const editor = combobox.editor;
     row.querySelector(".anki-template-mode").before(combobox.root);
     label.htmlFor = editor.id;
@@ -562,10 +586,10 @@ export function createAnkiSettingsController({
     if (element("anki-refresh").disabled !== loading) element("anki-refresh").disabled = loading;
   }
 
-  function setupStatus(message, tone) {
+  function setupStatus(message, tone, error = null) {
     const status = element("anki-setup-status");
     status.hidden = message === "";
-    setStatusOutput(status, message, tone);
+    setStatusOutput(status, message, tone, error);
   }
 
   function syncOwner() {
@@ -612,7 +636,7 @@ export function createAnkiSettingsController({
       }
     } catch (error) {
       if (sequence !== setupRequestSequence || requestOwner !== String(readOwnerKey() ?? "")) return;
-      setupStatus(error.message, "error");
+      setupStatus(error.message, "error", error);
     } finally {
       if (sequence === setupRequestSequence && requestOwner === String(readOwnerKey() ?? "")) {
         findingSetup = false;
@@ -641,7 +665,7 @@ export function createAnkiSettingsController({
         pendingPreset = null;
         const current = readConfig();
         if (current.fieldTemplates === null && JSON.stringify(current.fields) === preset.fields) {
-          editConfig(applyAnkiPreset(current, reply.fields, preset.family));
+          editConfig(applyAnkiPreset(current, reply.fields, preset.family, fieldAliases()));
         }
       }
     } catch (error) {
@@ -684,14 +708,15 @@ export function createAnkiSettingsController({
       setupStatus("");
     }
     if (pendingPreset && (pendingPreset.key !== connectionKey(config) || pendingPreset.owner !== ownerKey)) pendingPreset = null;
-    if (presetModel !== config.model) {
+    if (presetModel !== config.model || presetFamilies !== familiesListed()) {
       presetModel = config.model;
-      element("anki-preset").value = ankiSetupFamily(config.model) || "automatic";
+      presetFamilies = familiesListed();
+      element("anki-preset").value = modelFamily(config.model) || "automatic";
     }
     const models = discovery?.models || [];
-    const suggestedModel = ankiSetupFamily(config.model)
+    const suggestedModel = modelFamily(config.model)
       ? config.model
-      : models.find(model => ankiSetupFamily(model)) || "";
+      : models.find(model => modelFamily(model)) || "";
     const modelLabels = {};
     if (discoveryKey === connectionKey(config) && discovery?.connected && discovery.model === config.model
         && models.includes(config.model)) {
@@ -721,7 +746,7 @@ export function createAnkiSettingsController({
     if (event.target.value === readConfig().model) return;
     const next = { ...readConfig(), model: event.target.value,
       fields: Object.fromEntries(ANKI_FIELDS.map(key => [key, ""])), fieldTemplates: null };
-    const family = ankiSetupFamily(next.model);
+    const family = modelFamily(next.model);
     pendingPreset = family
       ? { family, key: connectionKey(next), fields: JSON.stringify(next.fields), owner: ownerKey }
       : null;
@@ -763,7 +788,7 @@ export function createAnkiSettingsController({
   });
   element("anki-apply-preset").addEventListener("click", () => {
     pendingPreset = null;
-    editConfig(applyAnkiPreset(readConfig(), currentFields(), element("anki-preset").value));
+    editConfig(applyAnkiPreset(readConfig(), currentFields(), chosenPreset(), fieldAliases()));
     render();
   });
   return { render, refresh };
@@ -778,6 +803,7 @@ export function createAnkiTemplateSettingsController({
   capabilities = { screenshot: true },
   createId = () => document.defaultView.crypto.randomUUID(),
   readExperimental = () => ({}),
+  readProfile = () => null,
 }) {
   const {
     ANKI_TEMPLATE_CONFIG_KEYS,
@@ -829,6 +855,7 @@ export function createAnkiTemplateSettingsController({
     capabilities,
     readOwnerKey: () => selected().template.id,
     readExperimental,
+    readProfile,
   });
 
   function uniqueId() {

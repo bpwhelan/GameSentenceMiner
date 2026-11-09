@@ -306,9 +306,9 @@ def get_windows_speech_cache_dir(cache_dir: str | os.PathLike[str] | None = None
     if configured_cache:
         return Path(configured_cache).expanduser()
 
-    from GameSentenceMiner.util.data_directory import resolve_data_directory
+    from GameSentenceMiner.util.data_directory import get_shared_app_directory
 
-    return Path(resolve_data_directory()) / "windows-speech"
+    return Path(get_shared_app_directory()) / "windows-speech"
 
 
 def _bundle_root_candidates(root: Path) -> list[Path]:

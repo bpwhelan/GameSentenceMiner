@@ -1,4 +1,38 @@
 {
+  "gameLauncher": {
+    "title": "Game launching",
+    "launch": "Launch game",
+    "working": "Working…",
+    "options": "Launch options",
+    "help": "GSM remembers the executable from the OBS-captured game when possible. You can also choose it manually. Launch options are saved for this game.",
+    "executablePath": "Game executable",
+    "arguments": "Game arguments",
+    "workingDirectory": "Working folder",
+    "gameFolder": "Game folder (default)",
+    "launcherPath": "Custom launcher (optional)",
+    "launcherArguments": "Launcher arguments",
+    "launcherHelp": "Run through an installed launcher such as Special K's SKIF or Locale Emulator. Leave blank to launch the game directly.",
+    "templateHelp": "Use {game} for the game path and {args} for its arguments. Default: \"{game}\" {args}. For LEProc: -run \"{game}\" {args}. Keep {args} as a separate argument. Shell commands and environment variables are not expanded.",
+    "browse": "Browse",
+    "browseField": "Browse: {field}",
+    "detect": "Detect from running game",
+    "notDetected": "Could not find a unique executable for this capture. Run the game and try again, or use Browse.",
+    "chooseExecutable": "Choose the game executable below, then save or launch.",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Launch options saved.",
+    "launched": "Launch request sent.",
+    "errors": {
+      "unsupported": "Game launching is available on Windows only.",
+      "invalidScene": "Select a game first.",
+      "missingExecutable": "Choose an existing game executable.",
+      "missingLauncher": "Choose an existing launcher executable.",
+      "invalidWorkingDirectory": "Choose an existing working folder.",
+      "invalidArguments": "Check the launch arguments. Use {args} as a separate argument in the launcher template.",
+      "busy": "A launch request is already in progress for this game.",
+      "failed": "Could not complete the launch request. {error}"
+    }
+  },
   "gamePrivileges": {
     "title": "{game} is running as administrator",
     "description": "GSM is running without administrator privileges. This difference may interfere with OBS capture, text hooking, the overlay, or hotkeys. Restarting GSM as administrator is recommended.",
@@ -2121,7 +2155,9 @@
       "removeRepeatedLinesDesc": "ABCDABCDABCD → ABCD",
       "removeControlChars": "Remove Control Characters",
       "removeControlCharsDesc": "Strip ASCII control characters (except newline/tab)",
-      "removeNonJapanese": "Remove Non-Japanese Characters",
+      "languageFilter": "Target Language Filter",
+      "languageFilterDesc": "Filter captured text using your target language's writing system",
+      "removeNonJapanese": "Remove Non-Shift-JIS Characters",
       "removeNonJapaneseDesc": "Filter out characters not in the Shift-JIS character set",
       "removeNewlines": "Remove Newlines",
       "removeNewlinesDesc": "Remove line breaks without adding spaces",
@@ -2139,6 +2175,16 @@
       "extractLinesDesc": "Keep only a specified number of lines from the text",
       "unicodeNormalize": "Unicode Normalization",
       "unicodeNormalizeDesc": "Normalize full-width/half-width characters (NFKC, NFC, etc.)"
+    },
+    "languageFilter": {
+      "mode": "Filter strength",
+      "blocks": "1. Filter blocks",
+      "trim": "2. Filter blocks and trim edges",
+      "strict": "3. Keep matching characters only",
+      "blocksDescription": "Treat each line in an event as a block. Remove blocks with no target-language characters; keep mixed blocks intact. Events with no matches become empty.",
+      "trimDescription": "Filter blocks, then remove non-target-language prefixes and suffixes from each remaining block. Keep mixed text inside and adjacent sentence punctuation.",
+      "strictDescription": "Replace every nonmatching character with an empty string, including spaces, numbers, and punctuation.",
+      "targetHint": "Uses the target language in Settings. Matches writing systems, so languages sharing an alphabet cannot be separated. Place this before Remove Newlines to preserve block boundaries."
     },
     "config": {
       "repeatCount": "Repeat count:",

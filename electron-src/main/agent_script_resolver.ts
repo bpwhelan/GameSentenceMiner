@@ -13,6 +13,7 @@ const SWITCH_EMULATOR_HINTS = [
     "suyu",
     "ryujinx",
     "eden",
+    "lichii",
     "citron",
     "sudachi",
     "torzu",

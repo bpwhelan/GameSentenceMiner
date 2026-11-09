@@ -2,7 +2,9 @@
 import { selectExtensionApi } from "./browser-api.js";
 import { createAudioPlayer } from "./audio-player.js";
 import { createAudioRepository, selectedAudioPlan } from "./audio-repository.js";
+import { pronunciationLanguage } from "./audio-sources.js";
 
+// Settings' Test plays its profile's sample entry; Japanese plays this.
 const TEST_TERM = { expression: "聞く", reading: "きく" };
 // Matches the reference Settings Test deadline; ordinary dictionary work never
 // waits on this timer or the pronunciation's network/audio callbacks.
@@ -41,12 +43,12 @@ export function createAudioService(window, repository = createAudioRepository({ 
       ({ voiceURI, name, lang, localService, default: isDefault }));
   }
 
-  async function candidateGroups(sources, term, signal) {
+  async function candidateGroups(sources, term, signal, language) {
     const groups = [];
     for (const source of sources) {
       const group = { sourceId: source.id, sourceKey: JSON.stringify(source), type: source.type };
       try {
-        group.candidates = await repository.candidates(source, term, signal);
+        group.candidates = await repository.candidates(source, term, signal, language); // NOSONAR: sources are asked one at a time, in order
       } catch (error) {
         signal.throwIfAborted();
         group.error = error.message;
@@ -84,14 +86,17 @@ export function createAudioService(window, repository = createAudioRepository({ 
       remaining = Math.max(0, remaining - (window.performance.now() - armedAt));
     }
     resumeDeadline();
+    // The worker names the language of the request's profile (docs/languages.md 13).
+    const language = pronunciationLanguage(message.language);
     try {
-      if (isTest) return await player.play(message.source, TEST_TERM);
+      if (isTest) return await player.play(message.source, message.term ?? TEST_TERM, { language });
       const { signal } = operation.controller;
-      if (message.type === "hd_audio_candidates") return await candidateGroups(message.sources, message.term, signal);
+      if (message.type === "hd_audio_candidates") return await candidateGroups(message.sources, message.term, signal, language);
       const plan = message.selection
-        ? await selectedAudioPlan(repository, message.sources, message.term, message.selection, signal) : { sources: message.sources };
+        ? await selectedAudioPlan(repository, message.sources, message.term, message.selection, signal, language)
+        : { sources: message.sources };
       signal.throwIfAborted();
-      const played = await player.playSources(plan.sources, message.term, { candidate: plan.candidate,
+      const played = await player.playSources(plan.sources, message.term, { candidate: plan.candidate, language,
         onResolving: resumeDeadline,
         onPlaying(value) {
           if (active !== operation) return;

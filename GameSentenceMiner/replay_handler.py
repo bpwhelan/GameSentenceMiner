@@ -149,6 +149,33 @@ class DialogueReplayRefreshResult:
     audio_result: ReplayAudioResult
 
 
+@dataclass
+class SessionReviewReplayRequest:
+    targets: list
+    future: Future
+    remove_video: bool
+
+
+def request_session_review_replay(targets) -> Future:
+    """Capture optional future context without starting another Anki update."""
+    request = SessionReviewReplayRequest(list(targets), Future(), get_config().paths.remove_video)
+    return _queue_replay_request(request)
+
+
+def _queue_replay_request(request):
+    try:
+        anki.card_queue.append(request)
+        obs.save_replay_buffer()
+    except Exception as exc:  # noqa: BLE001 - Deliver OBS/queue failures to the requesting worker.
+        try:
+            anki.card_queue.remove(request)
+        except ValueError:
+            pass
+        if not request.future.done():
+            request.future.set_exception(exc)
+    return request.future
+
+
 def request_dialogue_replay_refresh(
     *, selected_lines, mined_line, full_text: str, timing_context: AnkiCardTimingContext | None
 ) -> Future:
@@ -162,20 +189,7 @@ def request_dialogue_replay_refresh(
         timing_context=timing_context,
         future=future,
     )
-    try:
-        anki.card_queue.append(request)
-    except Exception as exc:
-        future.set_exception(exc)
-        return future
-    try:
-        obs.save_replay_buffer()
-    except Exception as exc:
-        try:
-            anki.card_queue.remove(request)
-        except ValueError:
-            pass
-        future.set_exception(exc)
-    return future
+    return _queue_replay_request(request)
 
 
 _REPLAY_JOB_UNCLAIMED = object()
@@ -401,6 +415,23 @@ class ReplayAudioExtractor:
 
         if isinstance(queued_job, DialogueReplayRefreshRequest):
             self._process_dialogue_replay_refresh(video_path, queued_job)
+            return
+
+        if isinstance(queued_job, SessionReviewReplayRequest):
+            from GameSentenceMiner import session_review_context
+
+            try:
+                session_review_context.capture_replay(video_path, queued_job.targets)
+                queued_job.future.set_result(None)
+            except Exception as exc:  # noqa: BLE001 - Optional capture must not interrupt normal mining.
+                if not queued_job.future.done():
+                    queued_job.future.set_exception(exc)
+            finally:
+                if queued_job.remove_video:
+                    try:
+                        os.remove(video_path)
+                    except OSError:
+                        logger.exception("Could not remove the extra session review replay.")
             return
 
         context = ReplayProcessingContext(video_path=video_path)
@@ -922,6 +953,8 @@ class ReplayFileWatcher(FileSystemEventHandler):
             logger.info(f"MKV {event.src_path} FOUND, RUNNING LOGIC")
             queued_job = self._extractor.claim_replay_job()
             executor = (
-                self._refresh_executor if isinstance(queued_job, DialogueReplayRefreshRequest) else self._executor
+                self._refresh_executor
+                if isinstance(queued_job, (DialogueReplayRefreshRequest, SessionReviewReplayRequest))
+                else self._executor
             )
             executor.submit(self._process_created_replay, event.src_path, queued_job)

@@ -18,11 +18,25 @@ function encodeValue(value) {
   return encodeURIComponent(value).replace(/[!'()*]/gu, char => `%${char.codePointAt(0).toString(16).toUpperCase()}`);
 }
 
-export function audioSourceUrl(template, { expression, reading }) {
+// `language` fills {language}: the pack's `host.audioLanguage` of the profile
+// a pronunciation is for (docs/languages.md 13), Japanese's `ja` without one.
+export function audioSourceUrl(template, { expression, reading }, language = "ja") {
   httpUrl(template);
   const encodedTerm = encodeValue(expression);
-  const values = { term: encodedTerm, expression: encodedTerm, reading: encodeValue(reading), language: "ja" };
+  const values = { term: encodedTerm, expression: encodedTerm, reading: encodeValue(reading), language: encodeValue(language) };
   return httpUrl(template.replace(/\{([^{}]*)\}/gu, (match, key) => Object.hasOwn(values, key) ? values[key] : match));
+}
+
+/**
+ * The speech and URL languages of a profile's pack (docs/languages.md 13), for
+ * a pronunciation request that names its profile's language; null for one
+ * that names none, which keeps today's Japanese.
+ * @param {string | undefined} code the profile's language
+ * @returns {{ code: string, name: string, speech: string, url: string } | null}
+ */
+export function pronunciationLanguage(code) {
+  const pack = typeof code === "string" ? globalThis.HDLanguages?.get?.(code) ?? null : null;
+  return pack === null ? null : { code, name: pack.name, speech: pack.host.ttsLanguage, url: pack.host.audioLanguage };
 }
 
 export function parseAudioSourceList(value) {

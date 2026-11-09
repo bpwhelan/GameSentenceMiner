@@ -39,7 +39,7 @@ export function createBackupSettingsController({
       status(message, "");
       await operation();
     } catch (error) {
-      status(error.message || String(error), "error");
+      status(error.message || String(error), "error", false, error);
     } finally {
       busy = false;
       setBusy(false);
@@ -133,6 +133,26 @@ export function createBackupSettingsController({
     }
   }
 
+  // A backup with languages, or a restore that removes some, names them
+  // (docs/languages.md 17.2, 17.6). The lines exist only while there are any.
+  function renderLanguageNotes(notes) {
+    let container = element("backup-language-notes");
+    if (!Array.isArray(notes) || notes.length === 0) {
+      container?.remove();
+      return;
+    }
+    if (container === null) {
+      container = document.createElement("div");
+      container.id = "backup-language-notes";
+      element("backup-count").closest("p").after(container);
+    }
+    container.replaceChildren(...notes.map(note => {
+      const line = document.createElement("p");
+      line.textContent = note;
+      return line;
+    }));
+  }
+
   function showPrepared(reply, label) {
     prepared = reply;
     element("backup-confirm").checked = false;
@@ -141,6 +161,7 @@ export function createBackupSettingsController({
     created.dateTime = reply.createdAt;
     created.textContent = new Date(reply.createdAt).toLocaleString();
     element("backup-count").textContent = `${reply.dictionaries.length} dictionaries · ${reply.customEntryCount} personal entries`;
+    renderLanguageNotes(reply.languageNotes);
     const list = document.createDocumentFragment();
     for (const dictionary of reply.dictionaries) {
       const item = document.createElement("li");

@@ -22,6 +22,19 @@
         "run_function": "함수 실행"
       },
       "tabs": {
+        "session_review": {
+          "title": "세션 후 검토",
+          "description": "중단 없이 카드를 만드세요. GSM은 플레이 중 카드를 업데이트하고 게임 종료 후 편집할 리플레이, 오디오, 스크린샷 및 대사를 보관합니다. 미검토 카드는 재시작 후에도 유지됩니다.",
+          "enabled": "세션 후 Anki 카드 검토",
+          "open_on_game_close": "게임 종료 시 검토 창 열기",
+          "auto_advance": "저장 후 다음 카드 선택",
+          "delete_local_after_review": "검토 완료 후 보관 파일 삭제",
+          "cleanup_anki_media": "Anki에서 교체된 미디어 삭제",
+          "seconds_suffix": "초",
+          "delay_seconds": "게임 종료 후 대기 시간",
+          "review_now": "대기 중인 카드 검토",
+          "storage_note": "리플레이는 검토할 때까지 디스크 공간을 사용합니다. 창을 닫아도 미검토 카드는 유지됩니다. 변경 사항을 저장하려면 Anki가 실행 중이어야 합니다."
+        },
         "key_settings": {
           "title": "주요 설정",
           "description": "빠른 설정을 위한 간소화된 설정 인터페이스입니다.",
@@ -199,6 +212,18 @@
           "enabled": {
             "label": "활성화:",
             "tooltip": "Anki 연동을 활성화하거나 비활성화합니다."
+          },
+          "confirmation_enabled": {
+            "label": "사용",
+            "tooltip": "Anki 카드 업데이트를 가능한 한 빨리 확인하거나 세션이 끝난 후 검토합니다."
+          },
+          "confirmation_immediate": {
+            "label": "가능한 한 빨리",
+            "tooltip": "GSM이 각 카드를 업데이트하기 전에 확인합니다."
+          },
+          "confirmation_after_session": {
+            "label": "세션 종료 후",
+            "tooltip": "플레이 중에 카드를 저장하고 게임을 종료한 후 검토합니다. 즉시 확인과 카운트다운을 건너뜁니다."
           },
           "show_update_confirmation_dialog": {
             "label": "업데이트 확인 대화상자 표시:",
@@ -830,6 +855,20 @@
           "openai_apikey": {
             "label": "OpenAI API 키:",
             "tooltip": "OpenAI 제공업체의 API 키입니다."
+          },
+          "openai_reasoning_effort": {
+            "label": "추론 수준",
+            "tooltip": "모델 기본값은 제공업체가 선택하도록 합니다. 없음은 추론을 비활성화합니다. 수준을 높이면 응답 시간과 토큰 사용량이 늘어날 수 있습니다. 기본 모델과 백업 모델 모두에 적용되며 지원하는 수준은 모델에 따라 다릅니다.",
+            "options": {
+              "default": "모델 기본값",
+              "none": "없음 (비활성화)",
+              "minimal": "최소",
+              "low": "낮음",
+              "medium": "중간",
+              "high": "높음",
+              "xhigh": "매우 높음",
+              "max": "최대"
+            }
           },
           "openai_url": {
             "label": "OpenAI API URL:",

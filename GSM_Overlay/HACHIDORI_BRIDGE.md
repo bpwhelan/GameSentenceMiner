@@ -39,7 +39,7 @@ The configured GSM buttons and keyboard equivalents work for both readers:
 
 - Character/token navigation looks up the selected DOM text directly, including ruby base text.
 - Next/previous entry operates on the deepest visible popup.
-- The right stick scrolls vertically and selects entry actions horizontally. Confirm activates the selected action, with disabled/busy controls blocking repeated submissions.
+- The right stick scrolls vertically and selects entry actions horizontally. Confirm activates the selected action, with disabled/busy controls blocking repeated submissions. Pending Anki checks are unavailable to controller selection, including the clickable checking spinners in Hachidori 0.4 and later; a completed check promotes the ready mining action automatically.
 - Mine, audio, history, and entry commands use Hachidori's native controllers.
 - Moving above the first entry selects the Jiten grading row when enabled. Moving down returns to the first entry. GSM owns all Jiten credentials and API calls.
 - Cancel closes the popup and cancels pending lookups. The navigation mode remains active.
@@ -134,7 +134,7 @@ node GSM_Overlay/tests/run-gamepad-electron-smoke.cjs
 node GSM_Overlay/tests/run-jiten-electron-smoke.cjs
 ```
 
-The Hachidori smoke test loads its actual content scripts and renderer in Chromium's extension isolation, with fixture dictionary/audio/Anki services in a temporary profile. Its gamepad configuration comes from the production main-process reader selection, settings payload builder, and renderer configuration functions. It checks navigation of a mouse-opened popup, ruby targeting, mining once, nested entry routing, parent restoration, grading, audio, scrolling, hover ownership, and cancellation of late lookups. It makes no real Anki submissions or Jiten requests. Physical controller hardware remains a manual check.
+The Hachidori smoke test loads its actual content scripts and renderer in Chromium's extension isolation, with fixture dictionary/audio/Anki services in a temporary profile. A test-only debugger helper exposes the actual closed popup shadow root to DOM assertions without changing upstream's root creation. Its gamepad configuration comes from the production main-process reader selection, settings payload builder, and renderer configuration functions. It checks navigation of a mouse-opened popup, ruby targeting, mining once, nested entry routing, parent restoration, grading, audio, scrolling, hover ownership, and cancellation of late lookups. It makes no real Anki submissions or Jiten requests. Physical controller hardware remains a manual check.
 
 The persistence test starts the production overlay and real WASM engine in a
 temporary profile. It requires one engine per startup, imports two dictionaries,

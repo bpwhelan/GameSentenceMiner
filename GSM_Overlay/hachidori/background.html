@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<!--
+  Firefox's background page. Firefox has neither extension service workers nor
+  offscreen documents, so this page runs background.js, the script Chrome runs
+  as its service worker, and holds the engine document in a frame. Only the
+  Firefox build's manifest names this page.
+
+  SPDX-License-Identifier: GPL-3.0-or-later
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hachidori</title>
+    <script type="module" src="background.js"></script>
+    <script type="module" src="event-page.js"></script>
+  </head>
+  <body>
+    <iframe src="offscreen.html" title="Dictionary engine"></iframe>
+  </body>
+</html>

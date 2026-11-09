@@ -4,6 +4,7 @@ import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { BackendProcessError } from './services/managed_python_repair.js';
+import { runBackendWithCrashRecovery } from './services/backend_recovery.js';
 
 function loadRecovery() {
     const parsed = ts.createSourceFile('main.ts', fs.readFileSync('electron-src/main/main.ts', 'utf8'), ts.ScriptTarget.Latest, true);
@@ -13,14 +14,18 @@ function loadRecovery() {
         .map((node) => node.getText(parsed)).join('\n');
     let now = 0;
     const context = vm.createContext({
-        Error, BackendProcessError,
+        Error, BackendProcessError, runBackendWithCrashRecovery,
         console: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
         Date: { now: () => now },
         setTimeout, clearTimeout,
         isQuitting: false,
         isDev: false,
         APP_NAME: 'GameSentenceMiner',
-        STARTUP_REPAIR_WINDOW_MS: 15_000,
+        restartingGSM: false,
+        pyProc: null,
+        intentionalBackendStops: new WeakSet(),
+        updateManager: { anyUpdateInProgress: false },
+        sendGSMCrashNotification: vi.fn(),
         installSessionManager: { getActiveSnapshot: () => null },
         ensureInstallSession: vi.fn(),
         updateInstallStage: vi.fn(),
@@ -116,18 +121,86 @@ describe('startup recovery', () => {
         expect(context.updateGSM).toHaveBeenCalledExactlyOnceWith(true, true);
     });
 
-    it('does not reinstall dependencies for a later crash of an initialized backend', async () => {
+    it.each([500, 60_000])('notifies and restarts an initialized backend after %i ms without repair', async (runtimeMs) => {
         vi.useFakeTimers();
         const { context, advance } = loadRecovery();
-        context.runGSM.mockImplementation(async () => {
-            advance(60_000);
+        context.runGSM.mockImplementationOnce(async () => {
+            advance(runtimeMs);
             throw new BackendProcessError('runtime error', false);
+        });
+        context.runGSM.mockImplementationOnce(async () => {
+            expect(context.sendGSMCrashNotification).toHaveBeenCalledExactlyOnceWith(true);
         });
         const startup = context.ensureAndRunGSM('python').catch(context.handleBackendStartupFailure);
         await vi.runAllTimersAsync();
         await startup;
-        expect(context.runGSM).toHaveBeenCalledOnce();
+        expect(context.runGSM).toHaveBeenCalledTimes(2);
+        expect(context.syncLockedEnvironment).not.toHaveBeenCalled();
+        expect(context.installPackageNoDeps).not.toHaveBeenCalled();
+        expect(context.updateGSM).not.toHaveBeenCalled();
+        expect(context.finishInstallSession).not.toHaveBeenCalled();
+    });
+
+    it('only repairs after a crash restart fails to initialize', async () => {
+        vi.useFakeTimers();
+        const { context } = loadRecovery();
+        context.runGSM
+            .mockRejectedValueOnce(new BackendProcessError('Qt crashed', false))
+            .mockRejectedValueOnce(new BackendProcessError('cannot initialize', true));
+        const startup = context.ensureAndRunGSM('python').catch(context.handleBackendStartupFailure);
+        await vi.runAllTimersAsync();
+        await startup;
+        expect(context.runGSM).toHaveBeenCalledTimes(3);
+        expect(context.sendGSMCrashNotification).toHaveBeenCalledExactlyOnceWith(true);
+        expect(context.syncLockedEnvironment).toHaveBeenCalledOnce();
+        expect(context.updateGSM).not.toHaveBeenCalled();
+    });
+
+    it('stops a rapid runtime crash loop without reinstalling dependencies', async () => {
+        vi.useFakeTimers();
+        const { context } = loadRecovery();
+        context.runGSM.mockRejectedValue(new BackendProcessError('Qt crashed', false));
+        const startup = context.ensureAndRunGSM('python').catch(context.handleBackendStartupFailure);
+        await vi.runAllTimersAsync();
+        await startup;
+        expect(context.runGSM).toHaveBeenCalledTimes(4);
+        expect(context.sendGSMCrashNotification.mock.calls).toEqual([[true], [true], [true], [false]]);
         expect(context.syncLockedEnvironment).not.toHaveBeenCalled();
         expect(context.updateGSM).not.toHaveBeenCalled();
+    });
+
+    it.each(['quit', 'manual restart', 'update', 'replacement backend'])('does not relaunch after %s during the crash restart delay', async (action) => {
+        vi.useFakeTimers();
+        const { context } = loadRecovery();
+        context.runGSM.mockRejectedValueOnce(new BackendProcessError('Qt crashed', false));
+        const startup = context.ensureAndRunGSM('python').catch(context.handleBackendStartupFailure);
+        setTimeout(() => {
+            if (action === 'quit') context.isQuitting = true;
+            if (action === 'manual restart') context.restartingGSM = true;
+            if (action === 'update') context.updateManager.anyUpdateInProgress = true;
+            if (action === 'replacement backend') context.pyProc = {};
+        }, 200);
+        await vi.runAllTimersAsync();
+        await startup;
+        expect(context.runGSM).toHaveBeenCalledOnce();
+        expect(context.syncLockedEnvironment).not.toHaveBeenCalled();
+    });
+
+    it('allows recovery again after a stable runtime outside the crash loop window', async () => {
+        vi.useFakeTimers();
+        const { context } = loadRecovery();
+        let failures = 0;
+        context.runGSM.mockImplementation(async () => {
+            if (failures++ < 5) {
+                vi.setSystemTime(Date.now() + 61_000);
+                throw new BackendProcessError('later crash', false);
+            }
+        });
+        const startup = context.ensureAndRunGSM('python').catch(context.handleBackendStartupFailure);
+        await vi.runAllTimersAsync();
+        await startup;
+        expect(context.runGSM).toHaveBeenCalledTimes(6);
+        expect(context.sendGSMCrashNotification.mock.calls).toEqual(Array(5).fill([true]));
+        expect(context.syncLockedEnvironment).not.toHaveBeenCalled();
     });
 });

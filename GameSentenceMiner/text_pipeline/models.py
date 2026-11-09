@@ -113,8 +113,8 @@ class TextObservation:
     source_sequence: int | None = None
     source_display_name: str = ""
     processed_text: str | None = None
-    revision_window_ms: int = 100
-    merge_fragments: bool = False
+    revision_window_ms: int = 100  # Speech only; other sources arrive complete.
+    merge_fragments: bool = False  # Legacy input flag; never revises non-speech text.
     remove_matching_prefix: bool = False
     copy_to_clipboard: bool = False
     excluded_from_stats: bool = False

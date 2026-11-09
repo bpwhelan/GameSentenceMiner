@@ -10,6 +10,7 @@ function bootstrapHarness(inProcessOverlay: boolean) {
     const runtimeReady = new Promise<string>((resolve) => { finishRuntime = resolve; });
     const ensureDevElectron = vi.fn(() => runtimeReady);
     const importedMain = vi.fn();
+    const configureDataPaths = vi.fn();
     const startupError = vi.fn();
     const registerSchemesAsPrivileged = vi.fn((_schemes: Array<{ scheme: string }>) => {
         if (ready) throw new Error('protocol registration happened after ready');
@@ -49,6 +50,7 @@ function bootstrapHarness(inProcessOverlay: boolean) {
             case './linux_desktop_identity.js': return { configureLinuxDesktopIdentity: vi.fn() };
             case './overlay_runtime_config.js': return { USE_IN_PROCESS_OVERLAY: inProcessOverlay };
             case './data_dir.js': return { getBaseDir: () => 'C:\\GSM-data' };
+            case './profile_bootstrap.js': return { configureDataPaths };
             case './services/logging.js': return { captureRendererDiagnostics: vi.fn(), initializeDesktopLogging: vi.fn() };
             case './services/changelog_protocol.js': return load('services/changelog_protocol.ts');
             case './main.js': importedMain(); return {};
@@ -57,7 +59,7 @@ function bootstrapHarness(inProcessOverlay: boolean) {
     };
     load('bootstrap.ts');
     return {
-        ensureDevElectron, importedMain, startupError, registerSchemesAsPrivileged,
+        ensureDevElectron, importedMain, startupError, registerSchemesAsPrivileged, configureDataPaths,
         finishRuntime: () => { ready = true; finishRuntime('C:\\runtime\\electron.exe'); },
     };
 }
@@ -66,6 +68,9 @@ describe('bootstrap protocol registration', () => {
     it.each([false, true])('registers desktop schemes before delayed dev preparation (in-process overlay: %s)', async (inProcessOverlay) => {
         const harness = bootstrapHarness(inProcessOverlay);
         expect(harness.ensureDevElectron).toHaveBeenCalledOnce();
+        expect(harness.configureDataPaths).toHaveBeenCalledOnce();
+        expect(harness.configureDataPaths.mock.invocationCallOrder[0])
+            .toBeLessThan(harness.ensureDevElectron.mock.invocationCallOrder[0]);
         expect(harness.registerSchemesAsPrivileged).toHaveBeenCalledOnce();
         const schemes = harness.registerSchemesAsPrivileged.mock.calls[0][0];
         expect(schemes).toContainEqual({

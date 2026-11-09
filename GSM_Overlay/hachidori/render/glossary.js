@@ -22,7 +22,7 @@
   if (root) {
     root.HDGlossary = api;
   }
-}(typeof window !== "undefined" ? window : globalThis, function () {
+}(globalThis, function () {
   "use strict";
 
   const MAX_TEXT_LENGTH = 128 * 1024;
@@ -57,6 +57,10 @@
   // in Unicode, and the は row's half-voiced kana follows that (発 はつ, ぱつ).
   const DAKUTEN_KANA = "かきくけこさしすせそたちつてとはひふへほ";
   const HANDAKUTEN_KANA = "はひふへほ";
+  // Modern kana usage writes a voiced ち or つ as じ or ず in a compound no
+  // longer felt as two words (世界中 せかいじゅう, 稲妻 いなずま), as ぢ or づ in
+  // others (鼻血 はなぢ).
+  const ZI_ZU_KANA = { ち: "じ", つ: "ず" };
   // A kun'yomi ending in an u-row kana has its masu-stem in the i row
   // (す.く, すき; きら.う, きらい).
   const U_ROW_KANA = "うくぐすつぬぶむる";
@@ -64,6 +68,9 @@
   // The final kana a sokuon can replace (一 いち, いっ).
   const SOKUON_KANA = "つちくきり";
   const NO_KANJI_READINGS = new Set();
+  const NO_KANJI_COMPOUNDS = [];
+  // readKanwaRun's shares where more than one split reads.
+  const AMBIGUOUS_SPLIT = Symbol("ambiguous split");
   const PITCH_SMALL_KANA = new Set(Array.from(
     "ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ"
   ));
@@ -303,20 +310,89 @@
     return String(typeof positions === "string" ? getDownstepPositions(positions) : positions);
   }
 
-  // Yomitan's getPitchCategory (japanese.js at 67db60d) with its
-  // isNonNounVerbOrAdjective: a pattern's category is its first downstep and
-  // any downstep of a verb or i-adjective is kifuku. The popup and
+  // The endings of the dictionary forms Yomitan's japanese-transforms.js
+  // (d3c54c1) deinflects each class to, with the classical forms dictionaries
+  // give the same classes (聞こゆ, 相語らふ; サ変 期す, ザ変 禁ず). As a
+  // dictionary can give a word the wrong one of two related classes (驚く as
+  // v1), v1, v5 and vk share every verb ending and vs and vz every suru and
+  // zuru ending. An i-adjective ends in い: 講談社 日本語大辞典 gives adj-i to
+  // nouns ending in し (遠回し), so a classical one (遅し) does not count. A
+  // verb or adjective ending also matches in katakana (ムカツク, キツイ), but a
+  // suru one does not: ハッスル (精選版 vs) would end in one.
+  const VERB_ENDING = /[うくぐすずつづぬふぶむゆるウクグスズツヅヌフブムユル]$/u;
+  const SURU_ENDING = new RegExp(`(?:する|為る|ずる|${HAN_CHARACTER_PATTERN.source}[すず])$`, "u");
+  const DICTIONARY_FORM_ENDINGS = [
+    ["v1", VERB_ENDING], ["v5", VERB_ENDING], ["vk", VERB_ENDING],
+    ["vs", SURU_ENDING], ["vz", SURU_ENDING], ["adj-i", /[いイ]$/u],
+  ];
+
+  // Yomitan's getPitchCategory (japanese.js:367 at d3c54c1) with its
+  // isNonNounVerbOrAdjective (dictionary-data-util.js:320): a pattern's
+  // category is its first downstep and any downstep of a verb or i-adjective is
+  // kifuku. Unlike Yomitan, a word class counts only where the term's
+  // expression ends as that class's dictionary form does, because some
+  // dictionaries tag nouns and na-adjectives with one (自由, #608). This only
+  // takes kifuku away. Also unlike Yomitan, a pattern that rises again after
+  // its first downstep has no category (#596). Within one accent phrase the
+  // pitch never rises after it falls, so such a pattern is not one phrase: it
+  // has several and does not say where the next one starts, 二十四時間
+  // に＼じゅう・よじ＼かん (atamadaka, then nakadaka) and 十人十色 じゅ＼うにん・と＼いろ
+  // (atamadaka twice) both being HLLLHLL, or it is a pitch no group describes.
+  // A kana term is written as its reading. The popup and
   // {pitch-accent-categories} share it.
-  function pitchAccentCategory(reading, pitch, wordClasses = []) {
-    const classes = new Set(wordClasses);
-    const inflected = ["v1", "v5", "vk", "vs", "vz", "adj-i"].some(rule => classes.has(rule))
-      && !(classes.has("vs") && classes.has("n"));
+  function pitchAccentCategory(reading, pitch, wordClasses = [], expression = reading) {
     const position = Number(pitchAccentDownstep(pitch).split(",")[0]);
     if (position === 0) return "heiban";
     if (Number.isNaN(position) || position < 0) return null;
-    if (inflected) return "kifuku";
+    const positions = pitchAccentPositions(pitch);
+    if (typeof positions === "string" && positions.includes("H", position)) return null;
+    const classes = new Set(wordClasses);
+    if (!(classes.has("vs") && classes.has("n"))
+      && DICTIONARY_FORM_ENDINGS.some(([rule, ending]) => classes.has(rule) && ending.test(expression))) return "kifuku";
     if (position === 1) return "atamadaka";
     return position >= splitPitchAccentMorae(reading).length ? "odaka" : "nakadaka";
+  }
+
+  // Yomitan's getFrequencyNumbers and getFrequencyHarmonic/-Average
+  // (ext/js/data/anki-note-data-creator.js:178-245 at yomidevs/yomitan@d3c54c1).
+  // A value's number is the leading digits of its display value, else the value
+  // itself, when positive; "312, 19896㋕" is 312 and "14,200" is 14, as there.
+  function frequencyNumber(frequency) {
+    const digits = typeof frequency?.displayValue === "string" ? /^\d+/u.exec(frequency.displayValue) : null;
+    const display = digits ? Number.parseInt(digits[0], 10) : 0;
+    return display > 0 ? display : frequency?.value;
+  }
+
+  // Each dictionary's first value only: one whose first value has no positive
+  // number adds nothing. The groups are already filtered by mode.
+  function frequencyNumbers(groups) {
+    const numbers = [];
+    const seen = new Set();
+    for (const group of groups) {
+      if (seen.has(group.dictionary)) continue;
+      seen.add(group.dictionary);
+      const value = group.frequencies.length > 0 ? frequencyNumber(group.frequencies[0]) : null;
+      if (Number.isFinite(value) && value > 0) numbers.push(value);
+    }
+    return numbers;
+  }
+
+  // Yomitan's mode filter (anki-note-data-creator.js:184): a dictionary counts
+  // for a requested mode unless it declares another one, so one without a mode
+  // counts for every mode. A mode that is neither of Yomitan's two counts as none,
+  // as everywhere else in Hachidori: Yomitan's index schema refuses one.
+  const FREQUENCY_MODES = new Set(["rank-based", "occurrence-based"]);
+  function frequencyModeMatches(frequencyMode, requested) {
+    return !FREQUENCY_MODES.has(frequencyMode) || frequencyMode === requested;
+  }
+
+  // The floored harmonic (or arithmetic) mean; null where Yomitan returns -1.
+  // The popup's averages and the Anki frequency markers share it.
+  function frequencyMean(groups, harmonic = true) {
+    const numbers = frequencyNumbers(groups);
+    if (numbers.length === 0) return null;
+    const total = numbers.reduce((sum, value) => sum + (harmonic ? 1 / value : value), 0);
+    return Math.floor(harmonic ? numbers.length / total : total / numbers.length);
   }
 
   // japanese.js DIACRITIC_MAPPING: the character a dakuten form is built on.
@@ -463,15 +539,16 @@
   // display-generator.js _createPronunciationPitchAccent with templates-display.html
   // "pronunciation": one pitch accent's li.pronunciation. A notation the
   // options hide is not built. data-pronunciation is its `reading [n]` label,
-  // and data-pitch-category its accent group from the term's word classes.
+  // and data-pitch-category its accent group from the term's word classes and
+  // expression.
   function createPronunciationPitchAccent(documentRef, reading, pitch,
-    { text = true, position = true, graph = false, wordClasses = [] } = {}) {
+    { text = true, position = true, graph = false, wordClasses = [], expression = reading } = {}) {
     const positions = pitchAccentPositions(pitch);
     const morae = splitPitchAccentMorae(reading);
     const node = documentRef.createElement("li");
     node.className = "pronunciation";
     node.dataset.pitchAccentDownstepPosition = `${positions}`;
-    const category = pitchAccentCategory(reading, pitch, wordClasses);
+    const category = pitchAccentCategory(reading, pitch, wordClasses, expression);
     if (category) node.dataset.pitchCategory = category;
     node.dataset.pronunciationType = "pitch-accent";
     if (pitch.nasal.length > 0) node.dataset.nasalMoraPosition = pitch.nasal.join(" ");
@@ -572,13 +649,16 @@
   // The ways a kanji can be read inside a word, from its KANJIDIC readings
   // (on'yomi in hiragana, kun'yomi with "." before the okurigana): each
   // reading; a kun'yomi's stem, stem and okurigana, and masu-stem (す.く: す,
-  // すく, すき); each of those with rendaku; and each of all these with a final
-  // つ, ち, く, き or り as っ (いっ, ぱっ).
+  // すく, すき), and its stem with the start of its okurigana, for a word that
+  // leaves the rest unwritten (う.える: うえ, as in 植木 うえき); each of those
+  // with rendaku; and each of all these with a final つ, ち, く, き or り as っ
+  // (いっ, ぱっ).
   function kanjiReadingForms(readings) {
     const forms = new Set();
     for (const reading of readings.split(" ")) {
       const [stem, okurigana = ""] = reading.split(".");
       forms.add(stem).add(stem + okurigana);
+      for (let length = 1; length < okurigana.length; length += 1) forms.add(stem + okurigana.slice(0, length));
       const row = okurigana === "" ? -1 : U_ROW_KANA.indexOf(okurigana.at(-1));
       if (row >= 0) forms.add(stem + okurigana.slice(0, -1) + I_ROW_KANA[row]);
     }
@@ -586,6 +666,7 @@
       const codePoint = form.codePointAt(0);
       if (DAKUTEN_KANA.includes(form[0])) forms.add(String.fromCodePoint(codePoint + 1) + form.slice(1));
       if (HANDAKUTEN_KANA.includes(form[0])) forms.add(String.fromCodePoint(codePoint + 2) + form.slice(1));
+      if (Object.hasOwn(ZI_ZU_KANA, form[0])) forms.add(ZI_ZU_KANA[form[0]] + form.slice(1));
     }
     for (const form of [...forms]) {
       if (SOKUON_KANA.includes(form.at(-1))) forms.add(`${form.slice(0, -1)}っ`);
@@ -593,40 +674,177 @@
     return forms;
   }
 
-  // Each kanji's reading forms over a table of KANJIDIC readings
-  // ({ "好": "こう この.む す.く よ.い い.い", … }), for distributeFurigana. A
+  // Each kanji's reading forms over a table of readings in KANJIDIC's notation
+  // ({ "好": "こう この.む す.く よ.い い.い", … }), for distributeFurigana. With
+  // `base` (another createKanjiReadings), a kanji's forms are base's and those
+  // of its readings in `table`, and a kanji that `table` lacks has base's. A
   // kanji's forms are derived the first time it is asked for.
-  function createKanjiReadings(table) {
+  function createKanjiReadings(table, base = null) {
     const cache = new Map();
     return (character) => {
       let forms = cache.get(character);
       if (forms === undefined) {
-        forms = Object.hasOwn(table, character) ? kanjiReadingForms(table[character]) : NO_KANJI_READINGS;
+        if (!Object.hasOwn(table, character)) forms = base === null ? NO_KANJI_READINGS : base(character);
+        else if (base === null) forms = kanjiReadingForms(table[character]);
+        else forms = new Set([...base(character), ...kanjiReadingForms(table[character])]);
         cache.set(character, forms);
       }
       return forms;
     };
   }
 
-  // Whether a run of kanji reads as `reading`: one form per character, in
-  // order. 々 repeats the kanji before it; a character without readings (a
-  // digit, a letter, 、) never reads.
-  function readsAs(text, reading, kanjiReadings) {
-    // Where in the reading the characters so far can end.
-    let ends = new Set([0]);
+  // The compounds that start each place in a run of characters, over a table
+  // of compound readings ({ "日本": "に|ほん やまと", "今日": "きょう", … }), for
+  // readKanwaRun. A reading is one part over the whole compound (今日 きょう) or
+  // one part per character, "|" between them (日本 に|ほん); each reading keeps
+  // where each character's share starts in it, null for a character after the
+  // first of a compound read as a whole. The compounds that start with a
+  // character are parsed the first time a run starts with it; `starts` tells
+  // whether any does.
+  function createKanjiCompounds(table) {
+    const byFirst = new Map();
+    for (const compound of Object.keys(table)) {
+      const first = String.fromCodePoint(compound.codePointAt(0));
+      const group = byFirst.get(first);
+      if (group === undefined) byFirst.set(first, [compound]);
+      else group.push(compound);
+    }
+    const parsed = new Map();
+    const startingWith = (character) => {
+      let compounds = parsed.get(character);
+      if (compounds === undefined) {
+        compounds = (byFirst.get(character) ?? NO_KANJI_COMPOUNDS)
+          .map((compound) => parseKanjiCompound(compound, table[compound]));
+        parsed.set(character, compounds);
+      }
+      return compounds;
+    };
+    return {
+      starts: (character) => byFirst.has(character),
+      at: (characters, start) => startingWith(characters[start]).filter((compound) =>
+        compound.characters.every((character, index) => characters[start + index] === character)),
+    };
+  }
+
+  // A compound and its readings as createKanjiCompounds keeps them.
+  function parseKanjiCompound(compound, readings) {
+    const characters = Array.from(compound);
+    return { characters, readings: readings.split(" ").map((reading) => {
+      const parts = reading.split("|");
+      let start = 0;
+      const shares = parts.length === 1
+        ? characters.map((_, index) => (index === 0 ? 0 : null))
+        : parts.map((part) => (start += part.length) - part.length);
+      return { reading: parts.join(""), shares };
+    }) };
+  }
+
+  // What Jitendex's kanwa data adds to `kanjiReadings` (createKanjiReadings),
+  // for readKanwaRun (#641), over a table in kanwa-readings.json's shape:
+  // `readings`, the character readings that KANJIDIC lacks (２ ふた, not 日 にち),
+  // and `compounds` (createKanjiCompounds). `adds` tells whether kanwa gives a
+  // character such a reading or names a compound that starts with it.
+  function createKanwaReadings({ readings, compounds }, kanjiReadings) {
+    const known = createKanjiCompounds(compounds);
+    return {
+      kanjiReadings: createKanjiReadings(readings, kanjiReadings),
+      compounds: known.at,
+      adds: (character) => Object.hasOwn(readings, character) || known.starts(character),
+    };
+  }
+
+  // How a run of kanji reads as `reading`: one form per character, in order.
+  // 々 repeats the kanji before it; a character without readings (a digit, a
+  // letter, 、) never reads. Where each character's share of the reading starts,
+  // then the reading's length, when exactly one split reads; an empty list when
+  // more than one does; null when none does.
+  function readKanjiRun(text, reading, kanjiReadings) {
+    // Where the characters so far can end in the reading, each with where the
+    // last one's share starts there, or -1 where more than one split ends there.
+    let ends = new Map([[0, 0]]);
+    const steps = [];
     let forms = NO_KANJI_READINGS;
     for (const character of text) {
       if (character !== "々") forms = kanjiReadings(character);
-      const next = new Set();
-      for (const end of ends) {
+      const next = new Map();
+      for (const [end, start] of ends) {
         for (const form of forms) {
-          if (reading.startsWith(form, end)) next.add(end + form.length);
+          if (!reading.startsWith(form, end)) continue;
+          const shareEnd = end + form.length;
+          next.set(shareEnd, next.has(shareEnd) || start < 0 ? -1 : end);
         }
       }
-      if (next.size === 0) return false;
+      if (next.size === 0) return null;
+      steps.push(next);
       ends = next;
     }
-    return ends.has(reading.length);
+    if (!ends.has(reading.length)) return null;
+    if (ends.get(reading.length) < 0) return [];
+    const bounds = [];
+    bounds[steps.length] = reading.length;
+    for (let index = steps.length - 1; index >= 0; index -= 1) bounds[index] = steps[index].get(bounds[index + 1]);
+    return bounds;
+  }
+
+  // How a run of kanji reads as `reading` by `kanwa` (createKanwaReadings), for
+  // a run that no split reads by KANJIDIC (#641): each character by one of its
+  // forms, as in readKanjiRun, or a known compound by one of its readings, one
+  // part per character (日本 に|ほん) or one over them all (今日 きょう). Of the
+  // splits that read, those that read the most characters by compounds count,
+  // as Jitendex reads a known compound before its characters. readKanjiRun's
+  // result, with null for a character after the first of a compound read as a
+  // whole; null too where kanwa adds no reading or compound to the run.
+  function readKanwaRun(characters, reading, kanwa) {
+    // A run without a character that kanwa adds to reads as it did by KANJIDIC.
+    if (!characters.some(kanwa.adds)) return null;
+    const starting = characters.map((_, index) => kanwa.compounds(characters, index));
+    let forms = NO_KANJI_READINGS;
+    const characterForms = characters.map((character) => {
+      if (character !== "々") forms = kanwa.kanjiReadings(character);
+      return forms;
+    });
+    // The best splits of the characters from `index` over the reading from
+    // `end`: how many characters they read by compounds, and where each
+    // character's share starts in the one such split, or AMBIGUOUS_SPLIT where
+    // they differ. null where none reads.
+    const best = new Map();
+    const read = (index, end) => {
+      if (index === characters.length) return end === reading.length ? { count: 0, shares: [] } : null;
+      const key = index * (reading.length + 1) + end;
+      if (best.has(key)) return best.get(key);
+      let found = null;
+      for (const { characters: { length }, readings } of starting[index]) {
+        for (const { reading: whole, shares } of readings) {
+          if (!reading.startsWith(whole, end)) continue;
+          found = betterSplit(found, length, shares.map((share) => (share === null ? null : end + share)),
+            read(index + length, end + whole.length));
+        }
+      }
+      for (const form of characterForms[index]) {
+        if (reading.startsWith(form, end)) found = betterSplit(found, 0, [end], read(index + 1, end + form.length));
+      }
+      best.set(key, found);
+      return found;
+    };
+    const split = read(0, 0);
+    if (split === null) return null;
+    return split.shares === AMBIGUOUS_SPLIT ? [] : [...split.shares, reading.length];
+  }
+
+  // readKanwaRun's best split so far, `found`, against the one that starts with
+  // `shares` over `count` characters read by compounds and goes on as `rest`.
+  function betterSplit(found, count, shares, rest) {
+    if (rest === null) return found;
+    const split = { count: count + rest.count,
+      shares: rest.shares === AMBIGUOUS_SPLIT ? AMBIGUOUS_SPLIT : [...shares, ...rest.shares] };
+    if (found === null || split.count > found.count) return split;
+    if (split.count < found.count || sameSplit(split.shares, found.shares)) return found;
+    return { count: found.count, shares: AMBIGUOUS_SPLIT };
+  }
+
+  function sameSplit(left, right) {
+    return left !== AMBIGUOUS_SPLIT && right !== AMBIGUOUS_SPLIT && left.length === right.length
+      && left.every((share, index) => share === right[index]);
   }
 
   // With kanjiReadings, a non-kana group takes only a share of the reading
@@ -665,7 +883,7 @@
     let result = null;
     for (let index = reading.length; index >= group.text.length; index -= 1) {
       const segments = kanjiReadings === null
-        || readsAs(group.text, normalizedReading.substring(0, index), kanjiReadings)
+        || readKanjiRun(group.text, normalizedReading.substring(0, index), kanjiReadings) !== null
         ? segmentizeFurigana(
           reading.substring(index),
           normalizedReading.substring(index),
@@ -730,6 +948,50 @@
     return distributeFurigana(expression, reading) ?? [{ text: expression, reading }];
   }
 
+  // A split with each run of two or more kanji read one kanji at a time where
+  // exactly one split of the run's reading reads (readKanjiRun): 二十四時間
+  // にじゅうよじかん is 二(に)十(じゅう)四(よ)時(じ)間(かん). With `kanwa`
+  // (createKanwaReadings), a run that no split reads by `kanjiReadings` is read
+  // again with kanwa's readings and compounds (#641): 日本 にほん is 日(に)本(ほん),
+  // ２人 ふたり is ２(ふた)人(り), and a compound read as a whole keeps one ruby
+  // inside its run (今日中 きょうじゅう is 今日(きょう)中(じゅう)). A run that no split
+  // reads, such as jukujikun that kanwa does not list (景色 けしき), or that more
+  // than one does, keeps one ruby. `segments` itself where no run splits.
+  function splitKanjiRuns(segments, kanjiReadings, kanwa = null) {
+    const split = segments.flatMap((segment) => {
+      const characters = Array.from(segment.text);
+      if (characters.length < 2 || !segment.reading) return [segment];
+      const reading = toHiragana(segment.reading);
+      const bounds = readKanjiRun(characters, reading, kanjiReadings)
+        ?? (kanwa === null ? null : readKanwaRun(characters, reading, kanwa));
+      if (!(bounds?.length > 0)) return [segment];
+      // A segment from each share's start to the next; a compound read as a
+      // whole has no share of its own after its first character.
+      const parts = [];
+      for (let start = 0, end = 1; end <= characters.length; end += 1) {
+        if (bounds[end] === null) continue;
+        parts.push(createFuriganaSegment(end - start === 1 ? characters[start] : characters.slice(start, end).join(""),
+          segment.reading.slice(bounds[start], bounds[end])));
+        start = end;
+      }
+      return parts;
+    });
+    return split.length === segments.length ? segments : split;
+  }
+
+  // The split a headword's kanji readings (createKanjiReadings) give it, or
+  // null where that is its local split (segmentFurigana): where the kana alone
+  // leave more than one split, the one that reads (#459), and each run of
+  // kanji read one kanji at a time (#605), by `kanwa` (createKanwaReadings) as
+  // well where KANJIDIC's readings read none (#641).
+  function kanjiFurigana(expression, reading, kanjiReadings, kanwa = null) {
+    const local = distributeFurigana(expression, reading);
+    const segments = local ?? distributeFurigana(expression, reading, kanjiReadings);
+    if (segments === null) return null;
+    const furigana = splitKanjiRuns(segments, kanjiReadings, kanwa);
+    return furigana === local ? null : furigana;
+  }
+
   // A term's furigana: the engine's split (term.furigana, from the kanji
   // readings) when the term carries one that spells its expression, else the
   // local split. A linked browser's term is untrusted, so a malformed or stale
@@ -742,7 +1004,67 @@
       : segmentFurigana(expression, reading);
   }
 
+  // Yomitan's distributeFuriganaInflected: the furigana of `matched`, the text a
+  // lookup matched for the term. The reading covers the stem shared by the
+  // dictionary form and the matched text; the inflected ending has none. Text
+  // spelled from the reading (いる for 居る, ダメ for 駄目) needs none at all.
+  function matchedFurigana(term, matched) {
+    const { expression, reading } = term;
+    if (matched === expression) return termFurigana(term);
+    const stemLength = (text) => {
+      let length = 0;
+      while (length < text.length && length < matched.length
+        && toHiragana(text[length]) === toHiragana(matched[length])) length += 1;
+      return length;
+    };
+    const stem = stemLength(expression);
+    const readingStem = stemLength(reading);
+    if (readingStem > 0 && readingStem >= stem) return [{ text: matched, reading: "" }];
+    const ending = expression.slice(stem);
+    if (stem === 0 || !reading.endsWith(ending)) return [{ text: matched, reading }];
+    return [...segmentFurigana(expression.slice(0, stem), reading.slice(0, reading.length - ending.length)),
+      { text: matched.slice(stem), reading: "" }];
+  }
+
+  // The headword's pitch over `text`, its reading or its own kana: a row of
+  // morae with a line over high ones and under low ones and a stroke at each
+  // rise and drop, or with the "overline" style the pitch list's own Yomitan
+  // text. Nasal and devoice marks stay in the list: a nasal mark rewrites the
+  // kana. Null when the pitch does not fit the text's morae.
+  function createPitchContour(documentRef, text, { dictionary, pitch }, style, className) {
+    const positions = pitchAccentPositions(pitch);
+    const morae = buildPitchAccentMorae(text, positions);
+    if (!morae) return null;
+    const downstep = pitchAccentDownstep(pitch);
+    const contour = documentRef.createElement("span");
+    contour.className = className;
+    contour.dataset.pitchPosition = downstep;
+    if (dictionary) contour.dataset.pitchDictionary = dictionary;
+    contour.title = [dictionary, `Pitch accent ${downstep}`].filter(Boolean).join(" · ");
+    if (style === "overline") {
+      contour.dataset.pitchStyle = "overline";
+      contour.append(...createPronunciationText(documentRef, morae.map((mora) => mora.text), positions, [], []).children);
+      return contour;
+    }
+    for (const mora of morae) {
+      const span = documentRef.createElement("span");
+      span.className = "gsm-hoshidicts-pitch-mora";
+      span.dataset.pitchLevel = mora.level;
+      if (mora.transition) span.dataset.pitchTransition = mora.transition;
+      span.textContent = mora.text;
+      contour.appendChild(span);
+    }
+    return contour;
+  }
+
   // `furigana` is the term's furigana from the engine, if any (termFurigana).
+  // The pitch is not drawn in the furigana (#606), which stays as it is with the
+  // pitch off, but on the reading after the headword, where Yomitan's "Term
+  // furigana and reading" display puts it. A headword without kanji spelt in
+  // its reading's kana (てくてく, テレビ) carries the pitch on its own kana
+  // instead, with no furigana, as JL marks one. A headword in kanji whose
+  // reading is itself has no reading to show, as in Yomitan
+  // (data-reading-is-same), and no kana to carry the pitch.
   function appendExpressionRuby(
     documentRef,
     parent,
@@ -752,7 +1074,6 @@
     pitchOptions = {},
     furigana = null
   ) {
-    const furiganaSegments = termFurigana({ expression, reading, furigana });
     const appendText = (target, text) => {
       for (const character of Array.from(text)) {
         if (!HAN_CHARACTER_PATTERN.test(character) || typeof onKanjiClick !== "function") {
@@ -773,88 +1094,28 @@
       }
     };
     const pitchReading = reading || expression;
-    // The furigana's pitch also gives the headword's group, contour or not.
+    // The reading's pitch also gives the headword's group, drawn or not.
     const selectedPitch = selectPitchAccent(
       pitchOptions.groups,
       pitchOptions.dictionary,
       splitPitchAccentMorae(pitchReading).length
     );
     const category = selectedPitch
-      ? pitchAccentCategory(pitchReading, selectedPitch.pitch, pitchOptions.wordClasses)
+      ? pitchAccentCategory(pitchReading, selectedPitch.pitch, pitchOptions.wordClasses, expression)
       : null;
-    const pitchedMorae = selectedPitch && pitchOptions.enabled !== false
-      ? buildPitchAccentMorae(pitchReading, pitchAccentPositions(selectedPitch.pitch))
+    const kana = !HAN_CHARACTER_PATTERN.test(expression) && toHiragana(pitchReading) === toHiragana(expression);
+    // The text the pitch is drawn on: a kana headword's own kana, else its own reading.
+    const pitchText = kana ? expression : reading !== expression && reading;
+    const contourClass = kana ? "gsm-hoshidicts-pitch-contour" : "gsm-hoshidicts-pitch-reading gsm-hoshidicts-pitch-contour";
+    const contour = selectedPitch && pitchOptions.enabled !== false && pitchText
+      ? createPitchContour(documentRef, pitchText, selectedPitch, pitchOptions.style, contourClass)
       : null;
-    if (pitchedMorae) {
-      const downstep = pitchAccentDownstep(selectedPitch.pitch);
-      // One column per furigana segment, so each reading sits over the text it
-      // reads. Kana segments get a column too, keeping the contour unbroken.
-      let segments = furiganaSegments.map((segment) => ({
-        text: segment.text,
-        moraCount: splitPitchAccentMorae(segment.reading || segment.text).length,
-      }));
-      if (
-        segments.reduce((total, segment) => total + segment.moraCount, 0) !==
-        pitchedMorae.length
-      ) {
-        segments = [{ text: expression, moraCount: pitchedMorae.length }];
-      }
-      const title = [
-        selectedPitch.dictionary,
-        `Pitch accent ${downstep}`,
-      ].filter(Boolean).join(" · ");
-      // "overline": the pitch list's own Yomitan text, built once for the
-      // whole reading so each mora keeps its word-level pitch and next pitch
-      // (見る [1] hooks み at the segment boundary), then shared out to the
-      // segments. Nasal and devoice marks stay in the list: a nasal mark
-      // rewrites the kana.
-      const overlineMorae = pitchOptions.style === "overline"
-        ? [...createPronunciationText(documentRef, pitchedMorae.map((mora) => mora.text),
-            pitchAccentPositions(selectedPitch.pitch), [], []).children]
-        : null;
-      let moraIndex = 0;
-      for (const segment of segments) {
-        const ruby = documentRef.createElement("ruby");
-        ruby.className = "gsm-hoshidicts-pitch-ruby";
-        const base = documentRef.createElement("span");
-        base.className = "gsm-hoshidicts-pitch-base";
-        appendText(base, segment.text);
-        ruby.appendChild(base);
-
-        const rt = documentRef.createElement("rt");
-        rt.className = "gsm-hoshidicts-pitch-reading";
-        rt.dataset.pitchPosition = downstep;
-        if (selectedPitch.dictionary) {
-          rt.dataset.pitchDictionary = selectedPitch.dictionary;
-        }
-        rt.title = title;
-
-        const contour = documentRef.createElement("span");
-        contour.className = "gsm-hoshidicts-pitch-contour";
-        if (overlineMorae) {
-          contour.dataset.pitchStyle = "overline";
-          contour.append(...overlineMorae.slice(moraIndex, moraIndex + segment.moraCount));
-        } else {
-          for (const mora of pitchedMorae.slice(moraIndex, moraIndex + segment.moraCount)) {
-            const span = documentRef.createElement("span");
-            span.className = "gsm-hoshidicts-pitch-mora";
-            span.dataset.pitchLevel = mora.level;
-            if (mora.transition) {
-              span.dataset.pitchTransition = mora.transition;
-            }
-            span.textContent = mora.text;
-            contour.appendChild(span);
-          }
-        }
-        moraIndex += segment.moraCount;
-        rt.appendChild(contour);
-        ruby.appendChild(rt);
-        parent.appendChild(ruby);
-      }
+    if (contour && kana) {
+      parent.appendChild(contour);
       return category;
     }
 
-    for (const segment of furiganaSegments) {
+    for (const segment of termFurigana({ expression, reading, furigana })) {
       if (!segment.reading) {
         appendText(parent, segment.text);
         continue;
@@ -866,7 +1127,78 @@
       ruby.appendChild(rt);
       parent.appendChild(ruby);
     }
+    if (contour) parent.appendChild(contour);
     return category;
+  }
+
+  function setAttributes(element, attributes) {
+    for (const [name, value] of Object.entries(attributes ?? {})) element.setAttribute(name, value);
+    return element;
+  }
+
+  // docs/languages.md 10.5 and 11.2: the headword as the language's ruby mode
+  // draws it, with its displayed forms. Kana ruby (Japanese) is
+  // appendExpressionRuby exactly. `syllable` puts one reading syllable over
+  // each character when the counts agree, `word` one ruby over the word;
+  // without ruby a reading that differs from the headword is a reading line
+  // beside it. Characters the language links call onCharacterClick.
+  function appendHeadword(documentRef, parent, result, language, onCharacterClick, pitchOptions = {}) {
+    const expression = String(language.display(result, "expression") || "").trim();
+    const reading = String(language.display(result, "reading") || "").trim();
+    const alignment = language.capabilities?.ruby?.alignment ?? null;
+    if (alignment === "kana") {
+      return appendExpressionRuby(documentRef, parent, expression, reading, onCharacterClick, pitchOptions,
+        result.term?.furigana ?? null);
+    }
+    const name = String(language.labels?.character || "").toLowerCase();
+    const appendText = (target, text) => {
+      for (const character of Array.from(text)) {
+        if (typeof onCharacterClick !== "function" || !language.isCharacterLink(character)) {
+          target.appendChild(documentRef.createTextNode(character));
+          continue;
+        }
+        const button = documentRef.createElement("button");
+        button.type = "button";
+        button.className = "gsm-hoshidicts-kanji-link";
+        button.textContent = character;
+        button.setAttribute("aria-label", `Look up ${name} ${character}`);
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onCharacterClick(character, button);
+        });
+        target.appendChild(button);
+      }
+    };
+    const ruby = (text, value) => {
+      const element = documentRef.createElement("ruby");
+      appendText(element, text);
+      const rt = setAttributes(documentRef.createElement("rt"), language.readingAttributes());
+      rt.textContent = value;
+      element.appendChild(rt);
+      parent.appendChild(element);
+    };
+    const shown = reading !== expression ? reading : "";
+    if (shown && alignment === "syllable") {
+      const characters = Array.from(expression);
+      const syllables = shown.split(/\s+/u).filter(Boolean);
+      if (syllables.length === characters.length) {
+        characters.forEach((character, index) => ruby(character, syllables[index]));
+        return null;
+      }
+    }
+    if (shown && (alignment === "syllable" || alignment === "word")) {
+      ruby(expression, shown);
+      return null;
+    }
+    appendText(parent, expression);
+    if (shown) {
+      const line = setAttributes(documentRef.createElement("span"), language.readingAttributes());
+      line.className = "gsm-hoshidicts-reading";
+      line.textContent = shown;
+      parent.appendChild(line);
+    }
+    return null;
   }
 
   // Yomitan's DictionaryDatabase._splitField: tag, rule and reading lists are
@@ -887,15 +1219,246 @@
     return JAPANESE_TEXT_PATTERN.test(text) ? "ja" : CHINESE_TEXT_PATTERN.test(text) ? "zh" : null;
   }
 
+  // Text in a profile's language (docs/languages.md 10.2, 10.3 and 11.2). It
+  // applies only once the records have profiles: callers pass a marked
+  // language object, and without one every function below keeps today's
+  // markup and text.
+  // Unicode's right-to-left scripts (ISO 15924), as far as Chrome 128 knows them.
+  const RTL_SCRIPTS = new Set(["Adlm", "Arab", "Armi", "Avst", "Chrs", "Cprt", "Elym", "Hatr", "Hebr", "Hung",
+    "Khar", "Lydi", "Mand", "Mani", "Mend", "Merc", "Mero", "Narb", "Nbat", "Nkoo", "Orkh", "Ougr", "Palm",
+    "Phli", "Phlp", "Phnx", "Prti", "Rohg", "Samr", "Sarb", "Sogd", "Sogo", "Syrc", "Thaa", "Yezi"]);
+  const RTL_SCRIPT_CLASS = [...RTL_SCRIPTS].map((code) => String.raw`\p{Script=${code}}`).join("");
+  // Each pattern below is compiled the first time it is used. V8 builds the
+  // character set of a Unicode property escape when it parses a regular
+  // expression literal and again when it creates the expression, so as
+  // constants they would cost every frame of every page at injection
+  // (docs/languages.md 19); only text in another language reaches them.
+  const lazyPattern = (source, flags) => {
+    let pattern = null;
+    return () => pattern ??= new RegExp(source, flags);
+  };
+  // One class, letters in those scripts: a lookahead per character scans
+  // a long glossary several times slower.
+  const RTL_LETTERS = lazyPattern(String.raw`[\p{L}&&[${RTL_SCRIPT_CLASS}]]`, "gv");
+  const RTL_LETTER = lazyPattern(String.raw`[\p{L}&&[${RTL_SCRIPT_CLASS}]]`, "v");
+  const LETTERS = lazyPattern(String.raw`\p{L}`, "gu");
+  const LETTER = lazyPattern(String.raw`\p{L}`, "u");
+  const NON_LATIN_LETTER = lazyPattern(String.raw`(?!\p{Script=Latin})\p{L}`, "u");
+  const NON_HAN_LETTER = lazyPattern(String.raw`(?!\p{Script=Han})\p{L}`, "u");
+  const HAN_OR_CJK_PUNCTUATION = lazyPattern(String.raw`[\p{Script=Han}\u3000-\u303f\ufe30-\ufe4f\uff01-\uff65]`, "u");
+  const KANA_LETTER = lazyPattern(String.raw`[\p{Script=Hiragana}\p{Script=Katakana}]`, "u");
+  const HANGUL_LETTER = lazyPattern(String.raw`\p{Script=Hangul}`, "u");
+  const BOPOMOFO_LETTER = lazyPattern(String.raw`\p{Script=Bopomofo}`, "u");
+  // Codes that are Han alone, and every code that includes Han (7.3, 10.3).
+  const HAN_ONLY_SCRIPTS = new Set(["Hani", "Hans", "Hant", "Hanb"]);
+  const HAN_SCRIPTS = new Set([...HAN_ONLY_SCRIPTS, "Jpan", "Kore"]);
+  const HAN_LANGUAGES = new Set(["ja", "ko", "zh"]);
+  const ISOLATES = { ltr: "\u2066", rtl: "\u2067" };
+  const POP_ISOLATE = "\u2069";
+
+  // Each of those scripts is encoded where Unicode reserves code points for
+  // right-to-left text (its default R and AL ranges), so a test of code
+  // units rules out most text before the exact test.
+  const RTL_RANGES = /[\u0590-\u08ff\ufb1d-\ufdff\ufe70-\ufeff\ud802\ud803\ud83a\ud83b]/;
+  const hasRtlText = (text) => {
+    const value = String(text ?? "");
+    return RTL_RANGES.test(value) && RTL_LETTER().test(value);
+  };
+
+  // The majority rule (10.2): right to left when more than half of the
+  // letters are right-to-left letters; text without letters has no direction.
+  function textDirection(text) {
+    const value = String(text ?? "");
+    if (!hasRtlText(value)) return LETTER().test(value) ? "ltr" : null;
+    const letters = Array.from(value.matchAll(LETTERS())).length;
+    return Array.from(value.matchAll(RTL_LETTERS())).length * 2 > letters ? "rtl" : "ltr";
+  }
+
+  function scriptDirection(script) {
+    return RTL_SCRIPTS.has(script) ? "rtl" : "ltr";
+  }
+
+  // A target language without a pack in this build (10.2): the platform's
+  // likely script for the tag, or null when it knows none.
+  function localeScript(tag) {
+    try {
+      return new Intl.Locale(tag).maximize().script ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  const primarySubtag = (tag) => String(tag || "").split(/[-_]/u)[0].toLowerCase();
+  const LANGUAGE_INFO = new WeakMap();
+
+  // A pack as detection reads it: its tag, scripts and the characters of its
+  // text pattern that are not Latin (10.3 step 3; Han counts only for a pack
+  // whose every non-Latin script is a Han script).
+  function textLanguage(pack) {
+    let info = LANGUAGE_INFO.get(pack);
+    if (info) return info;
+    const scripts = Array.isArray(pack?.scripts) ? pack.scripts : [];
+    const nonLatin = scripts.filter((code) => code !== "Latn");
+    let native = null;
+    if (nonLatin.length > 0 && typeof pack?.text?.pattern === "string") {
+      const excluded = nonLatin.every((code) => HAN_ONLY_SCRIPTS.has(code)) ? "" : String.raw`\p{Script=Han}`;
+      try {
+        native = new RegExp(String.raw`(?![\p{Script=Latin}${excluded}])${pack.text.pattern}`, "u");
+      } catch {
+        native = null;
+      }
+    }
+    info = { code: pack?.code ?? "", bcp47: pack?.bcp47 || pack?.code || "", scripts, native,
+      latinOnly: scripts.length > 0 && nonLatin.length === 0,
+      han: scripts.some((code) => HAN_SCRIPTS.has(code)) };
+    if (pack && typeof pack === "object") LANGUAGE_INFO.set(pack, info);
+    return info;
+  }
+
+  // A dictionary's target language (10.2, 10.3 steps 4 and 5): the pack's
+  // scripts and direction when this build has one, else the platform's
+  // script. `direction` is null when neither knows the language.
+  function targetLanguage(tag, packFor = () => null) {
+    if (typeof tag !== "string" || !tag) return null;
+    const primary = primarySubtag(tag);
+    const pack = packFor(primary);
+    const script = pack ? null : localeScript(tag);
+    const scripts = pack?.scripts ?? (script ? [script] : null);
+    let direction = script ? scriptDirection(script) : null;
+    if (pack?.direction === "rtl" || pack?.direction === "ltr") direction = pack.direction;
+    return { tag, direction,
+      latin: scripts ? scripts.includes("Latn") : null,
+      han: HAN_LANGUAGES.has(primary) || Boolean(scripts?.some((code) => HAN_SCRIPTS.has(code))) };
+  }
+
+  const hanAlone = (text) => HAN_OR_CJK_PUNCTUATION().test(text) && !NON_HAN_LETTER().test(text);
+
+  // Steps 2 to 4 of 10.3, which read only the text and the profile.
+  function scriptLanguage(text, profile, target) {
+    if (KANA_LETTER().test(text)) return "ja";
+    if (HANGUL_LETTER().test(text)) return "ko";
+    if (BOPOMOFO_LETTER().test(text)) return "zh";
+    if (profile.native?.test(text)) return profile.bcp47;
+    if (profile.latinOnly && target?.latin === false && LETTER().test(text) && !NON_LATIN_LETTER().test(text)) {
+      return profile.bcp47;
+    }
+    return null;
+  }
+
+  // 10.3 for one glossary string outside the Japanese profile: steps 2 to 7,
+  // where step 5 is the dictionary's target language.
+  function glossaryTextLanguage(text, profile, target) {
+    const value = String(text ?? "");
+    const detected = scriptLanguage(value, profile, target);
+    if (detected) return detected;
+    const alone = hanAlone(value);
+    if (target && !(alone && !target.han)) return target.tag;
+    return alone && profile.han ? profile.bcp47 : null;
+  }
+
+  // The labelling pass (10.1) outside the Japanese profile: 10.3's steps 2 to
+  // 6, where step 5 is the language the text inherits, so it adds no label.
+  function inheritedTextLanguage(text, profile, inherited, isDefault) {
+    const value = String(text ?? "");
+    const detected = scriptLanguage(value, profile, isDefault ? inherited : null);
+    if (detected) return detected;
+    const alone = hanAlone(value);
+    return alone && !inherited?.han && profile.han ? profile.bcp47 : null;
+  }
+
+  // Text mode (11.2): the text of a paragraph whose direction differs from
+  // its dictionary's keeps its own order inside a directional isolate.
+  function isolateParagraph(text, direction = "ltr") {
+    const own = textDirection(text);
+    return own && own !== direction ? `${ISOLATES[own]}${text}${POP_ISOLATE}` : text;
+  }
+
+  // Structured blocks for the paragraph rule (10.2).
+  const DIRECTION_BLOCK_TAGS = new Set(["div", "p", "li", "ol", "ul", "table", "td", "th", "details", "summary"]);
+  const LIST_TAGS = new Set(["ol", "ul"]);
+  const isDirectionBlock = (node) => node.nodeType === 1 && DIRECTION_BLOCK_TAGS.has(node.localName);
+
+  // 10.2's paragraph rule over rendered glossary content: a block takes the
+  // direction of its own letters, or of all its letters when it has none of
+  // its own, and is marked with `dir` where that differs from the direction
+  // it inherits (its nearest marked ancestor's, else the dictionary's). It
+  // gets `text-align: start` unless a dictionary style on it or an ancestor
+  // inside the glossary aligns it. A list that holds an item of the other
+  // direction gets `listPadding` as its inline padding (Anki), or is marked
+  // for the theme host's labelling pass, which pads it from its computed
+  // start padding. Nothing is marked under a dictionary without
+  // right-to-left text, so left-to-right markup stays today's.
+  function markBlockDirections(root, direction, { listPadding = null } = {}) {
+    const counts = new Map();
+    const count = (block, field) => counts.get(block)?.[field] ?? 0;
+    // Every element in document order, without recursion: dictionaries nest deeply.
+    const order = [];
+    const stack = [root];
+    while (stack.length > 0) {
+      const element = stack.pop();
+      order.push(element);
+      for (let child = element.lastElementChild; child; child = child.previousElementSibling) stack.push(child);
+    }
+    // `own` counts a block's text outside its nested blocks; inline elements
+    // pass theirs up to the block that holds them.
+    for (let index = order.length - 1; index >= 0; index -= 1) {
+      const element = order[index];
+      let own = 0, ownRtl = 0, all = 0, allRtl = 0;
+      for (let child = element.firstChild; child; child = child.nextSibling) {
+        if (child.nodeType === 3) {
+          const letters = child.data.match(LETTERS())?.length ?? 0;
+          if (letters > 0) {
+            const rtl = child.data.match(RTL_LETTERS())?.length ?? 0;
+            own += letters; ownRtl += rtl; all += letters; allRtl += rtl;
+          }
+        } else if (child.nodeType === 1) {
+          all += count(child, "all"); allRtl += count(child, "allRtl");
+          if (!isDirectionBlock(child)) { own += count(child, "own"); ownRtl += count(child, "ownRtl"); }
+        }
+      }
+      if (all > 0) counts.set(element, { own, ownRtl, all, allRtl });
+    }
+    const blockDirection = (block) => {
+      const own = count(block, "own");
+      const [letters, rtl] = own > 0 ? [own, count(block, "ownRtl")] : [count(block, "all"), count(block, "allRtl")];
+      if (letters === 0) return null;
+      return rtl * 2 > letters ? "rtl" : "ltr";
+    };
+    // Only dictionary styles count: the walk reads each block before marking it.
+    const aligned = (element) => Boolean(element.style?.textAlign);
+    const walk = [[root, direction, false]];
+    while (walk.length > 0) {
+      const [element, inherited, alignedAbove] = walk.pop();
+      let current = inherited;
+      const styled = alignedAbove || aligned(element);
+      if (element !== root && isDirectionBlock(element)) {
+        const own = blockDirection(element);
+        if (own && own !== inherited) {
+          element.setAttribute("dir", own);
+          if (!styled) element.style.textAlign = "start";
+          current = own;
+          const list = element.parentElement;
+          if (element.localName === "li" && list && LIST_TAGS.has(list.localName)) {
+            if (listPadding) list.style.paddingInline = listPadding;
+            else list.dataset.hdMixedList = "";
+          }
+        }
+      }
+      for (let child = element.lastElementChild; child; child = child.previousElementSibling) {
+        if (counts.has(child)) walk.push([child, current, styled]);
+      }
+    }
+  }
+
   // Yomitan's _setMultilineTextContent: each "\n" becomes a <br>, so the text
   // copies with its line breaks. A glossary's text gets the same language
   // detection as a string in structured content.
-  function appendMultilineText(documentRef, parent, text) {
+  function appendMultilineText(documentRef, parent, text, state = null) {
     text.split("\n").forEach((line, index) => {
       if (index > 0) parent.appendChild(documentRef.createElement("br"));
       if (line) parent.appendChild(documentRef.createTextNode(line));
     });
-    const language = languageFromText(text);
+    const language = state?.detectLanguage ? state.detectLanguage(text, parent) : languageFromText(text);
     if (language) parent.lang = language;
   }
 
@@ -1401,7 +1964,8 @@
       parent = frame.parent;
       if (typeof value === "string") {
         parent.appendChild(documentRef.createTextNode(value));
-        const language = frame.language === null ? languageFromText(value) : null;
+        let language = null;
+        if (frame.language === null) language = state.detectLanguage ? state.detectLanguage(value, parent) : languageFromText(value);
         if (language) parent.lang = language;
         continue;
       }
@@ -1560,14 +2124,14 @@
     content.className = "gloss-content";
     if (typeof item === "string" || (isRecord(item) && item.type === "text" && typeof item.text === "string")) {
       countStructuredNode(state, path);
-      appendMultilineText(documentRef, content, typeof item === "string" ? item : item.text);
+      appendMultilineText(documentRef, content, typeof item === "string" ? item : item.text, state);
     } else if (isRecord(item) && item.type === "image") {
       countStructuredNode(state, path);
       appendStructuredImage(documentRef, content, item, state);
       if (typeof item.description === "string") {
         const description = documentRef.createElement("span");
         description.className = "gloss-image-description";
-        appendMultilineText(documentRef, description, item.description);
+        appendMultilineText(documentRef, description, item.description, state);
         content.append(" ", description);
       }
     } else if (isRecord(item) && item.type === "structured-content") {
@@ -1632,6 +2196,28 @@
           })
         : null,
     };
+    // Once the records have profiles (a marked language), strings take 10.3's
+    // language, labelled only where it differs from the block's default, and
+    // blocks of the other direction keep their own (10.2). The dictionary's
+    // direction comes from `options.direction`, else from the language.
+    const language = options.language?.marked === true ? options.language : null;
+    let direction = null;
+    if (language) {
+      const blockLanguage = language.dictionaryLanguage?.(options.dictionary) ?? null;
+      // A label only where the language differs from the one the text
+      // inherits: from a block above it inside the glossary, else the
+      // dictionary's default.
+      state.detectLanguage = (text, parent) => {
+        const detected = language.detectGlossary(text, options.dictionary);
+        if (!detected) return null;
+        const inherited = parent?.closest?.("[lang]")?.getAttribute("lang") ?? blockLanguage;
+        return detected !== inherited ? detected : null;
+      };
+      direction = options.direction ?? language.dictionaryDirection?.(options.dictionary) ?? "ltr";
+    }
+    const markDirections = (root, listPadding = null) => {
+      if (direction && (direction === "rtl" || hasRtlText(value))) markBlockDirections(root, direction, { listPadding });
+    };
     if (options.layout !== "anki") {
       // The popup's glossary markup is Yomitan's: ul.gloss-list, even for one
       // element, with data-count counting the items it shows.
@@ -1640,18 +2226,26 @@
       items.forEach((item, index) => appendGlossItem(documentRef, list, item, state, index));
       list.dataset.count = String(list.children.length);
       parent.appendChild(list);
+      markDirections(list);
       return;
     }
     // Yomitan's Anki glossary-single template emits one element bare and
-    // several as a list.
+    // several as a list, or joined by " | " under Compact popup and Anki.
     if (items.length === 0) {
       return;
     }
+    // A note has no stylesheet: lists of mixed direction get inline padding
+    // (section 12), and only a caller that names the direction is marked.
+    if (options.direction === undefined) direction = null;
     if (items.some((item) => isRecord(item) && item.type === "structured-content")) {
       parent.classList.add("structured-content");
     }
-    if (items.length === 1) {
-      appendStructuredValue(documentRef, parent, items[0], state, 0, ["glossary", 0]);
+    if (items.length === 1 || options.compactGlossaries === true) {
+      items.forEach((item, index) => {
+        if (index > 0) parent.append(" | ");
+        appendStructuredValue(documentRef, parent, item, state, 0, ["glossary", index]);
+      });
+      markDirections(parent, "40px");
       return;
     }
     const list = documentRef.createElement("ul");
@@ -1663,6 +2257,7 @@
       list.appendChild(listItem);
     }
     parent.appendChild(list);
+    markDirections(list, "40px");
   }
 
   function utf8Length(value) {
@@ -1849,22 +2444,50 @@
   // Layout follows JL's text flattening: tag spans are spaced, furigana reads
   // 昨日[きのう], list items get markers, table rows read "| a | b |", and block
   // boundaries add one line break instead of stacking blank lines.
+  // With a marked language (the records have profiles; 11.2), each line whose
+  // direction by 10.2's rule differs from `direction`, the dictionary's, is
+  // wrapped after its list marker in a left-to-right or right-to-left isolate.
+  // Outside the Japanese profile tag pills are always spaced and readings use
+  // the language's `readingBrackets`. Without one it is today's flattener.
   const TEXT_BLOCK_TAGS = new Set(["div", "p", "li", "table", "thead", "tbody", "tfoot", "details", "summary"]);
-  function glossaryToPlainText(glossary) {
+  function glossaryToPlainText(glossary, language = null, { direction = "ltr" } = {}) {
+    const marked = language?.marked === true;
+    const otherLanguage = marked && language.code !== "ja";
+    const base = direction === "rtl" ? "rtl" : "ltr";
     let value = glossary;
     if (typeof value === "string") {
-      try { value = JSON.parse(value); } catch { return value; }
+      try { value = JSON.parse(value); } catch {
+        return marked ? value.split("\n").map(line => isolateParagraph(line, base)).join("\n") : value;
+      }
     }
+    const [open, close] = otherLanguage && Array.isArray(language.labels?.readingBrackets)
+      ? language.labels.readingBrackets : ["[", "]"];
     const LINE = {}, parts = [], lists = [], rows = [];
     let lineBreak = false;
+    // The first part of the current line after its list marker.
+    let lineStart = 0;
+    const finishLine = () => {
+      if (!marked || parts.length <= lineStart) return;
+      const own = textDirection(parts.slice(lineStart).join(""));
+      if (own && own !== base) {
+        parts.splice(lineStart, 0, ISOLATES[own]);
+        parts.push(POP_ISOLATE);
+      }
+    };
     const write = text => {
       if (lineBreak) {
         // A run of block boundaries becomes one break, without the whitespace before it.
         lineBreak = false;
         while (parts.length) {
           const last = parts.pop().trimEnd();
-          if (last) { parts.push(last, "\n"); break; }
+          if (last) {
+            parts.push(last);
+            finishLine();
+            parts.push("\n");
+            break;
+          }
         }
+        lineStart = parts.length;
       }
       if (text) parts.push(text);
     };
@@ -1879,8 +2502,15 @@
       } else if (typeof item !== "object") write(String(item));
       else if (item.tag === "img" || item.type === "image") {
         if (item.title) stack.push(LINE, String(item.title));
-      } else if (item.tag === "br") write("\n");
-      else if (item.tag === "rt") stack.push("]", item.content, "[");
+      } else if (item.tag === "br") {
+        if (marked) {
+          // An isolate cannot cross a line break.
+          write("");
+          finishLine();
+          parts.push("\n");
+          lineStart = parts.length;
+        } else write("\n");
+      } else if (item.tag === "rt") stack.push(close, item.content, open);
       else if (item.tag === "ul" || item.tag === "ol") {
         lists.push({ tag: item.tag, type: item.style?.listStyleType, number: 0 });
         stack.push(LINE, () => lists.pop(), item.content, LINE);
@@ -1894,7 +2524,7 @@
         // margin; an unstyled classed span does when its text starts with ASCII.
         if (item.tag === "span" && (item.style ? item.style.marginRight != null : item.data?.class != null)) {
           write(""); // settle a pending break so parts[start] is the pill's own text
-          const start = parts.length, always = item.style != null;
+          const start = parts.length, always = item.style != null || otherLanguage;
           stack.push(() => { if (parts.length > start && (always || parts[start].charCodeAt(0) < 128)) parts.push(" "); });
         }
         // Icon-only cells such as Jitendex's form markers carry their meaning in the title.
@@ -1905,6 +2535,8 @@
           // A quoted type is a literal CSS marker, such as Jitendex's "①".
           let marker = /^(["'])(.*)\1$/u.exec(type ?? "")?.[2] ?? (list.tag === "ol" ? `${list.number}.` : "•");
           if (type === "none") marker = "";
+          // The line's own text starts after its marker.
+          if (marker && marked) stack.push(() => { lineStart = parts.length; });
           if (marker) stack.push(`${marker} `);
         } else if ((item.tag === "th" || item.tag === "td") && rows.length) {
           if (rows[rows.length - 1]++) stack.push(" | "); // every cell after the row's first
@@ -1912,12 +2544,20 @@
         if (block) stack.push(LINE);
       }
     }
+    if (marked) {
+      while (parts.length) {
+        const last = parts.pop().trimEnd();
+        if (last) { parts.push(last); break; }
+      }
+      finishLine();
+    }
     return parts.join("").trim();
   }
 
   return {
     glossaryToPlainText,
     appendExpressionRuby,
+    appendHeadword,
     appendStructuredImage,
     appendStructuredValue,
     appendTextOnlyGlossary,
@@ -1928,16 +2568,28 @@
     buildPitchAccentMorae,
     createFuriganaSegment,
     createKanjiReadings,
+    createKanwaReadings,
     createPronunciationDownstepPosition,
     createPronunciationGraph,
     createPronunciationPitchAccent,
     createPronunciationText,
     definitionTagList,
     distributeFurigana,
+    frequencyMean,
+    frequencyModeMatches,
+    frequencyNumber,
     getDownstepPositions,
     getFuriganaKanaSegments,
+    glossaryTextLanguage,
+    hasRtlText,
+    inheritedTextLanguage,
     isMoraPitchHigh,
     isRecord,
+    isolateParagraph,
+    kanjiFurigana,
+    languageFromText,
+    markBlockDirections,
+    matchedFurigana,
     normalizeMediaPath,
     parseStructuredLink,
     parseTagList,
@@ -1947,9 +2599,13 @@
     segmentFurigana,
     segmentizeFurigana,
     selectPitchAccent,
+    setAttributes,
     splitPitchAccentMorae,
     structuredDataAttributeName,
+    targetLanguage,
     termFurigana,
+    textDirection,
+    textLanguage,
     toHiragana,
   };
 }));

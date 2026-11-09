@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import {
     getDefaultBaseDir,
+    getProfileDir,
     isLegacyDatabaseMigrationPending,
     writeDataDirPointer,
     writeDataDirRegistry,
@@ -217,6 +218,9 @@ function shouldCopyObsConfigPath(obsConfigRoot: string, sourcePath: string): boo
 }
 
 export async function validateTargetDir(oldDir: string, newDir: string): Promise<ValidateResult> {
+    if (getProfileDir()) {
+        return { ok: false, error: 'The data folder cannot be relocated while using -profile. Relaunch with the desired profile folder.' };
+    }
     if (isLegacyDatabaseMigrationPending(oldDir)) {
         return {
             ok: false,

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { decodedBase64Length } from "./anki-client-media.js";
+import { describeAnkiConnectError } from "./anki.js";
 
 const GENERATED_MEDIA_FILENAME = /^hachidori_[0-9a-f]{64}\.[a-z0-9]+$/u;
 
@@ -37,6 +38,41 @@ function requiredDictionaryMedia(resources, fields) {
     required.set(item.filename, item);
   }
   return [...required.values()];
+}
+
+// AnkiConnect addNote stores native audio/picture attachments and appends the
+// actual stored filename to their fields. Use that for media-only fields.
+// Images embedded in rich HTML must keep their exact position: upload those
+// together, check every reply, then send the note in the next request.
+export async function attachAnkiAddMedia(note, files, invoke) {
+  const uploads = [], warnings = [];
+  function failed(file, message) {
+    if (file.required) throw new Error(message);
+    const reference = file.type === "audio" ? `[sound:${file.filename}]` : `<img src="${file.filename}">`;
+    for (const field of Object.keys(note.fields)) note.fields[field] = note.fields[field].replaceAll(reference, "");
+    warnings.push(`${file.kind}: ${message}`);
+  }
+  for (const file of files) {
+    try { validatePayload(file.data, file.kind); }
+    catch (error) { failed(file, error.message); continue; }
+    const reference = file.type === "audio" ? `[sound:${file.filename}]` : `<img src="${file.filename}">`;
+    const fields = Object.keys(note.fields).filter(field => note.fields[field].includes(file.filename));
+    if (!fields.length) continue;
+    if (!file.required && fields.every(field => note.fields[field] === reference)) {
+      for (const field of fields) note.fields[field] = "";
+      note[file.type] ??= [];
+      note[file.type].push({ filename: file.filename, data: file.data, fields, deleteExisting: false });
+    } else uploads.push(file);
+  }
+  if (!uploads.length) return warnings;
+  const results = await invoke("multi", { actions: uploads.map(({ filename, data }) => ({
+    action: "storeMediaFile", params: { filename, data, deleteExisting: false },
+  })) }, 30_000);
+  results.forEach(({ result, error }, index) => {
+    if (error !== null || result !== uploads[index].filename) failed(uploads[index], error !== null
+      ? describeAnkiConnectError(error) : "Anki stored media under a different filename.");
+  });
+  return warnings;
 }
 
 async function ensure({

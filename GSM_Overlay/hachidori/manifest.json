@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.3.0",
-  "description": "Study Japanese vocabulary: look up words on any page and build Anki cards, optionally capturing on-screen context.",
+  "version": "0.5.0",
+  "description": "Study Japanese and other languages: look up words on any page and build Anki cards, optionally capturing on-screen context.",
   "minimum_chrome_version": "128",
   "icons": {
     "16": "icons/hachidori-16.png",
@@ -21,6 +21,9 @@
     "unlimitedStorage",
     "userScripts"
   ],
+  "optional_permissions": [
+    "clipboardRead"
+  ],
   "host_permissions": [
     "<all_urls>"
   ],
@@ -30,10 +33,22 @@
       "suggested_key": {
         "default": "Alt+Delete"
       },
-      "description": "Turn Japanese lookups on or off"
+      "description": "Turn lookups on or off"
     },
     "openSettingsPage": {
       "description": "Open Hachidori settings"
+    },
+    "openSearchPage": {
+      "suggested_key": {
+        "default": "Alt+Insert"
+      },
+      "description": "Open the search page in a new tab"
+    },
+    "openSearchPageCurrentTab": {
+      "description": "Open the search page in the current tab"
+    },
+    "openPopupWindow": {
+      "description": "Open the search page in a popup window"
     },
     "close": {
       "description": "Close the popup"
@@ -68,6 +83,9 @@
     "historyBackward": {
       "description": "Go back in the popup's history"
     },
+    "historyForward": {
+      "description": "Go forward in the popup's history"
+    },
     "scanSelectedText": {
       "description": "Look up the selected text"
     },
@@ -82,6 +100,9 @@
     },
     "ignoreWord": {
       "description": "Ignore the current popup entry's word"
+    },
+    "switchLanguage": {
+      "description": "Switch to the next language"
     }
   },
   "action": {
@@ -127,7 +148,13 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-eval'; child-src 'self'"
+  },
+  "sandbox": {
+    "pages": [
+      "search-frame.html"
+    ]
   },
   "cross_origin_embedder_policy": {
     "value": "require-corp"
@@ -142,7 +169,9 @@
         "browser-api.js",
         "render/reader.css",
         "icons.css",
-        "vendor/themes/*"
+        "vendor/themes/*",
+        "vendor/languages/registry-reader.js",
+        "language-text.js"
       ],
       "matches": [
         "<all_urls>"
@@ -154,6 +183,14 @@
       ],
       "matches": [
         "https://www.netflix.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "youtube-recorder.html"
+      ],
+      "matches": [
+        "https://www.youtube.com/*"
       ]
     }
   ],

@@ -12,6 +12,30 @@ from GameSentenceMiner.util import text_log
 from GameSentenceMiner.util.log_paths import get_component_log_path
 
 
+def test_open_pending_reviews_command_routes_to_qt(monkeypatch):
+    from GameSentenceMiner.ui import session_review_qt
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    opened = []
+    monkeypatch.setattr(session_review_qt, "open_session_review", lambda: opened.append(True))
+    app.handle_ipc_command({"function": "open_session_review"})
+    assert opened == [True]
+
+
+def test_startup_announces_pending_reviews_after_readiness(monkeypatch):
+    from GameSentenceMiner import session_review
+    from GameSentenceMiner.util.platform import notification
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    calls = []
+    app._wait_for_startup_ready = lambda: calls.append("ready")
+    monkeypatch.setattr(gsm_module.gsm_state, "keep_running", True)
+    monkeypatch.setattr(session_review, "notify_pending_on_startup", lambda: calls.append("reviews") or True)
+    monkeypatch.setattr(notification, "send_notification", lambda *args: calls.append("generic notification"))
+    app._announce_startup_ready()
+    assert calls == ["ready", "reviews"]
+
+
 def test_main_skips_run_when_existing_instance_detected(monkeypatch):
     calls = []
 

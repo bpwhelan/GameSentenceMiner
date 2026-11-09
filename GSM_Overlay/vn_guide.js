@@ -120,8 +120,29 @@ function choiceLines(data) {
     const blockId = blocks.lineBlocks.get(index);
     const boundary = blocks.blockBoundaries.get(blockId);
     const isolated = boundary?.start === index && boundary?.end === index && blocks.blockMetadata.get(blockId)?.role === 'text';
-    return [{ text: normalizeChoice(line.text), ...box, height, center: (box.x1 + box.x3) / 2, isolated }];
+    // Keep list labels before normalization removes them. When labels are
+    // present, they must agree; a decimal such as 1.5 is not a choice number.
+    const source = line.text.normalize('NFKC').trim();
+    const number = source.match(/^(\d{1,2})[.)、]\s*(?=[^\d\s])/u);
+    return [{ text: normalizeChoice(line.text), ...box, height, center: (box.x1 + box.x3) / 2, isolated,
+      choiceNumber: number ? Number(number[1]) : null, hasNumberPrefix: /^\d{1,2}[.)、]/u.test(source) }];
   });
+}
+
+function isCompactChoicePeer(match, line) {
+  if (!line.text || line.text === match.text || isSaveControl(line)) return false;
+  if ((match.hasNumberPrefix || line.hasNumberPrefix)
+    && (match.choiceNumber === null || line.choiceNumber === null
+      || Math.abs(line.choiceNumber - match.choiceNumber) !== 1
+      || (line.y1 - match.y1) * (line.choiceNumber - match.choiceNumber) <= 0)) return false;
+  const height = Math.max(line.height, match.height);
+  const gap = Math.max(line.y1 - match.y3, match.y1 - line.y3);
+  // Lookup blocks group nearby rows without knowing whether they are dialogue
+  // or choices. A whole-row guide match and aligned alternatives can establish
+  // a menu even inside one such block, with or without numbered labels.
+  return Math.min(Math.abs(line.center - match.center), Math.abs(line.x1 - match.x1)) < 0.035
+    && Math.min(line.height, match.height) / height > 0.65
+    && gap >= -height * 0.2 && gap <= height * 7;
 }
 
 function choiceSimilarity(observed, target) {
@@ -151,13 +172,17 @@ function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } =
   const target = normalizeChoice(expected);
   if (!target) return null;
   const lines = choiceLines(data);
+  const hasMenuLayout = line => lines.some(peer => isCompactChoicePeer(line, peer));
   const exact = lines.filter(line => line.text === target);
-  const matches = exact.length ? exact : allowFuzzy ? lines.filter(line => line.isolated && choiceSimilarity(line.text, target) > 0) : [];
+  const matches = exact.length ? exact : allowFuzzy ? lines.filter(line => choiceSimilarity(line.text, target) > 0
+    && (line.isolated || hasMenuLayout(line))) : [];
   if (matches.length !== 1) return null;
   const match = matches[0];
   const short = [...target].length <= 4;
   const peers = lines.filter(line => {
-    if (line === match || !line.text || line.text === target || isSaveControl(line) || !exact.length && !line.isolated) return false;
+    if (line === match || !line.text || line.text === target || isSaveControl(line)) return false;
+    if (isCompactChoicePeer(match, line)) return true;
+    if (!exact.length && !line.isolated) return false;
     const height = Math.max(line.height, match.height);
     const gap = Math.max(line.y1 - match.y3, match.y1 - line.y3);
     const aligned = short
@@ -170,11 +195,9 @@ function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } =
   if (requireMenu && !menu) return null;
   if (!menu && (!match.isolated || [...target].length < 8)) return null;
   const similarity = choiceSimilarity(match.text, target);
-  // Position is a small confidence bonus, never a requirement. Isolation and
-  // text similarity must stand on their own even when there are menu peers.
-  const central = Math.abs(match.center - 0.5) < 0.2 && Math.abs((match.y1 + match.y3) / 2 - 0.5) < 0.25;
-  const confidence = similarity + (menu ? 0.03 : 0) + (central ? 0.02 : 0);
-  if (similarity < 1 && (!match.isolated || confidence < 0.9)) return null;
+  // Confidence comes from text and menu evidence, regardless of screen position.
+  const confidence = similarity + (menu ? 0.03 : 0);
+  if (similarity < 1 && (!(match.isolated || hasMenuLayout(match)) || confidence < 0.88)) return null;
   return { text: target, observed: match.text, exact: similarity === 1, menu,
     options: [...new Set([target, match.text, ...peers.map(line => line.text)])] };
 }

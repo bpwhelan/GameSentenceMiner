@@ -264,6 +264,7 @@ registerOverlayEmitterListener(app, 'child-process-gone', (_event, details) => {
 });
 if (!IN_PROCESS_OVERLAY) {
   app.setPath('userData', dataPath);
+  app.setPath('sessionData', dataPath);
 }
 
 const settingsPath = path.join(dataPath, 'settings.json');
@@ -3844,7 +3845,8 @@ function readExtensionPackageVersion(dirPath) {
 }
 
 function ensureExtensionCopy(name, sourceDir) {
-  if (!isLinux()) {
+  const profileYomitan = Boolean(process.env.GSM_PROFILE_DIR) && name === 'yomitan';
+  if (!isLinux() && !profileYomitan) {
     return sourceDir;
   }
   fs.mkdirSync(extensionsRoot, { recursive: true });
@@ -3880,6 +3882,14 @@ function ensureExtensionCopy(name, sourceDir) {
     }
   }
 
+  // Yomitan's manifest migration is writable state. Profile launches must not
+  // rewrite the shared bundle, including after a development rebuild.
+  if (profileYomitan) {
+    const staticManifest = path.join(targetDir, 'manifest_static.json');
+    if (fs.existsSync(staticManifest)) {
+      fs.copyFileSync(staticManifest, path.join(targetDir, 'manifest.json'));
+    }
+  }
   return targetDir;
 }
 
@@ -7220,7 +7230,9 @@ async function startOverlayAppImpl() {
   // MANIFEST SWITCHING & MIGRATION LOGIC
   // ===========================================================
 
-  const extDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
+  const bundledExtDir = isDev ? path.join(__dirname, 'yomitan') : path.join(getPackagedResourcesPath(), "yomitan");
+  const extDir = process.env.GSM_PROFILE_DIR && dictionaryReader === DICTIONARY_READER_YOMITAN && yomitanCanLoad
+    ? ensureExtensionCopy('yomitan', bundledExtDir) : bundledExtDir;
 
   // 1. Define Paths
   // 'manifest.json' is what Electron reads.
@@ -7771,7 +7783,7 @@ async function startOverlayAppImpl() {
     try {
       if (request.chooseFolder === true) {
         const selected = await dialog.showOpenDialog(settingsWindow, {
-          title: 'Choose a catalogue folder containing games.json', properties: ['openDirectory'],
+          title: 'Choose a guide catalogue folder', properties: ['openDirectory'],
         });
         if (selected.canceled || !selected.filePaths.length) return { cancelled: true };
         request = { ...request, source: selected.filePaths[0] };

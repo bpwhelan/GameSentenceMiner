@@ -64,7 +64,7 @@ function modelScroll(view: Window, container: HTMLElement, vertical = false, rev
 	const viewport = 600;
 	const extent = () =>
 		viewport +
-		[...container.querySelectorAll('p')].reduce(
+		[...container.querySelectorAll('.line-source, .translation-text')].reduce(
 			(total, paragraph) => total + Math.ceil((paragraph.textContent?.length ?? 0) / 12) * 40,
 			0,
 		);
@@ -118,6 +118,64 @@ async function receiveLine(text: string, revision: number, id = 'speech', extra 
 	]);
 	await settleLayout();
 }
+
+test('finalizing a line during auto-translation does not send a second translation request', async () => {
+	stores.autoTranslateLines$.next(true);
+	const fetcher = vi.fn((_url: RequestInfo | URL) => new Promise(() => {}));
+	vi.stubGlobal('fetch', fetcher);
+	await receiveLine('翻訳する台詞。', 1, 'speech', { recordState: undefined });
+	const translationCalls = () => fetcher.mock.calls.filter(([url]) => String(url).endsWith('/translate-line'));
+	expect(translationCalls()).toHaveLength(1);
+	await receiveLine('翻訳する台詞。', 2, 'speech', { recordState: 'frozen' });
+	expect(translationCalls()).toHaveLength(1);
+});
+
+test('a completed line auto-translates on its initial append without a later freeze event', async () => {
+	stores.autoTranslateLines$.next(true);
+	const fetcher = vi.fn((_url: RequestInfo | URL) => new Promise(() => {}));
+	vi.stubGlobal('fetch', fetcher);
+	await receiveLine('取り込み時に完成した台詞。', 1, 'speech', { recordState: 'frozen' });
+	expect(fetcher.mock.calls.filter(([url]) => String(url).endsWith('/translate-line'))).toHaveLength(1);
+});
+
+test.each([
+	{ vertical: false, reverse: false },
+	{ vertical: false, reverse: true },
+	{ vertical: true, reverse: false },
+	{ vertical: true, reverse: true },
+])('the latest translation follows to the same padded end as a new line in layout %j', async ({ vertical, reverse }) => {
+	stores.displayVertical$.next(vertical);
+	stores.reverseLineOrder$.next(reverse);
+	const viewport = modelScroll(window, main, vertical, reverse);
+	await receiveLine('最後の台詞。', 1);
+	let complete!: (value: unknown) => void;
+	vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { complete = resolve; })));
+	const row = main.querySelector('.textline2') as HTMLElement;
+	row.scrollIntoView = vi.fn();
+	(row.querySelector('[title="Translate"]') as HTMLButtonElement).click();
+	viewport.scroll.mockClear();
+	complete({ ok: true, json: async () => ({ TL: 'A long translated sentence. '.repeat(20) }) });
+	await settleLayout();
+	expect(viewport.scroll).toHaveBeenCalled();
+	expect(viewport.position).toBe(viewport.newest());
+	if (!vertical && !reverse) expect(viewport.scroll).toHaveBeenLastCalledWith({ top: main.scrollHeight + 100, left: 0, behavior: 'auto' });
+});
+
+test('a delayed translation does not pull the reader back down after they scroll away', async () => {
+	const viewport = modelScroll(window, main);
+	await receiveLine('長い最後の台詞。'.repeat(40), 1);
+	let complete!: (value: unknown) => void;
+	vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { complete = resolve; })));
+	const row = main.querySelector('.textline2') as HTMLElement;
+	row.scrollIntoView = vi.fn();
+	(row.querySelector('[title="Translate"]') as HTMLButtonElement).click();
+	viewport.position = 100;
+	viewport.scroll.mockClear();
+	complete({ ok: true, json: async () => ({ TL: 'A long translated sentence. '.repeat(20) }) });
+	await settleLayout();
+	expect(viewport.scroll).not.toHaveBeenCalled();
+	expect(viewport.position).toBe(100);
+});
 
 test.each([
 	{ vertical: false, reverse: false },

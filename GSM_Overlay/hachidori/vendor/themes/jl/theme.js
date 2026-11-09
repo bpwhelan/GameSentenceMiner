@@ -32,6 +32,39 @@ export function createView(options, enhanced = false) {
     element.addEventListener("click", callback);
     return element;
   };
+  // The render's language (docs/themes/README.md, "Languages"). A caller
+  // that passes none gets today's Japanese text, which the Japanese
+  // language reproduces.
+  let language = options.language ?? null;
+  const setAttributes = (element, attributes) => {
+    for (const [name, value] of Object.entries(attributes ?? {})) element.setAttribute(name, value);
+    return element;
+  };
+  const marked = () => language?.marked === true;
+  const displayed = (result, field) => language ? language.display(result, field) : result.term[field];
+  const label = (name, fallback) => language?.labels?.[name] ?? fallback;
+  // A name alone in an inline element when the language isolates it (10.1).
+  function setName(element, name) {
+    const attributes = marked() ? language.nameAttributes(name) : {};
+    if (Object.keys(attributes).length === 0) element.textContent = name;
+    else {
+      const inner = setAttributes(document.createElement("span"), attributes);
+      inner.textContent = name;
+      element.replaceChildren(inner);
+    }
+  }
+  const nameNode = name => {
+    const attributes = marked() ? language.nameAttributes(name) : {};
+    if (Object.keys(attributes).length === 0) return document.createTextNode(name);
+    const inner = setAttributes(document.createElement("span"), attributes);
+    inner.textContent = name;
+    return inner;
+  };
+  // A dictionary's direction (10.2) and the text of its rows (11.2).
+  const directionOf = (dictionary, result) => marked() ? language.dictionaryDirection(dictionary, result) : "ltr";
+  const plainText = (value, direction) => components.glossaryToPlainText(value, language, { direction });
+  // A marked language comes from the theme host, with components.language.
+  const paragraph = (text, direction) => marked() ? components.language.isolateParagraph(language, text, direction) : text;
   const header = node("div", "jl-header");
   // JL's title row carries the x; the dictionary tabs sit below it.
   const nav = node("div", "jl-nav");
@@ -94,6 +127,9 @@ export function createView(options, enhanced = false) {
     for (const control of tools) control.close(false);
     tools = []; images.clear(); groupTabs = []; groupContext = null; availableDictionaries = []; pendingPresentation = null;
     tabs.replaceChildren(); nav.replaceChildren(); scroll.replaceChildren();
+    // JL shows each render from the top. Resetting here, before the new
+    // content exists, keeps the reset from laying that content out.
+    if (!enhanced) scroll.scrollTop = 0;
     entries = []; bindings = []; labels = []; frequencies = []; markers = []; selected = 0; tab = null; onTabSelected = null; activeSource = null;
     paintedFrequency = ""; frequencyDictionaries.clear(); pitchByTerm.clear();
     highlighter?.clear();
@@ -117,7 +153,8 @@ export function createView(options, enhanced = false) {
   }
   function setDefinitionBlurState(state) { scroll.dataset.definitionBlur = state; }
   function dictionaryLabel(dictionary) {
-    const label = node("span", "jl-dictionary", dictionary);
+    const label = node("span", "jl-dictionary", null);
+    setName(label, dictionary);
     label.dataset.dictionary = dictionary;
     labels.push(label);
     return label;
@@ -127,7 +164,7 @@ export function createView(options, enhanced = false) {
     const name = dictionary => names.get(dictionary) || dictionary;
     for (const label of labels) {
       const displayName = name(label.dataset.dictionary);
-      if (!enhanced || label.textContent !== displayName) label.textContent = displayName;
+      if (!enhanced || label.textContent !== displayName) setName(label, displayName);
       if (enhanced && label.title !== displayName) label.title = displayName;
     }
     // JL: "#rank" with one frequency dictionary, "Name: rank, …" with several.
@@ -145,12 +182,23 @@ export function createView(options, enhanced = false) {
           if (tags) tags = tags.map(tag => tag.cloneNode(true));
           else {
             tags = components.createFrequencyTags(document, result, context.dictionaryPresentation ?? [], Infinity,
-              context.averageFrequency === true, context.showFrequencyDictionaryNames === true, context.compactFrequencyNumbers === true);
+              context.averageFrequency === true, context.showFrequencyDictionaryNames === true, context.compactFrequencyNumbers === true,
+              false, language);
             tagsByResult.set(result, tags);
           }
           element.replaceChildren(...tags);
         }
         paintedFrequency = frequency;
+      }
+    } else if (marked()) {
+      // Each entry is its own name and value, so a value stays beside its name.
+      for (const { element, groups } of frequencies) {
+        if (groups.length === 1) {
+          element.textContent = `#${frequencyValue(groups[0])}`;
+          continue;
+        }
+        element.replaceChildren(...groups.flatMap((group, index) => [
+          ...(index > 0 ? [", "] : []), nameNode(name(group.dictionary)), `: ${frequencyValue(group)}`]));
       }
     } else {
       for (const { element, groups } of frequencies) element.textContent = groups.length === 1 ? `#${frequencyValue(groups[0])}`
@@ -248,9 +296,12 @@ export function createView(options, enhanced = false) {
   }
 
   // Bee shows only the structured glossary: no JL text, tag brackets or disclosure.
-  function formattedDefinition(parent, rows, dictionary, context, owner) {
+  function formattedDefinition(parent, rows, dictionary, context, owner, result = null) {
     const content = node("div", "gsm-hoshidicts-glossary-content bee-rich-content");
     content.dataset.hoshidictsDictionary = dictionary;
+    // The dictionary's direction and default language hold its block (10.2).
+    if (marked()) setAttributes(content, language.glossaryAttributes(dictionary, result));
+    const rendering = marked() ? { language, direction: directionOf(dictionary, result) } : {};
     parent.append(content);
     const ownRevision = revision;
     const isCurrent = () => ownRevision === revision && owner.isConnected
@@ -267,7 +318,7 @@ export function createView(options, enhanced = false) {
           resolveMedia: context.resolveMedia, imageContext: context,
           onImageCreated: image => images.add(image), onLayoutChange: options.positionPopup,
           requestImagePreview: preview.requestImagePreview, refreshImagePreview: preview.refreshImagePreview,
-          hideImagePreview: preview.hideImagePreview,
+          hideImagePreview: preview.hideImagePreview, ...rendering,
         });
       }
     } catch (error) {
@@ -314,8 +365,10 @@ export function createView(options, enhanced = false) {
   }
   function spelling(result, candidate) {
     const element = node("span", "gsm-hoshidicts-expression jl-spelling");
-    for (const character of result.term.expression) {
-      element.append(HAN.test(character)
+    if (marked()) setAttributes(element, language.sourceAttributes());
+    const isLink = language ? character => language.isCharacterLink(character) : character => HAN.test(character);
+    for (const character of displayed(result, "expression")) {
+      element.append(isLink(character)
         ? button("gsm-hoshidicts-kanji-link", character, event => options.onKanjiClick?.(character, result, candidate, event.currentTarget))
         : document.createTextNode(character));
     }
@@ -325,21 +378,37 @@ export function createView(options, enhanced = false) {
   function topLine(result, dictionary, candidate, context) {
     const term = result.term;
     const line = node("div", "jl-top");
-    const reading = term.reading && term.reading !== term.expression ? term.reading : "";
+    // The displayed forms (10.4); the stored ones stay what is mined.
+    const expressionText = displayed(result, "expression"), readingText = displayed(result, "reading");
+    const reading = readingText && readingText !== expressionText ? readingText : "";
     const expression = spelling(result, candidate);
     line.append(expression);
-    if (reading) line.append(pitchMarker(node("span", "jl-reading"), reading, term, context));
-    // Without a reading JL marks the spelling itself, which only works for kana.
-    else if (!HAN.test(term.expression)) pitchMarker(expression, term.expression, term, context);
+    if (reading) {
+      const readingElement = node("span", "jl-reading");
+      if (marked()) setAttributes(readingElement, language.readingAttributes());
+      line.append(pitchMarker(readingElement, reading, term, context));
+    }
+    // Without a reading JL marks the spelling itself, which only works for kana
+    // and only a language with pitch accent has.
+    else if ((language?.capabilities.pitchAccent ?? true) && !HAN.test(expressionText)) {
+      pitchMarker(expression, expressionText, term, context);
+    }
     const audio = components.createAudioControl(document, term.expression);
     // JL puts audio after the reading; Bee groups it with the Anki and pencil buttons.
     if (!enhanced) line.append(audio.element);
     const steps = components.deinflectionSteps(result);
     const matched = result.matched || "";
-    const process = steps.length ? `～${steps.map(step => step.name).join("→")}` : "";
+    const process = steps.length ? `${label("traceMarker", "～")}${steps.map(step => step.name).join("→")}` : "";
     // JL shows the matched text, then any deconjugation, unless it is just the word.
-    if (process || (matched && matched !== term.expression && matched !== term.reading)) {
-      line.append(node("span", "jl-deconj", [matched, process].filter(Boolean).join(" ")));
+    if (process || (matched && matched !== expressionText && matched !== readingText)) {
+      if (marked() && matched) {
+        // The matched form keeps its own direction inside the English trail.
+        const deconjugation = node("span", "jl-deconj");
+        const form = setAttributes(document.createElement("span"), language.sourceAttributes());
+        form.textContent = matched;
+        deconjugation.append(form, ...(process ? [` ${process}`] : []));
+        line.append(deconjugation);
+      } else line.append(node("span", "jl-deconj", [matched, process].filter(Boolean).join(" ")));
     }
     const groups = (term.frequencies ?? []).filter(group => group.frequencies.length);
     if (enhanced) for (const group of groups) frequencyDictionaries.add(group.dictionary);
@@ -359,15 +428,15 @@ export function createView(options, enhanced = false) {
     return { line, audio, actions };
   }
   // JL joins one sense's glosses with "; ". Structured rows keep the text layout.
-  function rowText(glossary) {
+  function rowText(glossary, direction) {
     let value;
-    try { value = JSON.parse(glossary); } catch { return glossary; }
+    try { value = JSON.parse(glossary); } catch { return paragraph(glossary, direction); }
     return Array.isArray(value) && value.every(item => typeof item === "string")
-      ? value.join("; ").trim() : components.glossaryToPlainText(value);
+      ? paragraph(value.join(label("senseSeparator", "; ")).trim(), direction) : plainText(value, direction);
   }
   // JL's JMdict layout: a tag group every row shares leads on its own line, then numbered rows.
-  function definitionText(rows) {
-    const items = rows.map(row => ({ groups: tagGroups(row.definitionTags), text: rowText(row.glossary) }));
+  function definitionText(rows, direction) {
+    const items = rows.map(row => ({ groups: tagGroups(row.definitionTags), text: rowText(row.glossary, direction) }));
     if (items.length === 1) return [brackets(items[0].groups), items[0].text].filter(Boolean).join(" ");
     const shared = items[0].groups.map((tags, group) => tags.length > 0
       && items.every(item => item.groups[group].join(" ") === tags.join(" ")));
@@ -396,16 +465,21 @@ export function createView(options, enhanced = false) {
     bindings.push({ audio: { button: audio.button, result: projected }, mining: { actions, feedback, result: projected } });
     // Media ownership checks need the block attached before its images are requested.
     scroll.append(entry);
+    // The dictionary's direction and default language hold its block (10.2).
+    const direction = directionOf(dictionary, projected);
     if (enhanced) {
       addTools(actions, entry, termPrefill(result, candidate), context);
-      formattedDefinition(definitions, rows, dictionary, context, entry);
-    } else definitions.append(node("div", "gsm-hoshidicts-glossary-content", definitionText(rows)));
+      formattedDefinition(definitions, rows, dictionary, context, entry, projected);
+    } else {
+      if (marked()) setAttributes(definitions, language.glossaryAttributes(dictionary, projected));
+      definitions.append(node("div", "gsm-hoshidicts-glossary-content", definitionText(rows, direction)));
+    }
   }
   // Like Default's tabs, core binds only the blocks the selected tab shows, so
   // keybinds and autoplay follow the tab.
   function shownBindings() {
     const bound = bindings.filter((_, index) => !entries[index].hidden);
-    return { audioButtons: bound.map(item => item.audio), miningActions: bound.map(item => item.mining) };
+    return { audioButtons: bound.flatMap(item => item.audio ? [item.audio] : []), miningActions: bound.map(item => item.mining) };
   }
   // Tabs only hide blocks, so switching needs no render.
   function selectTab(dictionary, notify) {
@@ -413,8 +487,8 @@ export function createView(options, enhanced = false) {
     for (const element of tabs.children) element.setAttribute("aria-pressed", String((element.dataset.dictionary ?? null) === dictionary));
     for (const entry of entries) entry.hidden = dictionary !== null && entry.dataset.dictionary !== dictionary;
     selected = Math.max(0, entries.findIndex(entry => !entry.hidden));
-    scroll.scrollTop = 0;
     if (!notify) return;
+    scroll.scrollTop = 0;
     onTabSelected?.(dictionary === null ? null : { dictionary });
     options.onResultsExpanded?.(shownBindings());
   }
@@ -455,8 +529,7 @@ export function createView(options, enhanced = false) {
     }
   }
   function renderGroupTabs(dictionaries, context, notify = false) {
-    const allAndGroups = components.createDictionaryTabs(dictionaries, context).tabs.filter(item => item.key === "all" || item.groupId);
-    const descriptors = allAndGroups.length > 1 ? allAndGroups : [];
+    const descriptors = components.createDictionaryTabs(dictionaries, context).tabs.filter(item => item.key === "all" || item.groupId);
     const selectedGroup = tab?.groupId;
     const active = descriptors.find(item => item.groupId === selectedGroup) || descriptors[0];
     const previous = JSON.stringify(groupTabs.map(item => [item.groupId, item.label, [...item.dictionaries]]));
@@ -467,6 +540,7 @@ export function createView(options, enhanced = false) {
       tabs.replaceChildren();
       for (const descriptor of descriptors) {
         const element = button("jl-tab", descriptor.label, () => selectGroup(descriptor, true));
+        if (marked()) setName(element, descriptor.label);
         if (descriptor.groupId) element.dataset.groupId = descriptor.groupId;
         element.title = descriptor.title;
         tabs.append(element);
@@ -486,6 +560,7 @@ export function createView(options, enhanced = false) {
 
   function renderResults(results, candidate, context = {}) {
     clear();
+    language = context.language ?? options.language ?? null;
     paintedPitch = pitchOptions(context);
     onTabSelected = context.onDictionaryTabSelected;
     const found = [];
@@ -506,29 +581,44 @@ export function createView(options, enhanced = false) {
   // JL's kanji text: meanings, then labelled readings and statistics.
   function renderKanji(kanji, candidate, context = {}) {
     clear();
+    language = context.language ?? options.language ?? null;
     navigation(context);
     for (const entry of kanji.entries) {
       // Bee shows the structured meanings; JL shows them as text.
-      const lines = enhanced ? [] : [components.glossaryToPlainText(entry.definitions)];
-      for (const [label, value] of [["On", entry.onyomi], ["Kun", entry.kunyomi]]) {
+      const lines = enhanced ? [] : [plainText(entry.definitions, directionOf(entry.dictionary))];
+      for (const [name, value] of [[label("onyomi", "On"), entry.onyomi], [label("kunyomi", "Kun"), entry.kunyomi]]) {
         const readings = kanjiTokens(value);
-        if (readings.length) lines.push(`${label}: ${readings.join("、")}`);
+        if (readings.length) lines.push(`${name}: ${readings.join(label("readingSeparator", "、"))}`);
       }
       if (entry.stats?.length) lines.push("Statistics:", ...entry.stats.map(stat => `${stat.name}: ${stat.value}`));
       const block = node("article", "jl-entry jl-kanji");
+      block.tabIndex = -1;
+      const index = entries.length;
+      block.addEventListener("click", () => { selected = index; });
       const line = node("div", "jl-top");
       const kanjiWord = node("span", "jl-spelling", kanji.character);
+      if (marked()) setAttributes(kanjiWord, language.sourceAttributes());
       const sourceActions = enhanced ? node("div", "bee-source-actions") : line;
+      const actions = node("div", "gsm-hoshidicts-entry-actions");
+      actions.setAttribute("role", "group");
+      actions.setAttribute("aria-label", "Kanji actions");
+      const feedback = node("div", "gsm-hoshidicts-anki-feedback");
+      feedback.hidden = true;
+      const result = { ...(language && components.language
+        ? components.language.characterEntryResult(kanji.character, entry, language)
+        : components.kanjiEntryResult(kanji.character, entry)), generation: context.generation };
+      result.term.frequencies = kanji.frequencies ?? [];
       line.append(kanjiWord);
       if (enhanced) line.append(sourceActions);
-      sourceActions.append(dictionaryLabel(entry.dictionary));
-      block.append(line);
+      sourceActions.append(dictionaryLabel(entry.dictionary), actions);
+      block.append(line, feedback);
       scroll.append(block);
+      block.dataset.dictionary = entry.dictionary;
+      entries.push(block);
+      bindings.push({ mining: { actions, feedback, result } });
       if (enhanced) {
-        block.dataset.dictionary = entry.dictionary;
-        addTools(sourceActions, block, { term: kanji.character, reading: "", definition: "", sentence: candidate?.sentence || "" }, context);
+        addTools(actions, block, { term: kanji.character, reading: "", definition: "", sentence: candidate?.sentence || "" }, context);
         formattedDefinition(block, [{ glossary: JSON.stringify(entry.definitions) }], entry.dictionary, context, block);
-        entries.push(block);
       }
       block.append(node("div", "jl-kanji-text", lines.filter(Boolean).join("\n")));
     }
@@ -538,9 +628,11 @@ export function createView(options, enhanced = false) {
     }
     updateDictionaryPresentation(context, false);
     finish(candidate, context.highlightText || kanji.character, context);
+    options.onResultsRendered?.({ ...shownBindings(), lookupStats: null });
   }
   function renderNotice(message, candidate, context = {}) {
     clear(); navigation(context);
+    language = context.language ?? options.language ?? null;
     const notice = node("div", "gsm-hoshidicts-lookup-notice", message);
     notice.setAttribute("role", "status"); scroll.append(notice);
     if (enhanced) addTools(nav, scroll, { term: candidate?.query || "", reading: "", definition: "", sentence: candidate?.sentence || "" }, context);

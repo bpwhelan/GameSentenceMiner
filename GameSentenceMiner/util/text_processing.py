@@ -12,20 +12,22 @@ from GameSentenceMiner.util.config.configuration import (
     StringReplacement,
     TextProcessing,
     TextReplacementRule,
+    get_config,
     logger,
 )
+from GameSentenceMiner.util.language_filter import filter_target_language
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
 DOLLAR_CAPTURE_GROUP_PATTERN = re.compile(r"(?<!\\)\$(\d+)")
 BRACKETED_TEXT_PATTERN = re.compile(r"[^\r\n「」]{0,8}「(?P<text>.*)」", re.DOTALL)
 
 
-def apply_text_processing(text: str, config: TextProcessing | None) -> str:
+def apply_text_processing(text: str, config: TextProcessing | None, *, target_language: str | None = None) -> str:
     if not text or config is None:
         return text
 
     for processor_id in config.processor_order:
-        text = _run_processor(text, processor_id, config)
+        text = _run_processor(text, processor_id, config, target_language=target_language)
         if not text:
             break
     return text
@@ -40,10 +42,10 @@ def preview_text_processing_request(payload: dict[str, Any]) -> dict[str, str]:
 
     raw_config = payload.get("config")
     config = TextProcessing.from_dict(raw_config) if isinstance(raw_config, dict) else None
-    return {"result": apply_text_processing(text, config)}
+    return {"result": apply_text_processing(text, config, target_language=payload.get("target_language"))}
 
 
-def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
+def _run_processor(text: str, processor_id: str, config: TextProcessing, *, target_language: str | None = None) -> str:
     """Run a single processor by ID if it is enabled."""
     if processor_id == "string_replacement":
         if config.string_replacement and config.string_replacement.enabled:
@@ -68,6 +70,10 @@ def _run_processor(text: str, processor_id: str, config: TextProcessing) -> str:
     elif processor_id == "remove_control_chars":
         if config.remove_control_chars:
             return remove_control_chars(text)
+    elif processor_id == "language_filter":
+        if config.language_filter:
+            language = get_config().general.target_language if target_language is None else target_language
+            return filter_target_language(text, language, config.language_filter_config.mode)
     elif processor_id == "remove_non_japanese":
         if config.remove_non_japanese:
             return remove_non_japanese(text)

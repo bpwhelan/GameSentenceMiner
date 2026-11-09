@@ -1089,11 +1089,6 @@ html[data-hoshidicts-theme="girlypop"],
   --hoshidicts-pitch-nakadaka: light-dark(#a75113, #ff9b54);
   --hoshidicts-pitch-odaka: light-dark(#007a16, #67e47d);
   --hoshidicts-pitch-kifuku: light-dark(#7b51c0, #bc99f6);
-  --hoshidicts-tag-text: var(--hoshidicts-palette-neutral-content);
-  --hoshidicts-tag-expression-text: var(--hoshidicts-palette-secondary-content);
-  --hoshidicts-tag-part-of-speech-text: var(--hoshidicts-palette-accent-content);
-  --hoshidicts-tag-popular-text: var(--hoshidicts-palette-primary-content);
-  --hoshidicts-tag-frequent-text: var(--hoshidicts-palette-info-content);
   --background-color: var(--hoshidicts-popup-background);
   --background-color-light: var(--hoshidicts-card-background);
   --background-color-dark1: var(--hoshidicts-surface-raised);
@@ -1117,11 +1112,22 @@ html[data-hoshidicts-theme="girlypop"],
   --danger-color: var(--hoshidicts-danger);
   /* display-pronunciation.css: Yomitan draws pitch in the text colour. */
   --pronunciation-annotation-color: var(--text-color);
-  --tag-default-background-color: var(--hoshidicts-palette-neutral);
-  --tag-expression-background-color: var(--hoshidicts-palette-secondary);
-  --tag-part-of-speech-background-color: var(--hoshidicts-palette-accent);
-  --tag-popular-background-color: var(--hoshidicts-palette-primary);
-  --tag-frequent-background-color: var(--hoshidicts-palette-info);
+  /* Yomitan's tag colours (display.css at d3c54c1, L140-L152 and L208-L220):
+     its light theme's in a light palette and its dark theme's in a dark one,
+     whatever the palette's own colours. A colour on which the label is below
+     4.5:1 is darkened, keeping its hue, only as far as 4.5:1 needs. Custom CSS
+     can restyle these, for example with Yomitan's own values. */
+  --tag-text-color: light-dark(#ffffff, #f1f1f1);
+  --tag-default-background-color: light-dark(#76767d, #69696e);
+  --tag-name-background-color: light-dark(#b6327a, #992a67);
+  --tag-expression-background-color: light-dark(#a36b02, #946419);
+  --tag-popular-background-color: light-dark(#0275d8, #025caa);
+  --tag-frequent-background-color: light-dark(#01819e, #28778e);
+  --tag-archaism-background-color: light-dark(#ce4946, #b04340);
+  --tag-dictionary-background-color: light-dark(#9d5abf, #8f56ac);
+  --tag-frequency-background-color: light-dark(#29882d, #347d35);
+  --tag-part-of-speech-background-color: #565656;
+  --tag-pronunciation-dictionary-background-color: #6640be;
   /* Density tokens. The default is compact; a Comfortable density (or a theme)
      only needs to override these on the host. */
   --hd-space-1: 2px;
@@ -1166,9 +1172,14 @@ html[data-hoshidicts-theme="girlypop"],
     0 2px 8px rgba(0, 0, 0, 0.36);
   color: var(--text-color);
   color-scheme: var(--hoshidicts-palette-color-scheme);
-  font-family: "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif;
+  /* The profile's pack may name its font and line breaking (docs/languages.md
+   * 10.1); the theme host sets these properties only once records have
+   * profiles, and leaves each unset where the pack does. */
+  font-family: var(--hd-language-font-family, "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif);
   font-size: 16px;
   line-height: 1.5;
+  word-break: var(--hd-language-word-break, normal);
+  line-break: var(--hd-language-line-break, auto);
   overscroll-behavior: contain;
   pointer-events: auto;
   user-select: text;
@@ -1202,6 +1213,19 @@ html[data-hoshidicts-theme="girlypop"],
   --hoshidicts-link: var(--hoshidicts-palette-secondary);
   --hoshidicts-link-hover: #ffffff;
   --hoshidicts-scrollbar: #ffffff;
+  /* Yomitan's dark tag colours, each darkened only as far as a white label
+     needs for 7:1 (WCAG's enhanced contrast), as this palette's text has. */
+  --tag-text-color: #ffffff;
+  --tag-default-background-color: #58585d;
+  --tag-name-background-color: #992a67;
+  --tag-expression-background-color: #7b5000;
+  --tag-popular-background-color: #0159a6;
+  --tag-frequent-background-color: #046177;
+  --tag-archaism-background-color: #9f3332;
+  --tag-dictionary-background-color: #794095;
+  --tag-frequency-background-color: #1a661e;
+  --tag-part-of-speech-background-color: #565656;
+  --tag-pronunciation-dictionary-background-color: #653fbd;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   box-shadow: 0 0 0 2px #000000, 0 0 0 4px #ffffff;
@@ -1573,7 +1597,7 @@ html[data-hoshidicts-theme="girlypop"],
   border-radius: 4px;
   background: var(--hoshidicts-card-background);
   color: var(--text-color);
-  font: 400 15px/1.45 "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", sans-serif;
+  font: 400 15px/1.45 var(--hd-language-font-family, "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", "Hiragino Sans", sans-serif);
 }
 
 .gsm-hoshidicts-note-form textarea {
@@ -1741,39 +1765,44 @@ html[data-hoshidicts-theme="girlypop"],
   user-select: none;
 }
 
-.gsm-hoshidicts-pitch-ruby {
-  display: inline-flex;
-  flex-direction: column-reverse;
-  align-items: stretch;
-  /* Every segment's reading row is the same height, but a kanji segment's
-     base is 1px taller (its link's dotted underline). Top alignment keeps the
-     contour and the headword text on one row across segments. */
-  vertical-align: top;
-}
-
-.gsm-hoshidicts-pitch-base {
-  text-align: center;
-}
-
-.gsm-hoshidicts-pitch-reading {
-  display: block;
-  overflow: visible;
-  padding: 1px 0 2px;
-}
-
-.gsm-hoshidicts-pitch-contour {
-  display: flex;
-  align-items: stretch;
+/* A language without ruby shows a reading that differs from the headword
+   beside it (docs/languages.md 10.5). */
+.gsm-hoshidicts-expression .gsm-hoshidicts-reading {
+  margin-inline-start: calc(1em / 3);
   color: var(--text-color-light1);
-  white-space: nowrap;
+  font-size: 0.75em;
+  font-weight: 400;
+}
+
+/* The headword's pitch accent is drawn on its reading after the headword
+   (#606), in the furigana's colour, at three quarters of the headword's size,
+   as Yomitan's "Term furigana and reading" display places a reading
+   (display.css: .headword-reading-outer). Yomitan's 0.5em gap is in the 14 px
+   entry text beside a 2em headword, a quarter of the headword: a third of the
+   reading's own em. A headword spelt in its reading's kana carries the contour
+   on its own kana instead. */
+.gsm-hoshidicts-pitch-reading {
+  margin-inline-start: calc(1em / 3);
+  color: var(--text-color-light1);
+  font-size: 0.75em;
+  font-weight: 400;
+  user-select: none;
+}
+
+/* An inline-block, as Yomitan's reading is: it moves to the next line whole
+   and wraps between morae only when it is longer than a line. Its morae are
+   inline-blocks too, not flex items, which a copy or a selection would split
+   onto a line each. */
+.gsm-hoshidicts-pitch-contour {
+  display: inline-block;
+  line-height: 1;
 }
 
 .gsm-hoshidicts-pitch-mora {
+  display: inline-block;
   position: relative;
-  flex: 1 1 auto;
   margin-right: -1px;
   padding: 2px 1px;
-  text-align: center;
   border-top: 2px solid transparent;
   border-bottom: 2px solid transparent;
   line-height: 1;
@@ -1809,22 +1838,53 @@ html[data-hoshidicts-theme="girlypop"],
   content: "";
 }
 
-/* Design → Pitch accent → Furigana pitch style "overline": the pitch list's
+/* Design → Pitch accent → Reading pitch style "overline": the pitch list's
    Yomitan text (.pronunciation-mora and its line, display-pronunciation.css
-   below) in the headword's reading. Each mora fills its share of the segment,
-   as a contour mora does, so the overline runs on unbroken over kanji. The
-   reading's line height is 1, so the padding gives the line the room above the
-   kana that the list's 1.5 line height gives it. */
+   below). The contour's line height is 1, so the padding gives the line the
+   room above the kana that the list's 1.5 line height gives it. */
 .gsm-hoshidicts-pitch-contour[data-pitch-style="overline"] > .pronunciation-mora {
-  flex: 1 1 auto;
   padding-top: 0.3em;
-  text-align: center;
+}
+
+/* The list's line and hook, drawn here as ::after with the same geometry
+   instead of by its empty, absolutely positioned line element: Chrome's word
+   selection stops at that element, so a double-click on a kana headword
+   selected only part of the word. */
+.gsm-hoshidicts-pitch-contour[data-pitch-style="overline"] > .pronunciation-mora > .pronunciation-mora-line {
+  display: none;
+}
+
+.gsm-hoshidicts-pitch-contour[data-pitch-style="overline"] > .pronunciation-mora[data-pitch="high"]::after {
+  position: absolute;
+  top: 0.1em;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 0.1em solid var(--pronunciation-annotation-color);
+  pointer-events: none;
+  content: "";
+}
+
+.gsm-hoshidicts-pitch-contour[data-pitch-style="overline"] > .pronunciation-mora[data-pitch="high"][data-pitch-next="low"]::after {
+  right: -0.1em;
+  height: 0.4em;
+  border-right: 0.1em solid var(--pronunciation-annotation-color);
 }
 
 .gsm-hoshidicts-popup[data-definition-blur-state="pending"] .gsm-hoshidicts-expression rt,
-.gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-expression rt {
+.gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-expression rt,
+.gsm-hoshidicts-popup[data-definition-blur-state="pending"] .gsm-hoshidicts-pitch-reading,
+.gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-pitch-reading {
   filter: blur(5px);
   user-select: none;
+}
+
+/* Blur hides the headword's pitch with its reading. A kana headword draws the
+   pitch on the word itself, which stays readable, so its lines wait instead. */
+.gsm-hoshidicts-popup[data-definition-blur-state="pending"] .gsm-hoshidicts-pitch-contour,
+.gsm-hoshidicts-popup[data-definition-blur-state="blurred"] .gsm-hoshidicts-pitch-contour {
+  --hoshidicts-pitch: transparent;
+  --pronunciation-annotation-color: transparent;
 }
 
 .gsm-hoshidicts-popup [data-pitch-category="heiban"] { --hoshidicts-pitch-category: var(--hoshidicts-pitch-heiban); }
@@ -1839,10 +1899,11 @@ html[data-hoshidicts-theme="girlypop"],
   --pronunciation-annotation-color: var(--hoshidicts-pitch-category);
 }
 
-/* The headword and its furigana lines (the contour, or the Overline style's
-   line and hook) take the group of the pitch the furigana uses. The reading
-   kana keep their muted colour: 14 px text needs 4.5:1. Blur hides that pitch
-   with the reading, so the colour waits too. */
+/* The headword and its pitch lines (the contour, or the Overline style's
+   line and hook) take the group of the pitch its reading shows. The reading
+   kana keep their muted colour, not the group colours, which are chosen for
+   3:1: text that size would need 4.5:1. Blur hides that pitch with the
+   reading, so the colour waits too. */
 :host([data-hoshidicts-pitch-colors]) .gsm-hoshidicts-popup:not([data-definition-blur-state]) .gsm-hoshidicts-expression[data-pitch-category] {
   --hoshidicts-pitch: var(--hoshidicts-pitch-category);
   --pronunciation-annotation-color: var(--hoshidicts-pitch-category);
@@ -1856,10 +1917,27 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 /* Forced colours keep today's popup: they replace the headword's colours, but
-   not the SVG paint of a badge's graph, which would keep its group colour. */
+   not the SVG paint of a badge's graph, which would keep its group colour.
+   They would also paint a contour mora's unused, transparent side and box
+   every mora in, so the headword's pitch keeps its own lines instead, in the
+   system text colour, and blur can still make them transparent. */
 @media (forced-colors: active) {
   .gsm-hoshidicts-popup [data-pitch-category] {
     --hoshidicts-pitch-category: var(--text-color);
+  }
+
+  .gsm-hoshidicts-pitch-contour {
+    --hoshidicts-pitch: CanvasText;
+    --pronunciation-annotation-color: CanvasText;
+  }
+
+  .gsm-hoshidicts-pitch-mora,
+  .gsm-hoshidicts-pitch-contour > .pronunciation-mora::after {
+    forced-color-adjust: none;
+  }
+
+  .gsm-hoshidicts-pitch-mora {
+    color: CanvasText;
   }
 }
 
@@ -2425,7 +2503,6 @@ html[data-hoshidicts-theme="girlypop"],
 }
 
 .gsm-hoshidicts-tags,
-.gsm-hoshidicts-definition-tags,
 .gsm-hoshidicts-metadata {
   display: flex;
   flex-wrap: wrap;
@@ -2438,6 +2515,12 @@ html[data-hoshidicts-theme="girlypop"],
   margin-top: var(--hd-space-2);
 }
 
+/* Yomitan's .definition-tag-list: the tags' own margins space it. */
+.gsm-hoshidicts-definition-tags {
+  display: flex;
+  flex-wrap: wrap;
+}
+
 .gsm-hoshidicts-tag {
   padding: var(--hd-space-1) 5px;
   border-radius: 4px;
@@ -2447,52 +2530,76 @@ html[data-hoshidicts-theme="girlypop"],
   user-select: text;
 }
 
+/* The grammar row and kanji tags keep their palette's colour pairs. */
 .gsm-hoshidicts-tag-deinflection {
-  background: var(--tag-expression-background-color);
-  color: var(--hoshidicts-tag-expression-text);
+  background: var(--hoshidicts-palette-secondary);
+  color: var(--hoshidicts-palette-secondary-content);
 }
 
 .gsm-hoshidicts-tag-term {
-  background: var(--tag-part-of-speech-background-color);
-  color: var(--hoshidicts-tag-part-of-speech-text);
+  background: var(--hoshidicts-palette-accent);
+  color: var(--hoshidicts-palette-accent-content);
 }
 
+/* Definition tags and each card's dictionary tag are Yomitan's .tag
+   (display.css at d3c54c1, L794-L886): a bold label 11/14 the size of the
+   text around it, filled with its category's colour. Yomitan's .tag,
+   .tag-label and .tag-label-content are one element here, so its lengths are
+   given in the label's em: Yomitan's pixels at 14px text, over 11. */
 .gsm-hoshidicts-tag-definition {
-  background: var(--tag-default-background-color);
-  color: var(--hoshidicts-tag-text);
-  font-size: 11px;
+  --tag-color: var(--tag-default-background-color);
+  margin: calc(1em / 11) calc(5.25em / 11) calc(1em / 11) 0;
+  padding: calc(2.5em / 11) calc(5.25em / 11);
+  border-radius: calc(3.5em / 11);
+  background: var(--tag-color);
+  color: var(--tag-text-color);
+  font-size: calc(11em / var(--font-size-no-units));
+  font-weight: bold;
+  line-height: calc(20 / 14);
 }
 
-/* Yomitan's .tag[data-category] colours (display.css), on each palette's own
-   colour and content pairs. "default", and a category without a rule here,
-   keep the neutral pill. */
+.gsm-hoshidicts-tag-definition[data-category="name"] {
+  --tag-color: var(--tag-name-background-color);
+}
+
 .gsm-hoshidicts-tag-definition[data-category="expression"] {
-  background: var(--tag-expression-background-color);
-  color: var(--hoshidicts-tag-expression-text);
-}
-
-.gsm-hoshidicts-tag-definition[data-category="partOfSpeech"] {
-  background: var(--tag-part-of-speech-background-color);
-  color: var(--hoshidicts-tag-part-of-speech-text);
+  --tag-color: var(--tag-expression-background-color);
 }
 
 .gsm-hoshidicts-tag-definition[data-category="popular"] {
-  background: var(--tag-popular-background-color);
-  color: var(--hoshidicts-tag-popular-text);
+  --tag-color: var(--tag-popular-background-color);
 }
 
 .gsm-hoshidicts-tag-definition[data-category="frequent"] {
-  background: var(--tag-frequent-background-color);
-  color: var(--hoshidicts-tag-frequent-text);
+  --tag-color: var(--tag-frequent-background-color);
 }
 
-/* No palette has an error-content colour, so an archaism is tinted instead of
-   filled. The border takes a pixel of padding so the pill keeps its size. */
 .gsm-hoshidicts-tag-definition[data-category="archaism"] {
-  padding: calc(var(--hd-space-1) - 1px) 4px;
-  border: 1px solid var(--hoshidicts-palette-error);
-  background: color-mix(in srgb, var(--hoshidicts-palette-error) 12%, var(--hoshidicts-palette-base-100));
-  color: var(--text-color);
+  --tag-color: var(--tag-archaism-background-color);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="dictionary"] {
+  --tag-color: var(--tag-dictionary-background-color);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="frequency"] {
+  --tag-color: var(--tag-frequency-background-color);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="partOfSpeech"] {
+  --tag-color: var(--tag-part-of-speech-background-color);
+}
+
+.gsm-hoshidicts-tag-definition[data-category="pronunciation-dictionary"] {
+  --tag-color: var(--tag-pronunciation-dictionary-background-color);
+}
+
+/* Forced colours drop the fill, so each tag keeps an outline of its own. */
+@media (forced-colors: active) {
+  .gsm-hoshidicts-tag-definition {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
 }
 
 .gsm-hoshidicts-tag-frequency {
@@ -2806,13 +2913,6 @@ html[data-hoshidicts-theme="girlypop"],
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
-.gsm-hoshidicts-glossary-card-title {
-  color: var(--text-color-light1);
-  font-size: var(--hd-font-label);
-  line-height: 1.3;
-  user-select: none;
-}
-
 /* Inside each card, the definitions follow Yomitan (yomidevs/yomitan@67db60d,
  * GPL-3.0-or-later): ext/css/display.css for the definition and gloss lists and
  * links, ext/css/structured-content.css for dictionary markup. Its selectors
@@ -2861,17 +2961,17 @@ html[data-hoshidicts-theme="girlypop"],
   position: relative;
 }
 
-/* Hachidori: the list starts below the card title. */
-.gsm-hoshidicts-definitions {
-  margin-top: 3px;
-}
-
 .gsm-hoshidicts-definitions[data-definition-blur-state="pending"]
   .gsm-hoshidicts-glossary-content,
 .gsm-hoshidicts-definitions[data-definition-blur-state="blurred"]
   .gsm-hoshidicts-glossary-content {
   filter: blur(5px);
   user-select: none;
+}
+
+/* Blurred definitions that a click reveals (#598). */
+.gsm-hoshidicts-popup [data-definition-reveal] {
+  cursor: pointer;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2981,12 +3081,12 @@ html[data-hoshidicts-theme="girlypop"],
  * L2069-L2092, ext/css/structured-content.css L240-L253) on the popup host.
  * Hachidori's own adjustments are marked. */
 
-/* Hachidori: the tag row keeps its flex gap and shares a line only with plain
+/* Hachidori: the tag row stays a flex row and shares a line only with plain
  * glosses. Before structured content (Jitendex's ★ row) an inline row would
- * only gain a taller line box. */
+ * only gain a taller line box. As in Yomitan, the last tag's margin spaces it
+ * from the first gloss. */
 :host([data-hoshidicts-glossary-layout="compact"]) .definition-item:not(:has(.gloss-content.structured-content)) > .definition-tag-list {
   display: inline-flex;
-  margin: 0 0.25em 0 0;
 }
 
 /* Hachidori: .gsm-hoshidicts-glossary-content is a wrapper Yomitan does not
@@ -3425,3 +3525,22 @@ html[data-hoshidicts-theme="girlypop"],
   margin: 0;
   overflow-wrap: anywhere;
 }
+
+/* Logical spacing and start alignment apply only in marked popups (records
+   with profiles, docs/languages.md 10.1-10.2). A popup without profiles keeps
+   the physical rules above, so a Japanese-only popup on a right-to-left page
+   lays out exactly as before. :where() keeps each rule at its base specificity. */
+:where(.gsm-hoshidicts-popup[data-hd-language]) .definition-list { padding: 0; padding-inline-start: var(--list-padding1); }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .definition-list[data-count="0"],
+:where(.gsm-hoshidicts-popup[data-hd-language]) .definition-list[data-count="1"] { padding-inline-start: 0; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-list { padding: 0; padding-inline-start: var(--list-padding2); }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-list[data-count="0"],
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-list[data-count="1"] { padding-inline-start: 0; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gsm-hoshidicts-glossary-content .gloss-link-external-icon { margin-left: 0; margin-inline-start: 0.25em; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-sc-ol,
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-sc-ul { padding-left: 0; padding-inline-start: var(--list-padding2); }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-sc-details { padding-left: 0; padding-inline-start: var(--list-padding1); }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-sc-details > .gloss-sc-table-container { margin-left: 0; padding-left: 0;
+  margin-inline-start: calc(-1 * var(--list-padding1)); padding-inline-start: var(--list-padding1); }
+:host([data-hoshidicts-glossary-layout="compact"]) :where(.gsm-hoshidicts-popup[data-hd-language]) .gloss-sc-ul[data-sc-content="glossary"] { padding-inline-start: 0; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .gsm-hoshidicts-kanji-meanings { padding-left: 0; padding-inline-start: 22px; }

@@ -22,6 +22,28 @@
         "run_function": "機能を実行"
       },
       "tabs": {
+        "session_review": {
+          "title": "セッション後の確認",
+          "description": "プレイを中断せずにマイニングできます。GSM はプレイ中にカードを更新し、ゲーム終了後の編集用にリプレイ・音声・画像・台詞を保存します。未確認のカードは再起動後も残ります。",
+          "enabled": "セッション終了後に Anki カードを確認する",
+          "enabled_tooltip": "その場での確認とカウントダウンを省略します。プレイ中も Anki への保存は行われます。確認時は編集したフィールドだけを変更します。",
+          "open_on_game_close": "ゲーム終了時に確認画面を開く",
+          "notify_on_startup": "起動時に確認待ちのカードを通知する",
+          "notify_on_startup_tooltip": "確認待ちのカードを開くボタン付きの通知を起動時に表示します。",
+          "max_future_context_lines": "後続の会話行の最大数",
+          "max_future_context_lines_tooltip": "指定した数の後続行を受信すると追加のリプレイを1つ保存します。確認中に後続の文脈を追加した場合のみ使用し、確認完了時に削除します。0で追加キャプチャを無効にします。",
+          "open_on_game_close_tooltip": "GSM のゲーム・キャプチャ検出を使用します。追跡中のゲームを最小化しても終了とは見なしません。手動で開くこともできます。",
+          "auto_advance": "確認後に次のカードを選択する",
+          "auto_advance_tooltip": "このカードをバックグラウンドで保存しながら、すぐに次のカードの確認へ進みます。",
+          "delete_local_after_review": "確認完了後に保存ファイルを削除する",
+          "delete_local_after_review_tooltip": "保存成功時または確認待ちからの削除時に、この機能が保存したリプレイとメディアのコピーを削除します。未確認のカードは自動削除しません。",
+          "cleanup_anki_media": "差し替えた未使用メディアを Anki から削除する",
+          "cleanup_anki_media_tooltip": "どのノートやテンプレートからも参照されない GSM メディアのみ、AnkiConnect で削除します。失敗した削除は確認画面で再試行できます。",
+          "seconds_suffix": " 秒",
+          "delay_seconds": "ゲーム終了後の待機時間",
+          "review_now": "確認待ちのカードを開く",
+          "storage_note": "保存したリプレイは確認完了までディスク容量を使用します。確認画面を閉じても未確認のカードは残ります。編集を保存するには Anki を起動してください。"
+        },
         "key_settings": {
           "title": "主要な設定",
           "key_settings": {
@@ -194,6 +216,18 @@
           "enabled": {
             "label": "有効化:",
             "tooltip": "Ankiとの連携を有効化または無効化します。"
+          },
+          "confirmation_enabled": {
+            "label": "有効",
+            "tooltip": "Ankiカードの更新をできるだけ早く確認するか、セッション終了後にまとめて確認します。"
+          },
+          "confirmation_immediate": {
+            "label": "できるだけ早く",
+            "tooltip": "GSMが各カードを更新する前に確認します。"
+          },
+          "confirmation_after_session": {
+            "label": "セッション終了後",
+            "tooltip": "プレイ中にカードを保存し、ゲーム終了後に確認します。即時確認とそのカウントダウンは表示しません。"
           },
           "show_update_confirmation_dialog": {
             "label": "更新確認ダイアログを表示:",
@@ -813,6 +847,20 @@
           "openai_apikey": {
             "label": "OpenAI APIキー:",
             "tooltip": "OpenAIプロバイダーのAPIキー。"
+          },
+          "openai_reasoning_effort": {
+            "label": "推論レベル",
+            "tooltip": "「モデルの既定値」ではプロバイダーに任せます。「なし」では推論を無効にします。レベルを上げると応答時間やトークン使用量が増える場合があります。メインモデルとバックアップモデルの両方に適用されます。対応するレベルはモデルによって異なります。",
+            "options": {
+              "default": "モデルの既定値",
+              "none": "なし（無効）",
+              "minimal": "最小",
+              "low": "低",
+              "medium": "中",
+              "high": "高",
+              "xhigh": "非常に高い",
+              "max": "最大"
+            }
           },
           "openai_url": {
             "label": "OpenAI API URL:",

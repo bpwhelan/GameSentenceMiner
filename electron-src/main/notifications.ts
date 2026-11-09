@@ -17,9 +17,11 @@ export enum NotificationType {
     CheckOBS = 'Check OBS',
     Error = 'Error',
     GSMReady = 'GSM Ready',
+    GSMCrashed = 'GSM crashed',
     GSMStillRunning = 'GSM Still Running',
     GSMTextIntakePaused = 'GSM Text Intake Paused',
     GSMTextIntakeResumed = 'GSM Text Intake Resumed',
+    PendingSessionReviews = 'Anki reviews pending',
 }
 
 // Show a notification, optionally with a click handler
@@ -145,7 +147,7 @@ async function invokeAnki(data: any): Promise<any> {
 }
 
 // Take in a message.data and parse the json
-export function sendNotificationFromPython(data: any) {
+export function sendNotificationFromPython(data: any, openPendingReviews?: () => void) {
     const { type, message, noteId } = data;
     switch (NotificationType[type as keyof typeof NotificationType]) {
         case NotificationType.AnkiCardUpdated:
@@ -168,6 +170,15 @@ export function sendNotificationFromPython(data: any) {
             break;
         case NotificationType.GSMReady:
             sendGSMReadyNotification(message);
+            break;
+        case NotificationType.PendingSessionReviews:
+            sendNotification(
+                NotificationType.PendingSessionReviews,
+                message,
+                15000,
+                openPendingReviews,
+                openPendingReviews ? [{ text: 'Review cards', onAction: openPendingReviews }] : [],
+            );
             break;
         case NotificationType.GSMTextIntakePaused:
             sendTextIntakePausedNotification(message);
@@ -245,6 +256,16 @@ export function sendErrorNoAnkiUpdate() {
 
 export function sendGSMReadyNotification(message: string) {
     sendNotification(NotificationType.GSMReady, message, 5000);
+}
+
+export function sendGSMCrashNotification(restarting: boolean) {
+    sendNotification(
+        NotificationType.GSMCrashed,
+        restarting
+            ? 'GSM crashed. Restarting…'
+            : 'GSM keeps crashing. Automatic restarts have stopped. Open GSM and check the logs.',
+        8000,
+    );
 }
 
 /** Keep this available in Windows Notification Center until the warning is resolved. */

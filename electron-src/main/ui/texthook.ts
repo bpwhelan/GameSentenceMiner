@@ -47,6 +47,7 @@ import {
     type PreparedTexthookUpdate,
 } from './texthook_downloader.js';
 import { TextHookUpdateManager } from '../services/texthook_updates.js';
+import { appendHookFragment } from './text_hook_buffer.js';
 import { gamePrivilegeMonitor } from '../services/game_privileges.js';
 import {
     getCurrentScene,
@@ -1410,6 +1411,7 @@ function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPa
     const last = pending[pending.length - 1];
     return {
         ...last,
+        ...(pending[0].capturedAt !== undefined ? { capturedAt: pending[0].capturedAt } : {}),
         text: pending.map((item) => item.text).join('\n'),
     };
 }
@@ -1417,14 +1419,23 @@ function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPa
 function queueSelectedHookText(payload: TextHookOutputPayload): void {
     if (!session) return;
     const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
-    // Forward every fragment immediately. Python owns aggregation and uses the
-    // former debounce duration as a provisional revision/freeze window.
-    sendSelectedHookText({
+    const completedPayload = {
         ...payload,
         capturedAt: Date.now(),
-        revisionWindowMs: delayMs,
-        mergeFragments: true,
-    });
+        revisionWindowMs: 0,
+        mergeFragments: false,
+    };
+    if (delayMs <= 0) {
+        sendSelectedHookText(completedPayload);
+        return;
+    }
+    appendHookFragment(session.outputCollector, completedPayload);
+    if (session.outputCollector.reduce((size, item) => size + item.text.length + 1, 0) >= textHookMaxBufferSize) {
+        flushSelectedHookText();
+        return;
+    }
+    if (session.outputFlushTimer) clearTimeout(session.outputFlushTimer);
+    session.outputFlushTimer = setTimeout(flushSelectedHookText, delayMs);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,38 @@
 {
+  "gameLauncher": {
+    "title": "Inicio de juegos",
+    "launch": "Iniciar juego",
+    "working": "Procesando…",
+    "options": "Opciones de inicio",
+    "help": "Cuando es posible, GSM recuerda el ejecutable del juego capturado por OBS. También puedes elegirlo manualmente. Las opciones se guardan para cada juego.",
+    "executablePath": "Ejecutable del juego",
+    "arguments": "Argumentos del juego",
+    "workingDirectory": "Carpeta de trabajo",
+    "gameFolder": "Carpeta del juego (predeterminada)",
+    "launcherPath": "Lanzador personalizado (opcional)",
+    "launcherArguments": "Argumentos del lanzador",
+    "launcherHelp": "Usa un lanzador instalado, como SKIF de Special K o Locale Emulator. Déjalo vacío para iniciar el juego directamente.",
+    "templateHelp": "Usa {game} para la ruta del juego y {args} para sus argumentos. Por defecto: \"{game}\" {args}. Para LEProc: -run \"{game}\" {args}. Mantén {args} como argumento independiente. No se expanden comandos del intérprete ni variables de entorno.",
+    "browse": "Examinar",
+    "browseField": "Examinar: {field}",
+    "detect": "Detectar desde el juego en ejecución",
+    "notDetected": "No se pudo identificar un único ejecutable para esta captura. Ejecuta el juego e inténtalo de nuevo, o usa Examinar.",
+    "chooseExecutable": "Elige el ejecutable del juego abajo y luego guarda o inicia.",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "saved": "Opciones de inicio guardadas.",
+    "launched": "Solicitud de inicio enviada.",
+    "errors": {
+      "unsupported": "El inicio de juegos solo está disponible en Windows.",
+      "invalidScene": "Primero selecciona un juego.",
+      "missingExecutable": "Elige un ejecutable de juego existente.",
+      "missingLauncher": "Elige un ejecutable de lanzador existente.",
+      "invalidWorkingDirectory": "Elige una carpeta de trabajo existente.",
+      "invalidArguments": "Revisa los argumentos de inicio. Usa {args} como argumento independiente en la plantilla del lanzador.",
+      "busy": "Ya hay una solicitud de inicio en curso para este juego.",
+      "failed": "No se pudo completar la solicitud de inicio. {error}"
+    }
+  },
   "gamePrivileges": {
     "title": "{game} se está ejecutando como administrador",
     "description": "GSM se está ejecutando sin privilegios de administrador. Esta diferencia puede interferir con la captura de OBS, la extracción de texto, la superposición o los atajos de teclado. Se recomienda reiniciar GSM como administrador.",
@@ -1516,5 +1550,22 @@
     "added": "Frase excluida para {game}. Se bloquearán las coincidencias futuras.",
     "removed": "Exclusión de frase eliminada para {game}.",
     "excluded": "Excluida"
+  },
+  "textProcessing": {
+    "processors": {
+      "languageFilter": "Filtro de idioma objetivo",
+      "languageFilterDesc": "Filtra el texto capturado según el sistema de escritura del idioma objetivo",
+      "removeNonJapanese": "Eliminar caracteres fuera de Shift-JIS"
+    },
+    "languageFilter": {
+      "mode": "Intensidad del filtro",
+      "blocks": "1. Filtrar bloques",
+      "trim": "2. Filtrar bloques y recortar extremos",
+      "strict": "3. Conservar solo caracteres coincidentes",
+      "blocksDescription": "Trata cada línea de un evento como un bloque. Elimina los bloques sin caracteres del idioma objetivo y conserva intactos los bloques mixtos. Los eventos sin coincidencias quedan vacíos.",
+      "trimDescription": "Tras filtrar los bloques, elimina los prefijos y sufijos que no sean del idioma objetivo. Conserva el texto mixto del interior y la puntuación adyacente.",
+      "strictDescription": "Sustituye cada carácter que no coincida por una cadena vacía, incluidos espacios, números y signos de puntuación.",
+      "targetHint": "Usa el idioma objetivo de Ajustes. Compara sistemas de escritura, por lo que no distingue idiomas que comparten alfabeto. Colócalo antes de eliminar saltos de línea para conservar los límites de los bloques."
+    }
   }
 }

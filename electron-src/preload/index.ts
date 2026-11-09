@@ -64,6 +64,7 @@ const onExactChannels = new Set<string>([
 ]);
 
 const invokePrefixes = [
+  "game-launcher.",
   "game-privileges.",
   "game-background.",
   "docs.",

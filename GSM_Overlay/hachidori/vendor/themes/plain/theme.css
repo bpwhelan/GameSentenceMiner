@@ -4,7 +4,9 @@
   position: fixed; z-index: 2147483647; pointer-events: auto;
   box-sizing: border-box; overflow: auto; overscroll-behavior: contain; padding: 8px;
   background: #fff; color: #111; border: 1px solid #888;
-  font: 14px/1.45 sans-serif; text-align: left;
+  /* A language pack may name its own font and line breaking (docs/languages.md 10.1). */
+  font: 14px/1.45 var(--hd-language-font-family, sans-serif); text-align: left;
+  word-break: var(--hd-language-word-break, normal); line-break: var(--hd-language-line-break, auto);
   zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
 }
 .gsm-hoshidicts-popup[hidden] { display: none !important; }
@@ -12,3 +14,14 @@
 .gsm-hoshidicts-definitions + .gsm-hoshidicts-definitions { margin-top: 8px; }
 .plain-scroll[data-definition-blur="pending"] .gsm-hoshidicts-definitions,
 .plain-scroll[data-definition-blur="blurred"] .gsm-hoshidicts-definitions { filter: blur(5px); }
+/* Blurred definitions that a click reveals are a button (#598). The blur would
+   blur its focus ring too, so the popup shows it. */
+.plain-scroll:has(> [data-definition-reveal]:focus-visible) { outline: 2px solid var(--hoshidicts-accent); outline-offset: -2px; }
+.plain-scroll > [data-definition-reveal]:focus-visible { outline: none; }
+.gsm-hoshidicts-popup [data-definition-reveal] { cursor: pointer; }
+
+/* Logical spacing and start alignment apply only in marked popups (records
+   with profiles, docs/languages.md 10.1-10.2). A popup without profiles keeps
+   the physical rules above, so a Japanese-only popup on a right-to-left page
+   lays out exactly as before. :where() keeps each rule at its base specificity. */
+.gsm-hoshidicts-popup:where([data-hd-language]) { text-align: start; }

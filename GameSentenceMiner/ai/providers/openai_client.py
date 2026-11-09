@@ -20,13 +20,14 @@ class OpenAIClient:
             self.logger.error(f"Failed to initialize OpenAI API: {e}")
 
     def _should_use_basic_params(self, model_name: str) -> bool:
-        return "gpt-5" in model_name.lower()
+        return any(family in model_name.lower() for family in ("gpt-5", "gpt-6"))
 
     def generate(self, request: AIRequest) -> AIResponse:
         if self.client is None:
             raise AIError("OpenAI client not initialized.", transient=False)
 
         extra_params_allowed = not self._should_use_basic_params(request.model)
+        reasoning_params = {"reasoning_effort": request.reasoning_effort} if request.reasoning_effort else {}
         start_time = time.time()
 
         try:
@@ -47,6 +48,7 @@ class OpenAIClient:
                         top_p=request.top_p,
                         n=1,
                         stop=None,
+                        **reasoning_params,
                     )
                 except Exception as e:
                     extra_params_allowed = False
@@ -63,6 +65,7 @@ class OpenAIClient:
                         {"role": "user", "content": request.prompt},
                     ],
                     n=1,
+                    **reasoning_params,
                 )
 
             raw_text = ""

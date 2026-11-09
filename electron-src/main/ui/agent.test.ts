@@ -82,6 +82,18 @@ describe('Agent initialization', () => {
         });
     }
 
+    it('buffers Agent fragments before delivering one complete line', async () => {
+        expect(await start()).toMatchObject({ success: true });
+        scripts[0].send({ cmd: 'copy', text: 'first fragment' });
+        await vi.advanceTimersByTimeAsync(50);
+        scripts[0].send({ cmd: 'copy', text: 'second fragment' });
+        expect(text).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(100);
+        expect(text).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+            text: 'first fragment\nsecond fragment', mergeFragments: false, revisionWindowMs: 0,
+        }));
+    });
+
     it('rejects an initialization exception even when Frida load resolves', async () => {
         onLoad = (script) => script.fail('Error: broken game script');
         const result = await start();
@@ -200,6 +212,7 @@ describe('Agent initialization', () => {
         await pending;
         scripts[0].send({ cmd: 'copy', text: 'stale attempt' });
         scripts.at(-1)!.send({ cmd: 'copy', text: 'new dialogue' });
+        await vi.advanceTimersByTimeAsync(100);
         expect(text).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ text: 'new dialogue' }));
         expect(agent.getAgentHookRuntimeStatus()).toMatchObject({ agentPhase: 'receiving', sessionId: expect.any(String) });
         const output = events.filter(([channel]) => channel === 'texthook.text').at(-1)![1];

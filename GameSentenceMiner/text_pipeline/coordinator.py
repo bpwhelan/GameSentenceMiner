@@ -29,21 +29,6 @@ from .models import (
 )
 from .skip_detection import AUTOMATIC_SOURCES, WINDOW_NS, SkipDetector, compact_text
 
-SOURCE_PRIORITY = {
-    SourceKind.UNKNOWN: 0,
-    SourceKind.OVERLAY: 10,
-    SourceKind.OCR: 20,
-    SourceKind.OCR_MANUAL: 50,
-    SourceKind.SECONDARY: 30,
-    SourceKind.WEBSOCKET: 30,
-    SourceKind.CLIPBOARD: 35,
-    SourceKind.TEXTHOOK: 40,
-    SourceKind.SPEECH_RECOGNITION: 40,
-    SourceKind.HOTKEY: 50,
-    SourceKind.SCREEN_CROPPER: 50,
-    SourceKind.MANUAL: 60,
-}
-
 
 @dataclass
 class TextCoordinatorMetrics:
@@ -66,7 +51,7 @@ def _compact(text: str) -> str:
 
 
 class TextCoordinatorState:
-    """Single-thread-owned state machine for identity, order, revision, and freeze."""
+    """Own completed dialogue records and revisable speech hypotheses."""
 
     def __init__(
         self,
@@ -347,15 +332,11 @@ class TextCoordinatorState:
                     processed = suffix
 
         current = self._by_id.get(self._open_line_id or "")
-        if (
-            current is None
-            and newest is not None
-            and self._correlates_frozen_duplicate(
-                newest,
-                observation,
-                processed,
-                now_monotonic_ns,
-            )
+        if newest is not None and self._correlates_frozen_duplicate(
+            newest,
+            observation,
+            processed,
+            now_monotonic_ns,
         ):
             self.metrics.duplicates += 1
             return IngressResult(
@@ -372,9 +353,7 @@ class TextCoordinatorState:
         if current is not None and current.state is TextRecordState.PROVISIONAL:
             correlation = self._correlates(current, observation, processed, now_monotonic_ns)
             if correlation:
-                current_priority = SOURCE_PRIORITY[current.source_kind]
-                incoming_priority = SOURCE_PRIORITY[observation.source_kind]
-                if processed == current.text or incoming_priority < current_priority:
+                if processed == current.text:
                     self.metrics.duplicates += 1
                     return IngressResult(
                         IngressAck(
@@ -383,38 +362,25 @@ class TextCoordinatorState:
                             line_id=current.line_id,
                             stream_sequence=current.stream_sequence,
                             revision=current.revision,
-                            reason="correlated lower-or-equal-quality observation",
+                            reason="same speech hypothesis",
                             matched_source=current.source_kind.value,
                         )
                     )
-                updated_text = processed
-                updated_raw_text = observation.raw_text
-                if observation.source_kind is current.source_kind and observation.merge_fragments:
-                    current_compact = _compact(current.text)
-                    incoming_compact = _compact(processed)
-                    # Recognizer hypotheses revise one utterance in place; they
-                    # are not independent fragments like texthook emissions.
-                    speech_hypothesis = observation.source_kind is SourceKind.SPEECH_RECOGNITION
-                    final_speech_result = speech_hypothesis and bool(observation.metadata.get("speech_final"))
-                    if current_compact.startswith(incoming_compact) and not final_speech_result:
-                        self.metrics.duplicates += 1
-                        return IngressResult(
-                            IngressAck(
-                                IngressStatus.DUPLICATE,
-                                observation.observation_id,
-                                line_id=current.line_id,
-                                stream_sequence=current.stream_sequence,
-                                revision=current.revision,
-                                reason="shorter fragment of current provisional line",
-                                matched_source=current.source_kind.value,
-                            )
+                if _compact(current.text).startswith(_compact(processed)) and not observation.metadata.get(
+                    "speech_final"
+                ):
+                    self.metrics.duplicates += 1
+                    return IngressResult(
+                        IngressAck(
+                            IngressStatus.DUPLICATE,
+                            observation.observation_id,
+                            line_id=current.line_id,
+                            stream_sequence=current.stream_sequence,
+                            revision=current.revision,
+                            reason="shorter partial speech hypothesis",
+                            matched_source=current.source_kind.value,
                         )
-                    should_join_fragments = observation.source_kind is SourceKind.TEXTHOOK or (
-                        not speech_hypothesis and fuzz.ratio(current_compact, incoming_compact) <= 50
                     )
-                    if not incoming_compact.startswith(current_compact) and should_join_fragments:
-                        updated_text = f"{current.text}\n{processed}"
-                        updated_raw_text = f"{current.raw_text}\n{observation.raw_text}"
 
                 updated = replace(
                     current,
@@ -424,8 +390,8 @@ class TextCoordinatorState:
                         if current.stats_status == "pending" and observation.source_kind not in AUTOMATIC_SOURCES
                         else current.stats_status
                     ),
-                    raw_text=updated_raw_text,
-                    text=updated_text,
+                    raw_text=observation.raw_text,
+                    text=processed,
                     source_kind=observation.source_kind,
                     source_instance=observation.source_instance,
                     source_display_name=observation.source_display_name,
@@ -455,7 +421,8 @@ class TextCoordinatorState:
                 )
 
         events: list[TextDomainEvent] = []
-        if current is not None and current.state is TextRecordState.PROVISIONAL:
+        is_speech = observation.source_kind is SourceKind.SPEECH_RECOGNITION
+        if is_speech and current is not None and current.state is TextRecordState.PROVISIONAL:
             events.extend(self.freeze(current.line_id, now=now))
 
         self._stream_sequence += 1
@@ -469,7 +436,7 @@ class TextCoordinatorState:
             session_id=self.session_id,
             stream_sequence=self._stream_sequence,
             revision=1,
-            state=TextRecordState.PROVISIONAL,
+            state=TextRecordState.PROVISIONAL if is_speech else TextRecordState.FROZEN,
             stats_status=stats_status,
             raw_text=observation.raw_text,
             text=processed,
@@ -480,6 +447,7 @@ class TextCoordinatorState:
             captured_at_utc=observation.captured_at_utc,
             first_seen_at_utc=now,
             first_seen_monotonic_ns=observation.received_monotonic_ns,
+            finalized_at_utc=None if is_speech else now,
             copy_to_clipboard=observation.copy_to_clipboard,
             excluded_from_stats=observation.excluded_from_stats or stats_status == "skipped",
             relay_only=observation.relay_only,
@@ -490,8 +458,9 @@ class TextCoordinatorState:
         self._records.append(record)
         self._by_id[record.line_id] = record
         self._remember_full_source_text(source_text_key, full_processed, record)
-        self._open_line_id = record.line_id
-        self._set_deadline(observation, now_monotonic_ns)
+        if is_speech:
+            self._open_line_id = record.line_id
+            self._set_deadline(observation, now_monotonic_ns)
         self.metrics.accepted += 1
         self.metrics.appended += 1
         events.append(TextDomainEvent(TextEventKind.APPENDED, record))
@@ -515,6 +484,11 @@ class TextCoordinatorState:
     ) -> bool:
         current_text = _compact(current.text)
         incoming_text = _compact(processed)
+        if (
+            current.source_kind is not SourceKind.SPEECH_RECOGNITION
+            or observation.source_kind is not SourceKind.SPEECH_RECOGNITION
+        ):
+            return False
         if not current_text or not incoming_text:
             return False
         if current.stats_status == "skipped":
@@ -540,12 +514,7 @@ class TextCoordinatorState:
                     )
                 )
             )
-        return bool(
-            age_ns <= int(self.cross_source_window.total_seconds() * 1_000_000_000)
-            and (
-                incoming_text == current_text or fuzz.ratio(current_text, incoming_text) >= self.cross_source_similarity
-            )
-        )
+        return False
 
     def _correlates_frozen_duplicate(
         self,
@@ -556,6 +525,8 @@ class TextCoordinatorState:
     ) -> bool:
         if (
             newest.state is not TextRecordState.FROZEN
+            or newest.source_kind is SourceKind.SPEECH_RECOGNITION
+            or observation.source_kind is SourceKind.SPEECH_RECOGNITION
             or newest.relay_only != observation.relay_only
             or newest.stats_status == "skipped"
             and observation.metadata.get("skip_landing_confirmed")
@@ -563,6 +534,9 @@ class TextCoordinatorState:
             return False
         current_text = _compact(newest.text)
         incoming_text = _compact(processed)
+        incoming_scene = str(observation.metadata.get("scene", "") or "")
+        if newest.scene and incoming_scene and newest.scene != incoming_scene:
+            return False
         if not current_text or not incoming_text:
             return False
         age_ns = max(0, now_monotonic_ns - newest.first_seen_monotonic_ns)
@@ -572,11 +546,8 @@ class TextCoordinatorState:
                 and incoming_text == current_text
                 and age_ns <= int(self.same_source_dedup_window.total_seconds() * 1_000_000_000)
             )
-        incoming_priority = SOURCE_PRIORITY[observation.source_kind]
-        current_priority = SOURCE_PRIORITY[newest.source_kind]
         return bool(
-            incoming_priority <= current_priority
-            and age_ns <= int(self.cross_source_window.total_seconds() * 1_000_000_000)
+            age_ns <= int(self.cross_source_window.total_seconds() * 1_000_000_000)
             and (
                 incoming_text == current_text or fuzz.ratio(current_text, incoming_text) >= self.cross_source_similarity
             )
@@ -607,11 +578,10 @@ class TextCoordinatorState:
             self._last_full_text_by_source.popitem(last=False)
 
     def freeze_delay_seconds(self, observation: TextObservation) -> float:
-        """Return the full correlation window the coordinator promises for an observation."""
-        window_ms = max(0, int(observation.revision_window_ms))
-        if SOURCE_PRIORITY[observation.source_kind] < SOURCE_PRIORITY[SourceKind.TEXTHOOK]:
-            window_ms = max(window_ms, int(self.cross_source_window.total_seconds() * 1000))
-        return window_ms / 1000
+        """Only speech stays open for corrections; other sources arrive complete."""
+        if observation.source_kind is not SourceKind.SPEECH_RECOGNITION:
+            return 0.0
+        return max(0, int(observation.revision_window_ms)) / 1000
 
     def freeze(self, line_id: str, *, now: datetime | None = None) -> tuple[TextDomainEvent, ...]:
         record = self._by_id.get(line_id)
@@ -768,6 +738,7 @@ class TextCoordinatorActor(Actor[TextCommand, TextCommandResult]):
                 self._schedule_freeze is not None
                 and result.ack.status is IngressStatus.ACCEPTED
                 and result.ack.line_id is not None
+                and self.state.get(result.ack.line_id).state is TextRecordState.PROVISIONAL
             ):
                 self._schedule_freeze(
                     result.ack.line_id,

@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "code": "sq",
+  "iso639_3": "sqi",
+  "name": "Albanian",
+  "nativeName": "Shqip",
+  "bcp47": "sq",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "consonant": "[bcçdfghjklmnpqrstvxz]",
+    "verbConsonant": "[bcçdfghklmnpqrstvxz]",
+    "vowel": "[aeiouyë]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["„", "“"], ["“", "”"], ["«", "»"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "normalizeApostrophes",
+        "name": "Write apostrophes as '",
+        "variants": [[{"map": {"’": "'", "‘": "'", "ʼ": "'", "`": "'", "´": "'"}}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "addMissingDiacritics",
+        "name": "Add a missing ë or ç",
+        "optional": true,
+        "variants": [[{"alternatives": {"e": ["ë"], "c": ["ç"]}, "limit": 64}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "missingDiacritics",
+      "type": "boolean",
+      "default": false,
+      "label": "Text without ë and ç",
+      "description": "Also look words up with ë for e and ç for c, for informal text that leaves them out (shtepi → shtëpi, cfare → çfarë, nje → një). Adds less likely readings and makes lookups slower.",
+      "group": "lookup",
+      "effect": {"preprocessor": "addMissingDiacritics"}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "sq-AL",
+    "audioLanguage": "sq",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "vdt": "Ditransitive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "artic": "Article",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "char": "Character",
+        "prep-phrase": "Prepositional phrase"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Albanian-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Albanian words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "shtëpitë",
+      "practice": {
+        "text": "Fëmijët lexonin libra në bibliotekën e qytetit.",
+        "lookup": "lexonin"
+      },
+      "entry": {
+        "expression": "lexoj",
+        "reading": "lexoj",
+        "glossary": ["to read"],
+        "definitionTags": "v",
+        "matched": "lexonin",
+        "trace": ["imperfect (3pl)"]
+      },
+      "character": null
+    }
+  }
+}

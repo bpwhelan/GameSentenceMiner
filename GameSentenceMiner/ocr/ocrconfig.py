@@ -1,7 +1,9 @@
 import configparser
 import os
 
-DEFAULT_CONFIG_PATH = os.path.expanduser("~/.config/owocr_config_gsm.ini")
+from GameSentenceMiner.util.data_directory import get_owocr_config_path
+
+DEFAULT_CONFIG_PATH = get_owocr_config_path()
 
 
 class OCRConfig:

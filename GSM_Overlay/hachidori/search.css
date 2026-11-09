@@ -1,0 +1,231 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Layout for the search page (#610). Colours, typography, controls and focus
+   rings come from settings.css, in the palette of the popup theme. The reader
+   docks its popup over the results area, so the page itself never scrolls. */
+
+html,
+body.search-page,
+body.search-shell {
+  height: 100%;
+}
+/* search.html holds the page below, search-frame.html, over its whole window
+   (#644): the frame is sandboxed so that Custom JavaScript can run in it. */
+body.search-shell {
+  overflow: hidden;
+}
+/* The frame's root has settings.css's `light dark` scheme until its own theme
+   read. The same scheme here keeps the frame's canvas transparent meanwhile,
+   so the window shows search.html's themed background rather than a canvas in
+   the browser preference's colour. */
+.search-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  color-scheme: light dark;
+}
+/* search.html's Anki Template (#656) and Clipboard monitor switches lie over
+   the end of the frame's header. Both documents lay out the whole header,
+   each keeping invisible what the other shows, so the title wraps alike and
+   the switches land in their place at any width. */
+.search-shell-header {
+  position: fixed;
+  inset: 12px 12px auto;
+  pointer-events: none;
+}
+.search-shell-header > :not(.lookup-enable, .search-template),
+.search-page .search-header :is(.lookup-enable, .search-template) {
+  visibility: hidden;
+}
+.search-shell-header :is(.lookup-enable, .search-template) {
+  pointer-events: auto;
+}
+html {
+  scrollbar-gutter: auto;
+}
+body.search-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 12px;
+  overflow: hidden;
+}
+.search-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.search-header h1 {
+  margin: 0;
+  font-size: var(--font-large);
+  letter-spacing: -0.025em;
+}
+/* The Clipboard monitor switch (#639): Settings' switch, at the header's end. */
+.search-header .lookup-enable {
+  gap: 8px;
+  margin-left: auto;
+  padding: 0;
+  border-top: 0;
+}
+/* The Anki Template switch (#656), before it, where Yomitan's search page has
+   its profile switch. It grows from nothing up to its own width into the room
+   the title and the Clipboard monitor's label leave, so it gives way first,
+   down to 6em, and a longer name is cut by the menu. */
+.search-header .search-template {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 6em;
+  max-width: max-content;
+  margin-left: auto;
+}
+.search-header .search-template:not([hidden]) + .lookup-enable {
+  margin-left: 12px;
+}
+/* While the menu is shown, a header too narrow for one line with the menu at
+   6em, in a narrow or zoomed window, wraps rather than running past the
+   window's edge: the Clipboard monitor moves to a second row, at its end, and
+   in a still narrower window the menu takes that row and the Clipboard
+   monitor a third. The title keeps the start of the first row beside the
+   icon (24px and the 8px gap), wrapping its words there if it must. */
+.search-header:has(> .search-template:not([hidden])) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.search-header:has(> .search-template:not([hidden])) h1 {
+  max-width: calc(100% - 32px);
+  margin-right: auto;
+}
+.search-form {
+  --search-control-height: 42px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.search-form textarea {
+  flex: 1;
+  /* One line that grows with its text, up to about five lines. */
+  field-sizing: content;
+  min-height: var(--search-control-height);
+  max-height: 9.5em;
+  padding: 8px 10px;
+  resize: none;
+  font-size: 16px;
+  line-height: 1.5;
+}
+.search-button {
+  flex: 0 0 auto;
+  width: var(--search-control-height);
+  min-height: var(--search-control-height);
+  padding: 0;
+}
+/* The searched text, and in a visit to an earlier line its neighbours' rows
+   and where it is (docs/search-history.md). */
+.search-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.search-query {
+  margin: 0;
+  max-height: 25vh;
+  overflow-y: auto;
+  font-size: 20px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-radius: var(--radius-control);
+}
+/* A neighbour shows one row, Rubi's: the last of the line before, the first
+   of the line after, dimmed: the palette's dim text mixed toward the page by
+   --search-neighbour-fade, less where a palette has less room above 4.5:1. It
+   is also set smaller, which keeps it apart from the searched text where a
+   palette has little or no room to dim (Solarized Light's text is at
+   4.65:1). Its text
+   is generated content, which no lookup, selection or screen reader reads. */
+:root {
+  --search-neighbour-fade: 20%;
+}
+/* The palettes with less room keep 4.5:1 with less fade; Autumn's own dim
+   text is already dimmer than its text. */
+:root[data-hoshidicts-theme="retro"] {
+  --search-neighbour-fade: 15%;
+}
+:root[data-hoshidicts-theme="valentine"] {
+  --search-neighbour-fade: 15%;
+}
+:root[data-hoshidicts-theme="solarized-dark"] {
+  --search-neighbour-fade: 8%;
+}
+:root[data-hoshidicts-theme="autumn"],
+:root[data-hoshidicts-theme="solarized-light"] {
+  --search-neighbour-fade: 0%;
+}
+.search-neighbour {
+  margin: 0;
+  max-height: 1.6em;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text-dim), var(--bg) var(--search-neighbour-fade));
+  font-size: 16px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.search-neighbour::before {
+  content: attr(data-text);
+}
+/* In another language each row takes its own text's direction, as the
+   searched text does from dir="auto", which generated content cannot give it.
+   A block of its own, so no inline isolate hides the text from its paragraph
+   (docs/languages.md 8.5). Japanese rows stay as they are. */
+.search-neighbour:not(:lang(ja))::before {
+  display: block;
+  unicode-bidi: plaintext;
+}
+.search-neighbour-before {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+/* The cursor's word, for a screen reader: the searched text's caret does not
+   move with the cursor, so the word is announced here. */
+.search-cursor-word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.search-line-note {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--font-caption);
+}
+/* The keys are named while the searched text has focus. The line keeps its
+   room meanwhile: a press that takes focus from the text must not move what
+   is under the pointer before its release. */
+.search-lines:not(:focus-within) .search-keys {
+  visibility: hidden;
+}
+/* The cursor, while the searched text has focus. Under forced colours the
+   browser paints a highlight in Highlight and HighlightText. */
+::highlight(hd-search-cursor) {
+  text-decoration-line: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 3px;
+  text-underline-offset: 0.25em;
+}
+@media (forced-colors: active) {
+  .search-neighbour {
+    color: GrayText;
+  }
+}
+.search-results {
+  flex: 1;
+  min-height: 0;
+}
+.search-results .hint {
+  display: block;
+  padding: 12px 2px;
+}

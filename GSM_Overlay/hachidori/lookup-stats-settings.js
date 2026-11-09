@@ -5,7 +5,7 @@
 
 import { describeErrorOrJson } from "./error-text.js";
 import {
-  clampOption, definitionBlurFrequencyDictionary, element, options, send, setSectionStatus,
+  clampOption, definitionBlurFrequencyDictionary, element, frequencyModeOrder, options, send, setSectionStatus,
   sharingLinkedAddress, WORKER_TARGET,
 } from "./settings.js";
 import { dictionaries, dictionaryLabel } from "./library-settings.js";
@@ -65,6 +65,9 @@ function renderDefinitionBlurControls() { // NOSONAR: existing complexity, kept 
   element("definition-blur-anki-help").hidden = !ankiEnabled;
   element("definition-blur-any-help").hidden = [countEnabled, ankiEnabled, frequencyEnabled].filter(Boolean).length < 2;
   element("definition-blur-help").hidden = !enabled;
+  element("definition-blur-reveal-help").textContent = options.definitionBlurReveal === "click"
+    ? "Only clicking a definition or the compact summary reveals it; with the keyboard, press Enter or Space on a definition."
+    : "Hovering a definition or the compact summary always reveals it.";
   renderDefinitionBlurFrequencyChoices();
   for (const [id, key, controlEnabled] of [["opt-blur-direction", "definitionBlurDirection", countEnabled],
     ["opt-blur-frequency-order", "definitionBlurFrequencyOrder", frequencyEnabled],
@@ -85,20 +88,22 @@ function renderDefinitionBlurControls() { // NOSONAR: existing complexity, kept 
   if (frequencyEnabled) {
     const selected = selectedDefinitionBlurFrequencyDictionary();
     if (!definitionBlurFrequencyDictionary(options)) {
-      frequencyHelp.textContent = "Sorting compares every frequency dictionary, so choose one here. Missing frequency data leaves this condition unqualified.";
+      frequencyHelp.textContent = "Sorting uses no frequency dictionary, so choose one here. Missing frequency data leaves this condition unqualified.";
     } else if (!selected) {
       frequencyHelp.textContent = "The saved frequency dictionary is unavailable. This condition fails open until it is enabled or reinstalled.";
     } else {
       const automatic = options.definitionBlurFrequencyOrder === "auto";
-      const order = automatic && selected.frequencyMode === "rank-based"
-        ? "ascending" : automatic ? "descending" : options.definitionBlurFrequencyOrder; // NOSONAR: existing nested ternary, kept by the #533 split
-      const mode = automatic
-        ? selected.frequencyMode === "rank-based" ? "rank-based metadata" // NOSONAR: existing nested ternary, kept by the #533 split
-          : selected.frequencyMode === "occurrence-based" ? "occurrence-based metadata" : "undeclared metadata" // NOSONAR: existing nested ternary, kept by the #533 split
-        : "your manual order";
-      frequencyHelp.textContent = order === "ascending"
-        ? `Using ${mode}: values at or below the threshold qualify.`
-        : `Using ${mode}: values at or above the threshold qualify.`;
+      const order = automatic ? frequencyModeOrder(selected.frequencyMode) : options.definitionBlurFrequencyOrder;
+      let source = "your manual order", counts = "";
+      if (automatic && selected.frequencyMode === "occurrence-based") source = "occurrence-based metadata";
+      else if (automatic && selected.frequencyMode === "rank-based") source = "rank-based metadata";
+      else if (automatic) {
+        // A list of counts without a declared mode (the original Innocent Corpus) reads as ranks too.
+        source = "ranks (no mode declared)";
+        counts = " If this list counts occurrences instead, choose Descending.";
+      }
+      const qualifying = order === "ascending" ? "at or below" : "at or above";
+      frequencyHelp.textContent = `Using ${source}: values ${qualifying} the threshold qualify.${counts}`;
     }
   }
 }
@@ -117,7 +122,7 @@ async function resetLookupCounts() {
     if (!reply.ok) throw new Error(reply.error || "the lookup counts could not be reset");
     setSectionStatus("lookup-counts-reset-status", "Lookup counts reset.", "ready", true);
   } catch (error) {
-    setSectionStatus("lookup-counts-reset-status", `Could not reset lookup counts: ${describeErrorOrJson(error)}`, "error");
+    setSectionStatus("lookup-counts-reset-status", `Could not reset lookup counts: ${describeErrorOrJson(error)}`, "error", false, error);
   } finally {
     resettingLookupCounts = false;
     renderLookupCountsReset();

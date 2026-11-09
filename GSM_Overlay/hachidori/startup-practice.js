@@ -6,14 +6,15 @@ const { activationLabel } = globalThis.HDReaderOptions;
 
 // One readiness decision supplies the page heading, probe precondition and
 // practice recovery. A library with disabled terms needs enabling, not a reimport.
-export function practiceReadiness(options, dictionaries, outcome = null, readerFailed = false) {
+// `language` names the words the exercise is in (docs/languages.md 16.1).
+export function practiceReadiness(options, dictionaries, outcome = null, readerFailed = false, language = "Japanese") {
   const available = dictionaries.some(entry => entry.enabled !== false && entry.termCount > 0);
   if (!available) {
     const installed = dictionaries.some(entry => entry.termCount > 0);
     return {
       canProbe: false,
       heading: installed ? "Enable a dictionary to try Hachidori" : "Add a dictionary to try Hachidori",
-      message: installed ? "Your term dictionaries are turned off. Enable one to look up Japanese words." : "Add a term dictionary to look up Japanese words. The recommended dictionaries are a good place to start.",
+      message: installed ? `Your term dictionaries are turned off. Enable one to look up ${language} words.` : `Add a term dictionary to look up ${language} words. The recommended dictionaries are a good place to start.`,
       href: installed ? "settings.html#dictionaries" : "settings.html#add-dictionaries",
       action: installed ? "Open Dictionaries" : "Add dictionaries",
     };
@@ -36,25 +37,28 @@ export function practiceReadiness(options, dictionaries, outcome = null, readerF
   return { canProbe: true, heading: outcome === "ready" || outcome === "passage" ? "You’re ready." : "Preparing your first lookup…" };
 }
 
-function practiceInstruction(options, enabled, probing, unavailable, shortcut) {
+function practiceInstruction(options, enabled, probing, unavailable, shortcut, language = "Japanese") {
   if (enabled) {
     const ending = shortcut ? ", or use the lookup button." : ".";
     return options.lookupMode !== "hover"
       ? `Try looking up a word below. Hold ${activationLabel(options.activationKey)} and hover over a word${ending}`
-      : `Try looking up a word below. Hover over Japanese text${ending}`;
+      : `Try looking up a word below. Hover over ${language} text${ending}`;
   }
   if (probing) return "Checking what the installed dictionaries can answer…";
   if (unavailable) {
     return options.lookupMode !== "hover"
-      ? `Hold ${activationLabel(options.activationKey)} and hover over Japanese text on any webpage to look it up.`
-      : "Hover over Japanese text on any webpage to look it up.";
+      ? `Hold ${activationLabel(options.activationKey)} and hover over ${language} text on any webpage to look it up.`
+      : `Hover over ${language} text on any webpage to look it up.`;
   }
   return "You can finish setup now and try a lookup later.";
 }
 
 // Keep the exercise's text nodes alive while options/inventory updates arrive:
 // the ordinary reader anchors its selection, popup and Note draft to them.
-export function createPracticeView({ document, onDismiss, loadReader, onReaderSettled = () => {} }) {
+// `sample` is a language pack's `host.sample.practice` with its language
+// ({ text, lookup, bcp47, direction, name }, docs/languages.md 16.1); without
+// it the exercise is today's Japanese scene.
+export function createPracticeView({ document, onDismiss, loadReader, onReaderSettled = () => {}, sample = null }) {
   const node = document.createElement("div");
   node.className = "setup-practice";
   node.innerHTML = `
@@ -72,6 +76,23 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
     <div class="setup-practice-recovery" id="setup-practice-recovery" hidden></div>
     <div id="setup-file-access"></div>`;
   const find = id => node.querySelector(`#${id}`);
+  if (sample !== null) {
+    const dialogue = node.querySelector(".setup-practice-dialogue");
+    const line = find("setup-practice-text");
+    const at = sample.text.indexOf(sample.lookup);
+    const word = document.createElement("span");
+    word.id = "setup-practice-word";
+    word.textContent = sample.lookup;
+    line.replaceChildren(...(at < 0 ? [sample.text, " ", word]
+      : [sample.text.slice(0, at), word, sample.text.slice(at + sample.lookup.length)]));
+    for (const holder of [dialogue, line, find("setup-practice-lookup").querySelector("span")]) {
+      holder.lang = sample.bcp47;
+      if (sample.direction === "rtl") holder.dir = "rtl";
+    }
+    find("setup-practice-lookup").querySelector("span").textContent = sample.lookup;
+    node.querySelector(".vn-speaker").hidden = true;
+  }
+  const languageName = sample?.name ?? "Japanese";
   const instruction = find("setup-practice-instruction");
   const recovery = find("setup-practice-recovery");
   const lookup = find("setup-practice-lookup");
@@ -124,7 +145,7 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
     currentDictionaries = dictionaries;
     currentOutcome = outcome;
     const available = dictionaries.some(entry => entry.enabled !== false && entry.termCount > 0);
-    const readiness = practiceReadiness(options, dictionaries, outcome, readerFailed);
+    const readiness = practiceReadiness(options, dictionaries, outcome, readerFailed, languageName);
     const probing = readiness.canProbe && outcome === null;
     const answerable = outcome === "ready" || outcome === "passage";
     const enabled = available && options.hoverEnabled && answerable && !readerFailed;
@@ -137,7 +158,7 @@ export function createPracticeView({ document, onDismiss, loadReader, onReaderSe
     lookup.disabled = !readerReady || lookup.hidden;
     recovery.hidden = enabled || probing;
     instruction.textContent = practiceInstruction(options, enabled, probing,
-      available && options.hoverEnabled && outcome === "unavailable", !lookup.hidden);
+      available && options.hoverEnabled && outcome === "unavailable", !lookup.hidden, languageName);
     if (enabled) {
       startReader();
       if (recoveryFocused || (lookupFocused && lookup.hidden)) text.focus({ preventScroll: true });

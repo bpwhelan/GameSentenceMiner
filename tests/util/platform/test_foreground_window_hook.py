@@ -50,12 +50,16 @@ class _BackgroundEdenUser32(_FakeUser32):
         return hwnd
 
 
-class _EdenProcess(_FakeProcess):
+class _SwitchEmulatorProcess(_FakeProcess):
+    def __init__(self, pid, emulator="eden"):
+        super().__init__(pid)
+        self.emulator = emulator
+
     def exe(self):
-        return r"C:\Eden\eden.exe"
+        return rf"C:\Emulators\{self.emulator}.exe"
 
     def name(self):
-        return "eden.exe"
+        return f"{self.emulator}.exe"
 
 
 class _BitnessKernel:
@@ -106,8 +110,9 @@ def test_unavailable_architecture_preserves_the_window_snapshot(monkeypatch, acc
     assert kernel.closed == closed
 
 
-def test_background_eden_title_event_is_published_without_changing_foreground(monkeypatch):
-    monkeypatch.setattr(hook_module.psutil, "Process", _EdenProcess)
+@pytest.mark.parametrize("emulator_name", ["eden", "lichii", "LICHII"])
+def test_background_emulator_title_event_is_published_without_changing_foreground(monkeypatch, emulator_name):
+    monkeypatch.setattr(hook_module.psutil, "Process", lambda pid: _SwitchEmulatorProcess(pid, emulator_name))
     foreground = []
     emulator = []
     received = threading.Event()
@@ -126,7 +131,7 @@ def test_background_eden_title_event_is_published_without_changing_foreground(mo
         assert received.wait(timeout=1)
         assert foreground == []
         assert emulator[0]["pid"] == 321
-        assert emulator[0]["executableName"] == "eden.exe"
+        assert emulator[0]["executableName"] == f"{emulator_name}.exe"
         assert emulator[0]["processArchitecture"] == "x64"
     finally:
         watcher._stop_event.set()
@@ -140,7 +145,7 @@ def test_background_discovery_ignores_unrelated_apps_and_child_windows(monkeypat
     )
     monkeypatch.setattr(hook_module.psutil, "Process", _FakeProcess)
     assert watcher._resolve_emulator_snapshot(101) is None
-    monkeypatch.setattr(hook_module.psutil, "Process", _EdenProcess)
+    monkeypatch.setattr(hook_module.psutil, "Process", _SwitchEmulatorProcess)
     monkeypatch.setattr(user32, "GetAncestor", lambda _hwnd, _flags: 500)
     assert watcher._resolve_emulator_snapshot(101) is None
     watcher._handle_window_event(hook_module.EVENT_OBJECT_NAMECHANGE, 101, -4, 0)

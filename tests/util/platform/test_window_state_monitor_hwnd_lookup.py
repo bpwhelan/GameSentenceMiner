@@ -94,17 +94,22 @@ def test_find_target_hwnd_requires_exe_match_for_same_class_candidates(monkeypat
 
 @pytest.mark.parametrize(
     ("executable", "configuration_title"),
-    [("eden.exe", "Eden Configuration"), ("yuzu.exe", "yuzu Configuration")],
+    [
+        ("eden.exe", "Eden Configuration"),
+        ("yuzu.exe", "yuzu Configuration"),
+        ("lichii.exe", "Lichii Configuration"),
+        ("LICHII.EXE", "Lichii Configuration - Settings"),
+    ],
 )
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows-only window enumeration APIs")
-def test_find_target_hwnd_never_selects_eden_yuzu_configuration_window(monkeypatch, executable, configuration_title):
+def test_find_target_hwnd_never_selects_switch_configuration_window(monkeypatch, executable, configuration_title):
     fake_user32 = _FakeUser32ForFind()
     fake_user32.classes = {
         101: "Qt5152QWindowIcon",
         202: "Qt5152QWindowIcon",
     }
     fake_user32.titles = {
-        101: "Eden | v0.0.4 | ANONYMOUS;CODE (64-bit) | 1.0.0 | NVIDIA",
+        101: f"{configuration_title.split()[0]} | v0.0.4 | ANONYMOUS;CODE (64-bit) | 1.0.0 | NVIDIA",
         202: configuration_title,
     }
     monkeypatch.setattr(_wwm, "user32", fake_user32)

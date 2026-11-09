@@ -741,11 +741,7 @@ async def handle_new_text_event(
         emitted_at=emitted_at,
         source_instance=source_instance,
         revision_window_ms=revision_window_ms,
-        merge_fragments=(
-            bool(get_config().general.merge_matching_sequential_text)
-            if merge_fragments is None
-            else bool(merge_fragments)
-        ),
+        merge_fragments=bool(merge_fragments),
         metadata_extra=metadata_extra,
     )
 
@@ -845,8 +841,8 @@ def _ingest_line_sync(
     captured_at = normalize_utc(current_line_time)
     emitted = normalize_utc(emitted_at) if isinstance(emitted_at, datetime) else now_utc
     source_key = source_instance or source_display_name or source or source_kind.value
-    configured_merge_window = 2000 if merge_fragments else 100
-    window_ms = configured_merge_window if revision_window_ms is None else max(0, int(revision_window_ms))
+    is_speech = source_kind is SourceKind.SPEECH_RECOGNITION
+    window_ms = (2500 if revision_window_ms is None else max(0, int(revision_window_ms))) if is_speech else 0
     paused = is_text_intake_paused()
     metadata = {
         "dict_from_ocr": dict_from_ocr,
@@ -871,7 +867,7 @@ def _ingest_line_sync(
         source_display_name=str(source_display_name or source or "Unknown"),
         source_sequence=int(source_sequence) if source_sequence is not None else None,
         revision_window_ms=window_ms,
-        merge_fragments=merge_fragments,
+        merge_fragments=is_speech,
         remove_matching_prefix=remove_matching_prefix,
         copy_to_clipboard=bool(copy_to_clipboard),
         excluded_from_stats=bool(exclude_from_stats or paused),
@@ -1052,8 +1048,7 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
                 _dont_collect_stats_notice_count += 1
                 logger.info("stats is disabled in advanced config, skipping DB")
         elif not record.excluded_from_stats and record.stats_status == "accepted":
-            # The tracker has a revision ledger, so provisional text can update
-            # stats immediately without double-counting later corrections.
+            # The tracker applies speech corrections without double-counting.
             live_stats_tracker.add_line(
                 record.text,
                 record.first_seen_at_utc.timestamp(),
@@ -1063,7 +1058,8 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
             )
         if not record.relay_only and record.stats_status != "skipped":
             _notify_discord_activity(record.scene)
-        return
+        if record.state.value != "frozen":
+            return
 
     if (
         event.kind is TextEventKind.STATS_READY
@@ -1078,10 +1074,10 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
             game_name=record.scene,
         )
 
-    if event.kind not in (TextEventKind.FROZEN, TextEventKind.STATS_READY):
+    if event.kind not in (TextEventKind.APPENDED, TextEventKind.FROZEN, TextEventKind.STATS_READY):
         return
 
-    if event.kind is TextEventKind.FROZEN:
+    if event.kind in (TextEventKind.APPENDED, TextEventKind.FROZEN):
         obs.add_longplay_srt_line(projected_time, line)
     if (
         not get_config().advanced.dont_collect_stats

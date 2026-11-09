@@ -98,7 +98,6 @@ export interface Settings {
 	showSaveClipButton$: boolean;
 	trimVideoWithVAD$: boolean;
 	showTrimmedVideoInExplorer$: boolean;
-	showGSMCheckboxes$: boolean;
 	showMenuButton$: boolean;
 	showExpiredIcon$: boolean;
 }

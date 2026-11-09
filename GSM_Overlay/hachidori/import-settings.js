@@ -12,9 +12,13 @@ import {
   formatSeconds,
 } from "./dictionary-progress.js";
 import { recommendedDictionaryInstalled } from "./managed-dictionary-source.js";
-import { RECOMMENDED_DICTIONARIES, describeRecommendedCatalogue } from "./recommended-dictionaries.js";
+import {
+  RECOMMENDED_DICTIONARIES, describeRecommendedCatalogue, packDictionaryItem, packDictionaryLinks,
+} from "./recommended-dictionaries.js";
 import { readDictionaryArchiveIdentity } from "./dictionary-import-archive.js";
+import { IMPORT_ATTEMPTS, importWithRetries } from "./dictionary-import-attempts.js";
 import { dictionaryImportError } from "./dictionary-import-errors.js";
+import { recordUserError } from "./debug-log.js";
 import {
   describeRevisionComparison,
   dictionaryImportMatches,
@@ -22,19 +26,27 @@ import {
   mdxImportNotes,
 } from "./dictionary-import.js";
 import {
-  element, numberFormat, recommendedInstallation, refreshStatus, send, setSectionStatus, sharingLinkedAddress,
-  syncNavigationStatus,
+  editedProfile, element, languageName, numberFormat, profileFields, recommendedInstallation, refreshStatus, send,
+  setSectionStatus, sharingLinkedAddress, storedOptionsRecord, syncNavigationStatus, WORKER_TARGET,
 } from "./settings.js";
-import { dictionaries, reloadDictionaries, setControlsDisabled } from "./library-settings.js";
+import {
+  dictionaries, libraryHasProfiles, moveToProfile, reloadDictionaries, setControlsDisabled, storedDictionaryState,
+} from "./library-settings.js";
 
 let importing = false; // NOSONAR: shared with the other Settings modules
 let installingRecommended = false; // NOSONAR: shared with the other Settings modules
+// The running batch's Cancel: it ends a wait at once and starts no further import.
+let importAbort = null;
 let renderedInstallRun = null;
 let importProgress;
 let importDragDepth = 0;
+// Titles imported in this page's current batch, for the language hint below.
+let importedTitles = [];
+// Each pack's recommended dictionaries, from its vendored language.json.
+const recommendedLinks = new Map();
 
-function setImportState(message, tone) {
-  setSectionStatus("import-state", message, tone, tone === "ready");
+function setImportState(message, tone, error = null) {
+  setSectionStatus("import-state", message, tone, tone === "ready", error);
 }
 
 function clearImportResults() {
@@ -56,8 +68,10 @@ function setImportEntries(entries) {
   importProgressView().setEntries(entries);
 }
 
-function updateImportResult(index, state) {
+// A failed row is kept in the debug log as the reader sees it, with `error`.
+function updateImportResult(index, state, error = null) {
   importProgressView().update(String(index), state);
+  if (state.tone === "error") recordUserError(window, "import-progress", state.text, error);
 }
 
 function importDuration(started) {
@@ -89,11 +103,108 @@ function missingRecommendedDictionaries() {
 }
 
 function renderRecommendedActions() {
-  const missing = missingRecommendedDictionaries();
+  // The catalogue is Japanese and installs into the Japanese profile; other
+  // languages link to their recommended dictionaries (docs/languages.md 14).
+  const japanese = editedProfile.language === "ja";
+  const missing = japanese ? missingRecommendedDictionaries() : [];
   element("recommended-starter").hidden = missing.length === 0;
   element("install-recommended").hidden = missing.length < RECOMMENDED_DICTIONARIES.length;
   element("recommended-retry").hidden =
     missing.length === 0 || missing.length === RECOMMENDED_DICTIONARIES.length;
+  void renderLanguageRecommendations();
+}
+
+async function packRecommendations(code) {
+  if (!recommendedLinks.has(code)) {
+    recommendedLinks.set(code, fetch(new URL(`vendor/languages/${code}/language.json`, document.baseURI))
+      .then(response => (response.ok ? response.json() : null))
+      .then(packDictionaryLinks)
+      .catch(() => []));
+  }
+  return recommendedLinks.get(code);
+}
+
+// A pack's recommended dictionaries are links to their download pages; the
+// user imports the file (decision record 0006).
+async function renderLanguageRecommendations() {
+  const code = editedProfile.language;
+  const links = code === "ja" ? [] : await packRecommendations(code);
+  if (editedProfile.language !== code) return;
+  let block = element("recommended-language");
+  if (links.length === 0) {
+    block?.remove();
+    return;
+  }
+  if (block === null) {
+    block = document.createElement("div");
+    block.className = "recommendations";
+    block.id = "recommended-language";
+    block.setAttribute("aria-labelledby", "recommended-language-heading");
+    const head = document.createElement("div");
+    head.className = "recommendations-head";
+    const heading = document.createElement("h2");
+    heading.id = "recommended-language-heading";
+    const hint = document.createElement("p");
+    hint.className = "hint";
+    hint.textContent = "Open a dictionary's page, download its Yomitan ZIP file and import it above.";
+    head.append(heading, hint);
+    const list = document.createElement("ul");
+    list.className = "recommended-dictionary-list";
+    list.id = "recommended-language-list";
+    block.append(head, list);
+    element("recommended-starter").after(block);
+  }
+  element("recommended-language-heading").textContent = `Recommended ${languageName(code)} dictionaries`;
+  element("recommended-language-list").replaceChildren(...links.map(entry => packDictionaryItem(document, entry)));
+}
+
+// An import whose archive names another profile's language says so and offers
+// Move to {Language} (docs/languages.md 14), while Multiple languages is on.
+function renderLanguageMoves() {
+  for (const offer of document.querySelectorAll(".import-language-move")) offer.remove();
+  if (!libraryHasProfiles() || !globalThis.HDReaderOptions.languagesEnabled(storedOptionsRecord)) return;
+  const profiles = globalThis.HDReaderOptions.profiles(storedOptionsRecord);
+  for (const { title, index } of importedTitles) {
+    const row = storedDictionaryState.dictionaries.find(entry => entry.title === title);
+    const language = typeof row?.language === "string" ? row.language.toLowerCase().split("-")[0] : "";
+    const target = profiles.find(profile => profile.language === language && profile.id !== editedProfile.id);
+    const notes = element("import-progress")
+      .querySelector(`.setup-dictionary[data-source-id="${CSS.escape(String(index))}"] .setup-dictionary-notes`);
+    if (!target || !notes || !dictionaries.some(entry => entry.id === row?.id)) continue;
+    notes.append(languageMoveOffer(row, target));
+    notes.hidden = false;
+  }
+}
+
+// One finished import's offer, among its entry's notes: the dictionary is for
+// another profile's language, and Move to {Language} moves it there.
+function languageMoveOffer(row, target) {
+  const item = document.createElement("li");
+  item.className = "import-language-move";
+  const name = languageName(target.language);
+  const text = document.createElement("span");
+  text.textContent = `This dictionary is for ${name}. It was added to ${languageName()}.`;
+  const move = document.createElement("button");
+  move.type = "button";
+  move.className = "ghost";
+  move.textContent = `Move to ${name}`;
+  move.addEventListener("click", () => {
+    const focused = document.activeElement === move;
+    move.disabled = true;
+    void moveToProfile(row.id, target.id).then(error => {
+      if (error === null) {
+        text.textContent = `Moved to ${name}.`;
+        if (focused) element("import-file").focus();
+        move.remove();
+      } else {
+        text.textContent = `Could not move ${row.displayName || row.title}: ${error}`;
+        move.disabled = false;
+        if (focused) move.focus();
+      }
+    });
+  });
+  item.append(text, move);
+  return item;
 }
 
 function elapsedSince(started) {
@@ -180,15 +291,15 @@ function chooseDictionaryImport(identity, matches) {
 }
 
 async function importFile(file, index, total, request = {}, label = file.name) {
+  // The package joins the profile edited when the import starts (docs/languages.md 5.2).
+  const target = profileFields();
   updateImportResult(index, { text: "Reading dictionary metadata…", progress: { value: null } });
   let identity;
   try {
     identity = await readDictionaryArchiveIdentity(file);
   } catch (error) {
-    updateImportResult(index, {
-      text: `Failed before import: ${dictionaryImportError(error, file.name, "reading dictionary metadata").message}`,
-      tone: "error",
-    });
+    const failure = dictionaryImportError(error, file.name, "reading dictionary metadata");
+    updateImportResult(index, { text: `Failed before import: ${failure.message}`, tone: "error" }, failure);
     return "failed";
   }
 
@@ -211,14 +322,13 @@ async function importFile(file, index, total, request = {}, label = file.name) {
 
   // The decision happens before this URL exists, so Cancel cannot start a
   // native import, create a generation, or mutate persistent storage.
-  const started = Date.now();
   // A linked browser sends the archive to the host, which applies the same
   // choice against its own library (the one mirrored here).
   if (sharingLinkedAddress !== null) {
     return importArchive(() => uploadDictionary({
       blob: file, fileName: file.name, replace: importDecision.action === "replace",
       send: (type, fields) => send(type, fields, LINKED_IMPORT_TARGET),
-    }), index, total, label, started);
+    }), index, total, label);
   }
   const blobUrl = URL.createObjectURL(file);
   try {
@@ -227,7 +337,8 @@ async function importFile(file, index, total, request = {}, label = file.name) {
       fileName: file.name,
       ...request,
       importDecision,
-    }), index, total, label, started);
+      ...target,
+    }), index, total, label);
   } finally {
     // The offscreen document has read the bytes by now; holding the URL any
     // longer just pins the file.
@@ -235,45 +346,108 @@ async function importFile(file, index, total, request = {}, label = file.name) {
   }
 }
 
-async function importArchive(runImport, index, total, label, started) {
-  const tick = () => {
-    const elapsed = elapsedSince(started);
-    setImportState(
-      `Importing ${label} (${index + 1} of ${total}) — ${index} of ${total} complete — ${elapsed} elapsed`,
-      "busy",
-    );
-    updateImportResult(index, { text: `Importing… ${elapsed} elapsed`, progress: { value: null } });
-  };
-  tick();
-  const ticker = setInterval(tick, 1000);
+// Why an attempt failed, from the engine's reply or the request's own error.
+function failureReason({ reply, error }, label) {
+  if (reply === undefined) return dictionaryImportError(error, label, "requesting the import").message;
+  return dictionaryImportError(reply.error || reply.report?.error || "The engine gave no reason.", label,
+    "importing the dictionary").message;
+}
 
-  try {
-    const reply = await runImport();
-    const report = reply.report ?? {};
-    if (reply.ok && report.success) {
-      // What an MDX import left out. Notes never turn a success into a
-      // failure: the dictionary is installed and counts as imported.
-      const notes = mdxImportNotes(report, numberFormat);
-      updateImportResult(index, {
-        text: `Imported ${report.title} in ${importDuration(started)}: ${summariseReport(report)}.`,
-        tone: "ok",
-        notes,
-      });
-      return notes.length > 0 ? "imported-with-notes" : "imported";
+// Imports one archive once the engine is free, retrying a failed attempt
+// (dictionary-import-attempts.js). The row says whether it is waiting for
+// another change, importing or about to retry.
+async function importArchive(runImport, index, total, label) {
+  const { signal } = importAbort;
+  // Until the first status poll says whether this archive waits or imports.
+  let phase = "starting";
+  let attempt = 1;
+  let retryText = "";
+  let since = Date.now();
+  let firstAttemptAt = since;
+  const tick = () => {
+    if (phase === "starting") return;
+    const elapsed = elapsedSince(since);
+    const position = `(${index + 1} of ${total}) — ${index} of ${total} complete — ${elapsed} elapsed`;
+    if (phase === "waiting") {
+      setImportState(`Waiting to import ${label} ${position}`, "busy");
+      updateImportResult(index, { text: `Waiting for the previous import to finish… ${elapsed} elapsed`,
+        progress: { value: null } });
+      return;
     }
-    const reason = dictionaryImportError(reply.error || report.error || "The engine gave no reason.", label, "importing the dictionary").message;
-    updateImportResult(index, {
-      text: `Failed after ${importDuration(started)}: ${reason}`,
-      tone: "error",
+    setImportState(signal.aborted ? `Cancelling after ${label} finishes importing — ${elapsed} elapsed`
+      : `Importing ${label} ${position}`, "busy");
+    const attemptLabel = attempt > 1 ? ` (attempt ${attempt} of ${IMPORT_ATTEMPTS})` : "";
+    const text = phase === "retrying" ? retryText : `Importing${attemptLabel}… ${elapsed} elapsed`;
+    updateImportResult(index, { text, progress: { value: null } });
+  };
+  const ticker = setInterval(tick, 1000);
+  signal.addEventListener("abort", tick);
+
+  let outcome;
+  try {
+    outcome = await importWithRetries({
+      attempt: runImport,
+      readStatus: () => send("hd_status"),
+      readRevision: async () => {
+        const reply = await send("hd_state_read", {}, WORKER_TARGET);
+        if (!reply.ok) throw new Error(reply.error || "the dictionary state could not be read");
+        return reply.state?.revision ?? 0;
+      },
+      signal,
+      onWait: () => {
+        if (phase === "waiting") return;
+        phase = "waiting";
+        since = Date.now();
+        tick();
+      },
+      onAttempt: (number) => {
+        phase = "importing";
+        attempt = number;
+        since = Date.now();
+        if (number === 1) firstAttemptAt = since;
+        tick();
+      },
+      onRetry: (number, failure) => {
+        phase = "retrying";
+        retryText = `Attempt ${number} of ${IMPORT_ATTEMPTS} failed: ${failureReason(failure, label)} Retrying…`;
+        tick();
+      },
     });
   } catch (error) {
-    updateImportResult(index, {
-      text: `Failed after ${importDuration(started)}: ${dictionaryImportError(error, label, "requesting the import").message}`,
-      tone: "error",
-    });
+    // Nothing was attempted: the wait was cancelled or the engine stayed busy.
+    if (signal.aborted) {
+      updateImportResult(index, { text: "Cancelled before import." });
+      return "cancelled";
+    }
+    updateImportResult(index, { text: `Failed before import: ${error?.message ?? String(error)}`, tone: "error" },
+      error);
+    return "failed";
   } finally {
     clearInterval(ticker);
+    signal.removeEventListener("abort", tick);
   }
+
+  if (outcome.ok) {
+    const { report } = outcome.reply;
+    importedTitles.push({ title: report.title, index });
+    // What an MDX import left out. Notes never turn a success into a
+    // failure: the dictionary is installed and counts as imported.
+    const notes = mdxImportNotes(report, numberFormat);
+    updateImportResult(index, {
+      text: `Imported ${report.title} in ${importDuration(since)}: ${summariseReport(report)}.`,
+      tone: "ok",
+      notes,
+    });
+    return notes.length > 0 ? "imported-with-notes" : "imported";
+  }
+  const duration = importDuration(firstAttemptAt);
+  const spent = outcome.attempts > 1 ? `${outcome.attempts} attempts in ${duration}` : duration;
+  // A request that threw keeps its Error in the debug log; an engine reply has none.
+  const thrown = outcome.reply === undefined ? dictionaryImportError(outcome.error, label, "requesting the import") : null;
+  updateImportResult(index, {
+    text: `Failed after ${spent}: ${failureReason(outcome, label)}`,
+    tone: "error",
+  }, thrown);
   return "failed";
 }
 
@@ -310,13 +484,37 @@ function renderRecommendedInstallation() {
   renderRecommendedActions();
 }
 
+// The batch's last line. #import-state is the polite live region, so it
+// announces the notes.
+function batchSummary({ total, imported, withNotes, cancelled, aborted, singular, plural }) {
+  const failed = total - imported - cancelled;
+  const itemLabel = total === 1 ? singular : plural;
+  const importedLabel = withNotes === 0
+    ? `${imported} imported`
+    : `${imported} imported (${withNotes} with notes)`;
+  const outcomes = [
+    importedLabel,
+    ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
+    `${failed} failed`,
+  ].join(", ");
+  return {
+    text: aborted ? `Import cancelled — ${outcomes}.` : `Finished ${total} of ${total} ${itemLabel} — ${outcomes}.`,
+    tone: failed === 0 ? "ready" : "error",
+  };
+}
+
 async function runImportBatch(items, importOne, singular, plural, describeItem) {
   if (importing || installingRecommended) {
     return;
   }
   importing = true;
+  importAbort = new AbortController();
+  const { signal } = importAbort;
   setControlsDisabled(true);
+  element("import-cancel").hidden = false;
   clearImportResults();
+  importedTitles = [];
+  renderLanguageMoves();
   setImportEntries(items.map((item, index) => ({
     id: String(index),
     ...describeItem(item),
@@ -327,14 +525,18 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
   let cancelled = 0;
   try {
     for (const [index, item] of items.entries()) {
+      // Cancel lets an import that has started finish, then starts no other.
+      if (signal.aborted) {
+        updateImportResult(index, { text: "Cancelled before import." });
+        cancelled += 1;
+        continue;
+      }
       let outcome;
       try {
         outcome = await importOne(item, index, items.length); // NOSONAR: each import reviews and commits the state left by the previous item
       } catch (error) {
-        updateImportResult(index, {
-          text: dictionaryImportError(error, describeItem(item).name, "preparing the import").message,
-          tone: "error",
-        });
+        const failure = dictionaryImportError(error, describeItem(item).name, "preparing the import");
+        updateImportResult(index, { text: failure.message, tone: "error" }, failure);
         continue;
       }
       if (outcome === "imported" || outcome === "imported-with-notes") {
@@ -345,27 +547,21 @@ async function runImportBatch(items, importOne, singular, plural, describeItem) 
         await reloadDictionaries(); // NOSONAR: the next archive is checked against the state this one committed
       } else if (outcome === "cancelled") cancelled += 1;
     }
-    const failed = items.length - imported - cancelled;
-    const itemLabel = items.length === 1 ? singular : plural;
-    // #import-state is the polite live region, so it announces the notes.
-    const importedLabel = withNotes === 0
-      ? `${imported} imported`
-      : `${imported} imported (${withNotes} with notes)`;
-    const outcomes = [
-      importedLabel,
-      ...(cancelled === 0 ? [] : [`${cancelled} cancelled`]),
-      `${failed} failed`,
-    ].join(", ");
-    setImportState(
-      `Finished ${items.length} of ${items.length} ${itemLabel} — ${outcomes}.`,
-      failed === 0 ? "ready" : "error",
-    );
+    const { text, tone } = batchSummary({ total: items.length, imported, withNotes, cancelled,
+      aborted: signal.aborted, singular, plural });
+    setImportState(text, tone);
     await reloadDictionaries();
+    renderLanguageMoves();
     await refreshStatus();
   } finally {
     importing = false;
+    importAbort = null;
+    const cancelFocused = document.activeElement === element("import-cancel");
+    element("import-cancel").hidden = true;
     syncNavigationStatus("import-state");
     setControlsDisabled(false);
+    // Hiding the focused Cancel would drop keyboard focus to the page.
+    if (cancelFocused) element("import-file").focus();
   }
 }
 
@@ -404,14 +600,15 @@ function groupImportFiles(files) {
 
 async function importMdx(item, index, total) {
   const { file, resources } = item;
-  const started = Date.now();
+  const target = profileFields();
   const urls = [file, ...resources].map((entry) => URL.createObjectURL(entry));
   try {
     return await importArchive(() => send("hd_import", {
       blobUrl: urls[0],
       fileName: file.name,
       resources: resources.map((resource, position) => ({ fileName: resource.name, blobUrl: urls[position + 1] })),
-    }), index, total, file.name, started);
+      ...target,
+    }), index, total, file.name);
   } finally {
     for (const url of urls) URL.revokeObjectURL(url);
   }
@@ -510,6 +707,7 @@ function attachImportHandlers() {
       void runImports(picked);
     }
   });
+  element("import-cancel").addEventListener("click", () => importAbort?.abort());
   bindImportDropZone(file);
 }
 

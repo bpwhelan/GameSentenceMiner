@@ -110,24 +110,19 @@ def test_paused_text_is_available_for_card_matching_and_media_timing(text_pipeli
 @pytest.mark.parametrize("paused", [False, True])
 def test_stats_pause_controls_stats_discord_and_database_only(text_pipeline, paused):
     text_pipeline.state.text_input_paused = paused
-    first = gametext._ingest_line_sync("そんな音を", source="texthook", merge_fragments=True, revision_window_ms=5000)
-    revised = gametext._ingest_line_sync(
+    completed = gametext._ingest_line_sync(
         "そんな音を聞きながら、わたしは眠りに落ちていく。",
         source="texthook",
         merge_fragments=True,
         revision_window_ms=5000,
     )
-    assert first.line_id == revised.line_id
-    assert gametext.freeze_authoritative_text_line(first.line_id)
+    assert text_pipeline.history.get_by_id(completed.line_id).state == "frozen"
+    assert not gametext.freeze_authoritative_text_line(completed.line_id)
     outputs = text_pipeline.outputs
 
-    assert [event.kind for event in outputs.events] == [
-        TextEventKind.APPENDED,
-        TextEventKind.UPDATED,
-        TextEventKind.FROZEN,
-    ]
-    assert len(outputs.overlay) == 2
-    assert [command.line.excluded_from_stats for command in outputs.overlay] == [paused, paused]
+    assert [event.kind for event in outputs.events] == [TextEventKind.APPENDED]
+    assert len(outputs.overlay) == 1
+    assert [command.line.excluded_from_stats for command in outputs.overlay] == [paused]
     assert len(outputs.subtitles) == 1
     assert outputs.subtitles[0].text == "そんな音を聞きながら、わたしは眠りに落ちていく。"
     assert outputs.stats == []
@@ -137,7 +132,7 @@ def test_stats_pause_controls_stats_discord_and_database_only(text_pipeline, pau
             time.sleep(0.025)
         assert outputs.events[-1].kind is TextEventKind.STATS_READY
     assert len(outputs.stats) == (0 if paused else 1)
-    assert len(outputs.discord) == (0 if paused else 2)
+    assert len(outputs.discord) == (0 if paused else 1)
     assert len(outputs.database) == (0 if paused else 1)
 
 

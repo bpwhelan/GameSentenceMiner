@@ -8,7 +8,8 @@
       "contentMode": "rich",
       "benchmark": "Render 2.25 ms",
       "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/benchmark.md",
-      "designSettings": "all"
+      "designSettings": "all",
+      "language": { "directions": ["ltr", "rtl"], "presentation": true }
     },
     {
       "slug": "nazeka",
@@ -17,7 +18,8 @@
       "contentMode": "text",
       "benchmark": "Render 0.80 ms",
       "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/benchmark.md",
-      "designSettings": ["kanjiClickDictionary"]
+      "designSettings": ["kanjiClickDictionary"],
+      "language": { "directions": ["ltr", "rtl"], "presentation": true }
     },
     {
       "slug": "plain",
@@ -26,7 +28,8 @@
       "contentMode": "text",
       "benchmark": "Render 0.40 ms",
       "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/benchmark.md",
-      "designSettings": []
+      "designSettings": [],
+      "language": { "directions": ["ltr", "rtl"], "presentation": false }
     },
     {
       "slug": "jl",
@@ -35,7 +38,8 @@
       "contentMode": "text",
       "benchmark": "Render 0.80 ms",
       "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/benchmark.md",
-      "designSettings": ["popupOpacityPercent", "kanjiClickDictionary", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary"]
+      "designSettings": ["popupOpacityPercent", "kanjiClickDictionary", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary"],
+      "language": { "directions": ["ltr", "rtl"], "presentation": true }
     },
     {
       "slug": "bee",
@@ -44,7 +48,19 @@
       "contentMode": "rich",
       "benchmark": "Render 1.30 ms",
       "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/bee.md",
-      "designSettings": ["popupOpacityPercent", "glossaryLayoutMode", "kanjiClickDictionary", "showFrequencyDictionaryNames", "compactFrequencyNumbers", "averageFrequency", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "pitchAccentFuriganaStyle", "popupImageSource", "imageHoverPreview", "customButtons"]
+      "designSettings": ["popupOpacityPercent", "glossaryLayoutMode", "kanjiClickDictionary", "showFrequencyDictionaryNames", "compactFrequencyNumbers", "averageFrequency", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "pitchAccentFuriganaStyle", "popupImageSource", "imageHoverPreview", "customButtons"],
+      "language": { "directions": ["ltr", "rtl"], "presentation": true }
+    },
+    {
+      "slug": "crystal",
+      "name": "Crystal",
+      "description": "A gold frame with a blue crystal crest on FFXIV-style grey or beige, with red and gold buttons, or a retro Final Fantasy blue window. One header per word, then a framed section per dictionary with numbered senses and its own audio, Anki and Note buttons.",
+      "contentMode": "rich",
+      "benchmark": "Render 1.60 ms",
+      "benchmarkUrl": "https://github.com/bee-san/hachidori/blob/main/docs/themes/crystal.md",
+      "designSettings": ["popupOpacityPercent", "glossaryLayoutMode", "kanjiClickDictionary", "showFrequencyDictionaryNames", "compactFrequencyNumbers", "averageFrequency", "showFrequencyTagsWithAverage", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "pitchAccentFuriganaStyle", "popupImageSource", "imageHoverPreview", "customButtons"],
+      "language": { "directions": ["ltr", "rtl"], "presentation": true },
+      "variants": [{ "id": "grey", "name": "Grey" }, { "id": "beige", "name": "Beige" }, { "id": "blue", "name": "Retro blue" }]
     }
   ]
 }

@@ -3,6 +3,13 @@ import { getWindowsAppDetails, getWindowsAppId } from './windows_app_identity.js
 import { splitWindowsCommandLine } from './windows_command_line.js';
 
 describe('Windows desktop identity', () => {
+    it('retains the portable profile when relaunched from the taskbar', () => {
+        const profileDir = 'D:\\GSM profiles\\日本語';
+        const details = getWindowsAppDetails({
+            isPackaged: true, executable: 'C:\\GSM.exe', appPath: 'C:\\GSM', iconPath: '', profileDir,
+        });
+        expect(splitWindowsCommandLine(details.relaunchCommand!)).toEqual(['C:\\GSM.exe', '-profile', profileDir]);
+    });
     it('keeps development taskbar groups separate from installed GSM', () => {
         expect(getWindowsAppId(true)).toBe('com.beangate.gamesentenceminer');
         expect(getWindowsAppId(false)).toBe('com.beangate.gamesentenceminer.dev');

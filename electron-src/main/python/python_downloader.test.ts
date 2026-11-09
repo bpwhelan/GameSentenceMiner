@@ -58,6 +58,7 @@ const fsMock = {
 };
 
 vi.mock('fs', () => fsMock);
+vi.mock('../data_dir.js', () => ({ getSharedBaseDir: () => BASE_DIR }));
 vi.mock('../services/zip_extract.js', () => ({
     default: async (...args: unknown[]) => mockExtractZip(...args),
 }));

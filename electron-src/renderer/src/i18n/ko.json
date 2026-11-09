@@ -1,4 +1,38 @@
 {
+  "gameLauncher": {
+    "title": "게임 실행",
+    "launch": "게임 실행",
+    "working": "처리 중…",
+    "options": "실행 옵션",
+    "help": "가능한 경우 GSM이 OBS에서 캡처하는 게임의 실행 파일을 기억합니다. 직접 선택할 수도 있습니다. 실행 옵션은 게임별로 저장됩니다.",
+    "executablePath": "게임 실행 파일",
+    "arguments": "게임 실행 인수",
+    "workingDirectory": "작업 폴더",
+    "gameFolder": "게임 폴더 (기본값)",
+    "launcherPath": "사용자 지정 런처 (선택 사항)",
+    "launcherArguments": "런처 인수",
+    "launcherHelp": "Special K의 SKIF 또는 Locale Emulator와 같이 설치된 런처를 통해 실행할 수 있습니다. 비워 두면 게임을 직접 실행합니다.",
+    "templateHelp": "{game}은 게임 경로, {args}는 게임 인수로 바뀝니다. 기본값: \"{game}\" {args}. LEProc 예시: -run \"{game}\" {args}. {args}는 별도의 인수로 입력하세요. 셸 명령 및 환경 변수는 확장되지 않습니다.",
+    "browse": "찾아보기",
+    "browseField": "찾아보기: {field}",
+    "detect": "실행 중인 게임에서 감지",
+    "notDetected": "이 캡처에 해당하는 실행 파일을 하나로 특정할 수 없습니다. 게임을 실행하고 다시 시도하거나 찾아보기를 사용하세요.",
+    "chooseExecutable": "아래에서 게임 실행 파일을 선택한 후 저장하거나 실행하세요.",
+    "save": "저장",
+    "cancel": "취소",
+    "saved": "실행 옵션을 저장했습니다.",
+    "launched": "실행 요청을 보냈습니다.",
+    "errors": {
+      "unsupported": "게임 실행은 Windows에서만 사용할 수 있습니다.",
+      "invalidScene": "먼저 게임을 선택하세요.",
+      "missingExecutable": "존재하는 게임 실행 파일을 선택하세요.",
+      "missingLauncher": "존재하는 런처 실행 파일을 선택하세요.",
+      "invalidWorkingDirectory": "존재하는 작업 폴더를 선택하세요.",
+      "invalidArguments": "실행 인수를 확인하세요. 런처 템플릿에서 {args}를 별도의 인수로 입력하세요.",
+      "busy": "이 게임의 실행 요청이 이미 진행 중입니다.",
+      "failed": "실행 요청을 완료하지 못했습니다. {error}"
+    }
+  },
   "gamePrivileges": {
     "title": "{game}이(가) 관리자 권한으로 실행 중입니다",
     "description": "GSM은 관리자 권한 없이 실행 중입니다. 이 권한 차이로 인해 OBS 캡처, 텍스트 후킹, 오버레이 또는 단축키에 문제가 발생할 수 있습니다. GSM을 관리자 권한으로 다시 시작하는 것을 권장합니다.",
@@ -1520,5 +1554,22 @@
     "added": "{game}에서 문장을 제외했습니다. 이후 일치하는 텍스트가 차단됩니다.",
     "removed": "{game}의 문장 제외를 해제했습니다.",
     "excluded": "제외됨"
+  },
+  "textProcessing": {
+    "processors": {
+      "languageFilter": "대상 언어 필터",
+      "languageFilterDesc": "대상 언어의 문자 체계를 기준으로 캡처한 텍스트를 필터링합니다",
+      "removeNonJapanese": "Shift-JIS 외 문자 제거"
+    },
+    "languageFilter": {
+      "mode": "필터 강도",
+      "blocks": "1. 블록 필터링",
+      "trim": "2. 블록 필터링 및 앞뒤 정리",
+      "strict": "3. 일치하는 문자만 유지",
+      "blocksDescription": "이벤트의 각 줄을 블록으로 취급합니다. 대상 언어 문자가 없는 블록을 제거하고, 여러 언어가 섞인 블록은 그대로 유지합니다. 일치하는 문자가 없는 이벤트는 빈 텍스트가 됩니다.",
+      "trimDescription": "블록을 필터링한 뒤 각 블록의 앞뒤에서 대상 언어가 아닌 텍스트를 제거합니다. 내부의 혼합 텍스트와 인접한 문장 부호는 유지합니다.",
+      "strictDescription": "일치하지 않는 모든 문자를 빈 문자열로 바꿉니다. 공백, 숫자, 문장 부호도 제거합니다.",
+      "targetHint": "설정의 대상 언어를 사용합니다. 문자 체계를 기준으로 하므로 같은 알파벳을 쓰는 언어는 구분할 수 없습니다. 블록 경계를 유지하려면 줄바꿈 제거 앞에 배치하세요."
+    }
   }
 }

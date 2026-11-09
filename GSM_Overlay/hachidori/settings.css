@@ -70,7 +70,8 @@
 }
 .theme-store-card h3, .theme-store-card p { margin: 0; }
 .theme-store-card button { margin-top: auto; }
-.theme-store-card button[aria-pressed="true"] { outline: 2px solid var(--accent); }
+.theme-store-card button[aria-pressed="true"],
+#settings-language-use[aria-pressed="true"] { outline: 2px solid var(--accent); }
 .theme-store-preview { width: 100%; height: var(--theme-store-preview-height); object-fit: contain; background: #111; border-radius: 4px; }
 
 @media (prefers-color-scheme: dark) {
@@ -312,7 +313,10 @@ button,
   font-weight: var(--weight-body);
   letter-spacing: normal;
 }
-.setup-resume {
+/* With two or more languages, the language Settings shows links to
+   Advanced → Languages, styled as Resume setup (docs/languages.md 16.3). */
+.setup-resume,
+.settings-language-link {
   display: block;
   margin: 14px 10px 0;
   font-size: var(--font-small);
@@ -326,6 +330,28 @@ button,
   font-size: var(--font-caption);
 }
 .settings-search { display: grid; gap: 6px; margin: 22px 10px 0; }
+/* Advanced → Languages (docs/languages.md 16.3): a language's name and its own
+   name, and a menu with its button filling a field's control column, as
+   Advanced → Memory's menus do; on a phone the button goes under the menu. */
+.language-label { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; overflow-wrap: anywhere; }
+.language-native { color: var(--text-dim); }
+.language-row > button { margin-inline-start: auto; }
+.language-actions { width: 100%; min-width: 0; }
+.language-actions select { flex: 1 1 12em; width: auto; min-width: 0; }
+/* The card's status is a row of its own, so its rule spans the card. */
+#settings-language-status { display: block; }
+/* Settings every language shares (section 16.4). */
+.scope-note { color: var(--text-dim); }
+.field-hint > .scope-note { display: block; }
+/* Dictionaries per profile (section 14). */
+.dict-other-languages { display: grid; gap: 8px; margin-top: 24px; }
+.dict-other-languages h2, .dict-other-languages p { margin: 0; }
+.dict-other-language-list { margin: 0; padding: 0; list-style: none; }
+.dict-other-language { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; padding: var(--row-padding) 16px; }
+.dict-other-language + .dict-other-language { border-top: 1px solid var(--border); }
+.dict-other-language-title { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.dict-other-language button, .import-language-move button { margin-inline-start: auto; }
+.import-language-move { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
 .settings-search input { width: 100%; min-width: 0; }
 .settings-search-results h1 { margin-top: 0; }
 .settings-search-results ul { display: grid; gap: 8px; margin: 20px 0 0; padding: 0; list-style: none; }
@@ -702,6 +728,10 @@ button.ghost:disabled {
   cursor: default;
   opacity: 0.6;
 }
+/* Beside the error it copies, or below it in a column or grid. */
+button.copy-error-details {
+  width: fit-content;
+}
 button.danger {
   color: var(--error);
 }
@@ -1041,12 +1071,20 @@ input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):disabled {
   border-top: 1px solid var(--border);
 }
 .dict-list,
+.update-dictionary-list,
 .dict-group-list,
 .dict-group-members,
 .experimental-list {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.update-dictionary-title {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.update-dictionary-list .dict-update-status {
+  margin: 6px 0 0;
 }
 /* One separator idiom for every list on the page: the list owns the top and
    bottom rule, and each row after the first owns the rule above it. A list in a
@@ -1390,6 +1428,10 @@ textarea {
   color: var(--accent);
   font-size: var(--font-page-title);
 }
+.empty-state-icon .hd-icon {
+  width: 28px;
+  height: 28px;
+}
 .library-empty h2 {
   color: var(--text);
   font-size: var(--font-large);
@@ -1432,6 +1474,7 @@ textarea {
 .lookup-group,
 .anki-panel,
 .dict-list:not(:empty),
+.dict-other-language-list:not(:empty),
 .dict-group-create,
 .dict-group,
 .recommendations,
@@ -2183,6 +2226,7 @@ textarea {
   width: 8ch;
 }
 #opt-blur-frequency-threshold { width: 12ch; }
+#opt-search-history-limit { width: 12ch; }
 #opt-automatic-backup-days { width: 8ch; }
 #sharing-host-port { width: 12ch; }
 #definition-blur-count-paused label {
@@ -2257,9 +2301,20 @@ textarea {
     font-size: var(--font-caption);
     overflow-wrap: anywhere;
   }
-  .setup-resume {
+  .setup-resume,
+  .settings-language-link {
     grid-column: 1;
     margin: 0;
+  }
+  /* The language link goes under Resume setup, so Search settings stays
+     beside the first link and Privacy policy under the links. */
+  .settings-sidebar:has(.settings-language-link) .settings-search {
+    grid-column: 2;
+    grid-row: 2;
+  }
+  .settings-sidebar:has(.settings-language-link) .privacy-link {
+    grid-column: 1;
+    margin-inline: 0;
   }
   .engine-status {
     grid-column: 1 / -1;
@@ -2401,12 +2456,14 @@ textarea {
 #audio > p { margin: 0; }
 #audio-source-add { align-self: flex-start; }
 
-.custom-button-list {
+.custom-button-list,
+.language-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.custom-button-row {
+.custom-button-row,
+.language-row {
   display: flex;
   align-items: center;
   justify-content: space-between;

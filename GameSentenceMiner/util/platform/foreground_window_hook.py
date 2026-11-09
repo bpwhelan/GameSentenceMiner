@@ -15,7 +15,9 @@ EVENT_SYSTEM_FOREGROUND = 0x0003
 EVENT_OBJECT_NAMECHANGE = 0x800C
 EVENT_OBJECT_SHOW = 0x8002
 GA_ROOT = 2
-SWITCH_EMULATOR_NAMES = {f"{name}.exe" for name in ("eden", "yuzu", "suyu", "ryujinx", "citron", "sudachi", "torzu")}
+SWITCH_EMULATOR_NAMES = {
+    f"{name}.exe" for name in ("eden", "yuzu", "suyu", "ryujinx", "lichii", "citron", "sudachi", "torzu")
+}
 WINEVENT_OUTOFCONTEXT = 0x0000
 WINEVENT_SKIPOWNPROCESS = 0x0002
 WM_QUIT = 0x0012

@@ -11,6 +11,7 @@ const {
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { exposeHachidoriPopupRoot } = require('./helpers/hachidori-popup-dom.cjs');
 
 const evidenceDirectory = process.env.GSM_HACHIDORI_EVIDENCE_DIR;
 const runDirectory = process.env.GSM_HACHIDORI_RUN_DIRECTORY;
@@ -258,7 +259,7 @@ async function waitForSettingsStartup(settingsWindow) {
     settingsWindow.webContents.getURL().startsWith('chrome-extension://')
     && await settingsWindow.webContents.executeJavaScript(
       `document.readyState === "complete"
-        && document.getElementById("custom-links-settings") !== null
+        && document.getElementById("custom-buttons-settings") !== null
         && document.getElementById("engine-status") !== null`,
     )
   ));
@@ -299,7 +300,7 @@ async function installInputRecorder(settingsWindow) {
       pasted: event.clipboardData?.getData("text/plain") || "",
       value: event.target?.value ?? "",
     });
-    for (const id of ["opt-custom-link-name", "opt-custom-link-url", "custom-link-submit"]) {
+    for (const id of ["opt-custom-button-name", "opt-custom-button-url", "custom-button-submit"]) {
       const node = document.getElementById(id);
       for (const type of [
         "focus", "blur", "keydown", "keyup", "beforeinput", "input",
@@ -308,11 +309,11 @@ async function installInputRecorder(settingsWindow) {
         node.addEventListener(type, event => globalThis.__i17InputEvents.push(describe(event)));
       }
     }
-    document.getElementById("custom-link-form").addEventListener("submit", event => {
+    document.getElementById("custom-button-form").addEventListener("submit", event => {
       globalThis.__i17InputEvents.push({
         ...describe(event),
         type: "submit",
-        target: "custom-link-form",
+        target: "custom-button-form",
       });
     });
   })()`);
@@ -321,16 +322,16 @@ async function installInputRecorder(settingsWindow) {
 async function readCustomLinkState(settingsWindow) {
   return settingsWindow.webContents.executeJavaScript(`(async () => {
     const stored = await chrome.storage.local.get("options");
-    const fieldset = document.getElementById("custom-links-settings");
-    const help = document.getElementById("custom-links-overlay-help");
+    const fieldset = document.getElementById("custom-buttons-settings");
+    const help = document.getElementById("custom-buttons-overlay-help");
     return {
       fieldsetDisabled: fieldset.disabled,
-      nameDisabled: document.getElementById("opt-custom-link-name").matches(":disabled"),
-      urlDisabled: document.getElementById("opt-custom-link-url").matches(":disabled"),
+      nameDisabled: document.getElementById("opt-custom-button-name").matches(":disabled"),
+      urlDisabled: document.getElementById("opt-custom-button-url").matches(":disabled"),
       helpHidden: help.hidden,
       helpText: help.textContent.trim(),
       activeElementId: document.activeElement?.id || "",
-      renderedLinks: [...document.querySelectorAll("#custom-link-list .custom-link-row")].map(row => ({
+      renderedLinks: [...document.querySelectorAll("#custom-button-list .custom-button-row")].map(row => ({
         label: row.querySelector("strong")?.textContent || "",
         url: row.querySelector("code")?.textContent || "",
       })),
@@ -342,14 +343,14 @@ async function readCustomLinkState(settingsWindow) {
 
 async function captureCustomLinksSection(settingsWindow, filename) {
   await settingsWindow.webContents.executeJavaScript(`(() => {
-    document.getElementById("custom-links-settings").scrollIntoView({
+    document.getElementById("custom-buttons-settings").scrollIntoView({
       block: "center",
       inline: "nearest",
     });
   })()`);
   await delay(150);
   const rect = await settingsWindow.webContents.executeJavaScript(`(() => {
-    const bounds = document.getElementById("custom-links-settings").getBoundingClientRect();
+    const bounds = document.getElementById("custom-buttons-settings").getBoundingClientRect();
     const left = Math.max(0, Math.floor(bounds.left + scrollX - 8));
     const top = Math.max(0, Math.floor(bounds.top + scrollY - 8));
     const right = Math.min(
@@ -473,6 +474,7 @@ function ocrPayload() {
 }
 
 async function popupState(mainWindow) {
+  await exposeHachidoriPopupRoot(mainWindow.webContents);
   return mainWindow.webContents.executeJavaScript(`(() => {
     const root = document.querySelector("hachidori-host")?.shadowRoot;
     const popup = root?.querySelector('.gsm-hoshidicts-popup[data-hoshidicts-depth="0"]');
@@ -662,10 +664,11 @@ async function exerciseRealPopupClick(mainWindow, settingsWindow) {
         && !document.body.classList.contains("manual-interaction-suppressed")`,
     )
   ));
-  await waitFor('the Hachidori content host', async () => (
-    await mainWindow.webContents.executeJavaScript(
-      `document.querySelector("hachidori-host")?.shadowRoot !== null`,
-    )
+  await waitFor('the Hachidori reader bridge', async () => (
+    await mainWindow.webContents.executeJavaScript(`(async () => {
+      try { return (await gsmHachidoriBridge.capabilities()).reader === 'hachidori'; }
+      catch { return false; }
+    })()`)
   ));
   mainWindow.webContents.send('overlay-websocket-data', {
     data: JSON.stringify(ocrPayload()),
@@ -808,7 +811,7 @@ async function runEditPhase(mainWindow) {
   const importResult = await importFixture(settingsWindow);
   await showSettingsSection(settingsWindow, 'design');
   await settingsWindow.webContents.executeJavaScript(
-    `document.getElementById("custom-links-settings").scrollIntoView({ block: "center" });`,
+    `document.getElementById("custom-buttons-settings").scrollIntoView({ block: "center" });`,
   );
   await installInputRecorder(settingsWindow);
 
@@ -822,39 +825,43 @@ async function runEditPhase(mainWindow) {
   assert.deepEqual(initial.storedLinks, []);
 
   const namePoint = await settingsWindow.webContents.executeJavaScript(`(() => {
-    const bounds = document.getElementById("opt-custom-link-name").getBoundingClientRect();
+    const bounds = document.getElementById("opt-custom-button-name").getBoundingClientRect();
     return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
   })()`);
   await clickAt(settingsWindow.webContents, namePoint);
   assert.equal(await settingsWindow.webContents.executeJavaScript(
     `document.activeElement?.id`,
-  ), 'opt-custom-link-name');
+  ), 'opt-custom-button-name');
   await typePhysicalText(settingsWindow.webContents, 'gsm ');
   await setImeComposition(settingsWindow.webContents, '辞書');
   await typePhysicalText(settingsWindow.webContents, ' link');
   const composedName = await settingsWindow.webContents.executeJavaScript(
-    `document.getElementById("opt-custom-link-name").value`,
+    `document.getElementById("opt-custom-button-name").value`,
   );
   assert.equal(composedName, LINK_LABEL);
 
   await sendKey(settingsWindow.webContents, 'Tab');
+  assert.equal(await settingsWindow.webContents.executeJavaScript(
+    `document.activeElement?.id`,
+  ), 'opt-custom-button-type');
+  await sendKey(settingsWindow.webContents, 'Tab');
   const afterNameTab = await settingsWindow.webContents.executeJavaScript(
     `document.activeElement?.id`,
   );
-  assert.equal(afterNameTab, 'opt-custom-link-url');
+  assert.equal(afterNameTab, 'opt-custom-button-url');
   clipboard.writeText(LINK_TEMPLATE);
   const clipboardBeforePaste = clipboard.readText();
   assert.equal(clipboardBeforePaste, LINK_TEMPLATE);
   settingsWindow.webContents.paste();
   await delay(100);
   assert.equal(await settingsWindow.webContents.executeJavaScript(
-    `document.getElementById("opt-custom-link-url").value`,
+    `document.getElementById("opt-custom-button-url").value`,
   ), LINK_TEMPLATE);
   await sendKey(settingsWindow.webContents, 'Tab');
   const afterUrlTab = await settingsWindow.webContents.executeJavaScript(
     `document.activeElement?.id`,
   );
-  assert.equal(afterUrlTab, 'custom-link-submit');
+  assert.equal(afterUrlTab, 'custom-button-submit');
   await sendKey(settingsWindow.webContents, 'Space');
   await delay(250);
   const activationSnapshot = await readCustomLinkState(settingsWindow);
@@ -872,18 +879,18 @@ async function runEditPhase(mainWindow) {
   const inputEvents = await settingsWindow.webContents.executeJavaScript(
     `globalThis.__i17InputEvents || []`,
   );
-  assert.ok(inputEvents.some((event) => event.type === 'keydown' && event.target === 'opt-custom-link-name'));
+  assert.ok(inputEvents.some((event) => event.type === 'keydown' && event.target === 'opt-custom-button-name'));
   assert.ok(inputEvents.some((event) => event.type === 'compositionstart'));
   assert.ok(inputEvents.some((event) => event.type === 'compositionupdate'));
   assert.ok(inputEvents.some((event) => event.type === 'compositionend'));
   assert.ok(inputEvents.some((event) => event.type === 'paste'
-    && event.target === 'opt-custom-link-url'));
+    && event.target === 'opt-custom-button-url'));
   assert.ok(inputEvents.some((event) => event.type === 'beforeinput'
-    && event.target === 'opt-custom-link-url'
+    && event.target === 'opt-custom-button-url'
     && event.inputType === 'insertFromPaste'
     && event.data === LINK_TEMPLATE));
   assert.ok(inputEvents.some((event) => event.type === 'input'
-    && event.target === 'opt-custom-link-url'
+    && event.target === 'opt-custom-button-url'
     && event.inputType === 'insertFromPaste'
     && event.data === LINK_TEMPLATE));
 
@@ -920,7 +927,7 @@ async function runEditPhase(mainWindow) {
     importResult,
     initial,
     keyboardFocus: {
-      clickedName: 'opt-custom-link-name',
+      clickedName: 'opt-custom-button-name',
       afterNameTab,
       afterUrlTab,
       submitActivation: 'Space',

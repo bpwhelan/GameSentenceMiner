@@ -3,7 +3,9 @@ import configparser
 import os
 import textwrap
 
-_DEFAULT_CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".config", "owocr_config_gsm.ini")
+from GameSentenceMiner.util.data_directory import get_owocr_config_path
+
+_DEFAULT_CONFIG_PATH = get_owocr_config_path()
 _DEFAULT_CONFIG = {
     "read_from": "clipboard",
     "read_from_secondary": "",

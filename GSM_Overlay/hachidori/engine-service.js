@@ -1,7 +1,8 @@
 import { actualIndexPolicy, planIndexStorage, residentHashBudgetBytes } from "./dictionary-index-storage.js";
 import { encodeBase64 } from "./base64.js";
-import { readDebugLog, recordDebugFailure } from "./debug-log.js";
+import { readDebugLog, recordDebugFailure, setDebugLogLanguages } from "./debug-log.js";
 import { describeErrorMessageOrJson } from "./error-text.js";
+import { languageName } from "./language-names.js";
 import {
   httpsUrl,
   assertRecommendedDictionary,
@@ -18,8 +19,11 @@ import {
   buildCustomDictionaryZip,
   customDictionarySemanticRevision,
   customDictionaryMetadataMatches,
+  isPersonalDictionaryTitle,
   normaliseCustomDictionaryDocument,
   parseCustomDictionary,
+  personalDictionaryIdentity,
+  personalDictionaryLanguage,
 } from "./custom-dictionary.js";
 import { sameJsonValue } from "./json-value.js";
 import {
@@ -35,9 +39,17 @@ import {
 } from "./dictionary-import.js";
 import { OVERLAY_MODE } from "./overlay-mode.js";
 import { dictionaryImportError, isImportMemoryError, nativeImportCall } from "./dictionary-import-errors.js";
+import { archiveHoldsRanks } from "./frequency-mode.js";
 // HDGlossary.parseTagList: the one U+0020 tag splitter the renderer, Anki and
 // the API host share; and the furigana split that withFurigana completes.
 import "./render/glossary.js";
+
+// A language code as profiles and packs name languages (docs/languages.md 2),
+// and the dictionary state's schema once it has profiles (4.2). The engine
+// keeps its own copies: it imports the profile code only once the records
+// have profiles.
+const LANGUAGE_CODE = /^[a-z]{2,3}$/u;
+const DICTIONARY_STATE_PROFILES_SCHEMA = 2;
 
 /*
  * Owns the single hoshidicts engine instance inside a dedicated Web Worker.
@@ -61,6 +73,9 @@ const IMPORT_ZIP = "/.hdw-archive.zip";
 // to that stem when the header has no title.
 const IMPORT_MDX_DIR = "/.hdw-mdx";
 const OPFS_IMPORT_ZIP = `${DICT_ROOT}/.hdw-archive.zip`;
+// The OPFS root directory (/dicts in WasmFS) that holds an exported backup
+// until Chrome has downloaded it, and a chosen one while it is restored.
+const BACKUP_FILE_DIRECTORY = ".hdw-backup-files";
 
 // Index into this array is the `kind` argument of hdw_add_dict.
 const KINDS = ["term", "freq", "pitch", "kanji"];
@@ -240,8 +255,30 @@ function lookupOptionsJson(options, extra = {}) {
     frequencyDictionary: boundedText(options?.frequencyDictionary, "frequency dictionary", MAX_LOOKUP_TEXT_BYTES, false),
     frequencyOrder: FREQUENCY_ORDERS.includes(options?.frequencyOrder) ? options.frequencyOrder : "auto",
     primaryReading: boundedText(options?.primaryReading, "primary reading", MAX_LOOKUP_TEXT_BYTES, false),
+    // Words that only frequency and pitch dictionaries have (#620). The engine
+    // never returns them from hdw_lookup_dictionary.
+    metadataOnlyTerms: options?.metadataOnlyTerms === true,
     ...extra,
   });
+}
+
+// Once the records have profiles, the worker names each lookup's language,
+// its profile's enabled package ids and its pack settings' engine effects
+// (docs/languages.md 9.3). The ids map to the paths this engine has loaded,
+// so a lookup resolved before a reimport swapped a generation still finds
+// its dictionary. A request without them is today's: no keys are added.
+function languageLookupOptions(message) {
+  if (message.language === undefined) return {};
+  const language = text(message.language);
+  if (languageFailures.some((entry) => entry.language === language)) throw new Error(`${languageName(language)} could not be loaded.`);
+  const paths = new Map((loadedPackages ?? []).map((entry) => [entry.id, entry.path]));
+  const ids = Array.isArray(message.dictionaries) ? message.dictionaries : [];
+  return {
+    language,
+    dictionaries: ids.filter((id) => paths.has(id)).map((id) => paths.get(id)),
+    languageOptions: (Array.isArray(message.languageOptions) ? message.languageOptions : [])
+      .filter((option) => typeof option === "string"),
+  };
 }
 
 function lookupArguments(message) {
@@ -249,8 +286,22 @@ function lookupArguments(message) {
     boundedText(message.text, "lookup text", MAX_LOOKUP_TEXT_BYTES),
     clampInt(message.maxResults, 1, 256, DEFAULT_MAX_RESULTS),
     clampInt(message.scanLength, 1, 64, DEFAULT_SCAN_LENGTH),
-    lookupOptionsJson(message.options),
+    lookupOptionsJson(message.options, languageLookupOptions(message)),
   ];
+}
+
+// The English name of a language, for messages.
+// The title of the personal package of the language a request is for.
+function personalTitle(message) {
+  return personalDictionaryIdentity(message.language ?? JAPANESE_PROFILE_ID)?.title ?? CUSTOM_DICTIONARY_TITLE;
+}
+
+// The KANJIDIC furigana split is Japanese work: it runs for packs whose ruby
+// is anchored on kana (docs/languages.md 9.4), and for requests that name no
+// language.
+function kanaRuby(message) {
+  if (message.language === undefined || message.language === JAPANESE_PROFILE_ID) return true;
+  return globalThis.HDLanguages?.get?.(message.language)?.capabilities?.ruby?.alignment === "kana";
 }
 
 function termLookupReply(json, source) {
@@ -268,10 +319,11 @@ function termLookupReply(json, source) {
 // cut means a personal-only term can use up one result slot.
 function withoutPersonalDictionary(reply, message) {
   if (message.options?.personalDictionary !== false) return reply;
+  const title = personalTitle(message);
   const results = [];
   for (const result of reply.results) {
     const glossaries = result?.term?.glossaries ?? [];
-    const kept = glossaries.filter((glossary) => glossary?.dictionary !== CUSTOM_DICTIONARY_TITLE);
+    const kept = glossaries.filter((glossary) => glossary?.dictionary !== title);
     if (kept.length === glossaries.length) results.push(result);
     else if (kept.length > 0) results.push({ ...result, term: { ...result.term, glossaries: kept } });
   }
@@ -336,28 +388,45 @@ function withDefinitionTags(reply) {
   return { ...reply, nativeJsonLength: reply.nativeJsonLength + tagJsonLength };
 }
 
-// A headword whose furigana split falls back to one ruby over the whole word
-// gets `term.furigana`, the split its kanji's KANJIDIC readings allow, when
-// exactly one does (#459). Every other reply stays as the engine wrote it. The
-// readings table is read on the first such headword and kept for the worker's
-// life; each kanji's readings are derived as it is needed.
-let kanjiReadings = null;
+// A headword gets `term.furigana`, the split its kanji's KANJIDIC readings
+// give it (HDGlossary.kanjiFurigana), where that differs from the split the
+// renderer makes alone: where the kana leave more than one split, the one that
+// reads (#459), and each run of kanji read one kanji at a time (#605), where
+// KANJIDIC's readings read none by Jitendex kanwa's readings and compounds as
+// well (#641). Every other reply stays as the engine wrote it. The readings
+// tables are imported and indexed as the engine starts (startEngine), so the
+// first lookup need not wait for them, and kept for the worker's life; each
+// kanji's readings are derived as it is needed.
+let readingTables = null;
+
+function importKanjiReadings() {
+  return Promise.all([
+    import("./vendor/kanjidic/kanji-readings.json", { with: { type: "json" } }),
+    import("./vendor/kanwa/kanwa-readings.json", { with: { type: "json" } }),
+  ]).then(([{ default: kanjidic }, { default: kanwa }]) => {
+    if (readingTables === null) {
+      const { createKanjiReadings, createKanwaReadings } = globalThis.HDGlossary;
+      const kanjiReadings = createKanjiReadings(kanjidic.readings);
+      readingTables = { kanjiReadings, kanwa: createKanwaReadings(kanwa, kanjiReadings) };
+    }
+    return readingTables;
+  });
+}
 
 export async function withFurigana(reply) {
-  const { createKanjiReadings, distributeFurigana } = globalThis.HDGlossary;
-  const unsplit = reply.results.filter((result) => result?.term
-    && distributeFurigana(result.term.expression, result.term.reading) === null);
-  if (unsplit.length === 0) return reply;
-  kanjiReadings ??= createKanjiReadings((await import("./vendor/kanjidic/kanji-readings.json",
-    { with: { type: "json" } })).default.readings);
+  if (reply.results.length === 0) return reply;
+  const { kanjiReadings, kanwa } = readingTables ?? await importKanjiReadings();
+  const { kanjiFurigana } = globalThis.HDGlossary;
   let furiganaJsonLength = 0;
-  for (const { term } of unsplit) {
-    const furigana = distributeFurigana(term.expression, term.reading, kanjiReadings);
+  for (const result of reply.results) {
+    const term = result?.term;
+    const furigana = term ? kanjiFurigana(term.expression, term.reading, kanjiReadings, kanwa) : null;
     if (furigana === null) continue;
     term.furigana = furigana;
     furiganaJsonLength += ',"furigana":'.length + JSON.stringify(furigana).length;
   }
-  return { ...reply, nativeJsonLength: reply.nativeJsonLength + furiganaJsonLength };
+  return furiganaJsonLength === 0 ? reply
+    : { ...reply, nativeJsonLength: reply.nativeJsonLength + furiganaJsonLength };
 }
 
 let tail = Promise.resolve();
@@ -935,13 +1004,43 @@ function longKeyLengthFromScanIndex(path) {
   return view.getUint16(12, true);
 }
 
-function readDictionaryIndex(path) {
-  const json = new TextDecoder().decode(engine.FS.readFile(`${path}/index.json`));
+function readDictionaryIndex(path, FS = engine.FS) {
+  const json = new TextDecoder().decode(FS.readFile(`${path}/index.json`));
   return parseJson(json, `${path}/index.json`);
+}
+
+function writeDictionaryIndex(path, index, FS = engine.FS) {
+  const indexPath = `${path}/index.json`;
+  // WasmFS's OPFS writeFile does not reliably truncate an existing file. This
+  // serialized rewrite can be shorter than the engine-generated index, leaving
+  // trailing JSON bytes if it overwrites the file in place.
+  FS.unlink(indexPath);
+  FS.writeFile(indexPath, new TextEncoder().encode(JSON.stringify(index)));
 }
 
 function importedIdentityFromIndex(path) {
   return dictionaryArchiveIdentity(readDictionaryIndex(path));
+}
+
+// Rows of records with profiles also carry the index's `targetLanguage`,
+// which glossary direction and language, child-popup switching and notes read
+// (docs/languages.md 4.2, 10.1-10.3, 12). Single-profile rows keep today's
+// fields, so only the schema-2 commits and the conversion add it.
+function withTargetLanguage(row) {
+  if (!row || typeof row !== "object" || typeof row.path !== "string") return row;
+  let target;
+  try {
+    target = optionalText(readDictionaryIndex(row.path)?.targetLanguage);
+  } catch {
+    return row;
+  }
+  const rest = { ...row };
+  delete rest.targetLanguage;
+  return target ? { ...rest, targetLanguage: target } : rest;
+}
+
+function withTargetLanguages(state) {
+  return { ...state, dictionaries: state.dictionaries.map(withTargetLanguage) };
 }
 
 async function packageFromIndex(path) {
@@ -1017,11 +1116,94 @@ async function ask(type, fields = {}) {
   return reply;
 }
 
+// Records with profiles (docs/languages.md 9.2). The engine reads the whole
+// schema-2 record but works, as before, on one list: every package once,
+// with `enabled` meaning enabled in any profile, which is the set it loads.
+// The view keeps the stored record in `stored`, and a commit merges its next
+// list back into every profile (mergeEngineDictionaries). Replies to pages
+// carry the stored record. A schema-1 state is its own view.
+const JAPANESE_PROFILE_ID = "ja";
+// Whether the last records this engine read have profiles, and their
+// languages in the records' order (hd_state_read's `languages`).
+let profileRecords = false;
+let recordLanguages = [];
+
+// The profile code (docs/languages.md 5): the packs' descriptors
+// (registry.js), the profile projections (reader-options.js) and the
+// schema-2 merges (profile-state.js). A Japanese-only start uses none of it,
+// so the engine imports it the first time the records it reads have profiles,
+// and before it runs a request that reads it in either shape
+// (readsProfileCode). Every use runs after one of those.
+let profileState = null;
+let profileCode = null;
+
+function loadProfileCode() {
+  profileCode ??= Promise.all([
+    import("./vendor/languages/registry.js"),
+    import("./reader-options.js"),
+    import("./profile-state.js"),
+  ]).then(([, , module]) => {
+    profileState = module;
+  });
+  return profileCode;
+}
+
+// The requests that read the profile code whatever the records' shape: the
+// profile requests, every request made for a profile or a language (section
+// 5.4), an import (every pack's personal title is reserved), a removal (no
+// pack's personal package can be removed) and the backups (backup-state.js
+// reads the registry).
+const PROFILE_CODE_TYPES = new Set(["hd_profile_add", "hd_profile_remove", "hd_import", "hd_remove",
+  "hd_backup_export", "hd_backup_prepare", "hd_backup_auto_prepare", "hd_backup_restore", "hd_api_dictionary_open"]);
+
+function readsProfileCode(type, message) {
+  return PROFILE_CODE_TYPES.has(type) || message.profileId !== undefined || message.language !== undefined;
+}
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// reader-options.js's hasDictionaryProfiles, without loading it: schema 2
+// with a profiles object. Any other state has the single-profile shape.
+function hasDictionaryProfiles(state) {
+  return isObject(state) && state.schemaVersion === DICTIONARY_STATE_PROFILES_SCHEMA && isObject(state.profiles);
+}
+
+function engineState(state) {
+  if (!hasDictionaryProfiles(state)) return state;
+  return { schemaVersion: 1, revision: state.revision, dictionaries: globalThis.HDReaderOptions.allPackages(state),
+    groups: [], stored: state };
+}
+
+function publicState(state) {
+  return state?.stored ?? state;
+}
+
+function validProfileState(state) {
+  return Number.isInteger(state?.revision) && state.revision >= 0 && Array.isArray(state.dictionaries)
+    && isObject(state.profiles);
+}
+
 async function requestDictionaryStorage() {
   const reply = await ask("hd_state_read");
   if (reply.ok !== true) {
     throw new Error(reply.error || "the service worker could not read dictionary state");
   }
+  if (hasDictionaryProfiles(reply.state)) {
+    if (!validProfileState(reply.state) || !Array.isArray(reply.languages)) {
+      throw new Error("the service worker returned invalid dictionary state");
+    }
+    await loadProfileCode();
+    profileRecords = true;
+    recordLanguages = reply.languages.filter(code => typeof code === "string");
+    // This engine's debug log redacts the records' languages too (docs/languages.md 8.5).
+    setDebugLogLanguages(recordLanguages);
+    return { state: engineState(reply.state), legacyDictionaries: null };
+  }
+  profileRecords = false;
+  recordLanguages = [];
+  setDebugLogLanguages(recordLanguages);
   if (reply.state !== null && (
     reply.state?.schemaVersion !== 1
     || !Number.isInteger(reply.state?.revision)
@@ -1044,10 +1226,17 @@ async function readStoredDictionaries() {
   return state?.dictionaries ?? [];
 }
 
-async function readCustomStorage() {
-  const reply = await ask("hd_custom_read");
+// `language` is null for a request that names none: today's message.
+async function readCustomStorage(language = null) {
+  const reply = await ask("hd_custom_read", language === null ? {} : { language });
   if (reply.ok !== true) {
     throw new Error(reply.error || "the service worker could not read the custom dictionary");
+  }
+  if (hasDictionaryProfiles(reply.state)) {
+    if (!validProfileState(reply.state)) throw new Error("the service worker returned invalid custom dictionary state");
+    await loadProfileCode();
+    profileRecords = true;
+    return { document: normaliseCustomDictionaryDocument(reply.document), state: engineState(reply.state) };
   }
   if (reply.state !== null && (
     reply.state?.schemaVersion !== 1
@@ -1089,10 +1278,83 @@ function expectedCustomDocument(document, source, semanticRevision) {
   };
 }
 
-async function commitCustomStorage(snapshot, source, semanticRevision, dictionaries) {
+// The personal dictionary a save is for (docs/languages.md 15): `language`
+// is null for a request that names none, which means Japanese.
+const JAPANESE_CUSTOM = Object.freeze({ language: null, identity: personalDictionaryIdentity(JAPANESE_PROFILE_ID) });
+
+function customRequest(message) {
+  const language = message?.language ?? null;
+  if (language === null) return JAPANESE_CUSTOM;
+  if (typeof language !== "string" || !LANGUAGE_CODE.test(language)) {
+    throw new TypeError("the custom dictionary request named an invalid language");
+  }
+  const identity = personalDictionaryIdentity(language);
+  if (identity === null) throw new Error(`This Hachidori has no personal dictionary for ${language}.`);
+  return { language, identity };
+}
+
+// Replies to pages carry the stored record, not the engine's view of it.
+function withPublicState(reply) {
+  return reply && Object.hasOwn(reply, "state") ? { ...reply, state: publicState(reply.state) } : reply;
+}
+
+// hd_custom_cas for records with profiles: the language's document, and the
+// whole schema-2 record when the package list changes.
+async function commitProfileCustomStorage(snapshot, source, semanticRevision, dictionaries, custom) {
+  const document = expectedCustomDocument(snapshot.document, source, semanticRevision);
+  const { stored } = snapshot.state;
+  const next = dictionaries === undefined ? null
+    : profileState.mergeEngineDictionaries(stored, dictionaries.map(withTargetLanguage));
+  const changesState = next !== null
+    && !(sameJsonValue(next.dictionaries, stored.dictionaries) && sameJsonValue(next.profiles, stored.profiles));
+  const language = custom.language ?? JAPANESE_PROFILE_ID;
+  const fields = {
+    language,
+    baseDocumentRevision: snapshot.document.revision,
+    baseRevision: snapshot.state.revision,
+    text: source,
+    semanticRevision,
+    ...(changesState ? { state: { dictionaries: next.dictionaries, profiles: next.profiles } } : {}),
+  };
+  const expected = changesState ? { ...next, revision: stored.revision + 1 } : stored;
+  try {
+    const reply = await ask("hd_custom_cas", fields);
+    const result = { ...reply };
+    delete result.type;
+    delete result.requestId;
+    delete result.generation;
+    if (Object.hasOwn(result, "state")) result.state = engineState(result.state);
+    return result;
+  } catch (commitError) {
+    let current;
+    try {
+      current = await readCustomStorage(language);
+    } catch (readError) {
+      throw new UnknownDictionaryStateCommitError(commitError, readError, "custom dictionary");
+    }
+    const committed = publicState(current.state);
+    const sameState = committed?.revision === expected.revision && sameJsonValue(committed.dictionaries, expected.dictionaries)
+      && sameJsonValue(committed.profiles, expected.profiles);
+    if (sameJsonValue(current.document, document) && sameState) return { ok: true, document, state: current.state };
+    if (sameJsonValue(current.document, document)) {
+      throw new UnknownDictionaryStateCommitError(commitError,
+        new Error("readback did not match the exact source and dictionary-state pair"), "custom dictionary");
+    }
+    return {
+      ok: false,
+      stale: current.document.revision !== snapshot.document.revision,
+      conflict: current.state?.revision !== snapshot.state.revision,
+      error: describeErrorMessageOrJson(commitError),
+      ...current,
+    };
+  }
+}
+
+async function commitCustomStorage(snapshot, source, semanticRevision, dictionaries, custom = JAPANESE_CUSTOM) {
   if (snapshot.state === null) {
     throw new Error("the dictionary state is unavailable");
   }
+  if (snapshot.state.stored) return commitProfileCustomStorage(snapshot, source, semanticRevision, dictionaries, custom);
   const document = expectedCustomDocument(snapshot.document, source, semanticRevision);
   const groups = dictionaries === undefined
     ? snapshot.state.groups
@@ -1156,10 +1418,44 @@ async function commitCustomStorage(snapshot, source, semanticRevision, dictionar
   }
 }
 
+// A schema-2 commit writes the whole record (docs/languages.md 5.2); a lost
+// reply is checked by reading back that whole record.
+async function commitProfileDictionaryState(baseRevision, next) {
+  const body = { dictionaries: next.dictionaries, profiles: next.profiles };
+  try {
+    const reply = await ask("hd_state_cas", { baseRevision, state: body });
+    return Object.hasOwn(reply, "state") ? { ...reply, state: engineState(reply.state) } : reply;
+  } catch (commitError) {
+    let state;
+    try {
+      ({ state } = await requestDictionaryStorage());
+    } catch (readError) {
+      throw new UnknownDictionaryStateCommitError(commitError, readError);
+    }
+    const committed = publicState(state);
+    if (committed?.revision === baseRevision + 1 && sameJsonValue(committed.dictionaries, body.dictionaries)
+        && sameJsonValue(committed.profiles, body.profiles)) {
+      return { ok: true, state };
+    }
+    return {
+      ok: false,
+      conflict: (state?.revision ?? 0) !== baseRevision,
+      error: describeErrorMessageOrJson(commitError),
+      state,
+    };
+  }
+}
+
 // A service worker can commit the CAS and disappear before its reply reaches
 // this worker. Read back that one exact revision so callers do not report a
-// failed change which storage already accepted.
-async function commitDictionaryState(baseRevision, dictionaries) {
+// failed change which storage already accepted. With profiles, `context`
+// holds the stored record the list was built from and the profile a new
+// package joins.
+async function commitDictionaryState(baseRevision, dictionaries, context = null) {
+  if (context?.stored) {
+    return commitProfileDictionaryState(baseRevision, profileState.mergeEngineDictionaries(context.stored,
+      dictionaries.map(withTargetLanguage), { profileId: context.profileId ?? JAPANESE_PROFILE_ID, joins: context.joins ?? [] }));
+  }
   try {
     return await ask("hd_state_cas", { baseRevision, dictionaries });
   } catch (commitError) {
@@ -1208,22 +1504,38 @@ async function recoverPendingRemovals(snapshot) {
 // write is rebuilt against the authoritative state before it is attempted again.
 // Loading happens before the CAS so a disabled corrupt package cannot be
 // published merely because the live engine would otherwise skip it.
-async function commitDictionaryCandidate(buildCandidate) {
+// The ids of the packages at the generation path `joining()` names.
+function joinedIds(next, joining) {
+  if (joining === null) return [];
+  const path = joining();
+  return next.filter(row => row.path === path).map(row => row.id);
+}
+
+function assertCommittedState(state) {
+  if (state?.schemaVersion !== 1 || !Number.isInteger(state?.revision) || !Array.isArray(state?.dictionaries)) {
+    throw new Error("the service worker returned invalid committed dictionary state");
+  }
+}
+
+// `joining()` names the generation path of a package that joins `profileId`
+// even when it was installed already (an import requested for the profile).
+async function commitDictionaryCandidate(buildCandidate, { profileId = JAPANESE_PROFILE_ID, joining = null } = {}) {
   for (let attempt = 0; ; attempt += 1) {
     const snapshot = await requestDictionaryStorage();
+    // The single-profile shape has only the Japanese profile (section 5.2).
+    if (!snapshot.state?.stored && profileId !== JAPANESE_PROFILE_ID) {
+      throw profileRequestError(profileMessages().profileRemoved, "profile-missing");
+    }
     const next = await buildCandidate(snapshot);
     const loadedCount = loadDictionaries(next, { committed: snapshot.state?.dictionaries ?? [] });
     if (snapshot.state !== null && sameDictionaries(next, snapshot.state.dictionaries)) {
       return { state: snapshot.state, loadedCount };
     }
     const baseRevision = snapshot.state?.revision ?? 0;
-    const reply = await commitDictionaryState(baseRevision, next);
+    const reply = await commitDictionaryState(baseRevision, next,
+      snapshot.state?.stored ? { stored: snapshot.state.stored, profileId, joins: joinedIds(next, joining) } : null);
     if (reply.ok === true) {
-      if (reply.state?.schemaVersion !== 1
-          || !Number.isInteger(reply.state?.revision)
-          || !Array.isArray(reply.state?.dictionaries)) {
-        throw new Error("the service worker returned invalid committed dictionary state");
-      }
+      assertCommittedState(reply.state);
       return { state: reply.state, loadedCount };
     }
     if (reply.conflict !== true || attempt + 1 >= STORAGE_ATTEMPTS) {
@@ -1312,6 +1624,10 @@ function migrateLegacyPackages(legacy, onDisk) {
 
 async function reconcile() {
   await recoverPendingRemovals(await requestDictionaryStorage());
+  // Packs load before the dictionaries publish, so no lookup of a new engine
+  // instance runs without its language (docs/languages.md 9.2).
+  if (profileRecords) await loadLanguagePacks(recordLanguages, { all: true });
+  else languageFailures = [];
   return commitDictionaryCandidate(async (snapshot) => {
     if (snapshot.state !== null) {
       return refreshReferencedPackages(snapshot.state.dictionaries);
@@ -1592,17 +1908,66 @@ function loadDictionaries(dictionaries, { committed = [] } = {}) {
 // Best effort: the engine's failure fallback for a lookup is shape-valid.
 const WARM_LOOKUP_TEXT = "食べました";
 
+// The warm-up uses Japanese's sample when a Japanese profile exists, as
+// today, and otherwise the first profile's (docs/languages.md 9.2).
 function warmLookup() {
+  const language = profileRecords && !recordLanguages.includes(JAPANESE_PROFILE_ID) ? recordLanguages[0] : undefined;
+  const sample = language === undefined ? WARM_LOOKUP_TEXT
+    : globalThis.HDLanguages?.get?.(language)?.host?.sample?.warmup;
   try {
     engine.ccall(
       "hdw_lookup",
       "string",
       ["string", "number", "number", "string"],
-      [WARM_LOOKUP_TEXT, 1, 4, ""],
+      language === undefined || typeof sample !== "string" ? [WARM_LOOKUP_TEXT, 1, 4, ""]
+        : [sample, 1, 4, JSON.stringify({ language })],
     );
   } catch {
     // A failed warm-up only forfeits the speedup; the next lookup reports it.
   }
+}
+
+// Language packs (docs/languages.md 9.2). Japanese is built into the engine;
+// others load from the extension's generated copy. The engine keeps its
+// registry outside the object hdw_reset rebuilds, so a reload keeps them; a
+// new engine instance starts with Japanese alone and loads the rest at its
+// first reconciliation, before it publishes.
+const loadedLanguages = new Set([JAPANESE_PROFILE_ID]);
+// Packs that did not load, as hd_status reports them; their lookups fail.
+let languageFailures = [];
+
+async function fetchLanguageFile(code, name) {
+  const response = await fetch(new URL(`./vendor/languages/${code}/${name}`, import.meta.url));
+  if (!response.ok) throw new Error(`${code}/${name} could not be read (HTTP ${response.status})`);
+  return response.text();
+}
+
+async function loadLanguagePack(code) {
+  if (loadedLanguages.has(code)) return;
+  if (!LANGUAGE_CODE.test(code)) throw new Error(`invalid language code ${JSON.stringify(code)}`);
+  const languageJson = await fetchLanguageFile(code, "language.json");
+  const transforms = parseJson(languageJson, `${code}/language.json`)?.lookup?.transforms;
+  const transformsJson = typeof transforms === "string" && transforms !== "" ? await fetchLanguageFile(code, transforms) : "";
+  if (engine.ccall("hdw_language_load", "number", ["string", "string"], [languageJson, transformsJson]) !== 1) {
+    throw new Error(lastError());
+  }
+  loadedLanguages.add(code);
+}
+
+// Loads every pack of `codes` that is not loaded; the ones that fail are
+// reported and the others keep working. A reconciliation passes every
+// language of the records (`all`), which also forgets removed languages.
+async function loadLanguagePacks(codes, { all = false } = {}) {
+  const failures = [];
+  for (const code of codes) {
+    try {
+      await loadLanguagePack(code); // NOSONAR: one engine call at a time
+    } catch (error) {
+      failures.push({ language: code, error: describeErrorMessageOrJson(error) });
+    }
+  }
+  const attempted = new Set(codes);
+  languageFailures = [...(all ? [] : languageFailures.filter(entry => !attempted.has(entry.language))), ...failures];
 }
 
 function publishLoadedDictionaries(loadedCount, { warm = true } = {}) {
@@ -1711,6 +2076,10 @@ async function boot() {
       } catch {
         // No archive was left by an interrupted import.
       }
+      // Backup files a closed browser left behind.
+      await navigator.storage.getDirectory()
+        .then(root => root.removeEntry(BACKUP_FILE_DIRECTORY, { recursive: true }))
+        .catch(() => {});
     }
     ready = true;
   } catch (error) {
@@ -1729,6 +2098,313 @@ async function boot() {
   } catch (error) {
     console.error(`hoshidicts: could not load the dictionaries at startup: ${describeErrorMessageOrJson(error)}`);
   }
+}
+
+// hd_apply_state once the records have profiles (docs/languages.md 5.2): the
+// profile's schema-1 view is merged into the whole record before anything
+// loads, so the loaded set stays the union of every profile's. Settings names
+// the profile it edits; a view that names none is an older client's and
+// means the Japanese profile. Null when the records turn out to have no
+// profiles, for the single-profile path.
+async function applyProfileState(message) {
+  const snapshot = await requestDictionaryStorage();
+  const stored = snapshot.state?.stored;
+  if (!stored) {
+    if (message.profileId !== undefined && message.profileId !== JAPANESE_PROFILE_ID) {
+      throw profileRequestError(profileMessages().profileRemoved, "profile-missing");
+    }
+    return null;
+  }
+  if (snapshot.state.revision !== message.baseRevision) {
+    return { ok: false, conflict: true, error: "the dictionary state changed while it was being written", state: stored };
+  }
+  const profileId = message.profileId ?? JAPANESE_PROFILE_ID;
+  if (!stored.profiles[profileId]) {
+    throw message.profileId === undefined
+      ? profileRequestError(profileMessages().noJapaneseProfile, "no-japanese-profile")
+      : profileRequestError(profileMessages().profileRemoved, "profile-missing");
+  }
+  const next = profileState.mergeDictionaryView(stored, profileId,
+    { dictionaries: message.dictionaries, groups: message.groups }, { legacy: message.profileId === undefined });
+  const union = globalThis.HDReaderOptions.allPackages(next);
+  let restorationAttempted = false;
+  try {
+    const loadedCount = reorderLoadedDictionaries(union) ?? loadDictionaries(union, { committed: snapshot.state.dictionaries });
+    const loadPath = lastLoadPath;
+    const reply = await commitProfileDictionaryState(message.baseRevision, next);
+    if (reply.ok === true) {
+      publishLoadedDictionaries(loadedCount, { warm: loadPath !== "order-only" });
+      reloadError = null;
+      return { state: publicState(reply.state), loadPath };
+    }
+    if (reply.conflict !== true || reply.state === null) {
+      throw new Error(reply.error || "the dictionary state could not be saved");
+    }
+    restorationAttempted = true;
+    await restoreCommittedDictionaries(reply.state);
+    return { ok: false, conflict: true, error: reply.error || "the dictionary state changed while it was being written",
+      state: publicState(reply.state) };
+  } catch (error) {
+    if (restorationAttempted) {
+      reloadError = asError(error);
+      throw error;
+    }
+    try {
+      await restoreCommittedDictionaries();
+    } catch (restoreError) {
+      reloadError = asError(restoreError);
+    }
+    throw error;
+  }
+}
+
+function profileMessages() {
+  return globalThis.HDReaderOptions.PROFILE_MESSAGES;
+}
+
+function profileRequestError(text, code) {
+  const error = new Error(text);
+  error.errorCode = code;
+  return error;
+}
+
+// After a lost hd_profile_cas reply, the records it would have written are
+// read back (docs/languages.md 5.2): the committed state is the expected one,
+// or its single-profile conversion, at the next revision; the options hold
+// the languages they should, as the read reports them; an erased language's
+// personal document is empty one revision up, or gone with the `languages`
+// entries when the erase converted the records back. The counts and marks of
+// an erase are written in the same storage write as these.
+async function profileCasReadback(commitError, baseRevision, next, wantsLanguages, erased = null) {
+  let snapshot;
+  let document = null;
+  try {
+    snapshot = await requestDictionaryStorage();
+    if (erased !== null) ({ document } = await readCustomStorage(erased.language));
+  } catch (readError) {
+    throw new UnknownDictionaryStateCommitError(commitError, readError, "language change");
+  }
+  const committed = publicState(snapshot.state);
+  const expected = { ...next, revision: baseRevision + 1 };
+  const matches = committed?.revision === baseRevision + 1
+    && (hasDictionaryProfiles(committed)
+      ? sameJsonValue(committed.dictionaries, expected.dictionaries) && sameJsonValue(committed.profiles, expected.profiles)
+        && wantsLanguages(recordLanguages)
+      : sameJsonValue(committed, profileState.dictionaryStateWithoutProfiles(expected)))
+    && (erased === null || (document.text === "" && (document.revision === erased.documentRevision + 1
+      || (!hasDictionaryProfiles(committed) && document.revision === 0))));
+  if (matches) {
+    return { ok: true, state: committed, converted: !profileRecords, ...(profileRecords ? { languages: recordLanguages } : {}) };
+  }
+  return { ok: false, conflict: (committed?.revision ?? 0) !== baseRevision, error: describeErrorMessageOrJson(commitError),
+    state: committed };
+}
+
+// Adding a language (docs/languages.md 5.2, 6.3 and 16.3). Under the
+// mutation lock the engine loads the pack and strict-loads every package that
+// enters the loaded set (a re-added language's personal package); the
+// worker's hd_profile_cas writes options and dictionaryState together; then
+// the engine publishes. Nothing is compiled.
+async function addProfile(message) {
+  requireEngine();
+  const language = addedLanguage(message);
+  try {
+    await loadLanguagePack(language);
+  } catch (error) {
+    throw new Error(`${languageName(language)} could not be loaded. ${describeErrorMessageOrJson(error)}`);
+  }
+  for (let attempt = 0; ; attempt += 1) {
+    const snapshot = await requestDictionaryStorage();
+    const plan = addedProfileState(snapshot, language);
+    const { loadedCount, reply } = await commitAddedProfile(snapshot, plan, language, message);
+    if (reply.ok === true) {
+      adoptProfileRecords(reply);
+      if (plan.entering) publishLoadedDictionaries(loadedCount);
+      reloadError = null;
+      return { state: publicState(reply.state), languages: recordLanguages };
+    }
+    if (plan.entering) await restoreCommittedDictionaries(reply.state ? engineState(reply.state) : null);
+    if (reply.conflict !== true || attempt + 1 >= STORAGE_ATTEMPTS) return profileFailure(reply, "the language could not be added");
+  }
+}
+
+function addedLanguage(message) {
+  const language = text(message.language);
+  if (!LANGUAGE_CODE.test(language)) throw new TypeError("the language request named no language");
+  if (message.copyFrom !== undefined && typeof message.copyFrom !== "string") {
+    throw new TypeError("the language request named an invalid profile to copy");
+  }
+  return language;
+}
+
+// The records an added language leaves: its profile, holding its personal
+// package when the library has one, and whether a package enters the set.
+function addedProfileState(snapshot, language) {
+  const stored = snapshot.state?.stored ?? withTargetLanguages(profileState.dictionaryStateWithProfiles(snapshot.state));
+  const personal = personalDictionaryIdentity(language);
+  const own = personal !== null && stored.dictionaries.some((row) => row.id === personal.id)
+    ? [{ id: personal.id, enabled: true }] : [];
+  const profiles = { ...stored.profiles, [language]: { dictionaries: own, groups: [] } };
+  const next = { schemaVersion: DICTIONARY_STATE_PROFILES_SCHEMA, revision: stored.revision, dictionaries: stored.dictionaries, profiles };
+  const union = globalThis.HDReaderOptions.allPackages(next);
+  const before = new Set((snapshot.state?.dictionaries ?? []).filter((row) => row.enabled !== false).map((row) => row.path));
+  return { next, union, personal, baseRevision: snapshot.state?.revision ?? 0,
+    entering: union.some((row) => row.enabled !== false && !before.has(row.path)) };
+}
+
+// Loads the packages that enter the set, then commits. A failure restores
+// the committed set.
+async function commitAddedProfile(snapshot, plan, language, message) {
+  let loadedCount = dictionaryCount;
+  try {
+    if (plan.entering) {
+      loadedCount = loadDictionaries(plan.union, {
+        committed: (snapshot.state?.dictionaries ?? []).filter((row) => row.enabled !== false || row.id !== plan.personal?.id),
+      });
+    }
+    return { loadedCount, reply: await askProfileAdd(plan, language, message) };
+  } catch (error) {
+    if (plan.entering) await restoreAfterFailedLoad();
+    throw error;
+  }
+}
+
+async function askProfileAdd(plan, language, message) {
+  try {
+    return await ask("hd_profile_cas", { action: "add", language, copyFrom: message.copyFrom,
+      baseRevision: plan.baseRevision,
+      state: { dictionaries: plan.next.dictionaries, profiles: plan.next.profiles } });
+  } catch (commitError) {
+    return profileCasReadback(commitError, plan.baseRevision, plan.next, (languages) => languages.includes(language));
+  }
+}
+
+async function restoreAfterFailedLoad() {
+  try {
+    await restoreCommittedDictionaries();
+  } catch (restoreError) {
+    reloadError = asError(restoreError);
+  }
+}
+
+// What a committed language change leaves: whether the records have
+// profiles, and their languages (docs/languages.md 5.2).
+function adoptProfileRecords(reply) {
+  profileRecords = reply.converted !== true;
+  recordLanguages = Array.isArray(reply.languages) ? reply.languages : [];
+  setDebugLogLanguages(recordLanguages);
+}
+
+function profileFailure(reply, fallback) {
+  return { ok: false, conflict: reply.conflict === true, error: reply.error || fallback, state: publicState(reply.state ?? null) };
+}
+
+// Removing a language, or erasing a held language (docs/languages.md 5.2
+// and 16.5): the profile's settings and list go, its packages stay in the
+// library, and the engine unloads what left the set once the commit is in.
+// With `erase` the same commit empties the language's personal source and
+// removes its package, counts and marks. Version 1 gives a profile its
+// language's code as id (section 2).
+async function removeProfile(message) {
+  requireEngine();
+  const request = removedLanguage(message);
+  for (let attempt = 0; ; attempt += 1) {
+    const stored = await storedForRemoval(request);
+    const next = removedProfileState(stored, request);
+    const confirmation = await eraseConfirmation(request);
+    if (confirmation.stale) return changedAfterConfirmation(confirmation.document);
+    const reply = await askProfileRemove(request, stored, next, confirmation.revision);
+    const outcome = removalOutcome(reply, request, attempt);
+    if (outcome !== null) return outcome;
+  }
+}
+
+async function storedForRemoval(request) {
+  const stored = (await requestDictionaryStorage()).state?.stored;
+  if (!stored) throw new Error("The last language cannot be removed.");
+  if (request.profileId !== undefined && !stored.profiles[request.profileId]) {
+    throw profileRequestError(profileMessages().profileRemoved, "profile-missing");
+  }
+  return stored;
+}
+
+// An erase removes the personal source its confirmation read; a newer one
+// is kept and the removal stops.
+async function eraseConfirmation(request) {
+  if (!request.erase) return { stale: false, revision: undefined };
+  const { document } = await readCustomStorage(request.language);
+  return document.revision === request.confirmed
+    ? { stale: false, revision: document.revision } : { stale: true, document };
+}
+
+// The removal's reply, or null to try again after a storage conflict.
+function removalOutcome(reply, request, attempt) {
+  if (reply.ok === true) return adoptRemovedProfile(reply, request.erase);
+  if (reply.stale === true) return { ...changedAfterConfirmation(reply.document), state: publicState(reply.state ?? null) };
+  if (reply.conflict !== true || attempt + 1 >= STORAGE_ATTEMPTS) return profileFailure(reply, "the language could not be removed");
+  return null;
+}
+
+function removedLanguage(message) {
+  const erase = message.erase === true;
+  const profileId = message.profileId;
+  if (profileId !== undefined && (typeof profileId !== "string" || profileId === "")) {
+    throw new TypeError("the language request named an invalid profile");
+  }
+  const language = profileId ?? text(message.language);
+  if (!LANGUAGE_CODE.test(language) || (profileId === undefined && !erase)) {
+    throw new TypeError("the language request named no language");
+  }
+  // An erase carries the document revision its confirmation read; a newer
+  // document is kept (docs/languages.md 5.2), as today's erase keeps it.
+  const confirmed = message.baseDocumentRevision;
+  if (erase && (!Number.isInteger(confirmed) || confirmed < 0)) {
+    throw new TypeError("the erase carried no valid document revision");
+  }
+  return { erase, profileId, language, confirmed };
+}
+
+function changedAfterConfirmation(document) {
+  return { ok: false, stale: true, document,
+    error: "The personal dictionary changed after you confirmed, so it was kept. Review it and try again." };
+}
+
+// The records a removal leaves: without the profile, and with an erase
+// without the language's personal package.
+function removedProfileState(stored, { erase, profileId, language }) {
+  const personal = personalDictionaryIdentity(language);
+  const dictionaries = erase ? stored.dictionaries.filter((row) => row.id !== personal?.id) : stored.dictionaries;
+  const kept = new Set(dictionaries.map((row) => row.id));
+  const profiles = Object.fromEntries(Object.entries(stored.profiles).filter(([id]) => id !== profileId)
+    .map(([id, profile]) => [id, { ...profile, dictionaries: profile.dictionaries.filter((entry) => kept.has(entry.id)) }]));
+  return { schemaVersion: DICTIONARY_STATE_PROFILES_SCHEMA, revision: stored.revision, dictionaries, profiles };
+}
+
+async function askProfileRemove({ erase, profileId, language }, stored, next, baseDocumentRevision) {
+  try {
+    return await ask("hd_profile_cas", { action: "remove", language, ...(profileId === undefined ? {} : { profileId }),
+      erase, baseRevision: stored.revision, ...(erase ? { baseDocumentRevision } : {}),
+      state: { dictionaries: next.dictionaries, profiles: next.profiles } });
+  } catch (commitError) {
+    return profileCasReadback(commitError, stored.revision, next,
+      (languages) => profileId === undefined || !languages.includes(language),
+      erase ? { language, documentRevision: baseDocumentRevision } : null);
+  }
+}
+
+// Once a removal commits, the engine loads the committed set.
+async function adoptRemovedProfile(reply, erase) {
+  adoptProfileRecords(reply);
+  const committed = engineState(reply.state);
+  try {
+    publishLoadedDictionaries(loadDictionaries(committed.dictionaries, { committed: committed.dictionaries }));
+    reloadError = null;
+  } catch (error) {
+    reloadError = asError(error);
+    throw error;
+  }
+  if (erase) await cleanupCommittedDictionaries();
+  return { state: publicState(reply.state), ...(profileRecords ? { languages: recordLanguages } : {}) };
 }
 
 // Every count an import report carries. The last four are what a successful
@@ -1765,17 +2441,19 @@ function normaliseReport(raw) {
   return report;
 }
 
-function withCustomDictionary(stored, generated) {
-  const current = stored.find((dictionary) => dictionary?.id === CUSTOM_DICTIONARY_ID);
+// `inPlace`: the list is a schema-2 union view, where every personal package
+// keeps its place in installation order and each profile pins its own first.
+function withCustomDictionary(stored, generated, identity = JAPANESE_CUSTOM.identity, inPlace = false) {
+  const current = stored.find((dictionary) => dictionary?.id === identity.id);
   if (stored.some((dictionary) =>
-    dictionary?.id !== CUSTOM_DICTIONARY_ID
-      && text(dictionary?.title) === CUSTOM_DICTIONARY_TITLE)) {
-    throw new Error(`a dictionary named ${CUSTOM_DICTIONARY_TITLE} is already installed`);
+    dictionary?.id !== identity.id
+      && text(dictionary?.title) === identity.title)) {
+    throw new Error(`a dictionary named ${identity.title} is already installed`);
   }
   const custom = {
     ...generated,
-    id: CUSTOM_DICTIONARY_ID,
-    title: CUSTOM_DICTIONARY_TITLE,
+    id: identity.id,
+    title: identity.title,
     displayName: typeof current?.displayName === "string" ? current.displayName : null,
     enabled: true,
     favorite: current?.favorite === true,
@@ -1784,13 +2462,15 @@ function withCustomDictionary(stored, generated) {
     downloadUrl: null,
     lastUpdateCheck: null,
   };
-  return [custom, ...stored.filter((dictionary) => dictionary?.id !== CUSTOM_DICTIONARY_ID)];
+  if (inPlace && current !== undefined) return stored.map((dictionary) => dictionary?.id === identity.id ? custom : dictionary);
+  return [custom, ...stored.filter((dictionary) => dictionary?.id !== identity.id)];
 }
 
-async function customPackageSatisfies(state, semanticRevision, entryCount) {
-  const custom = state?.dictionaries?.[0];
-  if (custom?.id !== CUSTOM_DICTIONARY_ID
-      || custom?.title !== CUSTOM_DICTIONARY_TITLE
+async function customPackageSatisfies(state, semanticRevision, entryCount, identity = JAPANESE_CUSTOM.identity) {
+  const inPlace = Boolean(state?.stored);
+  const custom = inPlace ? state.dictionaries.find((dictionary) => dictionary?.id === identity.id) : state?.dictionaries?.[0];
+  if (custom?.id !== identity.id
+      || custom?.title !== identity.title
       || custom?.enabled !== true
       || custom?.revision !== semanticRevision
       || custom?.termCount !== entryCount
@@ -1799,15 +2479,15 @@ async function customPackageSatisfies(state, semanticRevision, entryCount) {
   }
   try {
     const generated = await packageFromIndex(custom.path);
-    if (!customDictionaryMetadataMatches(generated, semanticRevision, entryCount)
+    if (!customDictionaryMetadataMatches(generated, semanticRevision, entryCount, identity)
         || !sameDictionaries(
           state.dictionaries,
-          withCustomDictionary(state.dictionaries, generated),
+          withCustomDictionary(state.dictionaries, generated, identity, inPlace),
         )) {
       return false;
     }
     loadDictionaries(state.dictionaries, {
-      committed: state.dictionaries.filter((dictionary) => dictionary?.id !== CUSTOM_DICTIONARY_ID),
+      committed: state.dictionaries.filter((dictionary) => dictionary?.id !== identity.id),
     });
     return true;
   } catch {
@@ -1836,8 +2516,8 @@ function importReplacementIndex(stored, generated, recommendedSource, managedSou
 }
 
 function withImport(stored, generated, recommendedSource, managedSource) {
-  if (generated.title === CUSTOM_DICTIONARY_TITLE) {
-    throw new Error(`${CUSTOM_DICTIONARY_TITLE} is reserved for the managed custom dictionary`);
+  if (isPersonalDictionaryTitle(generated.title)) {
+    throw new Error(`${generated.title} is reserved for the managed custom dictionary`);
   }
   const existingIndex = importReplacementIndex(
     stored,
@@ -1966,12 +2646,7 @@ function retitleImportedPackage(generationRoot, currentTitle, nextTitle) {
   }
   moveDictionaryFiles(currentPath, nextPath, true);
   index.title = nextTitle;
-  const indexPath = `${nextPath}/index.json`;
-  // WasmFS's OPFS writeFile does not reliably truncate an existing file. This
-  // serialized rewrite can be shorter than the engine-generated index, leaving
-  // trailing JSON bytes if it overwrites the moved file in place.
-  engine.FS.unlink(indexPath);
-  engine.FS.writeFile(indexPath, new TextEncoder().encode(JSON.stringify(index)));
+  writeDictionaryIndex(nextPath, index);
 }
 
 async function cleanupCommittedDictionaries() {
@@ -1999,14 +2674,11 @@ async function cleanupCommittedDictionaries() {
   }
 }
 
-async function commitImportedGeneration(
-  generationRoot,
-  report,
-  recommendedSource,
-  managedSource,
-  expectedRevision,
-  importDecision,
-) {
+// `request` is the prepared import request; `target` names the profile the
+// package joins, and whether it joins even when it was installed already.
+async function commitImportedGeneration(generationRoot, report, request, target) {
+  const { recommendedSource, managedSource, expectedRevision, importDecision } = request;
+  const { profileId, joins: joinsProfile } = target;
   let generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(report.title)}`);
   if (generated.title !== report.title) {
     throw new Error("the imported dictionary title changed while it was being committed");
@@ -2026,8 +2698,8 @@ async function commitImportedGeneration(
   if (recommendedSource !== null) {
     validateRecommendedImport(recommendedSource, report, generated);
   }
-  if (generated.title === CUSTOM_DICTIONARY_TITLE) {
-    throw new Error(`${CUSTOM_DICTIONARY_TITLE} is reserved for the managed custom dictionary`);
+  if (isPersonalDictionaryTitle(generated.title)) {
+    throw new Error(`${generated.title} is reserved for the managed custom dictionary`);
   }
   let candidateTitle = generated.title;
   const committed = await commitDictionaryCandidate(async (snapshot) => {
@@ -2053,7 +2725,7 @@ async function commitImportedGeneration(
       generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(candidateTitle)}`);
     }
     return [...stored, generated];
-  });
+  }, { profileId, joining: joinsProfile ? () => generated.path : null });
   report.title = generated.title;
   publishLoadedDictionaries(committed.loadedCount);
   reloadError = null;
@@ -2314,6 +2986,16 @@ function importStagingPaths(fileName, resources, diskRoot = null) {
   };
 }
 
+// The generated index keeps the archive's frequencyMode, except that a list
+// declaring occurrence counts whose values are ranks is stored as rank-based
+// (#684), so its averages and Auto direction treat it as one.
+async function correctRankFrequencyMode(module, archivePath, path) {
+  const index = nativeImportCall(module, () => readDictionaryIndex(path, module.FS));
+  if (index?.frequencyMode !== "occurrence-based") return;
+  if (!await archiveHoldsRanks(nativeImportCall(module, () => module.FS.readFile(archivePath)))) return;
+  nativeImportCall(module, () => writeDictionaryIndex(path, { ...index, frequencyMode: "rank-based" }, module.FS));
+}
+
 // Stages the archive in `module`'s scratch filesystem and runs its native
 // importer into `generationRoot`. Shared with the isolated import worker, whose
 // module is a second engine instance on the same OPFS root.
@@ -2366,6 +3048,9 @@ export async function importDictionaryArchive(
     }
     if (!report.success) {
       report.error = dictionaryImportError(report.error || "The engine returned no import error.", fileName, phase).message;
+    } else {
+      phase = "checking the frequency mode";
+      await correctRankFrequencyMode(module, archivePath, `${generationRoot}/${dictionaryFolderName(report.title)}`);
     }
     return report;
   } catch (error) {
@@ -2846,13 +3531,13 @@ function customSnapshotFromReply(reply) {
   };
 }
 
-async function commitCustomSourceOnly(initial, source, semanticRevision) {
+async function commitCustomSourceOnly(initial, source, semanticRevision, custom) {
   let snapshot = initial;
   for (let attempt = 0; attempt < STORAGE_ATTEMPTS; attempt += 1) {
     if (snapshot.document.revision !== initial.document.revision) {
       return customStaleReply(snapshot);
     }
-    const reply = await commitCustomStorage(snapshot, source, semanticRevision);
+    const reply = await commitCustomStorage(snapshot, source, semanticRevision, undefined, custom);
     if (reply.ok === true || reply.stale === true) return reply;
     if (reply.conflict !== true || reply.document === undefined || reply.state === null) {
       return reply;
@@ -2897,14 +3582,14 @@ function customRemovalLoadedCount(dictionaries, removesPackage) {
   return loadDictionaries(dictionaries, { committed: dictionaries });
 }
 
-async function commitCustomRemoval(initial, source, semanticRevision) {
+async function commitCustomRemoval(initial, source, semanticRevision, custom) {
   let snapshot = initial;
   for (let attempt = 0; attempt < STORAGE_ATTEMPTS; attempt += 1) {
     if (snapshot.document.revision !== initial.document.revision) {
       return customStaleReply(snapshot);
     }
     const dictionaries = snapshot.state.dictionaries.filter(
-      (dictionary) => dictionary?.id !== CUSTOM_DICTIONARY_ID,
+      (dictionary) => dictionary?.id !== custom.identity.id,
     );
     const removesPackage = dictionaries.length !== snapshot.state.dictionaries.length;
     try {
@@ -2914,6 +3599,7 @@ async function commitCustomRemoval(initial, source, semanticRevision) {
         source,
         semanticRevision,
         removesPackage ? dictionaries : undefined,
+        custom,
       );
       if (reply.ok === true) {
         const completed = await completeCustomRemoval(reply, removesPackage, loadedCount);
@@ -2942,10 +3628,12 @@ async function commitCustomGeneration(
   semanticRevision,
   generationRoot,
   report,
+  custom,
 ) {
+  const { identity } = custom;
   const generated = await packageFromIndex(`${generationRoot}/${dictionaryFolderName(report.title)}`);
-  if (report.title !== CUSTOM_DICTIONARY_TITLE
-      || generated.title !== CUSTOM_DICTIONARY_TITLE) {
+  if (report.title !== identity.title
+      || generated.title !== identity.title) {
     throw new Error("the compiled custom archive has the wrong dictionary title");
   }
   if (generated.revision !== semanticRevision) {
@@ -2957,9 +3645,9 @@ async function commitCustomGeneration(
     if (snapshot.document.revision !== initial.document.revision) {
       throw new CustomCommitRejectedError(customStaleReply(snapshot));
     }
-    const dictionaries = withCustomDictionary(snapshot.state.dictionaries, generated);
+    const dictionaries = withCustomDictionary(snapshot.state.dictionaries, generated, identity, Boolean(snapshot.state.stored));
     const loadedCount = loadDictionaries(dictionaries, { committed: snapshot.state.dictionaries });
-    const reply = await commitCustomStorage(snapshot, source, semanticRevision, dictionaries);
+    const reply = await commitCustomStorage(snapshot, source, semanticRevision, dictionaries, custom);
     if (reply.ok === true) {
       publishLoadedDictionaries(loadedCount);
       reloadError = null;
@@ -2979,25 +3667,26 @@ async function commitCustomGeneration(
   throw new Error("the dictionary state kept changing while the custom dictionary was saved");
 }
 
-async function saveCustomDictionary(snapshot, source) {
-  const parsed = parseCustomDictionary(source);
-  const semanticRevision = await customDictionarySemanticRevision(parsed.entries);
+async function saveCustomDictionary(snapshot, source, custom = JAPANESE_CUSTOM) {
+  const { identity } = custom;
+  const parsed = parseCustomDictionary(source, identity);
+  const semanticRevision = await customDictionarySemanticRevision(parsed.entries, identity);
   if (parsed.entries.length === 0) {
-    const removed = await commitCustomRemoval(snapshot, source, semanticRevision);
+    const removed = await commitCustomRemoval(snapshot, source, semanticRevision, custom);
     return { ...removed, errors: parsed.errors };
   }
   if (snapshot.state.dictionaries.some((dictionary) =>
-    dictionary?.id !== CUSTOM_DICTIONARY_ID
-      && dictionary?.title === CUSTOM_DICTIONARY_TITLE)) {
-    throw new Error(`a dictionary named ${CUSTOM_DICTIONARY_TITLE} is already installed`);
+    dictionary?.id !== identity.id
+      && dictionary?.title === identity.title)) {
+    throw new Error(`a dictionary named ${identity.title} is already installed`);
   }
   if (semanticRevision === snapshot.document.semanticRevision
-      && await customPackageSatisfies(snapshot.state, semanticRevision, parsed.entries.length)) {
-    const saved = await commitCustomSourceOnly(snapshot, source, semanticRevision);
+      && await customPackageSatisfies(snapshot.state, semanticRevision, parsed.entries.length, identity)) {
+    const saved = await commitCustomSourceOnly(snapshot, source, semanticRevision, custom);
     return { ...saved, errors: parsed.errors, rebuilt: false, removed: false };
   }
 
-  const archive = buildCustomDictionaryZip(parsed.entries, semanticRevision);
+  const archive = buildCustomDictionaryZip(parsed.entries, semanticRevision, identity);
   let committed = null;
   try {
     const report = await runImportTransaction(
@@ -3011,6 +3700,7 @@ async function saveCustomDictionary(snapshot, source) {
           semanticRevision,
           generationRoot,
           importedReport,
+          custom,
         );
       },
     );
@@ -3030,9 +3720,39 @@ async function saveCustomDictionary(snapshot, source) {
 }
 
 let preparedBackup = null;
-const backupUrls = new Set();
+// Exported archive URLs, each with the name of its temporary OPFS file or null.
+const backupUrls = new Map();
 const dictionaryDownloads = new Map();
 let dictionaryDownloadCounter = 0;
+
+// On direct OPFS a backup archive is an OPFS file: an export is written into
+// one that Chrome downloads, and a chosen backup is copied into one that the
+// restore reads in place. Neither is held in memory or browser Blob storage,
+// whose limits broke large backups (#577). A file is removed once its export
+// is released or its restore prepared; the engine's start removes any a
+// closed browser left.
+async function backupFileDirectory(create = false) {
+  return (await navigator.storage.getDirectory()).getDirectoryHandle(BACKUP_FILE_DIRECTORY, { create });
+}
+
+async function writeBackupFile(write) {
+  const directory = await backupFileDirectory(true);
+  const name = `${globalThis.crypto.randomUUID()}.zip`;
+  const handle = await directory.getFileHandle(name, { create: true });
+  const output = await handle.createWritable();
+  try {
+    await write(output);
+    return { name, file: await handle.getFile() };
+  } catch (error) {
+    await output.abort().catch(() => {});
+    await directory.removeEntry(name).catch(() => {});
+    throw error;
+  }
+}
+
+async function removeBackupFile(name) {
+  await (await backupFileDirectory()).removeEntry(name);
+}
 
 async function readBackupStorage(raw = false) {
   const reply = await ask(raw ? "hd_backup_base_read" : "hd_backup_read");
@@ -3040,30 +3760,32 @@ async function readBackupStorage(raw = false) {
   return reply;
 }
 
-function backupFileBlob(path, size) {
+// A dictionary file for an archive. A Blob-backed IDBFS file is already that
+// Blob (only the classic FS has the node to ask; WasmFS has no lookupPath).
+// Any other file is read as the archive is written: copying the library into
+// Blobs first held it twice in browser Blob storage and broke large exports
+// (#577).
+function backupFileData(path, size) {
   const FS = engine.FS;
-  // A Blob-backed IDBFS file is already the Blob the archive needs. Only the
-  // classic FS has the node to ask; WasmFS has no lookupPath.
   if (storageBackend === "idbfs") {
     const { blob } = FS.lookupPath(path).node;
     if (blob instanceof Blob && blob.size === size) return blob;
   }
-  const input = FS.open(path, "r");
-  const parts = [];
-  try {
-    let offset = 0;
-    while (offset < size) {
-      // Transfer-sized chunks, not a limit on files or archive size.
-      const bytes = new Uint8Array(Math.min(64 * 1024, size - offset));
-      const read = FS.read(input, bytes, 0, bytes.length);
-      if (read !== bytes.length) throw new Error(`Could not read the complete dictionary file: ${path}`);
-      parts.push(new Blob([bytes]));
-      offset += read;
-    }
-    return new Blob(parts);
-  } finally {
-    FS.close(input);
-  }
+  return {
+    size,
+    readUint8Array(offset, length) {
+      const input = FS.open(path, "r");
+      try {
+        const bytes = new Uint8Array(length);
+        if (FS.read(input, bytes, 0, length, offset) !== length) {
+          throw new Error(`Could not read the complete dictionary file: ${path}`);
+        }
+        return bytes;
+      } finally {
+        FS.close(input);
+      }
+    },
+  };
 }
 
 function collectBackupFiles(root, prefix, assertPath, output) {
@@ -3075,7 +3797,7 @@ function collectBackupFiles(root, prefix, assertPath, output) {
     const absolute = `${root}/${name}`;
     const stat = FS.lstat(absolute);
     if (isDirectory(stat)) collectBackupFiles(absolute, path, assertPath, output);
-    else if ((stat.mode & 0o170000) === 0o100000) output.push({ path, data: backupFileBlob(absolute, stat.size) });
+    else if ((stat.mode & 0o170000) === 0o100000) output.push({ path, data: backupFileData(absolute, stat.size) });
     else throw new Error(`Dictionary generation contains a non-file entry: ${path}`);
   }
 }
@@ -3120,6 +3842,42 @@ async function stageBackupFiles(prepared, roots) {
   return dictionaries;
 }
 
+// The packages a version 4 restore loads (docs/languages.md 17.2): the
+// archived ones staged above, and every other language's personal package
+// rebuilt from its document; one entry per package, enabled when a restored
+// profile enables it.
+async function stageBackupLanguages(backupState, plan, staged, roots) {
+  const fresh = new Map(staged.map(row => [row.id, row]));
+  for (const entry of plan.personal) {
+    fresh.set(entry.identity.id, await rebuildBackupPersonalPackage(entry, roots)); // NOSONAR: one engine import at a time
+  }
+  if (plan.personal.length > 0) await persistFilesystem();
+  return backupState.backupEngineDictionaries(plan, fresh);
+}
+
+// What the restore preview shows: the packages, every restored language's
+// personal entries and, where languages are involved, their lines (17.2, 17.6).
+function backupPreview(backupState, current, plan, dictionaries, snapshot) {
+  const notes = backupState.restorePreviewNotes(current, plan);
+  return {
+    dictionaries: dictionaries.map(({ title, enabled }) => ({ title, enabled })),
+    customEntryCount: plan === null ? parseCustomDictionary(snapshot.document.text).entries.length
+      : backupState.personalEntryCount(snapshot, plan),
+    ...(notes.length === 0 ? {} : { languageNotes: notes }),
+  };
+}
+
+// The packs of the restored profiles load before the restore publishes
+// (docs/languages.md 9.2); a pack that fails is reported as at a start.
+async function adoptRestoredLanguages(options) {
+  const { hasProfiles, profiles } = globalThis.HDReaderOptions;
+  profileRecords = hasProfiles(options);
+  recordLanguages = profileRecords ? [...new Set(profiles(options).map(profile => profile.language))] : [];
+  setDebugLogLanguages(recordLanguages);
+  if (profileRecords) await loadLanguagePacks(recordLanguages, { all: true });
+  else languageFailures = [];
+}
+
 function assertBackupDictionaryPath(dictionary, message = "The backup contains an invalid dictionary path.") {
   if (dictionaryRoot(dictionary) === null) {
     throw new Error(message);
@@ -3143,15 +3901,42 @@ async function validateBackupDictionaryFiles(dictionary) {
   }
   const recommended = recommendedDictionarySource(dictionary.sourceId);
   if (recommended) assertRecommendedDictionary(recommended, generated);
-  if (dictionary.id === CUSTOM_DICTIONARY_ID
-      && !customDictionaryMetadataMatches(generated, dictionary.revision, dictionary.termCount)) {
+  // Every language's personal package keeps the managed-package invariants.
+  const personal = personalDictionaryLanguage(dictionary);
+  if (personal !== null && !customDictionaryMetadataMatches(generated, dictionary.revision, dictionary.termCount,
+    personalDictionaryIdentity(personal))) {
     throw new Error("The backup custom dictionary files do not satisfy the managed package invariants.");
   }
 }
 
-async function commitBackupSnapshot(current, snapshot, lookupStatsRows) {
+// A version 4 archive does not carry other languages' personal packages; the
+// restore compiles each from its document into a fresh generation, as a save
+// in Settings would (docs/languages.md 17.2), keeping the package's name and
+// favourite from the backup.
+async function rebuildBackupPersonalPackage({ identity, row, document }, roots) {
+  const parsed = parseCustomDictionary(document.text, identity);
+  const semanticRevision = await customDictionarySemanticRevision(parsed.entries, identity);
+  const root = createGenerationRoot();
+  roots.push(root);
+  resetEngine();
+  const report = await importDictionaryArchive(engine, new Response(buildCustomDictionaryZip(parsed.entries, semanticRevision, identity)),
+    root, lowRam, "the custom dictionary archive", null, { backend: storageBackend });
+  if (!report.success) throw new Error(report.error || `${identity.title} could not be rebuilt from its document.`);
+  const generated = await packageFromIndex(`${root}/${dictionaryFolderName(report.title)}`);
+  if (!customDictionaryMetadataMatches(generated, semanticRevision, parsed.entries.length, identity)) {
+    throw new Error("The rebuilt custom dictionary does not satisfy the managed package invariants.");
+  }
+  return {
+    ...generated, id: identity.id, title: identity.title,
+    displayName: typeof row.displayName === "string" ? row.displayName : null,
+    favorite: row.favorite === true, isUpdatable: false, indexUrl: null, downloadUrl: null, lastUpdateCheck: null,
+  };
+}
+
+async function commitBackupSnapshot(current, snapshot, lookupStatsRows, languageLookupStatsRows) {
   try {
-    return await ask("hd_backup_cas", { base: current, snapshot, lookupStatsRows });
+    return await ask("hd_backup_cas", { base: current, snapshot, lookupStatsRows,
+      ...(languageLookupStatsRows === undefined ? {} : { languageLookupStatsRows }) });
   } catch (commitError) {
     let readback;
     try { readback = (await readBackupStorage(true)).snapshot; }
@@ -3173,25 +3958,30 @@ async function restoreBackup(message) {
   const prepared = preparedBackup;
   preparedBackup = null;
   try {
-    const { restoredBackupSnapshot } = await import("./backup-state.js");
+    const { restoredBackupSnapshot, restoredLanguageRows } = await import("./backup-state.js");
     const current = (await readBackupStorage(true)).snapshot;
     if (!sameJsonValue(current, prepared.current)) {
       throw new Error("Hachidori changed since this backup was prepared. Prepare it again before restoring.");
     }
-    const loadedCount = loadDictionaries(prepared.dictionaries);
-    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries, { overlay: OVERLAY_MODE });
-    const reply = await commitBackupSnapshot(current, snapshot, prepared.lookupStatsRows);
+    const plan = prepared.plan ?? null;
+    const snapshot = restoredBackupSnapshot(current, prepared.snapshot, prepared.dictionaries, { overlay: OVERLAY_MODE, plan });
+    // Records with profiles load every package once, as the engine reads them.
+    const loadedCount = loadDictionaries(plan === null ? prepared.dictionaries : engineState(snapshot.state).dictionaries);
+    const reply = await commitBackupSnapshot(current, snapshot, prepared.lookupStatsRows,
+      plan === null ? undefined : restoredLanguageRows(plan, snapshot));
     if (!reply.ok) throw new Error(reply.error || "Could not commit the backup restore.");
+    if (plan !== null || profileRecords) await adoptRestoredLanguages(snapshot.options);
     publishLoadedDictionaries(loadedCount);
     reloadError = null;
     await cleanupCommittedDictionaries();
-    let warning = reply.warning ?? null;
+    const notes = [prepared.settingsWarning, reply.warning];
     try {
       const cleanup = await ask("hd_lookup_stats_cleanup");
       if (!cleanup.ok) throw new Error(cleanup.error);
     } catch (error) {
-      warning = [warning, `Restored successfully; old lookup statistics could not be cleaned up: ${describeErrorMessageOrJson(error)}`].filter(Boolean).join("; ");
+      notes.push(`Old lookup statistics could not be cleaned up: ${describeErrorMessageOrJson(error)}`);
     }
+    const warning = notes.some(Boolean) ? ["Restored successfully.", ...notes].filter(Boolean).join(" ") : null;
     return { restored: true, dictionaryCount, warning };
   } catch (error) {
     if (error instanceof UnknownDictionaryStateCommitError) {
@@ -3211,33 +4001,50 @@ function removalTarget(dictionaries, id, title) {
   if (text(target.title) !== title) {
     throw new Error("the remove request dictionary ID and title do not match");
   }
-  if (target.id === CUSTOM_DICTIONARY_ID) {
+  if (target.id === CUSTOM_DICTIONARY_ID || personalDictionaryLanguage(target) !== null) {
     throw new Error("the managed custom dictionary can only be removed by saving an empty source");
   }
   return target;
 }
 
+// An hd_remove that names no profile comes from an older client (section
+// 5.2): it may not delete a package that a profile other than Japanese uses.
+function assertLegacyRemoval(state, message, target) {
+  if (!state.stored || message.profileId !== undefined) return;
+  const user = Object.entries(state.stored.profiles).find(([id, profile]) => id !== JAPANESE_PROFILE_ID
+    && profile.dictionaries.some((entry) => entry.id === target.id));
+  if (user) throw new Error(`This dictionary is used by ${languageName(user[0])} on the linked Hachidori. Remove it there.`);
+}
+
 const HANDLERS = {
   async hd_backup_export() {
     await ensureLoaded();
-    const [{ createBackupArchive, assertBackupPath }, { assertBackupSnapshot }] = await Promise.all([
+    const [{ createBackupArchive, assertBackupPath }, { assertBackupProfiles, assertBackupSnapshot }] = await Promise.all([
       import("./backup-archive.js"), import("./backup-state.js"),
     ]);
-    const { snapshot, lookupStatsRows } = await readBackupStorage();
+    const { snapshot, lookupStatsRows, profiles } = await readBackupStorage();
     await assertBackupSnapshot(snapshot);
+    // Records with profiles make a version 4 archive (docs/languages.md 17.2).
+    if (profiles !== undefined) await assertBackupProfiles(snapshot, profiles);
     const files = [];
     for (const [index, dictionary] of snapshot.state.dictionaries.entries()) {
       if (dictionaryRoot(dictionary) === null) throw new Error("Cannot back up an invalid dictionary path.");
       collectBackupFiles(dictionary.path, `dictionaries/${index}`, assertBackupPath, files);
     }
-    const archive = await createBackupArchive(snapshot, files, lookupStatsRows);
-    const blobUrl = URL.createObjectURL(archive);
-    backupUrls.add(blobUrl);
-    return { blobUrl, size: archive.size };
+    const exported = storageBackend === "opfs"
+      ? await writeBackupFile(output => createBackupArchive(snapshot, files, lookupStatsRows, undefined, output, profiles))
+      : { name: null, file: await createBackupArchive(snapshot, files, lookupStatsRows, undefined, undefined, profiles) };
+    const blobUrl = URL.createObjectURL(exported.file);
+    backupUrls.set(blobUrl, exported.name);
+    return { blobUrl, size: exported.file.size };
   },
 
-  hd_backup_release(message) {
-    if (backupUrls.delete(message.blobUrl)) URL.revokeObjectURL(message.blobUrl);
+  async hd_backup_release(message) {
+    const name = backupUrls.get(message.blobUrl);
+    if (backupUrls.delete(message.blobUrl)) {
+      URL.revokeObjectURL(message.blobUrl);
+      if (name !== null) await removeBackupFile(name);
+    }
     return {};
   },
 
@@ -3300,40 +4107,51 @@ const HANDLERS = {
     }
     await discardPreparedBackup();
     const current = (await readBackupStorage(true)).snapshot;
-    const [{ openBackupArchive }, { assertBackupSnapshot }] = await Promise.all([
+    const [{ openBackupArchive }, backupState] = await Promise.all([
       import("./backup-archive.js"), import("./backup-state.js"),
     ]);
+    const { prepareBackupSnapshot } = backupState;
     if (typeof message.blobUrl !== "string" || !message.blobUrl.startsWith("blob:")) {
       throw new Error("Choose a local Hachidori backup archive.");
     }
     const response = await fetch(message.blobUrl);
     if (!response.ok) throw new Error("Could not read the selected backup.");
-    const prepared = await openBackupArchive(await response.blob());
-    await assertBackupSnapshot(prepared.snapshot);
-    const roots = [];
+    // On direct OPFS the restore reads its own OPFS copy in place.
+    const copy = storageBackend === "opfs" ? await writeBackupFile(output => response.body.pipeTo(output)) : null;
     try {
-      const dictionaries = await stageBackupFiles(prepared, roots);
-      loadDictionaries(dictionaries);
-      let warning = null;
+      const prepared = await openBackupArchive(copy?.file ?? await response.blob());
+      const { snapshot, warning: viewWarning } = await prepareBackupSnapshot(prepared.snapshot);
+      prepared.snapshot = snapshot;
+      const plan = prepared.profiles === undefined ? null : await backupState.prepareBackupProfiles(snapshot, prepared.profiles);
+      const settingsWarning = plan === null ? viewWarning : plan.warning;
+      const roots = [];
       try {
-        await restoreCommittedDictionaries(null, { publish: false });
-        if (loadFailures.length > 0) {
-          warning = "Some current dictionaries cannot be loaded. This validated backup can replace them.";
+        let dictionaries = await stageBackupFiles(prepared, roots);
+        if (plan !== null) dictionaries = await stageBackupLanguages(backupState, plan, dictionaries, roots);
+        loadDictionaries(dictionaries);
+        let warning = null;
+        try {
+          await restoreCommittedDictionaries(null, { publish: false });
+          if (loadFailures.length > 0) {
+            warning = "Some current dictionaries cannot be loaded. This validated backup can replace them.";
+          }
+        } catch (error) {
+          reloadError = asError(error);
+          warning = "The current dictionaries cannot be loaded. This validated backup can replace them.";
         }
+        const token = message.token;
+        preparedBackup = { token, current, roots, dictionaries, snapshot, plan, settingsWarning, lookupStatsRows: prepared.lookupStatsRows };
+        return { token, warning: [settingsWarning, warning].filter(Boolean).join(" ") || null,
+          createdAt: prepared.createdAt, ...backupPreview(backupState, current, plan, dictionaries, prepared.snapshot) };
       } catch (error) {
-        reloadError = asError(error);
-        warning = "The current dictionaries cannot be loaded. This validated backup can replace them.";
+        try { await restoreCommittedDictionaries(null, { publish: false }); }
+        catch (restoreError) { reloadError = asError(restoreError); }
+        // Prepare never publishes these paths, even when the old state is broken.
+        await discardGenerations(roots);
+        throw error;
       }
-      const token = message.token;
-      preparedBackup = { token, current, roots, dictionaries, snapshot: prepared.snapshot, lookupStatsRows: prepared.lookupStatsRows };
-      return { token, warning, createdAt: prepared.createdAt, dictionaries: dictionaries.map(({ title, enabled }) => ({ title, enabled })),
-        customEntryCount: parseCustomDictionary(prepared.snapshot.document.text).entries.length };
-    } catch (error) {
-      try { await restoreCommittedDictionaries(null, { publish: false }); }
-      catch (restoreError) { reloadError = asError(restoreError); }
-      // Prepare never publishes these paths, even when the old state is broken.
-      await discardGenerations(roots);
-      throw error;
+    } finally {
+      if (copy) await removeBackupFile(copy.name).catch(() => {});
     }
   },
 
@@ -3347,13 +4165,17 @@ const HANDLERS = {
     }
     await discardPreparedBackup();
     const current = (await readBackupStorage(true)).snapshot;
-    const [{ backup: prepared }, { assertBackupSnapshot }] = await Promise.all([
+    const [{ backup: prepared }, backupState] = await Promise.all([
       ask("hd_backup_auto_get", { id: message.id }),
       import("./backup-state.js"),
     ]);
     if (!prepared) throw new Error("This automatic backup is corrupt or no longer retained.");
-    await assertBackupSnapshot(prepared.snapshot);
-    const dictionaries = prepared.snapshot.state.dictionaries;
+    const { snapshot, warning: viewWarning } = await backupState.prepareBackupSnapshot(prepared.snapshot);
+    // A snapshot with profiles names its packages in place, other languages'
+    // personal packages included, whose roots it kept (docs/languages.md 17.2).
+    const plan = prepared.profiles === undefined ? null : await backupState.prepareBackupProfiles(snapshot, prepared.profiles);
+    const settingsWarning = plan === null ? viewWarning : plan.warning;
+    const dictionaries = plan === null ? prepared.snapshot.state.dictionaries : backupState.backupEngineDictionaries(plan);
     assertBackupDictionaryPaths(dictionaries);
     try {
       for (const dictionary of dictionaries) await validateBackupDictionaryFiles(dictionary);
@@ -3375,15 +4197,16 @@ const HANDLERS = {
         retained: true,
         roots: [],
         dictionaries,
-        snapshot: prepared.snapshot,
+        snapshot,
+        plan,
+        settingsWarning,
         lookupStatsRows: prepared.lookupStatsRows,
       };
       return {
         token,
-        warning,
+        warning: [settingsWarning, warning].filter(Boolean).join(" ") || null,
         createdAt: prepared.createdAt,
-        dictionaries: dictionaries.map(({ title, enabled }) => ({ title, enabled })),
-        customEntryCount: parseCustomDictionary(prepared.snapshot.document.text).entries.length,
+        ...backupPreview(backupState, current, plan, dictionaries, prepared.snapshot),
       };
     } catch (error) {
       try { await restoreCommittedDictionaries(null, { publish: false }); }
@@ -3409,7 +4232,8 @@ const HANDLERS = {
       lookupArguments(message),
     );
     throwIfEngineFailed("hdw_lookup");
-    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message)));
+    const reply = withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message));
+    return kanaRuby(message) ? withFurigana(reply) : reply;
   },
 
   // Segment a batch of text chunks into the words a hover would show (#520).
@@ -3422,8 +4246,10 @@ const HANDLERS = {
     const scanLength = clampInt(message.scanLength, 1, 64, DEFAULT_SCAN_LENGTH);
     // A hover with the personal dictionary off drops its results
     // (withoutPersonalDictionary), so the split leaves its words out as well.
-    const options = lookupOptionsJson(message.options,
-      message.options?.personalDictionary === false ? { excludedDictionary: CUSTOM_DICTIONARY_TITLE } : {});
+    const options = lookupOptionsJson(message.options, {
+      ...(message.options?.personalDictionary === false ? { excludedDictionary: personalTitle(message) } : {}),
+      ...languageLookupOptions(message),
+    });
     // Every chunk is checked before the first engine turn. A lone surrogate (a
     // pair split across two text nodes) becomes U+FFFD, one code unit for one,
     // so the spans' offsets still index the text the page sent.
@@ -3473,7 +4299,8 @@ const HANDLERS = {
       [args[0], text(entry.path), ...args.slice(1)],
     );
     throwIfEngineFailed("hdw_lookup_dictionary");
-    return withFurigana(withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup_dictionary"), message)));
+    const reply = withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup_dictionary"), message));
+    return kanaRuby(message) ? withFurigana(reply) : reply;
   },
 
   async hd_kanji(message) {
@@ -3482,8 +4309,12 @@ const HANDLERS = {
     if (character === "") {
       return { kanji: null };
     }
-    const json = engine.ccall("hdw_kanji", "string", ["string"], [character]);
-    throwIfEngineFailed("hdw_kanji");
+    // A character lookup of a profile reads only its dictionaries.
+    const json = message.language === undefined
+      ? engine.ccall("hdw_kanji", "string", ["string"], [character])
+      : engine.ccall("hdw_kanji_with_options", "string", ["string", "string"],
+        [character, JSON.stringify(languageLookupOptions(message))]);
+    throwIfEngineFailed(message.language === undefined ? "hdw_kanji" : "hdw_kanji_with_options");
     const kanji = parseJson(json, "hdw_kanji");
     if (typeof kanji?.character !== "string" || !Array.isArray(kanji.entries)) {
       throw new TypeError("hdw_kanji returned a malformed lookup response");
@@ -3539,11 +4370,12 @@ const HANDLERS = {
     if (typeof message?.text !== "string") {
       throw new TypeError("the custom dictionary save carried no source text");
     }
-    const snapshot = await readCustomStorage();
+    const custom = customRequest(message);
+    const snapshot = await readCustomStorage(custom.language);
     if (message.baseDocumentRevision !== snapshot.document.revision) {
-      return customStaleReply(snapshot);
+      return withPublicState(customStaleReply(snapshot));
     }
-    return saveCustomDictionary(snapshot, message.text);
+    return withPublicState(await saveCustomDictionary(snapshot, message.text, custom));
   },
 
   async hd_custom_append(message) {
@@ -3551,9 +4383,10 @@ const HANDLERS = {
     // This read deliberately happens inside the engine mutation queue. A Note
     // submitted behind a Settings save must append to that newly committed
     // source rather than the document that existed when the click was sent.
-    const snapshot = await readCustomStorage();
-    const source = appendCustomDictionaryEntry(snapshot.document.text, message?.entry);
-    return saveCustomDictionary(snapshot, source);
+    const custom = customRequest(message);
+    const snapshot = await readCustomStorage(custom.language);
+    const source = appendCustomDictionaryEntry(snapshot.document.text, message?.entry, custom.identity);
+    return withPublicState(await saveCustomDictionary(snapshot, source, custom));
   },
 
   async hd_import(message) {
@@ -3600,15 +4433,13 @@ const HANDLERS = {
         }
         return request;
       };
+      // An import adds its package to the profile it was requested for
+      // (docs/languages.md 5.2), a reimport too when that profile lacks it
+      // (14); one that names none means Japanese, and managed updates name
+      // none, so they leave every profile's list as it is.
       const commit = (request) => (generationRoot, importedReport) =>
-        commitImportedGeneration(
-          generationRoot,
-          importedReport,
-          request.recommendedSource,
-          request.managedSource,
-          request.expectedRevision,
-          request.importDecision,
-        );
+        commitImportedGeneration(generationRoot, importedReport, request, typeof message.profileId === "string"
+          ? { profileId: message.profileId, joins: true } : { profileId: JAPANESE_PROFILE_ID, joins: false });
       const replyFor = (report) => (report.success
         ? { report }
         : { ok: false, error: report.error || `${fileName} could not be imported`, report,
@@ -3631,6 +4462,10 @@ const HANDLERS = {
     }
     if (!Array.isArray(message?.dictionaries)) {
       throw new TypeError("the dictionary state change carried no dictionary list");
+    }
+    if (message.profileId !== undefined || profileRecords) {
+      const applied = await applyProfileState(message);
+      if (applied !== null) return applied;
     }
 
     let restorationAttempted = false;
@@ -3677,6 +4512,9 @@ const HANDLERS = {
     return { dictionaryCount };
   },
 
+  hd_profile_add: addProfile,
+  hd_profile_remove: removeProfile,
+
   async hd_remove(message) {
     requireEngine();
     const title = text(message.title);
@@ -3697,6 +4535,7 @@ const HANDLERS = {
       // media cache.
       return {};
     }
+    assertLegacyRemoval(snapshot.state, message, target);
     const remaining = snapshot.state.dictionaries.filter(
       (dictionary) => dictionary?.id !== target.id,
     );
@@ -3705,7 +4544,9 @@ const HANDLERS = {
     let reply;
     try {
       loadedCount = loadDictionaries(remaining, { committed: remaining });
-      reply = await commitDictionaryState(snapshot.state.revision, remaining);
+      // A removal removes the package from every profile.
+      reply = await commitDictionaryState(snapshot.state.revision, remaining,
+        snapshot.state.stored ? { stored: snapshot.state.stored } : null);
     } catch (error) {
       if (error instanceof UnknownDictionaryStateCommitError) {
         // The manifest may already exclude the package. Keep its files until an
@@ -3745,7 +4586,7 @@ const HANDLERS = {
       ok: false,
       conflict: reply.conflict === true,
       error: reply.error || "the dictionary removal could not be saved",
-      state: reply.state,
+      state: publicState(reply.state),
     };
   },
 
@@ -3776,6 +4617,8 @@ const HANDLERS = {
       failedDictionaries: loadFailures,
       lastLoadPath,
       generation,
+      // Once the records have profiles, packs that could not be loaded.
+      ...(profileRecords ? { failedLanguages: languageFailures } : {}),
       storageBackend,
       threaded,
       // Which worker is serving: the low-memory one imports single-threaded
@@ -3901,6 +4744,21 @@ function engineFailureReply(type, requestId, error) {
   });
 }
 
+// Why a bounded request cannot be answered: an id a reply cannot carry, or a
+// failure reply that would not fit the response limit; null when it can.
+function boundedRequestRefusal(type, requestId) {
+  if (!validResponseRequestId(requestId)) return "request ID must be a string, finite number, or null";
+  if (!responseFits({ type: `${type}_result`, requestId, ok: false,
+    error: responseLimitError(type), generation, ...failurePayload(type) })) return responseLimitError(type);
+  return null;
+}
+
+// The import of the profile code runs in the request's own turn, so the
+// queue keeps the order requests arrive in.
+function engineJob(type, message, handler) {
+  return readsProfileCode(type, message) ? () => loadProfileCode().then(() => handler(message)) : () => handler(message);
+}
+
 export async function handleEngineMessage(message) {
   const type = text(message.type);
   let requestId = message.requestId ?? null;
@@ -3916,21 +4774,13 @@ export async function handleEngineMessage(message) {
 
   const bounded = isBoundedRequest(type);
   try {
-    if (bounded) {
-      if (!validResponseRequestId(requestId)) {
-        requestId = null;
-        throw new Error("request ID must be a string, finite number, or null");
-      }
-      if (!responseFits({ type: `${type}_result`, requestId, ok: false,
-        error: responseLimitError(type), generation, ...failurePayload(type) })) {
-        requestId = null;
-        throw new Error(responseLimitError(type));
-      }
+    const refusal = bounded ? boundedRequestRefusal(type, requestId) : null;
+    if (refusal !== null) {
+      requestId = null;
+      throw new Error(refusal);
     }
-    const handler = HANDLERS[type];
-    const run = UNQUEUED.has(type)
-      ? Promise.resolve().then(() => handler(message))
-      : serialise(() => handler(message));
+    const job = engineJob(type, message, HANDLERS[type]);
+    const run = UNQUEUED.has(type) ? Promise.resolve().then(job) : serialise(job);
     const result = await run;
     const { ok = true, error = null, nativeJsonLength = 0, ...payload } = result ?? {};
     const reply = { type: `${type}_result`, requestId, ok, error, generation, ...payload };
@@ -3948,5 +4798,8 @@ export function startEngine() {
   started = true;
   // boot() never rejects: a failed start is latched in bootError, which
   // hd_status and every request needing the engine report.
-  void serialise(boot);
+  const booted = serialise(boot);
+  // The first lookup's own import reports a failure (withFurigana).
+  importKanjiReadings().catch(() => {});
+  return booted;
 }

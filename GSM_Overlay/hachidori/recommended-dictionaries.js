@@ -106,3 +106,27 @@ export function describeRecommendedCatalogue() {
       .format(RECOMMENDED_DICTIONARIES.map((entry) => entry.topic)),
   };
 }
+
+// A pack's recommended dictionaries that can be shown (decision record 0006):
+// a name and an https:// page, which the user opens to download the file.
+export function packDictionaryLinks(pack) {
+  return (Array.isArray(pack?.host?.recommendedDictionaries) ? pack.host.recommendedDictionaries : [])
+    .filter(entry => typeof entry?.name === "string" && String(entry?.url ?? "").startsWith("https://"));
+}
+
+// One such dictionary as a list item: the link to its page, then
+// "description · licence".
+export function packDictionaryItem(document, entry) {
+  const item = document.createElement("li");
+  const link = document.createElement("a");
+  link.className = "recommended-dictionary-link";
+  link.href = entry.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = entry.name;
+  const description = document.createElement("span");
+  description.textContent = [entry.description, entry.licence].filter(value => typeof value === "string" && value)
+    .join(" · ");
+  item.append(link, description);
+  return item;
+}

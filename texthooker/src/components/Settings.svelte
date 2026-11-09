@@ -85,7 +85,6 @@
 		showTrimVideoButton$,
 		showSaveClipButton$,
 		trimVideoWithVAD$,
-		showGSMCheckboxes$,
 		showMenuButton$,
 		showExpiredIcon$,
 		unblurTLTimer$,
@@ -1220,8 +1219,6 @@
 			<input id="show-menu-button" type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showMenuButton$} />
 			<label class="label-text col-span-2" for="show-expired-icon" title="Show indicators for lines outside the replay buffer or from before GSM started">Show Expired / History Icons</label>
 			<input id="show-expired-icon" type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showExpiredIcon$} />
-			<span class="label-text col-span-2">Show Checkboxes</span>
-			<input type="checkbox" class="checkbox checkbox-primary ml-2 col-span-2" bind:checked={$showGSMCheckboxes$} />
 		</div>
 		<span class="label-text" style="grid-column: 1/5;">Custom CSS URL</span>
 		<input

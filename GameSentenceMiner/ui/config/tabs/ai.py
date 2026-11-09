@@ -17,6 +17,7 @@ from GameSentenceMiner.ai.prompts.builder import PromptBuilder
 from GameSentenceMiner.ai.prompts.presets import build_study_prompt
 from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
 from GameSentenceMiner.ui.config.ai_setup import AISetupGuide
+from GameSentenceMiner.util.config.configuration import OPENAI_REASONING_EFFORTS
 from GameSentenceMiner.util.docs import DOCS_URLS
 
 from ..labels import LabelColor
@@ -176,6 +177,29 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.open_ai_api_key_edit,
     )
     window.open_ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+    reasoning_i18n = tabs_i18n.get("ai", {}).get("openai_reasoning_effort", {})
+    reasoning_labels = {
+        "": "Model default",
+        "none": "None (disabled)",
+        "minimal": "Minimal",
+        "low": "Low",
+        "medium": "Medium",
+        "high": "High",
+        "xhigh": "Extra high",
+        "max": "Maximum",
+    }
+    for effort in ("", *OPENAI_REASONING_EFFORTS):
+        label = reasoning_i18n.get("options", {}).get(effort or "default", reasoning_labels[effort])
+        window.open_ai_reasoning_effort_combo.addItem(label, effort)
+    reasoning_label = window._create_labeled_widget(
+        tabs_i18n,
+        "ai",
+        "openai_reasoning_effort",
+        "Model default lets the provider choose. None disables reasoning. Higher effort may increase response time "
+        "and token usage. Applies to the primary and backup models; supported levels depend on the model.",
+    )
+    window.open_ai_reasoning_effort_combo.setToolTip(reasoning_label.toolTip())
+    openai_layout.addRow(reasoning_label, window.open_ai_reasoning_effort_combo)
     window.openai_settings_group.setLayout(openai_layout)
     layout.addRow(window.openai_settings_group)
 

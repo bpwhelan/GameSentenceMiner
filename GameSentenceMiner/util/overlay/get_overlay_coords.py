@@ -558,8 +558,8 @@ class OverlayProcessor:
         1. Consecutive agreement: this pass matches the previous pass after
            punctuation, whitespace, and half/full-width normalization.
         2. Sentence convergence: the known texthook sentence is present in this
-           pass. Legacy retries also allow fuzzy matching for OCR misreads.
-           Adaptive retries require exact containment: partial_ratio can clip
+           pass. Callers can also allow fuzzy matching for OCR misreads.
+           Retries tracking hook progress require exact containment: partial_ratio can clip
            the missing ending of an evolving sentence, and unrelated speaker
            names or HUD text can satisfy the overall length guard. Uncorrected
            misreads still settle through consecutive agreement after its quiet
@@ -3172,19 +3172,23 @@ class OverlayProcessor:
             # Assume Text from Source is already Stable
             overlay_config = get_overlay_config()
             text_appears_instantly = overlay_config.text_appears_instantly
+            adaptive_retries = getattr(overlay_config, "adaptive_ocr_retries", False)
             tries = self._resolve_local_ocr_attempts(
                 source,
                 local_ocr_retry,
                 text_appears_instantly,
             )
             retry_state = (
-                AdaptiveOCRRetryState()
-                if getattr(overlay_config, "adaptive_ocr_retries", False) and not text_appears_instantly and tries > 1
+                AdaptiveOCRRetryState(
+                    reference=normalized_sentence_to_check or "",
+                    progress_window=(tries - 1) * AdaptiveOCRRetryState.MAX_DELAY,
+                )
+                if not text_appears_instantly and tries > 1 and (normalized_sentence_to_check or adaptive_retries)
                 else None
             )
             adaptive_crop = (
                 self._adaptive_crop
-                if getattr(overlay_config, "adaptive_ocr_retries", False)
+                if adaptive_retries
                 and not text_appears_instantly
                 and not getattr(overlay_config, "use_overlay_area_config", False)
                 and source
@@ -3201,8 +3205,10 @@ class OverlayProcessor:
                 self._adaptive_crop.clear()
             # Fast passes share a time budget instead of exhausting the normal
             # five attempts before a typewriter animation has time to finish.
-            # Start the budget after the first OCR call; an in-flight call may
-            # finish after the deadline, but cannot start another retry.
+            # Start the budget after the first OCR call. Normal retries retain
+            # their attempt count and one-second cadence. Improving hook matches
+            # extend either mode, without requiring aggressive initial scans.
+            # An in-flight call may finish after the current deadline.
             retry_deadline = None
             last_local_payload = None
             local_is_final_engine = effective_engine in [
@@ -3221,23 +3227,33 @@ class OverlayProcessor:
                 if i > 0:
                     try:
                         now = time.monotonic()
-                        if retry_state and now >= retry_deadline:
-                            break
-                        elapsed = now - last_scan_time
-                        retry_delay = (
-                            retry_state.retry_delay
-                            if retry_state
-                            else self._resolve_local_ocr_retry_delay(previous_attempt_had_text)
-                        )
-                        sleep_duration = max(0, retry_delay - elapsed)
+                        deadline = None
                         if retry_state:
-                            sleep_duration = min(sleep_duration, retry_deadline - now)
+                            if adaptive_retries:
+                                deadline = retry_state.deadline(retry_deadline)
+                            elif i >= tries:
+                                deadline = retry_state.progress_deadline
+                                if deadline is None:
+                                    break
+                            if deadline is not None and now >= deadline:
+                                break
+                        retry_delay = self._resolve_local_ocr_retry_delay(previous_attempt_had_text)
+                        if retry_state and adaptive_retries:
+                            # Long spools stay at one-second retries even when
+                            # growth would otherwise reset the fast cadence.
+                            retry_delay = (
+                                retry_state.retry_delay if now < retry_deadline else AdaptiveOCRRetryState.MAX_DELAY
+                            )
+                        elapsed = now - last_scan_time
+                        sleep_duration = max(0, retry_delay - elapsed)
+                        if deadline is not None:
+                            sleep_duration = min(sleep_duration, deadline - now)
 
                         # Even with no remaining delay, yield so newer text can
                         # cancel this workflow before it takes another capture.
                         if retry_state or sleep_duration > 0:
                             await asyncio.sleep(sleep_duration)
-                        if retry_state and time.monotonic() >= retry_deadline:
+                        if deadline is not None and time.monotonic() >= deadline:
                             break
 
                         # Re-capture if retrying, otherwise we are OCRing the same static image
@@ -3284,7 +3300,12 @@ class OverlayProcessor:
                 attempts_completed += 1
                 if retry_state and retry_deadline is None:
                     retry_deadline = last_scan_time + (tries - 1) * AdaptiveOCRRetryState.MAX_DELAY
-                attempt_label = f"{i + 1}, adaptive" if retry_state else f"{i + 1}/{tries}"
+                if retry_state and adaptive_retries:
+                    attempt_label = f"{i + 1}, adaptive"
+                elif i >= tries:
+                    attempt_label = f"{i + 1}, extended"
+                else:
+                    attempt_label = f"{i + 1}/{tries}"
                 self._log_timing(ocr_start, f"Local OCR execution (attempt {attempt_label})")
 
                 op_start = time.time()
@@ -3529,7 +3550,12 @@ class OverlayProcessor:
                 # is configured the local result is just a fast preliminary and the
                 # Lens send below is the authoritative one. Flag the stabilized (or
                 # last) local pass so highlight consumers re-parse exactly once more.
-                retry_limit_reached = time.monotonic() >= retry_deadline if retry_state else i == tries - 1
+                if retry_state and adaptive_retries:
+                    retry_limit_reached = time.monotonic() >= retry_state.deadline(retry_deadline)
+                else:
+                    retry_limit_reached = i >= tries - 1 and (
+                        retry_state is None or not retry_state.has_recent_progress(time.monotonic())
+                    )
                 is_final_payload = local_is_final_engine and (should_stop or retry_limit_reached)
                 data = self._build_overlay_word_coordinates_payload(
                     oneocr_final,

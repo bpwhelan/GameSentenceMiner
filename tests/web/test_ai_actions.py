@@ -1,4 +1,6 @@
 import asyncio
+import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -6,6 +8,98 @@ import pytest
 
 from GameSentenceMiner.util.config.configuration import Ai, General
 from GameSentenceMiner.web import overlay_handler, texthooking_page
+
+
+@pytest.fixture
+def translation_api(monkeypatch):
+    from GameSentenceMiner.ai import ai_prompting
+    from GameSentenceMiner.ai.contracts import AIResponse
+    from GameSentenceMiner.ai.features.character_context import CharacterContextProvider
+    from GameSentenceMiner.ai.service import AIService
+    from GameSentenceMiner.util.text_log import GameLine
+
+    line = GameLine(id=str(uuid.uuid4()), text="例文", time=datetime.now(UTC), prev=None, next=None)
+    lines = {line.id: line}
+    config = SimpleNamespace(ai=Ai(gemini_api_key="key", gemini_backup_model=""), general=General())
+    monkeypatch.setattr(texthooking_page, "get_config", lambda: config)
+    monkeypatch.setattr(ai_prompting, "get_config", lambda: config)
+    monkeypatch.setattr(texthooking_page, "get_event_line_by_id", lines.get)
+    monkeypatch.setattr(texthooking_page, "get_all_lines", lambda: list(lines.values()))
+    monkeypatch.setattr(texthooking_page, "get_current_game", lambda: "Game")
+    monkeypatch.setattr(AIService, "_ensure_connectivity", lambda self: True)
+    monkeypatch.setattr(CharacterContextProvider, "get_character_context", lambda *args, **kwargs: "")
+    execute = Mock(return_value=AIResponse("Gemini", "model", "Translation", "Translation", 1))
+    monkeypatch.setattr(AIService, "_execute_request", execute)
+    return texthooking_page.app.test_client(), lines, line, execute
+
+
+def test_textfeed_auto_and_manual_translation_share_a_result(translation_api):
+    api, _, line, execute = translation_api
+    for automatic in (True, True, False):
+        response = api.post("/translate-line", json={"id": line.id, "automatic": automatic})
+        assert response.status_code == 200
+        assert response.json == {"TL": "Translation"}
+    execute.assert_called_once()
+    assert line.translation == line.TL == "Translation"
+
+
+def test_textfeed_explicit_refresh_replaces_the_cached_result(translation_api):
+    api, _, line, execute = translation_api
+    api.post("/translate-line", json={"id": line.id})
+    assert api.post("/translate-line", json={"id": line.id, "force_refresh": True}).status_code == 200
+    assert api.post("/translate-line", json={"id": line.id}).status_code == 200
+    assert execute.call_count == 2
+
+
+def test_textfeed_text_override_cannot_replace_the_original_lines_translation(translation_api):
+    from GameSentenceMiner.ai.contracts import AIResponse
+
+    api, _, line, execute = translation_api
+    api.post("/translate-line", json={"id": line.id})
+    execute.return_value = AIResponse("Gemini", "model", "Edited translation", "Edited translation", 1)
+    response = api.post("/translate-line", json={"id": line.id, "text": "Edited source"})
+    assert response.json == {"TL": "Edited translation"}
+    assert line.translation == line.TL == "Translation"
+    assert api.post("/translate-line", json={"id": line.id}).json == {"TL": "Translation"}
+    assert execute.call_count == 2
+
+
+def test_textfeed_batch_does_not_poison_the_first_lines_cached_translation(translation_api):
+    from dataclasses import replace
+
+    from GameSentenceMiner.ai.contracts import AIResponse
+
+    api, lines, line, execute = translation_api
+    other = replace(line, id=str(uuid.uuid4()), text="次の台詞。")
+    lines[other.id] = other
+    api.post("/translate-line", json={"id": line.id})
+    execute.return_value = AIResponse("Gemini", "model", "Combined translation", "Combined translation", 1)
+    assert api.post("/translate-multiple", json={"ids": [line.id, other.id]}).status_code == 200
+    assert line.translation == line.TL == "Translation"
+    assert api.post("/translate-line", json={"id": line.id}).json == {"TL": "Translation"}
+    assert execute.call_count == 2
+
+
+def test_overlay_reuses_the_textfeeds_translation_for_the_same_game_line(translation_api, monkeypatch):
+    api, _, line, execute = translation_api
+    assert api.post("/translate-line", json={"id": line.id}).status_code == 200
+    monkeypatch.setattr(overlay_handler, "get_config", texthooking_page.get_config)
+    monkeypatch.setattr(overlay_handler, "get_all_lines", lambda: [line])
+    monkeypatch.setattr(overlay_handler, "get_current_game", lambda **kwargs: "Game")
+    monkeypatch.setattr(
+        overlay_handler,
+        "get_overlay_processor",
+        lambda: SimpleNamespace(last_oneocr_result=line.text, last_lens_result=""),
+    )
+    sent = []
+
+    async def send(_id, message):
+        sent.append(message)
+
+    monkeypatch.setattr(overlay_handler.websocket_manager, "send", send)
+    asyncio.run(overlay_handler.OverlayRequestHandler().handle_translation_request({"request_id": "reuse"}))
+    assert sent[-1]["data"] == {"request_id": "reuse", "text": "Translation"}
+    execute.assert_called_once()
 
 
 @pytest.mark.parametrize(

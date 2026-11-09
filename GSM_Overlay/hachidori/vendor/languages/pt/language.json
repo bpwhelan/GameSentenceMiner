@@ -1,0 +1,172 @@
+{
+  "schema": 1,
+  "code": "pt",
+  "iso639_3": "por",
+  "name": "Portuguese",
+  "nativeName": "Português",
+  "bcp47": "pt",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "consonant": "[bcdfghjklmnpqrstvwxyzç]",
+    "lowerStem": "[^ A-Z\\u00C0-\\u00D6\\u00D8-\\u00DE]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["‘", "’"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "removeDiaeresis",
+        "name": "Remove the diaeresis (ü → u)",
+        "variants": [[{"map": {"ü": "u", "Ü": "U"}}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "formOfIgnore": [
+      "first-person plural imperative negative",
+      "second-person singular imperative negative",
+      "second-person plural imperative negative",
+      "third-person singular imperative negative",
+      "third-person plural imperative negative",
+      "first-person plural imperative negative Brazil",
+      "second-person singular imperative negative Brazil",
+      "second-person plural imperative negative Brazil",
+      "third-person singular imperative negative Brazil",
+      "third-person plural imperative negative Brazil",
+      "first-person plural imperative negative Portugal",
+      "second-person singular imperative negative Portugal",
+      "second-person plural imperative negative Portugal",
+      "third-person singular imperative negative Portugal",
+      "third-person plural imperative negative Portugal",
+      "first/second/third-person plural imperative negative",
+      "second/third-person singular imperative negative",
+      "informal second-person singular imperative negative proscribed",
+      "informal third-person singular imperative negative proscribed",
+      "informal third-person plural imperative negative proscribed"
+    ],
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "pt-BR",
+    "audioLanguage": "pt",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "adj": "Adjective",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "vdt": "Ditransitive verb",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "intj": "Interjection",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "num": "Numeral",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "char": "Character",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "abbv": "Abbreviation",
+        "contr": "Contraction",
+        "det": "Determiner",
+        "artic": "Article"
+      }
+    },
+    "frequencySamples": {
+      "common": ["que", "não", "de", "você", "eu", "um", "para", "está", "uma", "se"],
+      "rare": ["aquecida", "iniciada", "pálpebras", "plásticas", "valesse", "gravuras", "consideravam", "verificações", "corroendo", "caroços"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Portuguese-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Portuguese words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary Portuguese-Portuguese (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Portuguese words with Portuguese definitions from Portuguese Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "falando",
+      "practice": {
+        "text": "Ela falou com o professor depois da aula.",
+        "lookup": "falou"
+      },
+      "entry": {
+        "expression": "falar",
+        "reading": "falar",
+        "glossary": ["to speak; to talk"],
+        "definitionTags": "v",
+        "matched": "falou",
+        "trace": ["preterite (ele)"]
+      },
+      "character": null
+    }
+  }
+}

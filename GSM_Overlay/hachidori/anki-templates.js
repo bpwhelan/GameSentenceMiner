@@ -2,7 +2,7 @@
 import "./reader-options.js";
 
 const { ANKI_FIELDS } = globalThis.HDReaderOptions;
-const CORE_MARKERS = ["expression", "reading", "furigana", "furigana-plain", "dictionary", "dictionary-alias",
+const CORE_MARKERS = ["expression", "reading", "character", "onyomi", "kunyomi", "stroke-count", "furigana", "furigana-plain", "dictionary", "dictionary-alias",
   "definition", "glossary", "glossary-brief", "glossary-no-dictionary", "glossary-plain", "glossary-plain-no-dictionary",
   "glossary-first", "glossary-first-brief", "glossary-first-no-dictionary", "main-definition", "jpmn-primary-definition",
   "conjugation", "part-of-speech", "phonetic-transcriptions", "tags", "popup-selection-text", "search-query", "document-title",
@@ -16,6 +16,10 @@ const MARKER_ALIASES = new Map([["pitch-accent", "pitch"], ["pitch-accents", "pi
 const MARKER_DESCRIPTIONS = {
   expression: "Dictionary form of the selected term",
   reading: "Reading of the selected term",
+  character: "Selected kanji character (kanji entries only)",
+  onyomi: "Kanji on readings, separated by commas",
+  kunyomi: "Kanji kun readings, separated by commas",
+  "stroke-count": "Kanji stroke count from the first dictionary that supplies it",
   furigana: "Expression with ruby furigana",
   "furigana-plain": "Expression with bracketed plain-text furigana",
   dictionary: "Title of the first definition dictionary",
@@ -61,8 +65,8 @@ const MARKER_DESCRIPTIONS = {
   "pitch-accent-graphs-jj": "Japanese pitch accent SVG graphs with kana labels (Jidoujisho style)",
   audio: "Selected pronunciation audio",
   screenshot: "Screenshot of the source page",
-  "sentence-audio": "Netflix subtitle line's audio (experimental)",
-  gif: "Netflix subtitle line's animated GIF, otherwise the page screenshot (experimental)",
+  "sentence-audio": "Netflix or YouTube subtitle line's audio (experimental)",
+  gif: "Netflix or YouTube subtitle line's animated GIF, otherwise the page screenshot (experimental)",
 };
 const DYNAMIC_MARKER_OPTIONS = [
   ["single-glossary-DICTIONARY", "Definitions from one dictionary; replace DICTIONARY with its marker name"],
@@ -75,9 +79,22 @@ const DYNAMIC_MARKER_OPTIONS = [
   ["single-frequency-number-DICTIONARY", "Numeric value from one frequency dictionary"],
 ];
 export const ANKI_TEMPLATE_MARKERS = Object.freeze([...CORE_MARKERS, ...MARKER_ALIASES.keys()]);
-// Markers of an experimental feature, by the flag that lists them in Settings.
-// They stay valid with the flag off, so a saved template still renders.
-const EXPERIMENTAL_MARKERS = new Map([["sentence-audio", "netflixMining"], ["gif", "netflixMining"]]);
+// What a marker needs of the edited profile's language (docs/languages.md 7.1,
+// 12). Settings offers it only where the language has it; a saved template
+// keeps it, and it produces what it produces today.
+export const ANKI_MARKER_REQUIREMENTS = Object.freeze({
+  reading: "readings",
+  furigana: "ruby", "furigana-plain": "ruby", "sentence-furigana": "ruby", "sentence-furigana-plain": "ruby",
+  ...Object.fromEntries(["pitch", "pitch-accent", "pitch-accents", "pitch-position", "pitch-accent-positions",
+    "pitch-categories", "pitch-accent-categories", "pitch-accent-graphs", "pitch-accent-graphs-jj"]
+    .map(marker => [marker, "pitchAccent"])),
+  ...Object.fromEntries(["character", "onyomi", "kunyomi", "stroke-count"].map(marker => [marker, "characterView"])),
+});
+// Markers of experimental features, by the flags that list them in Settings:
+// a marker is listed while any of its flags is on. They stay valid with the
+// flags off, so a saved template still renders.
+const VIDEO_MINING_FLAGS = Object.freeze(["netflixMining", "youtubeMining"]);
+const EXPERIMENTAL_MARKERS = new Map([["sentence-audio", VIDEO_MINING_FLAGS], ["gif", VIDEO_MINING_FLAGS]]);
 export const ANKI_TEMPLATE_MARKER_OPTIONS = Object.freeze([
   ...CORE_MARKERS.map(marker => Object.freeze({
     marker,
@@ -193,7 +210,7 @@ export function ankiTemplateMarkerNames(template) {
 export function ankiCaptureRequirements(templates) {
   const markers = new Set(Object.values(templates).flatMap(template => ankiTemplateMarkerNames(template.value)));
   return {
-    // {gif} falls back to the screenshot's <img> off Netflix and on failure,
+    // {gif} falls back to the screenshot's <img> off a subtitle line and on failure,
     // so a mapped {gif} needs the viewport screenshot taken as well.
     includeScreenshot: markers.has("screenshot") || markers.has("gif"),
     includeSentenceAudio: markers.has("sentence-audio"),
@@ -288,14 +305,29 @@ export function resolveAnkiTemplates(config, fields) {
   return { templates, staleFields, errors };
 }
 
-export function applyAnkiPreset(config, fields, preset) {
-  const table = PRESETS[preset] ?? KIKU;
+// Automatic's suggestions: the generic field names, then a pack's aliases
+// for the markers they name.
+function automaticSuggestions(fieldAliases) {
   const suggestions = new Map();
-  if (preset === "automatic") {
-    for (const [semantic, aliases] of Object.entries(genericAliases)) {
-      for (const alias of aliases) suggestions.set(fieldKey(alias), { slot: semantic, value: `{${semanticMarker(semantic)}}` });
+  for (const [semantic, aliases] of Object.entries(genericAliases)) {
+    for (const alias of aliases) suggestions.set(fieldKey(alias), { slot: semantic, value: `{${semanticMarker(semantic)}}` });
+  }
+  for (const [marker, aliases] of Object.entries(fieldAliases)) {
+    if (!MARKERS.has(marker) || !Array.isArray(aliases)) continue;
+    for (const alias of aliases.filter(item => typeof item === "string" && !suggestions.has(fieldKey(item)))) {
+      suggestions.set(fieldKey(alias), { slot: marker, value: `{${marker}}` });
     }
   }
+  return suggestions;
+}
+
+// `fieldAliases` are the edited profile's pack's `host.anki.fieldAliases`
+// (docs/languages.md 12): more field names, by the marker they suggest, for
+// Automatic suggestions beside the generic ones. A key that names no marker
+// suggests nothing.
+export function applyAnkiPreset(config, fields, preset, fieldAliases = {}) {
+  const table = PRESETS[preset] ?? KIKU;
+  const suggestions = preset === "automatic" ? automaticSuggestions(fieldAliases) : new Map();
   for (const [field, value] of Object.entries(table)) {
     if (preset === "automatic" && value === "") continue;
     suggestions.set(fieldKey(field), {

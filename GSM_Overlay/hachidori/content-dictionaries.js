@@ -42,6 +42,9 @@
         pitchCount: nonnegativeCount(entry.pitchCount),
         kanjiCount: nonnegativeCount(entry.kanjiCount),
         longKeyLength: nonnegativeCount(entry.longKeyLength),
+        // Schema-2 package rows carry the index's target language (docs/languages.md 4.2, 10.2).
+        ...(typeof entry.targetLanguage === "string" && entry.targetLanguage
+          ? { targetLanguage: entry.targetLanguage } : {}),
       }];
     });
     return {
@@ -104,7 +107,7 @@
         continue;
       }
       for (const entry of nativeEntries.filter((candidate) => candidate.dictionary === member.title)) {
-        append(window.HDPopup.kanjiEntryResult(character, entry));
+        append(globalThis.HDPopup.kanjiEntryResult(character, entry));
       }
     }
     return merged;

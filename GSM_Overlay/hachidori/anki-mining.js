@@ -1,28 +1,45 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { ankiAvailability, isUndispatchedAnkiTransportError } from "./anki.js";
+import { ANKI_DECK_UNSET, ankiAvailability, isUndispatchedAnkiTransportError } from "./anki.js";
 import { ankiCaptureRequirements, resolveAnkiTemplates } from "./anki-templates.js";
 import { ankiDigest } from "./anki-digest.js";
 import { inspectAnkiNoteIds } from "./anki-index.js";
-import { ankiSetupFamily } from "./anki-setup.js";
-import { ankiBrowseQuery, ankiNoteIdsQuery, ankiNoteOptions, canonicalAnkiFields, checkAnkiDuplicate, explainAnkiRefusal,
-  findAnkiDuplicateNotes, isAnkiDuplicateError, overwriteAnkiFields, validateAnkiNote, validateAnkiNotes } from "./anki-duplicates.js";
+import { ankiListedFamily } from "./anki-setup.js";
+import { ankiBrowseQuery, ankiNoteIdsQuery, ankiNoteOptions, canonicalAnkiFields, checkAnkiDuplicate, checkAnkiDuplicates, explainAnkiRefusal,
+  ankiUpdateKeepsField, findAnkiDuplicateNotes, isAnkiDuplicateError, overwriteAnkiFields, validateAnkiNote, validateAnkiNotes } from "./anki-duplicates.js";
 
 const CONFIG_CHANGED = "Anki configuration changed. Refresh this result before adding a note.";
 // The sentence-audio field the Kiku, Lapis and Senren presets leave blank.
 const SENTENCE_AUDIO_FIELDS = { kiku: "SentenceAudio", lapis: "SentenceAudio", senren: "sentenceAudio" };
 
-// A mining request from a Netflix subtitle line, with or without its cue, while
-// Settings → Advanced → Experimental features → Netflix mining is on.
-const netflixRequest = (config, request) => config.netflixMining === true
-  && request?.netflix !== null && typeof request?.netflix === "object";
+// Anki's native first-field duplicate guard is sufficient for this scope.
+// Overwrite and expression fields elsewhere in a custom model still need the
+// word index and exact target fields; cross-model scopes keep their policy.
+function nativeDuplicateCheck({ config, discovery, resolved }) {
+  return config.duplicateScope === "model" && config.duplicateBehavior !== "overwrite"
+    && /^\{expression\}$/iu.test(resolved.templates[discovery.fields[0]]?.value ?? "");
+}
 
-// For a recognised note type, a Netflix request fills its blank sentence-audio
+function nativeDecision(prepared, checked) {
+  return checked.duplicate
+    ? { state: "duplicate", canAdd: prepared.config.duplicateBehavior === "new", error: null, noteIds: [], mature: false }
+    : checkedDecision(prepared, checked.addable, checked.error);
+}
+
+// A mining request from a Netflix or YouTube subtitle line, with or without
+// its cue, while that site's switch (Settings → Advanced → Experimental
+// features → Netflix mining, YouTube mining) is on.
+const VIDEO_REQUESTS = [["netflix", "netflixMining"], ["youtube", "youtubeMining"]];
+const videoRequest = (config, request) => VIDEO_REQUESTS.some(([field, flag]) => config[flag] === true
+  && request?.[field] !== null && typeof request?.[field] === "object");
+
+// For a recognised note type, a Netflix or YouTube request fills its blank sentence-audio
 // field with {sentence-audio} in this request's copy of the templates, as the
 // removed media mining did. Saved templates and a field the user filled are
 // never changed.
 function requestConfiguration(current, request) {
-  if (!netflixRequest(current.config, request)) return current;
-  const field = SENTENCE_AUDIO_FIELDS[ankiSetupFamily(current.config.model)];
+  if (!videoRequest(current.config, request)) return current;
+  const families = Array.isArray(current.config.noteTypeFamilies) ? current.config.noteTypeFamilies : null;
+  const field = SENTENCE_AUDIO_FIELDS[ankiListedFamily(current.config.model, families)];
   const template = field === undefined ? undefined : current.resolved.templates[field];
   if (template === undefined || template.value.trim() !== "") return current;
   return { ...current, resolved: { ...current.resolved,
@@ -109,6 +126,10 @@ async function indexedDecision(prepared, duplicate, check) {
 }
 
 async function decision(prepared, request, duplicateIndex) {
+  if (request.allowDuplicate === true) return { state: "addable", canAdd: true, error: null };
+  if (nativeDuplicateCheck(prepared)) {
+    return nativeDecision(prepared, await checkAnkiDuplicate(prepared.invoke, prepared.note));
+  }
   const { invoke, config } = prepared;
   const expression = request.term?.expression ?? request.expression;
   const source = await duplicateIndex.source(config);
@@ -136,7 +157,12 @@ async function decision(prepared, request, duplicateIndex) {
 // share one duplicate lookup and one add check.
 async function batchDecisions(entries, duplicateIndex) {
   const [{ prepared: { config, invoke } }] = entries;
-  if (config.duplicateBehavior === "overwrite" || await duplicateIndex.source(config) === null) {
+  if (entries.every(({ prepared, request }) => nativeDuplicateCheck(prepared) && request.allowDuplicate !== true)) {
+    const checked = await checkAnkiDuplicates(invoke, entries.map(({ prepared }) => prepared.note));
+    return entries.map(({ prepared }, index) => () => Promise.resolve(nativeDecision(prepared, checked[index])));
+  }
+  if (entries.some(({ request }) => request.allowDuplicate === true)
+      || config.duplicateBehavior === "overwrite" || await duplicateIndex.source(config) === null) {
     return entries.map(({ prepared, request }) => () => decision(prepared, request, duplicateIndex));
   }
   const found = await duplicateIndex.lookupMany(config,
@@ -154,7 +180,7 @@ function omitUnchangedFields(fields, existing) {
   return fields;
 }
 
-function fieldsForDecision(prepared, checked) {
+function fieldsForDecision(prepared, checked, request) {
   const target = checked.target;
   if (!target) {
     return {
@@ -164,13 +190,15 @@ function fieldsForDecision(prepared, checked) {
     };
   }
   const canonical = canonicalAnkiFields(prepared.note.fields, prepared.resolved.templates, target.fields);
+  const templates = Object.fromEntries(Object.entries(canonical.templates)
+    .filter(([, template]) => !ankiUpdateKeepsField(template, request)));
   // Only the initial write omits unchanged values. Pronunciation enrichment
   // compares its complete desired value with the text-only write it replaces.
-  const fields = omitUnchangedFields(overwriteAnkiFields(canonical.fields, target.fields, canonical.templates), target.fields);
+  const fields = omitUnchangedFields(overwriteAnkiFields(canonical.fields, target.fields, templates), target.fields);
   return {
     fields,
     target,
-    templates: Object.fromEntries(Object.entries(canonical.templates).filter(([field]) => Object.hasOwn(fields, field))),
+    templates: Object.fromEntries(Object.entries(templates).filter(([field]) => Object.hasOwn(fields, field))),
   };
 }
 
@@ -215,18 +243,23 @@ function addNoteContext(error, note) {
   return new Error(`${detail} (AnkiConnect: ${raw})`, { cause: error });
 }
 
+// The reply of a preflight that failed.
+function failedReply(error) {
+  return { state: "error", canAdd: false, error: error?.message || String(error) };
+}
+
 export function createAnkiMiningService({
   gateway,
   readConfig,
   buildFields,
   beforeWrite,
+  prepareAdd,
   beforeMutation = async () => {},
   afterConfirmed = async () => {},
   afterRejected = async () => {},
   preflightExtra = async () => ({}),
   enrich,
   duplicateIndex,
-  now = Date.now,
 }) {
   const cached = new Map();
   let mutations = Promise.resolve();
@@ -243,12 +276,12 @@ export function createAnkiMiningService({
     return { config, configJson, configKey, templateId: templateId ?? null };
   }
 
-  async function configuration(templateId, fresh = false) {
+  async function configuration(templateId) {
     const current = await identity(templateId);
     const { config, configJson } = current;
     const cacheKey = templateId ?? "";
     const previous = cached.get(cacheKey);
-    if (!fresh && previous?.key === configJson && now() < previous.expires) return previous.promise;
+    if (previous?.key === configJson) return previous.promise;
     const promise = (async () => {
       // Correlate reader requests without returning the saved API key/source
       // credentials in a serialized configuration string to each content script.
@@ -258,15 +291,21 @@ export function createAnkiMiningService({
       const resolved = resolveAnkiTemplates(config, discovery.fields);
       return { config, configKey, configJson, discovery, resolved, errors: ankiAvailability(config, discovery, resolved) };
     })();
-    // GSM's two-second status cache, sharing concurrent callers as well. Only
-    // read-only preparation may use it; each submission refreshes discovery.
-    cached.set(cacheKey, { key: configJson, expires: now() + 2000, promise });
+    // Metadata belongs to this worker and configuration. Anki validates the
+    // destination again when adding; errors retire the metadata for a retry.
+    cached.set(cacheKey, { key: configJson, promise });
+    promise.then(value => {
+      if (value.errors.length && cached.get(cacheKey)?.promise === promise) cached.delete(cacheKey);
+    }, () => { if (cached.get(cacheKey)?.promise === promise) cached.delete(cacheKey); });
     return promise;
   }
 
   async function status(templateId) {
     const current = await configuration(templateId);
-    return { available: current.errors.length === 0, configKey: current.configKey, error: current.errors.join("\n") };
+    return { available: current.errors.length === 0, configKey: current.configKey, error: current.errors.join("\n"),
+      // Only a deck is missing: the popup's Anki button then opens Settings →
+      // Anki (docs/languages.md 6.3).
+      ...(current.errors.length === 1 && current.errors[0] === ANKI_DECK_UNSET ? { emptyDeck: true } : {}) };
   }
 
   async function view(request) {
@@ -293,11 +332,17 @@ export function createAnkiMiningService({
   }
 
   async function prepare(request, fresh) {
-    const configured = await configuration(request?.templateId, fresh);
+    const configured = await configuration(request?.templateId);
     if (request.configKey !== configured.configKey) throw new Error(CONFIG_CHANGED);
     if (configured.errors.length) throw new Error(configured.errors.join("\n"));
     const current = requestConfiguration(configured, request);
-    const resources = await buildFields(request, current, { preflight: !fresh });
+    // Source values encode literal cloze braces. Only authored cloze templates
+    // besides the first field can affect Anki's validity check. In particular,
+    // glossaries and sentence furigana are not needed just to enable Add.
+    const rendering = !fresh && nativeDuplicateCheck(current) ? { ...current, resolved: { ...current.resolved,
+      templates: Object.fromEntries(Object.entries(current.resolved.templates).filter(([field, template]) =>
+        field === current.discovery.fields[0] || /\{\{c/iu.test(template.value))) } } : current;
+    const resources = await buildFields(request, rendering, { preflight: !fresh });
     const { fields } = resources;
     const firstField = current.discovery.fields[0];
     if (!fields[firstField]?.trim()) {
@@ -306,7 +351,8 @@ export function createAnkiMiningService({
         + `${template ? `: its template ${template} produced nothing for ${describeRequestTerm(request)}` : ""}. Anki requires it.`);
     }
     const note = { deckName: current.config.deck, modelName: current.config.model, fields,
-      options: ankiNoteOptions(current.config), tags: [...new Set(current.config.tags)] };
+      options: { ...ankiNoteOptions(current.config), ...(request.allowDuplicate === true ? { allowDuplicate: true } : {}) },
+      tags: [...new Set(current.config.tags)] };
     return { ...current, note, resources, firstField, invoke: invokeFor(current.config) };
   }
 
@@ -317,14 +363,14 @@ export function createAnkiMiningService({
   // write and may then apply a field this one would have kept.
   const screenshotFor = prepared => prepared.config.captureScreenshot === true
     && ankiCaptureRequirements(prepared.resolved.templates).includeScreenshot;
-  // A mapped {sentence-audio} on a Netflix request: the reader records the
-  // line, or reports why it could not, when it submits.
-  const sentenceAudioFor = (prepared, request) => netflixRequest(prepared.config, request)
+  // A mapped {sentence-audio} on a Netflix or YouTube request: the reader
+  // records the line, or reports why it could not, when it submits.
+  const sentenceAudioFor = (prepared, request) => videoRequest(prepared.config, request)
     && ankiCaptureRequirements(prepared.resolved.templates).includeSentenceAudio
     ? { sentenceAudio: true } : {};
-  // A mapped {gif} on a Netflix request: the reader records a GIF of the line
-  // when it submits, and falls back to the screenshot where it cannot.
-  const gifFor = (prepared, request) => netflixRequest(prepared.config, request)
+  // A mapped {gif} on a Netflix or YouTube request: the reader records a GIF
+  // of the line when it submits, and falls back to the screenshot where it cannot.
+  const gifFor = (prepared, request) => videoRequest(prepared.config, request)
     && ankiCaptureRequirements(prepared.resolved.templates).includeGif
     ? { gif: true } : {};
 
@@ -335,7 +381,8 @@ export function createAnkiMiningService({
   }
 
   async function preflightReply(request, prepared, result) {
-    const applied = result.canAdd ? fieldsForDecision(prepared, result) : null;
+    if (result.state === "invalid") cached.delete(request?.templateId ?? "");
+    const applied = result.canAdd ? fieldsForDecision(prepared, result, request) : null;
     const extra = await preflightExtra({ request, prepared, applied, deferred: false });
     return {
       state: result.state,
@@ -351,16 +398,24 @@ export function createAnkiMiningService({
   }
 
   async function preflight(request) {
-    const prepared = await prepare(request, false);
-    if (prepared.resources.deferDuplicateCheck === true) return deferredReply(request, prepared);
-    return preflightReply(request, prepared, await decision(prepared, request, duplicateIndex));
+    try {
+      const prepared = await prepare(request, false);
+      if (prepared.resources.deferDuplicateCheck === true) return deferredReply(request, prepared);
+      return await preflightReply(request, prepared, await decision(prepared, request, duplicateIndex));
+    } catch (error) {
+      cached.delete(request?.templateId ?? "");
+      throw error;
+    }
   }
 
   // The popup's readiness for several results in one request. Each entry gets
   // the reply `preflight` would give it; a failure that belongs to one entry,
   // such as an empty first field, stays with that entry, while a failed shared
   // request fails every entry that waited on it.
-  const failedPreflight = error => ({ state: "error", canAdd: false, error: error?.message || String(error) });
+  function failedPreflight(request, error) {
+    cached.delete(request?.templateId ?? "");
+    return failedReply(error);
+  }
 
   async function batchEntry(index, request) {
     try {
@@ -368,7 +423,7 @@ export function createAnkiMiningService({
       if (prepared.resources.deferDuplicateCheck === true) return { reply: await deferredReply(request, prepared) };
       return { entry: { index, request, prepared } };
     } catch (error) {
-      return { reply: failedPreflight(error) };
+      return { reply: failedReply(error), failed: true };
     }
   }
 
@@ -377,15 +432,20 @@ export function createAnkiMiningService({
     try {
       decisions = await batchDecisions(entries, duplicateIndex);
     } catch (error) {
-      return entries.map(() => failedPreflight(error));
+      return entries.map(({ request }) => failedPreflight(request, error));
     }
     return Promise.all(entries.map(({ request, prepared }, position) => decisions[position]()
       .then(result => preflightReply(request, prepared, result))
-      .catch(failedPreflight)));
+      .catch(error => failedPreflight(request, error))));
   }
 
   async function preflightMany(requests) {
     const prepared = await Promise.all(requests.map((request, index) => batchEntry(index, request)));
+    // A failed entry retires the metadata for a retry, as `preflight` does,
+    // once every entry has prepared. Retired earlier, an entry still waiting
+    // for its configuration's digest would discover Anki again, depending only
+    // on the order in which the digests resolve.
+    prepared.forEach(({ failed }, index) => { if (failed) cached.delete(requests[index]?.templateId ?? ""); });
     const replies = prepared.map(({ reply }) => reply);
     const groups = new Map();
     for (const { entry } of prepared) {
@@ -402,13 +462,16 @@ export function createAnkiMiningService({
 
   async function write(request) {
     const prepared = await prepare(request, true);
-    const checked = await decision(prepared, request, duplicateIndex);
+    const direct = typeof prepareAdd === "function" && nativeDuplicateCheck(prepared);
+    // The actual add is the authoritative duplicate/empty/cloze check. A
+    // second preflight adds latency without closing a race against Anki edits.
+    const checked = direct ? { canAdd: true } : await decision(prepared, request, duplicateIndex);
     if (!checked.canAdd) return { state: checked.state, error: checked.error,
       action: checked.action, noteIds: checked.noteIds };
     const { config, configJson, firstField, note, invoke } = prepared;
-    const { fields, target } = fieldsForDecision(prepared, checked);
+    const { fields, target } = fieldsForDecision(prepared, checked, request);
     if (JSON.stringify(await readConfig(request?.templateId)) !== configJson) throw new Error(CONFIG_CHANGED);
-    const writeResources = await beforeWrite({
+    const writeResources = await (direct ? prepareAdd : beforeWrite)({
       request,
       ...prepared,
       target,
@@ -429,6 +492,7 @@ export function createAnkiMiningService({
     try {
       await beforeMutation({ request, writeResources });
     } catch (error) {
+      cached.delete(request?.templateId ?? "");
       await releaseRejected();
       throw error;
     }
@@ -436,6 +500,7 @@ export function createAnkiMiningService({
     try {
       noteId = await writeAnkiNote(invoke, note, target, fields);
     } catch (error) {
+      cached.delete(request?.templateId ?? "");
       if (isAnkiDuplicateError(error.message)) {
         await releaseRejected();
         let noteIds = [];
@@ -468,6 +533,9 @@ export function createAnkiMiningService({
     } catch (error) {
       warnings.push(`Duplicate index: ${error.message}`);
     }
+    // Native addNote has already accepted the complete note, including inline
+    // media. There is no deferred update which needs a readback/CAS baseline.
+    if (direct) return { state: "added", noteId, warnings };
     // A field an Anki add-on rewrote during the add (AJT Japanese fills furigana
     // on note_will_be_added) is reported but does not make the note untrustworthy:
     // enrichment re-reads and guards its own target fields before updating them.
@@ -501,7 +569,6 @@ export function createAnkiMiningService({
         warnings.push(error.message);
       }
     }
-    cached.delete(request?.templateId ?? "");
     return { state: target ? "updated" : "added", noteId, warnings };
   }
 
@@ -526,7 +593,7 @@ export function createAnkiMiningService({
     const supplied = Array.isArray(value?.noteIds) && value.noteIds.length;
     let noteIds = supplied ? [...value.noteIds] : [];
     let repaired = false;
-    if (supplied && typeof value?.expression === "string" && value.expression
+    if (typeof value?.expression === "string" && value.expression
         && await duplicateIndex.source(config) !== null) {
       const refreshed = await duplicateIndex.repair(config, value.expression, invoke);
       noteIds = refreshed.noteIds;

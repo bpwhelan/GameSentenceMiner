@@ -62,6 +62,8 @@
     "hd_backup_read",
     "hd_backup_release",
     "hd_backup_restore",
+    // The search page's clipboard monitor (#639), relayed to the offscreen document.
+    "hd_clipboard_read",
     "hd_custom_append",
     "hd_custom_cas",
     "hd_custom_read",
@@ -70,6 +72,8 @@
     "hd_debug_log_result",
     "hd_engine_config",
     "hd_engine_config_result",
+    "hd_engine_link",
+    "hd_engine_link_result",
     "hd_import",
     "hd_import_abort",
     "hd_import_begin",
@@ -77,6 +81,9 @@
     "hd_import_commit",
     "hd_import_commit_result",
     "hd_kanji",
+    // A linked browser's opt-in to a host's profiles, answered by its sharing code.
+    "hd_language_profiles_opt_in",
+    "hd_language_selection_write",
     "hd_lookup",
     "hd_lookup_dictionary",
     "hd_lookup_stats_cleanup",
@@ -94,9 +101,13 @@
     "hd_netflix_line_audio",
     "hd_netflix_load",
     "hd_open_external",
+    "hd_open_settings",
     "hd_options_write",
     "hd_options_write_result",
     "hd_page_zoom",
+    "hd_profile_add",
+    "hd_profile_cas",
+    "hd_profile_remove",
     "hd_reader_command",
     "hd_reload",
     "hd_remove",
@@ -129,6 +140,11 @@
     "hd_upload_import",
     "hd_upload_reset",
     "hd_word_status_override",
+    "hd_youtube_capture_cancel",
+    "hd_youtube_capture_finish",
+    "hd_youtube_capture_start",
+    "hd_youtube_line_audio",
+    "hd_youtube_load",
   ];
 
   globalThis.HDMessageTypes = { MESSAGE_TYPES };

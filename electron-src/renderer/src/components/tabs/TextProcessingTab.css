@@ -149,6 +149,21 @@
   max-height: none;
   overflow: visible;
 }
+.language-filter-config {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+}
+.language-filter-config select {
+  width: 100%;
+  min-width: 0;
+}
+.language-filter-config p {
+  margin: 0;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
 .text-processing-desk .replacement-rule {
   flex-wrap: wrap;
   padding: 0;

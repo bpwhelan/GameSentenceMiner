@@ -12,6 +12,39 @@ const APP_NAME = 'GameSentenceMiner';
 // Bootstrap configuration is independent of the data folder and the installation.
 const POINTER_FILE_NAME = 'data_dir.json';
 
+/** A launch-local profile never changes the saved installation data location. */
+export function getProfileDir(
+    args = process.argv.slice(1), env: NodeJS.ProcessEnv = process.env, cwd = process.cwd(),
+): string | null {
+    let selected: string | undefined;
+    for (let index = 0; index < args.length; index++) {
+        const arg = args[index];
+        if (arg === '-profile' || arg === '--profile') {
+            selected = args[++index];
+            if (!selected || selected.startsWith('-')) throw new Error(`${arg} requires a profile folder.`);
+        } else if (arg.startsWith('-profile=') || arg.startsWith('--profile=')) {
+            selected = arg.slice(arg.indexOf('=') + 1);
+        } else {
+            continue;
+        }
+        if (!selected.trim() || selected.includes('\0')) throw new Error('Invalid profile folder.');
+    }
+    selected ??= env.GSM_PROFILE_DIR?.trim() || undefined;
+    if (selected === undefined) return null;
+    if (!selected.trim() || selected.includes('\0')) throw new Error('Invalid profile folder.');
+    if (/^~([/\\]|$)/.test(selected)) selected = path.join(os.homedir(), selected.slice(2));
+    return path.resolve(cwd, selected);
+}
+
+export function getOwocrConfigPath(): string {
+    return getProfileDir() ? path.join(getBaseDir(), 'owocr_config_gsm.ini')
+        : path.join(os.homedir(), '.config', 'owocr_config_gsm.ini');
+}
+
+export function getDefaultRecordingsDir(): string {
+    return getProfileDir() ? path.join(getBaseDir(), 'recordings') : path.join(os.homedir(), 'Videos', 'GSM');
+}
+
 /** The default %APPDATA%/GameSentenceMiner (Windows) or ~/.config/GameSentenceMiner (mac/Linux). */
 export function getDefaultBaseDir(): string {
     return process.env.APPDATA
@@ -67,7 +100,7 @@ function writePointer(config: Record<string, unknown>, onlyIfMissing = false): v
 }
 
 /** Resolve before app ready. A missing target stays selected; never fall back to old data. */
-export function resolveDataDir(): string {
+function resolveInstalledDataDir(migrate = true): string {
     const pointerPath = getPointerFilePath();
     const legacyPath = path.join(getDefaultBaseDir(), POINTER_FILE_NAME);
     let pointer = readPointer(pointerPath);
@@ -85,6 +118,7 @@ export function resolveDataDir(): string {
     if (!pointer) return getDefaultBaseDir();
 
     const dataDir = pointer.dataDir as string;
+    if (!migrate) return dataDir;
     // Old backends always used the original database, even after copying the data folder.
     // Let Python recover that database once, using SQLite's WAL-aware backup API.
     const migrated = { ...pointer, version: 2, ...(dataDir !== getDefaultBaseDir()
@@ -93,7 +127,24 @@ export function resolveDataDir(): string {
     return readPointer(pointerPath)!.dataDir as string;
 }
 
+export function resolveDataDir(): string {
+    return getProfileDir() ?? resolveInstalledDataDir();
+}
+
+/** Only immutable installations use this root; settings always use getBaseDir(). */
+export function resolveSharedDataDir(): string {
+    if (!getProfileDir()) return getBaseDir();
+    const override = process.env.GSM_SHARED_DATA_DIR?.trim();
+    if (override) return normalizeDataDir(override);
+    return resolveInstalledDataDir(false);
+}
+
 let cachedBaseDir: string | null = null;
+let cachedSharedBaseDir: string | null = null;
+
+export function getSharedBaseDir(): string {
+    return cachedSharedBaseDir ??= resolveSharedDataDir();
+}
 
 /** Memoized active data dir. Fixed for the process lifetime (a move forces a relaunch). */
 export function getBaseDir(): string {
@@ -105,10 +156,12 @@ export function getBaseDir(): string {
 
 /** Always persist the selection, including the default, to supersede stale legacy files. */
 export function writeDataDirPointer(dataDir: string): void {
+    if (getProfileDir()) throw new Error('The data folder cannot be changed while using -profile. Relaunch with the desired profile folder.');
     writePointer({ version: 2, dataDir: normalizeDataDir(dataDir) });
 }
 
 export function isLegacyDatabaseMigrationPending(dataDir: string): boolean {
+    if (getProfileDir()) return false;
     const pointer = readPointer(getPointerFilePath());
     return Boolean(pointer?.legacyDatabaseDir && path.relative(pointer.dataDir as string, dataDir) === '');
 }
@@ -118,7 +171,7 @@ export function isLegacyDatabaseMigrationPending(dataDir: string): boolean {
  * the bootstrap file remains authoritative and uninstallers must preserve user data.
  */
 export function writeDataDirRegistry(dataDir: string): void {
-    if (process.platform !== 'win32') {
+    if (process.platform !== 'win32' || getProfileDir()) {
         return;
     }
     execFile(

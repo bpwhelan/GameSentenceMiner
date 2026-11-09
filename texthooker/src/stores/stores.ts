@@ -78,7 +78,6 @@ export const defaultSettings: Settings = {
 	showSaveClipButton$: true,
 	trimVideoWithVAD$: false,
 	showTrimmedVideoInExplorer$: false,
-	showGSMCheckboxes$: true,
 	showMenuButton$: true,
 	showExpiredIcon$: true,
 };
@@ -354,8 +353,6 @@ export const showTrimmedVideoInExplorer$ = writableBooleanSubject()(
 	false,
 );
 
-export const showGSMCheckboxes$ = writableBooleanSubject()('bannou-texthooker-showGSMCheckboxes', true);
-
 export const showMenuButton$ = writableBooleanSubject()('bannou-texthooker-showMenuButton', defaultSettings.showMenuButton$);
 export const showExpiredIcon$ = writableBooleanSubject()('bannou-texthooker-showExpiredIcon', defaultSettings.showExpiredIcon$);
 
@@ -451,7 +448,6 @@ export async function resetAllData(savedClipsNote = '') {
 	showSaveClipButton$.next(defaultSettings.showSaveClipButton$);
 	trimVideoWithVAD$.next(defaultSettings.trimVideoWithVAD$);
 	showTrimmedVideoInExplorer$.next(defaultSettings.showTrimmedVideoInExplorer$);
-	showGSMCheckboxes$.next(defaultSettings.showGSMCheckboxes$);
 	showMenuButton$.next(defaultSettings.showMenuButton$);
 	showExpiredIcon$.next(defaultSettings.showExpiredIcon$);
 	return true;

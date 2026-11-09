@@ -25,6 +25,8 @@ TEXT_FIELDS = (
     "remove_repeated_lines",
     "remove_repeated_lines_config",
     "remove_control_chars",
+    "language_filter",
+    "language_filter_config",
     "remove_non_japanese",
     "remove_newlines",
     "remove_numbers",

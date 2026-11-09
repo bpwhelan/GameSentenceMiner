@@ -1,6 +1,7 @@
 import asyncio
 import copy
 from datetime import datetime, timezone
+from itertools import pairwise
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -139,6 +140,147 @@ def test_adaptive_retry_keeps_scanning_growth_beyond_five_passes_with_a_time_lim
     assert scan.payloads[-1]["data"][0]["text"] == "a" * len(scan.reads)
 
 
+@pytest.mark.parametrize("ocr_duration", [0.02, 0.4])
+@pytest.mark.parametrize("adaptive", [False, True, None])
+def test_retry_follows_long_spooled_hook_text_at_one_second_cadence(scan_workflow, ocr_duration, adaptive):
+    scan = scan_workflow
+    if adaptive is None:
+        del scan.options.adaptive_ocr_retries
+    else:
+        scan.options.adaptive_ocr_retries = adaptive
+    sentence = (
+        "御剣財閥は先々代によって行われた聖域なき構造改革によってその二千年の"
+        "歴史で築いた確固たる地位をさらに揺るぎないものとし、"
+        "その影響はそれを範として現日本政府が遅ればせながらも政治改革の指針を"
+        "示したほどでございます。頂点を極めた後にも自己改革と躍進は留まることなく、"
+        "絶対邁進の精神により商工業、金融、生物、医療、コンピューターへと続いています。"
+    )
+    complete = "話者" + sentence + "既読"
+    scan.run(
+        lambda at, _index: "話者" + sentence[: 1 + int(at * 6)] + "既読",
+        reference=sentence,
+        ocr_duration=ocr_duration,
+    )
+
+    assert scan.reads[-1] >= (len(sentence) - 1) / 6 > 20
+    assert scan.payloads[-1]["data"][0]["text"] == complete
+    assert sum(payload.get("is_final", False) for payload in scan.payloads) == 1
+    assert scan.payloads[-1]["is_final"] is True
+    extended_captures = [at for at in scan.reads if at >= 5]
+    assert len(extended_captures) > 5
+    assert [later - earlier for earlier, later in pairwise(extended_captures)] == pytest.approx(
+        [1.0 + ocr_duration] * (len(extended_captures) - 1)
+    )
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_tolerates_pauses_between_improvements_in_hook_match(scan_workflow, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    sentence = "長い台詞が少しずつ表示される"
+    scan.run(
+        lambda at, _index: sentence[:1] if at < 0.1 else sentence[: 2 + int((at - 0.1) / 2)],
+        reference=sentence,
+    )
+
+    assert scan.reads[-1] > 20
+    assert scan.payloads[-1]["data"][0]["text"] == sentence
+    assert scan.payloads[-1]["is_final"] is True
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_follows_improving_hook_match_without_text_length_growth(scan_workflow, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    sentence = "abcdefghijklmnopqrst"
+
+    def improving_read(at, _index):
+        matched = min(len(sentence), 1 + int(at * 2))
+        return "話者" + sentence[:matched] + "誤" * (len(sentence) - matched) + "既読"
+
+    scan.run(improving_read, reference=sentence)
+
+    assert scan.reads[-1] >= 9.5
+    assert scan.payloads[-1]["data"][0]["text"] == "話者" + sentence + "既読"
+    assert scan.payloads[-1]["is_final"] is True
+
+
+@pytest.mark.parametrize("after_progress", ["stalled", "worse", "blank", "failed", "oscillating", "unrelated_growth"])
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_stops_when_extended_hook_match_progress_stalls(scan_workflow, after_progress, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    sentence = "abcdefghijklmnopqrstuv"
+
+    def spooled_then_stalled(at, index):
+        partial = sentence[: 1 + int(min(at, 8) * 2)]
+        if at < 8 or after_progress == "stalled":
+            return partial
+        if after_progress == "worse":
+            return "無関係な文字"
+        if after_progress in ("blank", "failed"):
+            return "" if after_progress == "blank" else None
+        if after_progress == "oscillating":
+            return partial if index % 2 else partial[:-3]
+        return partial + "別" * index
+
+    scan.run(spooled_then_stalled, reference=sentence)
+
+    assert 10 <= scan.reads[-1] < 13
+    assert 11 <= scan.clock.now < 13
+    assert sum(payload.get("is_final", False) for payload in scan.payloads) == 1
+    assert scan.payloads[-1]["is_final"] is True
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_does_not_extend_for_unrelated_text_growth(scan_workflow, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    scan.run(lambda _at, index: "別" * index, reference="待っている台詞")
+
+    if adaptive:
+        assert all(at < 4.02 for at in scan.reads)
+    else:
+        assert len(scan.reads) == 5
+        assert scan.sleeps == pytest.approx([1.0] * 4)
+    assert 4.0 <= scan.clock.now <= 4.1
+    assert scan.payloads[-1]["is_final"] is True
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_does_not_renew_progress_when_an_old_best_match_returns(scan_workflow, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    scan.run(lambda _at, index: "abcdef" if index % 2 else "abc", reference="abcdefghij")
+
+    if adaptive:
+        assert all(at < 4.02 for at in scan.reads)
+    else:
+        assert len(scan.reads) == 5
+    assert 4.0 <= scan.clock.now <= 4.1
+    assert scan.payloads[-1]["is_final"] is True
+
+
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_cancellation_during_extended_retry_stops_work(scan_workflow, monkeypatch, adaptive):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
+    fake_sleep = get_overlay_coords.asyncio.sleep
+
+    async def cancel_extended_retry(delay):
+        if scan.clock.now >= 5:
+            raise asyncio.CancelledError
+        await fake_sleep(delay)
+
+    monkeypatch.setattr(get_overlay_coords.asyncio, "sleep", cancel_extended_retry)
+    with pytest.raises(asyncio.CancelledError):
+        scan.run(lambda at, _index: "a" * (1 + int(at * 10)), reference="a" * 200)
+
+    assert scan.reads[-1] >= 5
+    assert not any(payload.get("is_final", False) for payload in scan.payloads)
+    scan.processor._record_overlay_scan.assert_not_called()
+
+
 def test_adaptive_retry_waits_for_a_quiet_period_without_a_reference(scan_workflow):
     scan = scan_workflow
     scan.run(lambda _at, _index: "unchanging text")
@@ -249,8 +391,12 @@ def test_adaptive_retry_captures_the_missing_ending_from_the_reported_vlr_line(s
 @pytest.mark.parametrize("missing_characters", [1, 2, 3, 5])
 @pytest.mark.parametrize("speaker", ["", "ファイ"])
 @pytest.mark.parametrize("footer", ["", "医務室"])
-def test_adaptive_retry_does_not_finish_on_a_fuzzy_partial_sentence(scan_workflow, missing_characters, speaker, footer):
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_retry_does_not_finish_on_a_fuzzy_partial_sentence(
+    scan_workflow, missing_characters, speaker, footer, adaptive
+):
     scan = scan_workflow
+    scan.options.adaptive_ocr_retries = adaptive
     sentence = "そこでみんなにはこれからボディチェックを受けてもらおうと思う"
     incomplete = speaker + sentence[:-missing_characters] + footer
     complete = speaker + sentence + footer
@@ -285,13 +431,14 @@ def test_adaptive_retry_still_finishes_immediately_after_safe_ocr_correction(sca
     assert scan.payloads[-1]["is_final"] is True
 
 
-def test_legacy_retries_keep_fuzzy_sentence_convergence(scan_workflow):
+def test_non_aggressive_retries_wait_for_agreement_on_a_fuzzy_sentence(scan_workflow):
     scan = scan_workflow
     scan.options.adaptive_ocr_retries = False
     sentence = "そこでみんなにはこれからボディチェックを受けてもらおうと思う"
     scan.run(lambda _at, _index: "ファイ" + sentence.replace("受", "授"), reference=sentence)
 
-    assert len(scan.reads) == 1
+    assert len(scan.reads) == 2
+    assert scan.sleeps == pytest.approx([1.0])
     assert scan.payloads[-1]["is_final"] is True
 
 
@@ -315,6 +462,36 @@ def test_disabling_adaptive_retry_preserves_five_pass_limit_and_delays(scan_work
     scan = scan_workflow
     scan.options.adaptive_ocr_retries = False
     scan.run(lambda _at, index: "a" * index)
+
+    assert len(scan.reads) == 5
+    assert scan.sleeps == pytest.approx([1.0] * 4)
+    assert scan.payloads[-1]["is_final"] is True
+
+
+def test_non_aggressive_retries_do_not_speed_up_on_hook_match_growth(scan_workflow):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = False
+    scan.run(lambda _at, index: ["a", "ab", "abc"][index - 1], reference="abc")
+
+    assert scan.sleeps == pytest.approx([1.0, 1.0])
+    assert scan.payloads[-1]["data"][0]["text"] == "abc"
+    assert scan.payloads[-1]["is_final"] is True
+
+
+def test_non_aggressive_retries_keep_the_attempt_limit_for_empty_hook_scans(scan_workflow):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = False
+    scan.run(lambda _at, _index: None, reference="待っている台詞")
+
+    assert len(scan.reads) == 5
+    assert scan.sleeps == pytest.approx([0.1] * 4)
+    assert scan.clock.now == pytest.approx(0.5)
+
+
+def test_non_aggressive_retries_keep_five_attempts_with_slow_ocr_and_no_match_progress(scan_workflow):
+    scan = scan_workflow
+    scan.options.adaptive_ocr_retries = False
+    scan.run(lambda _at, index: "別" * index, reference="待っている台詞", ocr_duration=1.5)
 
     assert len(scan.reads) == 5
     assert scan.sleeps == pytest.approx([1.0] * 4)

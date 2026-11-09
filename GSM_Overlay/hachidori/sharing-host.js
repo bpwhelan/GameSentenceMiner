@@ -29,11 +29,29 @@ function relayAddresses(entries) {
 // storage change belongs to the mirror. `name` is what linked browsers call
 // this one. `clientClosed(clientId)` hears every client the relay or this host
 // drops.
+//
+// `languages`, when given, decides what each connection receives once the
+// records have profiles (docs/languages.md 17.3): `hello(snapshot, connection)`
+// returns `{ snapshot, capabilities }` for its hello, or null for today's;
+// `request(message, connection)` returns `{ message }` to dispatch or
+// `{ response }` to answer, with `optIn: true` when the connection's held
+// change frames go out after it; `reply(response, message, connection)`
+// returns what the connection receives; `storageChanged(changes,
+// connections)` returns null for today's broadcast, or
+// `frame(connection, values)`, which gives the changes one connection
+// receives, null for none. A connection is `{ id, client, running, closing,
+// queue }` plus what the hooks keep on it; one that the hooks mark `closing`
+// gets no change frames and is closed once its running requests have been
+// answered.
 export function createSharingHost({
   WebSocket, alarms, dispatch, readSnapshot, sharedKey, version, name, capabilities = SHARING_CAPABILITIES,
-  clientClosed = () => {},
+  clientClosed = () => {}, languages = null,
 }) {
   const clients = new Map();
+  // Per client: its requests running, whether it must reconnect, the change
+  // frames held for it while its opt-in is answered, and the hooks' state.
+  // Kept apart from `clients`, whose entries the status reports.
+  const connections = new Map();
   let enabled = false;
   let configuredPort = DEFAULT_SHARING_PORT;
   // The preference, and what the relay last confirmed.
@@ -79,6 +97,46 @@ export function createSharingHost({
     return postTo(target, { kind: "send", clientId, text: JSON.stringify(frame) });
   }
 
+  // A connection marked closing goes once nothing it asked is still running.
+  function closeIfDone(connection) {
+    if (!connection.closing || connection.closed || connection.running > 0 || socket === null) return;
+    connection.closed = true;
+    postTo(socket, { kind: "close", clientId: connection.id });
+  }
+
+  function flushHeld(target, connection) {
+    const held = connection.queue;
+    connection.queue = null;
+    for (const frame of held ?? []) {
+      if (connection.closing) break;
+      sendTo(target, connection.id, connection.client, frame);
+    }
+  }
+
+  async function answerRequest(target, clientId, client, connection, frame) {
+    connection.running += 1;
+    let response;
+    let optIn = false;
+    try {
+      const handled = languages === null ? { message: frame.message } : await languages.request(frame.message, connection);
+      if (Object.hasOwn(handled, "response")) {
+        response = handled.response;
+        optIn = handled.optIn === true;
+      } else {
+        response = await dispatch(handled.message, clientId, [...client.capabilities]);
+        if (languages !== null) response = languages.reply(response, handled.message, connection);
+      }
+    } catch (requestError) {
+      response = { type: `${frame.message.type}_result`, requestId: frame.message.requestId ?? null, ok: false,
+        error: describeError(requestError) };
+    } finally {
+      connection.running -= 1;
+    }
+    sendTo(target, clientId, client, { kind: "reply", id: frame.id, response });
+    if (optIn) flushHeld(target, connection);
+    closeIfDone(connection);
+  }
+
   async function handleClientText(target, clientId, text) {
     const client = clients.get(clientId);
     if (socket !== target || client === undefined) return;
@@ -91,18 +149,18 @@ export function createSharingHost({
       }
       return;
     }
+    const connection = connections.get(clientId);
     if (frame.kind === "hello") {
       Object.assign(client, { name: frame.name, version: frame.version, capabilities: frame.capabilities });
-      const snapshot = await readSnapshot();
+      const stored = await readSnapshot();
+      const offered = languages?.hello(stored, connection) ?? null;
+      const snapshot = offered === null ? stored : offered.snapshot;
       const dictionaryCount = Array.isArray(snapshot.dictionaryState?.dictionaries) ? snapshot.dictionaryState.dictionaries.length : 0;
-      sendTo(target, clientId, client,
-        { kind: "hello", protocol: PROTOCOL_VERSION, version, name, dictionaryCount, capabilities, snapshot });
+      sendTo(target, clientId, client, { kind: "hello", protocol: PROTOCOL_VERSION, version, name, dictionaryCount,
+        capabilities: offered === null ? capabilities : offered.capabilities, snapshot });
       return;
     }
-    if (frame.kind === "request") {
-      const response = await dispatch(frame.message, clientId, [...client.capabilities]);
-      sendTo(target, clientId, client, { kind: "reply", id: frame.id, response });
-    }
+    if (frame.kind === "request") await answerRequest(target, clientId, client, connection, frame);
   }
 
   function onRelayMessage(target, text) {
@@ -131,11 +189,14 @@ export function createSharingHost({
         return;
       case "client-open": {
         const address = String(message.address ?? "");
-        clients.set(message.clientId, { id: message.clientId, origin: String(message.origin ?? ""), address, local: LOOPBACK_PEERS.has(address),
-          name: "", version: "", capabilities: [], connectedAt: Date.now() });
+        const client = { id: message.clientId, origin: String(message.origin ?? ""), address, local: LOOPBACK_PEERS.has(address),
+          name: "", version: "", capabilities: [], connectedAt: Date.now() };
+        clients.set(message.clientId, client);
+        connections.set(message.clientId, { id: message.clientId, client, running: 0, closing: false, closed: false, queue: null });
         return;
       }
       case "client-close":
+        connections.delete(message.clientId);
         if (clients.delete(message.clientId)) clientClosed(message.clientId);
         return;
       case "client-text":
@@ -189,6 +250,7 @@ export function createSharingHost({
   function clearClients() {
     const closed = [...clients.keys()];
     clients.clear();
+    connections.clear();
     for (const clientId of closed) clientClosed(clientId);
   }
 
@@ -238,12 +300,29 @@ export function createSharingHost({
       if (enabled && socket === null && retryTimer === null) connect();
     },
     storageChanged(changes, area) {
-      if (area !== "local" || socket === null || clients.size === 0) return;
+      if (area !== "local") return;
       const shared = Object.entries(changes).filter(([key]) => sharedKey(key));
       if (shared.length === 0) return;
-      post({ kind: "broadcast", text: JSON.stringify({
-        kind: "storage", changes: Object.fromEntries(shared.map(([key, change]) => [key, change.newValue ?? null])),
-      }) });
+      // The hooks follow every commit, connected or not.
+      const plan = languages?.storageChanged(Object.fromEntries(shared), [...connections.values()]) ?? null;
+      if (socket === null || clients.size === 0) return;
+      const values = Object.fromEntries(shared.map(([key, change]) => [key, change.newValue ?? null]));
+      if (plan === null) {
+        post({ kind: "broadcast", text: JSON.stringify({ kind: "storage", changes: values }) });
+        return;
+      }
+      // With profiles each connection gets its own frame (docs/languages.md 17.3).
+      for (const connection of connections.values()) {
+        if (connection.closing) {
+          closeIfDone(connection);
+          continue;
+        }
+        const projected = plan.frame(connection, values);
+        if (projected === null) continue;
+        const frame = { kind: "storage", changes: projected };
+        if (connection.queue !== null) connection.queue.push(frame);
+        else sendTo(socket, connection.id, connection.client, frame);
+      }
     },
     // The Anki duplicate index is derived state the host owns and never mirrors.
     // Its row revision, or null after a Template source change, still travels

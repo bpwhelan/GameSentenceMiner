@@ -49,8 +49,8 @@ export function createAudioPlayer({ window, fetch, repository = createAudioRepos
     }
   }
 
-  async function playSpeech(source, term, signal, onPlaying) {
-    const { speech, utterance, candidate } = await resolveSpeech(window, source, term, signal);
+  async function playSpeech(source, term, signal, onPlaying, language) {
+    const { speech, utterance, candidate } = await resolveSpeech(window, source, term, signal, language);
     signal.throwIfAborted();
     let abort;
     try {
@@ -94,7 +94,8 @@ export function createAudioPlayer({ window, fetch, repository = createAudioRepos
     throw failure;
   }
 
-  async function playSources(sources, term, { onPlaying, onResolving, candidate: selectedCandidate } = {}) {
+  // `language` is the profile's pronunciation language (docs/languages.md 13).
+  async function playSources(sources, term, { onPlaying, onResolving, candidate: selectedCandidate, language = null } = {}) {
     stop();
     const controller = new AbortController();
     current = controller;
@@ -105,7 +106,7 @@ export function createAudioPlayer({ window, fetch, repository = createAudioRepos
         try {
           onResolving?.();
           const playing = candidate => onPlaying?.({ sourceId: source.id, candidate });
-          const candidate = await playSource(source, term, signal, playing, onResolving, selectedCandidate);
+          const candidate = await playSource(source, term, signal, playing, onResolving, selectedCandidate, language);
           signal.throwIfAborted();
           if (candidate) return { status: "success", sourceId: source.id, candidate };
         } catch (error) {
@@ -123,16 +124,16 @@ export function createAudioPlayer({ window, fetch, repository = createAudioRepos
     }
   }
 
-  async function playSource(source, term, signal, onPlaying, onResolving, selectedCandidate) {
-    if (source.type.startsWith("text-to-speech")) return playSpeech(source, term, signal, onPlaying);
-    const found = selectedCandidate ? [selectedCandidate] : await repository.candidates(source, term, signal);
+  async function playSource(source, term, signal, onPlaying, onResolving, selectedCandidate, language) {
+    if (source.type.startsWith("text-to-speech")) return playSpeech(source, term, signal, onPlaying, language);
+    const found = selectedCandidate ? [selectedCandidate] : await repository.candidates(source, term, signal, language);
     signal.throwIfAborted();
     return found.length ? firstPlayable(found, signal, onPlaying, onResolving) : null;
   }
 
   return {
     stop, playSources,
-    play: (source, term) => playSources([source], term),
+    play: (source, term, options) => playSources([source], term, options),
     dispose() { stop(); repository.clear(); },
   };
 }

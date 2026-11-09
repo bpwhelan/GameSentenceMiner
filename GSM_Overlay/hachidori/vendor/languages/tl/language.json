@@ -1,0 +1,164 @@
+{
+  "schema": 1,
+  "code": "tl",
+  "iso639_3": "tgl",
+  "name": "Tagalog",
+  "nativeName": "Tagalog",
+  "bcp47": "tl",
+  "scripts": ["Latn", "Tglg"],
+  "direction": "ltr",
+  "classes": {
+    "latin": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF]",
+    "baybayin": "[\\u1700-\\u1715\\u171F]",
+    "letter": "[{latin}{baybayin}]",
+    "word": "[{letter}\\p{M}\\p{Nd}]",
+    "vowel": "[aeiou]",
+    "consonant": "[bcdfghjklmnpqrstvwxyzñ]"
+  },
+  "text": {
+    "pattern": "{letter}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "[\\u00AD]",
+    "sentence": {
+      "terminators": [".", "!", "?", "…", "\u1735", "\u1736"],
+      "quotePairs": [["“", "”"], ["‘", "’"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeApostrophes",
+        "name": "Typographic apostrophes as '",
+        "keepInput": false,
+        "variants": [[{"map": {"’": "'", "‘": "'", "ʼ": "'", "＇": "'"}}]]
+      },
+      {
+        "id": "normalizeHyphens",
+        "name": "Unicode hyphens as -",
+        "keepInput": false,
+        "variants": [[{"map": {"‐": "-", "‑": "-"}}]]
+      },
+      {
+        "id": "oldNg",
+        "name": "The old ng̃ as ng",
+        "keepInput": false,
+        "variants": [[{"map": {"g̃": "g", "G̃": "G"}}]]
+      },
+      {
+        "id": "removeSoftHyphens",
+        "name": "Remove soft hyphens",
+        "keepInput": false,
+        "variants": [[{"strip": "[\\u00AD]"}]]
+      },
+      {
+        "id": "removeAlphabeticDiacritics",
+        "name": "Remove alphabetic diacritics",
+        "variants": [[{"normalize": "NFD"}, {"strip": "[\\u0300-\\u036F]"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "fil-PH",
+    "audioLanguage": "tl",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "det": "Determiner",
+        "num": "Numeral",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "ptcl": "Particle",
+        "intj": "Interjection",
+        "artic": "Article",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "char": "Character",
+        "abbv": "Abbreviation",
+        "contr": "Contraction",
+        "idio": "Idiom",
+        "non-lemma": "Inflected form"
+      }
+    },
+    "frequencySamples": {
+      "common": ["ang", "sa", "na", "ng", "mo", "ko", "hindi", "ako", "ka", "at"],
+      "rare": ["alitaptap", "bahaghari", "alimango", "sampalok", "talangka", "duhat", "bayawak", "kalapati", "tutubi", "gagamba"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Tagalog-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Tagalog words with English definitions from English Wiktionary, with the aspect forms of verbs and Baybayin spellings.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "kumakain",
+      "practice": {
+        "text": "Nagluluto ang nanay ko ng adobo para sa hapunan.",
+        "lookup": "Nagluluto"
+      },
+      "entry": {
+        "expression": "magluto",
+        "reading": "magluto",
+        "glossary": ["to cook"],
+        "definitionTags": "v",
+        "matched": "Nagluluto",
+        "trace": ["progressive"]
+      },
+      "character": null
+    }
+  }
+}

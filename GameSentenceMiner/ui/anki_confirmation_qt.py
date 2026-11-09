@@ -628,8 +628,9 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout = QVBoxLayout(audio_container)
         self._audio_layout = audio_layout
         audio_layout.setContentsMargins(6, 4, 6, 4)
-        audio_layout.setSpacing(4)
+        audio_layout.setSpacing(6)
         audio_heading = QHBoxLayout()
+        audio_heading.setSpacing(10)
         audio_heading.addWidget(self.audio_label_title)
         audio_layout.addLayout(audio_heading)
         review_layout.addWidget(audio_container)
@@ -647,8 +648,7 @@ class AnkiConfirmationDialog(QDialog):
 
         self.waveform_widget = AudioWaveformWidget()
         self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
-        self.waveform_widget.setMinimumHeight(54)
-        self.waveform_widget.setMaximumHeight(64)
+        self.waveform_widget.setFixedHeight(96)
         self.waveform_widget.set_dark_mode()
         # Connect range change to cancel auto accept
         self.waveform_widget.range_changed.connect(lambda _s, _e: self._cancel_auto_accept())
@@ -664,35 +664,32 @@ class AnkiConfirmationDialog(QDialog):
 
         # Audio controls
         audio_controls = QHBoxLayout()
+        audio_controls.setSpacing(6)
 
-        self.audio_button = QPushButton("▶ Play Range")
+        self.audio_button = QPushButton("▶ Play")
+        self.audio_button.setObjectName("AudioPreviewButton")
+        self.audio_button.setAccessibleName("Play selected audio")
         self.audio_button.clicked.connect(self._cancel_auto_accept)
         self.audio_button.clicked.connect(self._play_range)
         audio_controls.addWidget(self.audio_button)
 
-        self.play_original_button = QPushButton("▶ Play Full")
-        self.play_original_button.clicked.connect(self._cancel_auto_accept)
-        self.play_original_button.clicked.connect(lambda: self._play_audio(self.audio_path, full=True))
-        audio_controls.addWidget(self.play_original_button)
+        audio_controls.addSpacing(8)
 
         self.cut_audio_button = QPushButton("✂ Add Cut")
+        self.cut_audio_button.setObjectName("AudioCutButton")
         self.cut_audio_button.setCheckable(True)
-        self.cut_audio_button.setToolTip(
-            "Select this, then drag over unwanted audio. You can also hold Shift and drag without selecting the button."
-        )
         self.cut_audio_button.toggled.connect(self._toggle_cut_mode)
         self.cut_audio_button.clicked.connect(self._cancel_auto_accept)
         audio_controls.addWidget(self.cut_audio_button)
 
         self.undo_audio_cut_button = QPushButton("Undo Cut")
-        self.undo_audio_cut_button.setToolTip("Restore the most recently marked section.")
         self.undo_audio_cut_button.clicked.connect(self.waveform_widget.undo_last_cut)
         self.undo_audio_cut_button.clicked.connect(self._cancel_auto_accept)
         self.undo_audio_cut_button.setEnabled(False)
         audio_controls.addWidget(self.undo_audio_cut_button)
 
         self.reset_audio_button = QPushButton("Reset Edits")
-        self.reset_audio_button.clicked.connect(self._reset_audio_trim)
+        self.reset_audio_button.clicked.connect(lambda: self._reset_audio_trim())
         self.reset_audio_button.clicked.connect(self._cancel_auto_accept)
         audio_controls.addWidget(self.reset_audio_button)
 
@@ -700,6 +697,7 @@ class AnkiConfirmationDialog(QDialog):
         audio_layout.addLayout(audio_controls)
 
         self.cut_status_label = QLabel()
+        self.cut_status_label.setWordWrap(True)
         set_status_style(self.cut_status_label, "danger")
         self.cut_status_label.setVisible(False)
         audio_layout.addWidget(self.cut_status_label)
@@ -708,9 +706,17 @@ class AnkiConfirmationDialog(QDialog):
         self.tts_container = QWidget()
         self.tts_button = QPushButton("🔊 Generate TTS Audio")
         self.tts_button.clicked.connect(self._cancel_auto_accept)
-        self.tts_button.clicked.connect(self._generate_tts_audio)
-        self.tts_button.setMaximumWidth(180)
-        audio_layout.addWidget(self.tts_button, alignment=Qt.AlignmentFlag.AlignLeft)
+        self.tts_button.clicked.connect(lambda: self._generate_tts_audio())
+        audio_controls.addWidget(self.tts_button)
+
+        for button in (
+            self.audio_button,
+            self.cut_audio_button,
+            self.undo_audio_cut_button,
+            self.reset_audio_button,
+            self.tts_button,
+        ):
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
 
         self.tts_status_label = QLabel("")
         self.tts_status_label.setWordWrap(True)
@@ -741,24 +747,26 @@ class AnkiConfirmationDialog(QDialog):
         button_container.setProperty("role", "footer")
         button_layout = QHBoxLayout(button_container)
         self._action_layout = button_layout
-        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout.setContentsMargins(0, 6, 0, 0)
         button_layout.setSpacing(8)
         button_layout.addStretch(1)
 
         self.voice_button = QPushButton("Keep Audio")
-        self.voice_button.clicked.connect(self._on_voice)
+        # Drop clicked(bool) before calling decorated review handlers, whose
+        # wrappers otherwise forward the extra argument into a no-argument method.
+        self.voice_button.clicked.connect(lambda: self._on_voice())
         self.voice_button.clicked.connect(self._cancel_auto_accept)
         self.voice_button.setProperty("role", "primary")
 
         self.no_voice_button = QPushButton("No Audio")
-        self.no_voice_button.clicked.connect(self._on_no_voice)
+        self.no_voice_button.clicked.connect(lambda: self._on_no_voice())
         self.no_voice_button.clicked.connect(self._cancel_auto_accept)
         self.no_voice_button.setStyleSheet("padding: 7px 20px;")
         button_layout.addWidget(self.no_voice_button)
         button_layout.addWidget(self.voice_button)
 
         self.confirm_button = QPushButton("Confirm")
-        self.confirm_button.clicked.connect(self._on_no_voice)
+        self.confirm_button.clicked.connect(lambda: self._on_no_voice())
         self.confirm_button.clicked.connect(self._cancel_auto_accept)
         self.confirm_button.setProperty("role", "primary")
         button_layout.addWidget(self.confirm_button)
@@ -773,7 +781,7 @@ class AnkiConfirmationDialog(QDialog):
         self._review_header = QFrame()
         self._review_header.setObjectName("ConfirmationHeader")
         self._review_header_layout = QHBoxLayout(self._review_header)
-        self._review_header_layout.setContentsMargins(0, 0, 0, 6)
+        self._review_header_layout.setContentsMargins(0, 0, 0, 4)
         self._header_expression = QVBoxLayout()
         self._header_expression.setSpacing(2)
         self._review_header_layout.addLayout(self._header_expression, 1)
@@ -782,7 +790,7 @@ class AnkiConfirmationDialog(QDialog):
         self._split_body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._split_body_layout = QHBoxLayout(self._split_body)
         self._split_body_layout.setContentsMargins(0, 0, 0, 0)
-        self._split_body_layout.setSpacing(12)
+        self._split_body_layout.setSpacing(8)
         self._dialogue_caption = QHBoxLayout()
         self._dialogue_caption.setSpacing(8)
         for layout in (
@@ -796,8 +804,8 @@ class AnkiConfirmationDialog(QDialog):
                 layout.takeAt(0)
         self._review_layout.addWidget(self.overlay_source_warning_label)
         settings = get_config()
-        self.layout().setContentsMargins(14, 12, 14, 10)
-        self._review_layout.setSpacing(8)
+        self.layout().setContentsMargins(10, 8, 10, 8)
+        self._review_layout.setSpacing(6)
         self._header_expression.addWidget(self.expr_label_title)
         self._header_expression.addWidget(self.expr_value_label)
         self._review_header_layout.addWidget(
@@ -810,11 +818,11 @@ class AnkiConfirmationDialog(QDialog):
         self._screenshot_section.setMinimumWidth(260)
         self._screenshot_section.setMaximumWidth(320)
         self._screenshots_layout.setDirection(QBoxLayout.Direction.TopToBottom)
-        self._screenshots_layout.setContentsMargins(12, 8, 12, 8)
-        self._screenshots_layout.setSpacing(8)
+        self._screenshots_layout.setContentsMargins(10, 6, 10, 6)
+        self._screenshots_layout.setSpacing(6)
         self._screenshots_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.grid_layout.setContentsMargins(12, 8, 12, 8)
-        self.grid_layout.setVerticalSpacing(4)
+        self.grid_layout.setContentsMargins(10, 6, 10, 6)
+        self.grid_layout.setVerticalSpacing(3)
         self.grid_layout.setColumnStretch(0, 1)
         self.grid_layout.setColumnStretch(1, 0)
         self.grid_layout.addWidget(self.sentence_label_title, 0, 0)
@@ -829,12 +837,10 @@ class AnkiConfirmationDialog(QDialog):
         self._dialogue_tools_layout.addWidget(self.add_prev_line_button, 0, 0)
         self._dialogue_tools_layout.addWidget(self.add_next_line_button, 0, 1)
         self._dialogue_tools_layout.addWidget(self.regen_translation_checkbox, 0, 2)
-        self.sentence_text.setFixedHeight(60)
-        self.translation_text.setFixedHeight(48)
+        self.sentence_text.setFixedHeight(56)
+        self.translation_text.setFixedHeight(64)
         self.dialogue_timeline.setFixedHeight(64)
-        self._audio_layout.setContentsMargins(12, 6, 12, 8)
-        self.waveform_widget.setMinimumHeight(64)
-        self.waveform_widget.setMaximumHeight(70)
+        self._audio_layout.setContentsMargins(10, 6, 10, 6)
         self.sentence_label_title.setText("Sentence")
         self.expr_label_title.setText(settings.anki.word_field or "Expression")
         self.translation_label_title.setText("Translation")
@@ -845,12 +851,10 @@ class AnkiConfirmationDialog(QDialog):
         self.add_prev_line_button.setText("Add previous")
         self.add_next_line_button.setText("Add next")
         self.regen_translation_checkbox.setText("Refresh translation")
-        self.resize(820, 640)
+        self.resize(820, 600)
         for label in (self.sentence_label_title, self.translation_label_title):
             label.setMaximumWidth(16777215)
             label.setProperty("role", "sectionHeading")
-        self.sentence_label_title.setToolTip(f"Anki field: {settings.anki.sentence_field}")
-        self.translation_label_title.setToolTip(f"Anki field: {settings.ai.anki_field}")
         for grid, title, image, button, previous in (
             (self._screenshot_layout, self.screenshot_label_title, self.image_label, self.screenshot_button, False),
             (
@@ -895,6 +899,7 @@ class AnkiConfirmationDialog(QDialog):
         reusing_audio=False,
         reusing_screenshot=False,
         overlay_only=False,
+        replay_context=None,
     ):
         self._review_history.suspend()
         self._populate_start_perf = time.perf_counter()
@@ -903,16 +908,13 @@ class AnkiConfirmationDialog(QDialog):
         self.overlay_only = bool(overlay_only)
         self.waveform_widget.set_expand_step(get_config().anki.confirmation_audio_step)
         self.overlay_source_warning_label.setVisible(self.overlay_only)
-        self.disable_session_checkbox.setVisible(not self.overlay_only)
-        if self.overlay_only:
-            self._cancel_auto_accept()
 
         # Store state
         self.screenshot_timestamp = screenshot_timestamp
         self.previous_screenshot_timestamp = previous_screenshot_timestamp
         self.screenshot_path = screenshot_path
         self.previous_screenshot_path = previous_screenshot_path
-        self.vad_result = gsm_state.vad_result
+        self.vad_result = replay_context.vad_result if replay_context is not None else gsm_state.vad_result
         self.reusing_audio = bool(reusing_audio)
         self.reusing_screenshot = bool(reusing_screenshot)
         self.result = None
@@ -929,7 +931,7 @@ class AnkiConfirmationDialog(QDialog):
         self._playback_cut_ranges = []
         self._playing_full_audio = False
         self.cut_audio_button.setChecked(False)
-        self._replay_context = gsm_state.current_replay_context
+        self._replay_context = replay_context if replay_context is not None else gsm_state.current_replay_context
         self._dialog_selected_lines = self._dialogue_lines_from_context(self._replay_context)
         self._dialog_original_selected_line_ids = self._line_ids_for_dialogue(self._dialog_selected_lines)
         self._dialog_line_selection_changed = False
@@ -977,7 +979,9 @@ class AnkiConfirmationDialog(QDialog):
             self.audio_path = self.vad_result.trimmed_audio_path
         if self.reusing_audio:
             self.audio_path = None
-        self._load_audio_edit_context(gsm_state.audio_edit_context)
+        self._load_audio_edit_context(
+            replay_context.audio_edit_context if replay_context is not None else gsm_state.audio_edit_context
+        )
 
         # Translation
         self._translation_future = translation_future
@@ -1004,17 +1008,14 @@ class AnkiConfirmationDialog(QDialog):
         # Show animated screenshot status if pending
         if self.reusing_screenshot:
             self.screenshot_button.setText("Change reused screenshot")
-            self.screenshot_button.setToolTip("Change reused screenshot")
             set_status_style(self.screenshot_button, "success")
             self.screenshot_button.setEnabled(True)
         elif pending_animated:
             self.screenshot_button.setText("Replace animation")
-            self.screenshot_button.setToolTip("Replace animation with screenshot(s)")
             set_status_style(self.screenshot_button, "warning")
             self.screenshot_button.setEnabled(True)
         else:
             self.screenshot_button.setText("Change screenshot")
-            self.screenshot_button.setToolTip("")
             set_status_style(self.screenshot_button, "")
             self.screenshot_button.setEnabled(True)
         animated_extension = getattr(get_config().screenshot.animated_settings, "extension", "").lower()
@@ -1156,7 +1157,7 @@ class AnkiConfirmationDialog(QDialog):
             # showEvent runs before the native window has finished being shown.
             self._focus_on_show_timer.start(0)
 
-        if get_config().anki.auto_accept_timer > 0 and not self.overlay_only:
+        if get_config().anki.auto_accept_timer > 0:
             self._cancel_auto_accept()
             self._auto_accept_remaining = int(get_config().anki.auto_accept_timer)
             self.auto_accept_label.setVisible(True)
@@ -1460,9 +1461,7 @@ class AnkiConfirmationDialog(QDialog):
 
         self.cut_audio_button.setText("✂ Finish Cutting" if is_selecting else "✂ Add Cut")
         self.undo_audio_cut_button.setEnabled(bool(cut_ranges))
-        if is_selecting:
-            status = "Drag over unwanted audio. Drag again to mark another section. Shift+drag also works anytime."
-        elif cut_count:
+        if cut_count:
             noun = "section" if cut_count == 1 else "sections"
             status = f"{cut_count} {noun} marked ({cut_duration:.2f}s removed). Playback previews the edit."
         else:
@@ -1532,7 +1531,7 @@ class AnkiConfirmationDialog(QDialog):
     def _select_screenshot(self, previous: bool = False):
         from GameSentenceMiner.ui.qt_main import launch_screenshot_selector
 
-        video_path = gsm_state.current_replay
+        video_path = self._replay_context.video_path if self._replay_context else gsm_state.current_replay
         self._cancel_auto_accept()
         timestamp = self.previous_screenshot_timestamp if previous else self.screenshot_timestamp
         selected = launch_screenshot_selector(
@@ -1554,8 +1553,6 @@ class AnkiConfirmationDialog(QDialog):
             self.screenshot_button.setText("Change selected screenshot(s)")
             set_status_style(self.screenshot_button, "success")
             self.animated_audio_notice_label.setVisible(False)
-        if len(selected.items) > 1:
-            label_widget.setToolTip(f"{len(selected.items)} screenshots selected in order")
 
     @staticmethod
     def _dialogue_lines_from_context(context):
@@ -1649,11 +1646,15 @@ class AnkiConfirmationDialog(QDialog):
         if next_line:
             entries.append(("Next", str(next_line.text or ""), colors["text-muted"]))
         else:
-            entries.append(("Next", "Waiting for the next line…", colors["text-muted"]))
+            next_hint = (
+                "End of saved dialogue"
+                if getattr(self._replay_context, "saved_review", False)
+                else "Waiting for the next line…"
+            )
+            entries.append(("Next", next_hint, colors["text-muted"]))
 
         # Context is a three-line preview. Full dialogue stays available in the
-        # sentence editor and tooltip without stretching the review off screen.
-        self.dialogue_timeline.setToolTip("\n".join(f"{label}: {text}" for label, text, _color in entries))
+        # sentence editor without stretching the review off screen.
         rows = []
         for label, text, color in entries:
             display_text = " ".join(text.split()) or "(empty line)"
@@ -1698,9 +1699,6 @@ class AnkiConfirmationDialog(QDialog):
         self.add_prev_line_button.setVisible(bool(visible and prev_line))
         self.add_next_line_button.setVisible(visible)
         self.add_next_line_button.setEnabled(bool(visible and next_line and not replay_pending))
-        self.add_next_line_button.setToolTip(
-            "Add the next line to this card." if next_line else "Waiting for the next captured line."
-        )
         self.regen_translation_checkbox.setVisible(bool(visible and (has_translation or can_regenerate_translation)))
         self.dialogue_tools_status.setVisible(visible)
         self._refresh_dialogue_timeline()
@@ -1740,7 +1738,6 @@ class AnkiConfirmationDialog(QDialog):
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
-            self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
             AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
@@ -1757,7 +1754,6 @@ class AnkiConfirmationDialog(QDialog):
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
-            self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
             AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
@@ -1814,7 +1810,6 @@ class AnkiConfirmationDialog(QDialog):
                 self.codec_info_label.setVisible(True)
                 self.waveform_widget.setVisible(False)
                 self.audio_button.setVisible(False)
-                self.play_original_button.setVisible(False)
                 self.reset_audio_button.setVisible(False)
                 AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
                 self._update_audio_expand_buttons(allow_buttons=False)
@@ -1825,10 +1820,10 @@ class AnkiConfirmationDialog(QDialog):
                 self._playback_resume_position = None
                 self._playing_full_audio = False
                 self.audio_button.setVisible(waveform_loaded)
-                self.play_original_button.setVisible(waveform_loaded)
                 self.reset_audio_button.setVisible(waveform_loaded)
                 AnkiConfirmationDialog._set_audio_cut_controls_visible(self, waveform_loaded)
-                self.audio_button.setText("▶ Play Range")
+                self.audio_button.setText("▶ Play")
+                self.audio_button.setAccessibleName("Play selected audio")
                 set_status_style(self.audio_button, "")
                 self._update_audio_expand_buttons(allow_buttons=waveform_loaded)
                 if not waveform_loaded:
@@ -1840,7 +1835,6 @@ class AnkiConfirmationDialog(QDialog):
             self.codec_info_label.setVisible(False)
             self.waveform_widget.setVisible(False)
             self.audio_button.setVisible(False)
-            self.play_original_button.setVisible(False)
             self.reset_audio_button.setVisible(False)
             AnkiConfirmationDialog._set_audio_cut_controls_visible(self, False)
             self._update_audio_expand_buttons(allow_buttons=False)
@@ -1849,7 +1843,7 @@ class AnkiConfirmationDialog(QDialog):
             get_config().vad.tts_url and get_config().vad.tts_url != "http://127.0.0.1:5050/?term=$s" and sentence_text
         )
         self.tts_button.setVisible(show_tts)
-        self.tts_status_label.setVisible(show_tts)
+        self.tts_status_label.setVisible(False)
         self.tts_status_label.setText("")
 
         if show_tts:
@@ -2010,8 +2004,9 @@ class AnkiConfirmationDialog(QDialog):
             if audio_result:
                 self._dialog_audio_result = audio_result
                 self.vad_result = audio_result.vad_result
-                gsm_state.vad_result = audio_result.vad_result
-                gsm_state.audio_edit_context = audio_result.audio_edit_context
+                if not getattr(self._replay_context, "saved_review", False):
+                    gsm_state.vad_result = audio_result.vad_result
+                    gsm_state.audio_edit_context = audio_result.audio_edit_context
                 self._load_audio_edit_context(audio_result.audio_edit_context)
                 self.audio_path = audio_result.final_audio_output or (
                     audio_result.vad_result.output_audio if audio_result.vad_result else self.audio_path
@@ -2312,7 +2307,7 @@ class AnkiConfirmationDialog(QDialog):
             True,
             can_expand_start=start_time > 0.01,
             can_expand_end=end_time < self._audio_edit_source_duration - 0.01,
-            range_text=f"{start_time:.2f}s -> {end_time:.2f}s",
+            range_text=f"{start_time:.2f}s → {end_time:.2f}s  ·  {end_time - start_time:.2f}s selected",
         )
 
     @review_edit("Expand audio")
@@ -2347,7 +2342,6 @@ class AnkiConfirmationDialog(QDialog):
         self.waveform_widget.load_audio(self.audio_path)
         self.waveform_widget.setVisible(True)
         self.audio_button.setVisible(True)
-        self.play_original_button.setVisible(True)
         self.reset_audio_button.setVisible(True)
         self._set_audio_cut_controls_visible(True)
         self._audio_edit_source_window = (start_time, end_time)
@@ -2553,7 +2547,7 @@ class AnkiConfirmationDialog(QDialog):
             return
 
         cut_ranges = self.waveform_widget.get_cut_ranges()
-        preview_data = self._build_audio_preview_data(data, sr, start_position, cut_ranges)
+        preview_data = self._build_audio_preview_data(data[: int(end * sr)], sr, start_position, cut_ranges)
         if preview_data is None or len(preview_data) == 0:
             return
 
@@ -2706,24 +2700,18 @@ class AnkiConfirmationDialog(QDialog):
         self.audio_finished_signal.emit()
 
     def _update_audio_buttons(self):
-        """Update both Play Range and Play Full button states based on playback status."""
+        """Keep the preview toggle's label in sync with playback."""
         is_playing = self.audio_player.is_playing
 
         if self.audio_button:
             if is_playing:
-                self.audio_button.setText("⏹ Stop")
-                set_status_style(self.audio_button, "warning", boxed=True)
+                self.audio_button.setText("⏸ Pause")
+                self.audio_button.setAccessibleName("Pause audio")
+                set_status_style(self.audio_button, "warning")
             else:
-                self.audio_button.setText("▶ Play Range")
+                self.audio_button.setText("▶ Play")
+                self.audio_button.setAccessibleName("Play selected audio")
                 set_status_style(self.audio_button, "")
-
-        if self.play_original_button:
-            if is_playing:
-                self.play_original_button.setText("⏹ Stop")
-                set_status_style(self.play_original_button, "warning", boxed=True)
-            else:
-                self.play_original_button.setText("▶ Play Full")
-                set_status_style(self.play_original_button, "")
 
     @review_edit("Generate TTS audio")
     def _generate_tts_audio(self):
@@ -2756,7 +2744,6 @@ class AnkiConfirmationDialog(QDialog):
             # Update waveform
             self.waveform_widget.load_audio(self.audio_path)
             self.waveform_widget.setVisible(True)
-            self.play_original_button.setVisible(True)
             self.reset_audio_button.setVisible(True)
             self._set_audio_cut_controls_visible(True)
             self._playback_resume_position = None
@@ -2778,6 +2765,7 @@ class AnkiConfirmationDialog(QDialog):
             self.no_voice_button.setVisible(True)
             self.confirm_button.setVisible(False)
             self.tts_status_label.setText("✓ TTS Audio Generated")
+            self.tts_status_label.setVisible(True)
             set_status_style(self.tts_status_label, "success")
             self.tts_button.setText("🔊 Regenerate TTS Audio")
             if getattr(get_config().anki, "replay_audio_on_tts_generation", True):
@@ -2991,7 +2979,7 @@ def show_anki_confirmation(
     if app is None:
         app = QApplication(sys.argv)
 
-    if gsm_state.disable_anki_confirmation_session and not overlay_only:
+    if gsm_state.disable_anki_confirmation_session:
         vad_result = gsm_state.vad_result
         vad_ran = vad_result is not None and hasattr(vad_result, "success")
         vad_detected_voice = vad_ran and bool(vad_result.success)

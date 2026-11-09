@@ -2,12 +2,12 @@
 import { createAudioCache } from "./audio-cache.js";
 import { audioSourceUrl, parseAudioSourceList } from "./audio-sources.js";
 
-export async function selectedAudioPlan(repository, sources, term, selection, signal) {
+export async function selectedAudioPlan(repository, sources, term, selection, signal, language = null) {
   const source = sources.find(source => source.id === selection.sourceId && JSON.stringify(source) === selection.sourceKey);
   if (!source || selection.expression !== term.expression || selection.reading !== term.reading) {
     throw new Error("This pronunciation selection is no longer current. Choose it again.");
   }
-  const candidates = await repository.candidates(source, term, signal);
+  const candidates = await repository.candidates(source, term, signal, language);
   const candidate = candidates[selection.index];
   if (!candidate || (candidate.url ?? null) !== selection.url || candidate.name !== selection.name) {
     throw new Error("The provider's pronunciation choices changed. Choose again.");
@@ -75,15 +75,18 @@ export function createAudioRepository({ window, fetch, now = () => performance.n
   }
 
   return {
-    async candidates(source, term, signal) {
+    // `language` is the profile's pronunciation language (docs/languages.md
+    // 13): it names browser speech and fills {language}; null is Japanese.
+    async candidates(source, term, signal, language = null) {
       signal.throwIfAborted();
-      const key = JSON.stringify([source, term.expression, term.reading]);
+      const key = JSON.stringify(language === null ? [source, term.expression, term.reading]
+        : [source, term.expression, term.reading, language.code]);
       const cached = candidates.get(key);
       if (cached) return cached;
       let found = [];
-      if (source.type.startsWith("text-to-speech")) found = [{ name: source.voice || "Automatic Japanese" }];
+      if (source.type.startsWith("text-to-speech")) found = [{ name: source.voice || `Automatic ${language?.name ?? "Japanese"}` }];
       else if (source.url) {
-        const url = audioSourceUrl(source.url, term);
+        const url = audioSourceUrl(source.url, term, language?.url);
         if (source.type === "custom") found = [{ url, name: "" }];
         else found = parseAudioSourceList(await audioSourceList(url, signal));
       }

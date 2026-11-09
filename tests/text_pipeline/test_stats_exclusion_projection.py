@@ -35,6 +35,19 @@ def make_record(**changes):
     return replace(record, **changes)
 
 
+@pytest.mark.parametrize(
+    "text, revision, expected",
+    [("通常の文章。", 3, "Translation"), ("新しい文章。", 3, ""), ("古い文章。", 1, "Translation")],
+)
+def test_line_translations_survive_status_updates_but_clear_for_changed_source(text, revision, expected):
+    history = GameText()
+    line = history.upsert_authoritative_line(make_record(revision=2))
+    line.translation = line.TL = "Translation"
+    updated = history.upsert_authoritative_line(make_record(text=text, revision=revision, state=TextRecordState.FROZEN))
+    assert updated is line
+    assert line.translation == line.TL == expected
+
+
 @pytest.mark.parametrize("stats_status", ["accepted", "pending", "pending_manual", "skipped"])
 @pytest.mark.parametrize("explicitly_excluded", [False, True])
 def test_wire_badge_requires_confirmed_stats_exclusion(stats_status, explicitly_excluded):

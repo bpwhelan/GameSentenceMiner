@@ -25,6 +25,8 @@ interface TextProcessingConfig {
   remove_repeated_lines_v2: boolean;
   remove_repeated_lines_config: { repeat_count: number };
   remove_control_chars: boolean;
+  language_filter: boolean;
+  language_filter_config: { mode: string };
   remove_non_japanese: boolean;
   remove_newlines: boolean;
   remove_numbers: boolean;
@@ -64,6 +66,7 @@ const PROCESSOR_META: ProcessorInfo[] = [
   { id: "remove_repeated_chars", labelKey: "textProcessing.processors.removeRepeatedChars", descKey: "textProcessing.processors.removeRepeatedCharsDesc", hasConfig: false },
   { id: "remove_repeated_lines", labelKey: "textProcessing.processors.removeRepeatedLines", descKey: "textProcessing.processors.removeRepeatedLinesDesc", hasConfig: false },
   { id: "remove_control_chars", labelKey: "textProcessing.processors.removeControlChars", descKey: "textProcessing.processors.removeControlCharsDesc", hasConfig: false },
+  { id: "language_filter", labelKey: "textProcessing.processors.languageFilter", descKey: "textProcessing.processors.languageFilterDesc", hasConfig: true },
   { id: "remove_non_japanese", labelKey: "textProcessing.processors.removeNonJapanese", descKey: "textProcessing.processors.removeNonJapaneseDesc", hasConfig: false },
   { id: "remove_newlines", labelKey: "textProcessing.processors.removeNewlines", descKey: "textProcessing.processors.removeNewlinesDesc", hasConfig: false },
   { id: "remove_numbers", labelKey: "textProcessing.processors.removeNumbers", descKey: "textProcessing.processors.removeNumbersDesc", hasConfig: false },
@@ -75,6 +78,8 @@ const PROCESSOR_META: ProcessorInfo[] = [
   { id: "unicode_normalize", labelKey: "textProcessing.processors.unicodeNormalize", descKey: "textProcessing.processors.unicodeNormalizeDesc", hasConfig: false },
 ];
 
+const LANGUAGE_FILTER_MODES = ["blocks", "trim", "strict"] as const;
+
 function getDefaultConfig(): TextProcessingConfig {
   return {
     string_replacement: { enabled: false, rules: [] },
@@ -84,6 +89,8 @@ function getDefaultConfig(): TextProcessingConfig {
     remove_repeated_lines_v2: true,
     remove_repeated_lines_config: { repeat_count: 1 },
     remove_control_chars: false,
+    language_filter: false,
+    language_filter_config: { mode: "blocks" },
     remove_non_japanese: false,
     remove_newlines: false,
     remove_numbers: false,
@@ -102,7 +109,11 @@ function normalizeConfig(rawConfig: Partial<TextProcessingConfig> | null | undef
   const defaults = getDefaultConfig();
   const raw = rawConfig ?? {};
   const allIds = PROCESSOR_META.map((p) => p.id);
-  const rawOrder = Array.isArray(raw.processor_order) ? raw.processor_order : defaults.processor_order;
+  const rawOrder = Array.isArray(raw.processor_order) ? [...raw.processor_order] : [...defaults.processor_order];
+  if (!rawOrder.includes("language_filter")) {
+    const position = rawOrder.findIndex((id) => id === "remove_non_japanese" || id === "remove_newlines");
+    rawOrder.splice(position < 0 ? rawOrder.length : position, 0, "language_filter");
+  }
   const missing = allIds.filter((id) => !rawOrder.includes(id));
 
   return {
@@ -121,6 +132,10 @@ function normalizeConfig(rawConfig: Partial<TextProcessingConfig> | null | undef
     remove_repeated_lines_config: {
       ...defaults.remove_repeated_lines_config,
       ...raw.remove_repeated_lines_config,
+    },
+    language_filter_config: {
+      mode: LANGUAGE_FILTER_MODES.some((mode) => mode === raw.language_filter_config?.mode)
+        ? raw.language_filter_config!.mode : defaults.language_filter_config.mode,
     },
     extract_lines_config: {
       ...defaults.extract_lines_config,
@@ -375,11 +390,18 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                     <input
                       type="checkbox"
                       checked={isProcessorEnabled(config, proc.id)}
-                      onChange={(e) => updateConfig((c) => setProcessorEnabled(c, proc.id, e.target.checked))}
+                      onChange={(e) => {
+                        updateConfig((c) => setProcessorEnabled(c, proc.id, e.target.checked));
+                        if (proc.id === "language_filter" && e.target.checked) setExpandedProcessor(proc.id);
+                      }}
                     />
                     <span className="processor-name" data-tip={t(proc.descKey)}>{t(proc.labelKey)}</span>
                   </label>
-                  <span className="processor-desc" data-tip={t(proc.descKey)}>{t(proc.descKey)}</span>
+                  <span className="processor-desc" data-tip={t(proc.descKey)}>
+                    {proc.id === "language_filter"
+                      ? t(`textProcessing.languageFilter.${config.language_filter_config.mode}`)
+                      : t(proc.descKey)}
+                  </span>
                   <div className="processor-item-actions">
                     <button
                       className="btn-icon"
@@ -411,6 +433,27 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
                 {/* Expanded config panels */}
                 {expandedProcessor === proc.id && proc.hasConfig && (
                   <div className="processor-config-panel" id={`processor-config-${proc.id}`}>
+                    {proc.id === "language_filter" && (
+                      <div className="language-filter-config">
+                        <label htmlFor="language-filter-mode">{t("textProcessing.languageFilter.mode")}</label>
+                        <select
+                          id="language-filter-mode"
+                          aria-describedby="language-filter-description language-filter-target"
+                          value={config.language_filter_config.mode}
+                          onChange={(e) => updateConfig((c) => ({
+                            ...c, language_filter_config: { mode: e.target.value },
+                          }))}
+                        >
+                          {LANGUAGE_FILTER_MODES.map((mode) => (
+                            <option key={mode} value={mode}>{t(`textProcessing.languageFilter.${mode}`)}</option>
+                          ))}
+                        </select>
+                        <p id="language-filter-description">
+                          {t(`textProcessing.languageFilter.${config.language_filter_config.mode}Description`)}
+                        </p>
+                        <p id="language-filter-target">{t("textProcessing.languageFilter.targetHint")}</p>
+                      </div>
+                    )}
                     {proc.id === "string_replacement" && (
                       <StringReplacementConfig
                         rules={config.string_replacement.rules}

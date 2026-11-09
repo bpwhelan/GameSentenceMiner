@@ -5,8 +5,9 @@
 import {
   DEFAULT_OPTIONS, normaliseOptions, validateOptionsPatch, OFFSCREEN_DOCUMENT, TARGET, UPDATE_TARGET, AUDIO_TARGET,
   SETUP_TARGET, PAGE_ZOOM_TARGET, BACKUP_LIFECYCLE_PORT, WORKER_TARGET, DICTIONARY_STATE_KEY, OPTIONS_KEY,
-  ankiSettingsSender, writeLocalState, ensureOffscreen, relay, readDictionaryStorage, optionsRevision, startupSender,
-  serialiseStorage, workerReply, failureReply,
+  CLIPBOARD_TARGET, searchPageSender,
+  ankiSettingsSender, writeLocalState, ensureOffscreen, relay, readDictionaryStorage, optionsRevision, readerPageSender,
+  serialiseStorage, workerReply, failureReply, requestProfileId, updateLookupProfiles,
 } from "./background-core.js";
 import {
   WORKER_HANDLERS, handleRecommendedInstall, handleWorkerRequest, SHARING_TARGET,
@@ -23,11 +24,10 @@ import {
   SHARED_STATE_KEYS, sharingHost, dictionaryCount, LOCAL_UPLOAD_OWNER, answerUploadRequest, sharingLinked,
   forwardToHost, forwardWorkerRequest, serialiseSharingTransition, SHARING_HANDLERS, initialiseSharing,
 } from "./background-sharing.js";
-import {
-  NETFLIX_TARGET, NETFLIX_RECORDER_PORT, NETFLIX_WATCH_URL, adoptNetflixRecorder, handleNetflixRequest,
-} from "./background-netflix.js";
+import { netflixMining } from "./background-netflix.js";
+import { youtubeMining } from "./background-youtube.js";
 import { extensionApi as chrome } from "./browser-api.js";
-import { captureWorkerDebugLog } from "./debug-log.js";
+import { captureDebugLog, openDebugLogStore } from "./debug-log.js";
 import { describeErrorOrJson } from "./error-text.js";
 import "./reader-options.js";
 import { ANKI_INDEX_KEY } from "./anki-index-cache.js";
@@ -46,7 +46,10 @@ import {
 } from "./setup-state.js";
 import { applyCustomJavaScript } from "./custom-javascript.js";
 import { applyGoogleDocsFlag } from "./google-docs.js";
+import { applyLanguageScripts } from "./language-scripts.js";
 import { applyNetflixFlag } from "./netflix.js";
+import { applyYouTubeFlag } from "./youtube.js";
+import { openSearchPage } from "./search-window.js";
 
 /*
  * Service worker for Hachidori.
@@ -64,9 +67,10 @@ import { applyNetflixFlag } from "./netflix.js";
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-// Settings → Advanced → Get debug info reads this worker's recent warnings,
-// errors and failed replies (debug-log.js).
-captureWorkerDebugLog(globalThis, chrome.storage.session);
+// Settings → Advanced → Get debug info reads this worker's warnings, errors and
+// failed replies, kept across its restarts in the extension's debug log ring
+// (debug-log.js).
+captureDebugLog(globalThis, { context: "service-worker", store: openDebugLogStore(globalThis.indexedDB) });
 
 // The overlay host (Electron 43) exposes chrome.alarms, and create()/get()
 // even record the alarm, but onAlarm never dispatches to the worker; a host
@@ -118,6 +122,47 @@ chrome.storage.onChanged.addListener((changes, area) => {
   sharingHost?.setDictionaries(dictionaryCount(changes[DICTIONARY_STATE_KEY].newValue));
 });
 
+// The toolbar badge names the active language once there are two
+// (docs/languages.md 16.2): its code, JA or EN. An installation that never had
+// two profiles never touches the badge. `hadProfiles`: the change that calls
+// this left records that had profiles, so a badge set before a worker restart
+// may still show.
+let languageBadge = null;
+
+// The badge is best effort: a failed read or write leaves it as it was.
+async function syncLanguageBadge(api, { hadProfiles = false } = {}) {
+  if (typeof api.action?.setBadgeText !== "function") return;
+  try {
+    const { LANGUAGE_SELECTION_KEY, activeProfileId, hasProfiles, languagesEnabled, profiles } = globalThis.HDReaderOptions;
+    const stored = await api.storage.local.get([OPTIONS_KEY, LANGUAGE_SELECTION_KEY]);
+    const shown = hasProfiles(stored[OPTIONS_KEY]) && languagesEnabled(stored[OPTIONS_KEY]);
+    const list = shown ? profiles(stored[OPTIONS_KEY]) : [];
+    const id = activeProfileId(stored[OPTIONS_KEY], stored[LANGUAGE_SELECTION_KEY]);
+    const text = list.length < 2 ? "" : (list.find(profile => profile.id === id)?.language ?? id).toUpperCase();
+    if (text === languageBadge || (languageBadge === null && text === "" && list.length === 0 && !hadProfiles)) return;
+    languageBadge = text;
+    await api.action.setBadgeText({ text });
+  } catch {
+    // The next change of the records tries again.
+  }
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  const { hasProfiles, LANGUAGE_SELECTION_KEY } = globalThis.HDReaderOptions;
+  const options = changes[OPTIONS_KEY];
+  const hadProfiles = hasProfiles(options?.oldValue);
+  if (!changes[LANGUAGE_SELECTION_KEY] && !(options && (hadProfiles || hasProfiles(options.newValue)))) return;
+  void syncLanguageBadge(chrome, { hadProfiles });
+});
+
+// The profile map relay() resolves lookups with (docs/languages.md 9.3).
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || (!changes[OPTIONS_KEY] && !changes[DICTIONARY_STATE_KEY])) return;
+  updateLookupProfiles(Object.fromEntries([OPTIONS_KEY, DICTIONARY_STATE_KEY]
+    .filter(key => changes[key]).map(key => [key, changes[key].newValue])));
+});
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || updateCycleActive) return;
   const state = changes[DICTIONARY_STATE_KEY];
@@ -133,6 +178,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
   void applyGoogleDocsFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.googleDocs);
   void applyNetflixFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.netflixMining);
+  void applyYouTubeFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.youtubeMining);
+  void applyLanguageScripts(chrome, globalThis.HDReaderOptions.hasProfiles(changes[OPTIONS_KEY].newValue));
   const { lowMemoryMode, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault } = normaliseOptions(changes[OPTIONS_KEY].newValue);
   const previous = normaliseOptions(changes[OPTIONS_KEY].oldValue);
   if (lowMemoryMode === previous.lowMemoryMode && dictionaryEntryStorage === previous.dictionaryEntryStorage
@@ -164,30 +211,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
   sharingHost?.wordStatusChanged(revision);
 });
 
-// Only this extension's own recorder page, framed in a Netflix tab, may
-// connect, and only while Netflix mining is on: the page is web-accessible to
-// Netflix, so a frame the page made itself is refused with the switch off.
+// Experimental Netflix and YouTube mining (background-video.js): each site's
+// recorder frame connects on its own port, which the site's service accepts
+// only from this extension's recorder page for that site while its switch is
+// on, and its reader's requests go to its own target.
+const VIDEO_SITES = [netflixMining, youtubeMining];
+
 chrome.runtime.onConnect.addListener(port => {
-  if (port.name !== NETFLIX_RECORDER_PORT) return;
-  const { sender } = port;
-  const tabId = sender?.tab?.id;
-  if (sender?.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL("netflix-recorder.html")
-      || typeof tabId !== "number" || !sender.frameId || !NETFLIX_WATCH_URL.test(sender.tab.url ?? "")) {
-    port.disconnect();
-    return;
-  }
-  let open = true;
-  port.onDisconnect.addListener(() => { open = false; });
-  chrome.storage.local.get(OPTIONS_KEY).then(stored => {
-    if (!open) return;
-    if (normaliseOptions(stored[OPTIONS_KEY]).experimental.netflixMining === true) adoptNetflixRecorder(tabId, port);
-    else port.disconnect();
-  }, () => port.disconnect());
+  VIDEO_SITES.find(site => site.recorderPort === port.name)?.connectRecorder(port);
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== NETFLIX_TARGET) return false;
-  handleNetflixRequest(message, sender).then(result => sendResponse(workerReply(message, result)),
+  const site = VIDEO_SITES.find(entry => entry.target === message?.target);
+  if (site === undefined) return false;
+  site.handleRequest(message, sender).then(result => sendResponse(workerReply(message, result)),
     error => sendResponse(failureReply(message, error)));
   return true;
 });
@@ -245,6 +282,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// The search page's clipboard monitor (#639) reads the clipboard through the
+// offscreen document, which can paste while no page has focus. Only the search
+// page may ask, and a linked browser never asks its host: the clipboard is this
+// computer's.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== CLIPBOARD_TARGET || message.relayed === true) return false;
+  if (message.type !== "hd_clipboard_read" || !searchPageSender(sender)) {
+    sendResponse(failureReply(message, new Error("Unknown clipboard request.")));
+    return false;
+  }
+  relay({ target: CLIPBOARD_TARGET, type: message.type }).then(sendResponse,
+    (error) => sendResponse(failureReply(message, error)));
+  return true;
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== SETUP_TARGET || message.relayed === true) return false;
   handleRecommendedInstall(message, sender).then(sendResponse, (error) => sendResponse(failureReply(message, error)));
@@ -265,7 +317,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // pronunciation subsequently started by a different document.
       message = { ...message, owner: sender.documentId };
       if (["hd_audio_test", "hd_audio_play", "hd_audio_candidates"].includes(message.type)) {
-        operation = { ...message, tabId: sender.tab?.id, startup: startupSender(sender) };
+        operation = { ...message, tabId: sender.tab?.id, readerPage: readerPageSender(sender) };
         latestAudioOperation = operation;
         stillCurrent = () => latestAudioOperation === operation;
       } else if (message.type === "hd_audio_stop"
@@ -287,38 +339,59 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+function validateAudioTerm(term) {
+  if (typeof term?.expression !== "string" || !term.expression
+      || typeof term.reading !== "string") throw new Error("A pronunciation needs an expression and reading.");
+}
+
 function validateAudioRequest(message) {
   if (message.type === "hd_audio_test") {
     globalThis.HDReaderOptions.validateOptionsPatch({ audioSources: [message.source] });
+    // A profile's Test plays its pack's sample entry (docs/languages.md 13).
+    if (message.term !== undefined) validateAudioTerm(message.term);
     return;
   }
   if (message.type !== "hd_audio_play" && message.type !== "hd_audio_candidates") return;
-  if (typeof message.term?.expression !== "string" || !message.term.expression
-      || typeof message.term.reading !== "string") throw new Error("A pronunciation needs an expression and reading.");
+  validateAudioTerm(message.term);
   const choice = message.selection;
   if (choice !== undefined && (!choice || !Number.isInteger(choice.index) || choice.index < 0
       || !["sourceId", "sourceKey", "expression", "reading", "name"].every(key => typeof choice[key] === "string")
       || (choice.url !== null && typeof choice.url !== "string"))) throw new Error("Invalid pronunciation selection.");
 }
 
+// The pronunciation sources of the profile a request names (docs/languages.md
+// 5.4), or today's for one that names none, and that profile's language, whose
+// pack speaks and fills {language} (13).
 async function prepareAudioRequest(message) {
-  if (message.type !== "hd_audio_play" && message.type !== "hd_audio_candidates") return message;
+  const test = message.type === "hd_audio_test";
+  if (test ? message.profileId === undefined : message.type !== "hd_audio_play" && message.type !== "hd_audio_candidates") {
+    return message;
+  }
   const stored = await chrome.storage.local.get(OPTIONS_KEY);
-  const options = globalThis.HDReaderOptions.normaliseOptions(stored[OPTIONS_KEY]);
-  return { ...message, sources: options.audioSources.filter(source => source.enabled) };
+  let options;
+  let language = {};
+  if (message.profileId === undefined) options = globalThis.HDReaderOptions.normaliseOptions(stored[OPTIONS_KEY]);
+  else {
+    requestProfileId(message, stored[OPTIONS_KEY]);
+    options = globalThis.HDReaderOptions.projectOptions(stored[OPTIONS_KEY], message.profileId);
+    language = { language: globalThis.HDReaderOptions.profileDescriptor(stored[OPTIONS_KEY], message.profileId).language };
+  }
+  if (test) return { ...message, ...language };
+  return { ...message, sources: options.audioSources.filter(source => source.enabled), ...language };
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== "hachidori-audio-events") return false;
   const operation = latestAudioOperation;
   if (sender.id !== chrome.runtime.id || sender.url !== chrome.runtime.getURL(OFFSCREEN_DOCUMENT)
-      || !operation || (!operation.startup && operation.tabId === undefined) || operation.owner !== message.owner
+      || !operation || (!operation.readerPage && operation.tabId === undefined) || operation.owner !== message.owner
       || operation.requestId !== message.requestId || message.type !== "hd_audio_playing") return false;
   const progress = { ...message, target: "hachidori-audio-content" };
-  // The packaged startup reader lives in an extension page, outside the
-  // content-script audience of tabs.sendMessage. Its controller accepts only
-  // its active random request ID; the worker already checked the document owner.
-  const delivery = operation.startup ? chrome.runtime.sendMessage(progress)
+  // The startup and search pages' readers live in extension pages, whose
+  // messages may come without sender.tab, so a runtime message reaches them.
+  // Their controller accepts only its active random request ID; the worker
+  // already checked the document owner.
+  const delivery = operation.readerPage ? chrome.runtime.sendMessage(progress)
     : chrome.tabs.sendMessage(operation.tabId, progress, { documentId: operation.owner });
   delivery.then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
   return true;
@@ -479,12 +552,20 @@ async function toggleLookupsFromCommand() {
 const READER_CONTENT_TARGET = "hachidori-reader";
 const READER_COMMANDS = new Set(["close", "addNote", "viewNotes", "playAudio", "nextEntry", "previousEntry",
   "firstEntry", "lastEntry", "nextEntryDifferentDictionary", "previousEntryDifferentDictionary", "historyBackward",
-  "scanSelectedText", "scanTextAtSelection", "toggleWordHighlights", "markWordKnown", "ignoreWord"]);
+  "historyForward", "scanSelectedText", "scanTextAtSelection", "toggleWordHighlights", "markWordKnown", "ignoreWord",
+  "switchLanguage"]);
+// Yomitan's search page shortcuts (#610) and how each opens the page.
+const SEARCH_COMMANDS = new Map([["openSearchPage", "existingOrNewTab"],
+  ["openSearchPageCurrentTab", "existingOrCurrentTab"], ["openPopupWindow", "popup"]]);
 
 chrome.commands?.onCommand?.addListener((command, tab) => {
   if (command === "openSettingsPage") {
     chrome.runtime.openOptionsPage().catch((error) => {
       console.error("hachidori: could not open settings:", describeErrorOrJson(error));
+    });
+  } else if (SEARCH_COMMANDS.has(command)) {
+    openSearchPage(chrome, SEARCH_COMMANDS.get(command), tab).catch((error) => {
+      console.error("hachidori: could not open the search page:", describeErrorOrJson(error));
     });
   } else if (command === "toggleTextScanning") {
     toggleLookupsFromCommand().catch((error) => {
@@ -534,10 +615,21 @@ sharingReady = initialiseSharing().catch((error) => {
 void initialiseUpdateAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
 void initialiseAutomaticBackupAlarm(); // NOSONAR -- top-level await prevents this MV3 worker from activating.
 void chrome.storage.local.get(OPTIONS_KEY).then(stored => {
+  // The toolbar badge names the active language once the records have profiles.
+  if (globalThis.HDReaderOptions.hasProfiles(stored[OPTIONS_KEY])) void syncLanguageBadge(chrome);
   const options = normaliseOptions(stored[OPTIONS_KEY]);
   void applyCustomJavaScript(chrome, options.customPopupJavascript);
   void applyGoogleDocsFlag(chrome, options.experimental.googleDocs);
   void applyNetflixFlag(chrome, options.experimental.netflixMining);
+  void applyYouTubeFlag(chrome, options.experimental.youtubeMining);
+  void applyLanguageScripts(chrome, globalThis.HDReaderOptions.hasProfiles(stored[OPTIONS_KEY]));
+});
+// Firefox grants userScripts only when Settings asks for it, so the saved code
+// applies once that grant arrives.
+chrome.permissions?.onAdded.addListener(({ permissions = [] }) => {
+  if (!permissions.includes("userScripts")) return;
+  void chrome.storage.local.get(OPTIONS_KEY)
+    .then(stored => applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).customPopupJavascript));
 });
 
 if (OVERLAY_MODE) {

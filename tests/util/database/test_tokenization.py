@@ -652,7 +652,10 @@ class TestRunTokenizeBackfill:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenize_lines.time",
+            SimpleNamespace(time=time.time, monotonic=time.monotonic, sleep=sleep_mock),
+        )
 
         for idx in range(LOW_PERFORMANCE_BACKFILL_BATCH_SIZE + 1):
             _insert_line(f"bf_t_{idx}", text)
@@ -678,7 +681,10 @@ class TestRunTokenizeBackfill:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenize_lines.time",
+            SimpleNamespace(time=time.time, monotonic=time.monotonic, sleep=sleep_mock),
+        )
 
         _insert_line("bf_nt1", text)
         run_tokenize_backfill()
@@ -755,7 +761,10 @@ class TestRealtimeTokenizationPath:
         )
 
         sleep_mock = MagicMock()
-        monkeypatch.setattr("GameSentenceMiner.util.cron.tokenize_lines.time.sleep", sleep_mock)
+        monkeypatch.setattr(
+            "GameSentenceMiner.util.cron.tokenize_lines.time",
+            SimpleNamespace(time=time.time, monotonic=time.monotonic, sleep=sleep_mock),
+        )
 
         enqueue_mock = MagicMock()
         monkeypatch.setattr(
@@ -1051,6 +1060,20 @@ class TestWordStatsCache:
     def setup_method(self):
         _ensure_tokenization_tables()
         _reset_game_lines()
+
+    def test_setup_repairs_a_missing_cache_before_deduplicating_occurrences(self):
+        _insert_line("cache_repair", "本")
+        word_id = WordsTable.get_or_create("本", "ホン", "名詞")
+        WordOccurrencesTable.insert_occurrence(word_id, "cache_repair")
+        # Keep the existing cache-maintenance triggers to model interrupted repair.
+        gsm_db.execute(f"DROP TABLE {WORD_STATS_CACHE_TABLE}", commit=True)
+        gsm_db.execute("DROP INDEX idx_word_occ_unique", commit=True)
+
+        setup_tokenization(gsm_db)
+
+        assert gsm_db.fetchone(
+            f"SELECT occurrence_count FROM {WORD_STATS_CACHE_TABLE} WHERE word_id = ?", (word_id,)
+        ) == (1,)
 
     def _seed_global_rank(self, word: str, rank: int) -> None:
         gsm_db.execute("DELETE FROM word_global_frequencies", commit=True)

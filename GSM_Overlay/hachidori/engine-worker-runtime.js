@@ -16,7 +16,7 @@ import {
   startEngine,
 } from "./engine-service.js";
 import { boundResponseFailure } from "./response-limits.js";
-import { captureDebugLog } from "./debug-log.js";
+import { captureDebugLog, openDebugLogStore } from "./debug-log.js";
 import { describeError } from "./error-text.js";
 
 let nextHostRequestId = 0;
@@ -99,7 +99,7 @@ function importInIsolatedWorker(request) {
 }
 
 export function startEngineWorker({ createHoshidicts, storageBackend, threaded = true }) {
-  captureDebugLog(globalThis, { context: "engine-worker" });
+  captureDebugLog(globalThis, { context: "engine-worker", store: openDebugLogStore(globalThis.indexedDB) });
   // offscreen.js picks the name; see engine-recycler.js. The single-thread
   // build has no pool or import threading for Low memory mode to reduce, and
   // keeps resident entries like the document engine.
@@ -121,7 +121,7 @@ export function startEngineWorker({ createHoshidicts, storageBackend, threaded =
     // import outside the engine.
     isolatedImport: storageBackend === "opfs" ? importInIsolatedWorker : null,
   });
-  startEngine();
+  void startEngine().then(() => globalThis.postMessage({ channel: "engine-started" }));
   // A dedicated worker receives only from its creator over its implicit
   // MessagePort. MessageEvent.origin is always empty, so there is no origin
   // value to validate; the channel checks in onHostMessage validate the

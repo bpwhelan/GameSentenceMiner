@@ -2,7 +2,8 @@
 // through Anki, or use another Hachidori instead of this one.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describeError } from "./error-text.js";
-import { API_CLIENT_ORIGIN, DEFAULT_SHARING_PORT, canDiscoverSharingHost } from "./sharing-protocol.js";
+import { languageNames } from "./language-names.js";
+import { API_CLIENT_ORIGIN, DEFAULT_SHARING_PORT, canDiscoverSharingHost, sharingPort } from "./sharing-protocol.js";
 
 const POLL_MS = 2000;
 // How long a copied address or a saved download outranks the derived status.
@@ -23,6 +24,7 @@ function hostSummary(host, display) {
   return `the Hachidori in ${host?.name || "another browser"} ${where} (${dictionaries(host?.dictionaryCount)})`;
 }
 
+
 // "Chrome on this computer", "another browser at 100.75.152.76"
 function clientLabel(entry) {
   const where = entry.local ? "on this computer" : `at ${entry.address}`;
@@ -39,10 +41,12 @@ export function createSharingSettingsController({
   let pending = false;
   let timer = null;
   let sequence = 0;
-  // A port typed while sharing is off survives status polls until the switch is used.
+  // A typed port survives status polls until sharing is switched on with it.
+  // While sharing is off it is still the port this computer is looked for on.
   let portDraft = null;
   // What the probe of this computer found: null before it ran, false for nothing.
   let found = null;
+  let probedPort = DEFAULT_SHARING_PORT;
   let probing = false;
   let refusedBefore = false;
   let notice = null;
@@ -56,6 +60,13 @@ export function createSharingSettingsController({
   function derivedStatus() {
     if (linked()) {
       const link = client();
+      // A host that refused this browser's opt-in: it reads the Japanese view
+      // until it is updated (docs/languages.md 17.6).
+      const refused = link.languageProfiles?.optIn === "refused";
+      if (link.connected && refused) {
+        return [`Using ${hostSummary(link.host, link.display)}. Update Hachidori in this browser to use `
+          + `${languageNames(link.languageProfiles.missingLanguages)} from ${link.host?.name || "the linked Hachidori"}.`, undefined];
+      }
       if (link.connected) return [`Using ${hostSummary(link.host, link.display)}.`, "ready"];
       return [link.display === "this computer"
         ? "Linked to a Hachidori on this computer, but it is not reachable. Check that Anki and the sharing browser are open."
@@ -64,7 +75,7 @@ export function createSharingSettingsController({
     if (!sharing.enabled) return ["Not sharing.", undefined];
     if (sharing.error !== null) return [`Sharing is on, but ${lowerFirst(sharing.error)}`, "error"];
     if (sharing.dictionaries === 0) return ["Sharing starts once this Hachidori has dictionaries.", undefined];
-    if (!sharing.connected) return ["Waiting for Anki. Sharing starts when Anki is open with the Hachidori Relay add-on.", undefined];
+    if (!sharing.connected) return [`Waiting for Anki on port ${sharing.port}. Sharing starts when Anki is open with the Hachidori Relay add-on.`, undefined];
     if (sharing.network.enabled && sharing.network.active) return ["Sharing through Anki, on this computer and the network.", "ready"];
     return ["Sharing through Anki.", "ready"];
   }
@@ -84,7 +95,7 @@ export function createSharingSettingsController({
   }
 
   function portValue() {
-    return Number(element("sharing-host-port").value) || DEFAULT_SHARING_PORT;
+    return sharingPort(element("sharing-host-port").value) ?? DEFAULT_SHARING_PORT;
   }
 
   function addressRow(entry) {
@@ -141,7 +152,9 @@ export function createSharingSettingsController({
     element("sharing-addon-download").disabled = pending;
     const port = element("sharing-host-port");
     if (portDraft === null && sharing !== null && port.value !== String(sharing.port)) port.value = String(sharing.port);
-    port.disabled = pending || enabled;
+    // Every browser on this computer must use the relay's port, both to share
+    // and to find the one sharing, so it stays editable while sharing (#648).
+    port.disabled = pending;
     renderAddresses();
     element("sharing-host-clients").textContent = clientsText();
     element("sharing-host").disabled = isLinked;
@@ -156,7 +169,10 @@ export function createSharingSettingsController({
 
   function foundText() {
     if (found === null) return probing ? "Looking for a shared Hachidori on this computer…" : "";
-    if (found === false) return "No other Hachidori is sharing on this computer.";
+    if (found === false) {
+      const advice = probedPort === DEFAULT_SHARING_PORT ? "If you changed the add-on’s port in Anki" : "If the add-on in Anki uses another port";
+      return `No other Hachidori is sharing on this computer on port ${probedPort}. ${advice}, enter the same port under Advanced.`;
+    }
     return `Another browser on this computer is sharing: ${hostSummary(found.host, found.display)}.`;
   }
 
@@ -186,9 +202,10 @@ export function createSharingSettingsController({
   async function probe() {
     if (probing || pending || !canDiscoverSharingHost(sharing)) return;
     probing = true;
+    probedPort = portValue();
     renderClient();
     try {
-      const reply = await send("hd_sharing_client_probe", { address: "" });
+      const reply = await send("hd_sharing_client_probe", { address: "", port: probedPort });
       found = reply.ok ? { address: reply.address, display: reply.display, host: reply.host } : false;
     } catch {
       found = false;
@@ -269,6 +286,20 @@ export function createSharingSettingsController({
   element("sharing-host-port").addEventListener("input", () => {
     portDraft = element("sharing-host-port").value;
     render();
+  });
+  // A committed port moves sharing to it, and looks for a shared Hachidori there.
+  element("sharing-host-port").addEventListener("change", () => {
+    const port = sharingPort(element("sharing-host-port").value);
+    if (port === null) {
+      show("Enter a port from 1 to 65535.", "error");
+      return;
+    }
+    found = null;
+    if (sharing?.enabled === true && port !== sharing.port) {
+      void run(() => send("hd_sharing_host_enable", { port, network: sharing.network?.enabled === true })).then(probe);
+    } else {
+      void probe();
+    }
   });
   element("sharing-addon-download").addEventListener("click", () => { void download(); });
   element("sharing-client-find").addEventListener("click", () => {

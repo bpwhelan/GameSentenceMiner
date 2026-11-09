@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "code": "sga",
+  "iso639_3": "sga",
+  "name": "Old Irish",
+  "nativeName": "Goídelc",
+  "bcp47": "sga",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF]",
+    "abbreviation": "[\\u0254\\u0186\\u2183\\u2184\\u204A\\uA749\\u026B]",
+    "word": "[{letter}{abbreviation}\\u0300-\\u036F0-9]",
+    "dot": "[\\u00B7\\u0387\\u2027\\u2219\\u22C5]"
+  },
+  "text": {
+    "pattern": "[{letter}{abbreviation}\\u0300-\\u036F{dot}]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "{dot}",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["“", "”"], ["‘", "’"], ["«", "»"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFC)",
+        "keepInput": false,
+        "variants": [[{"normalize": "NFC"}]]
+      },
+      {
+        "id": "middleDot",
+        "name": "Write the middle dot of a verbal complex as U+00B7",
+        "keepInput": false,
+        "variants": [[{"map": {"\u2027": "\u00B7", "\u2219": "\u00B7", "\u22C5": "\u00B7"}}]]
+      },
+      {
+        "id": "macronLength",
+        "name": "Write a length mark as an acute (ā → á)",
+        "keepInput": false,
+        "variants": [[{"map": {"ā": "á", "ē": "é", "ī": "í", "ō": "ó", "ū": "ú", "ǣ": "ǽ", "Ā": "Á", "Ē": "É", "Ī": "Í", "Ō": "Ó", "Ū": "Ú", "Ǣ": "Ǽ"}}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "removeAlphabeticDiacritics",
+        "name": "Remove length marks and dots over letters",
+        "variants": [[{"normalize": "NFD"}, {"strip": "[\\u0300-\\u036F]"}]]
+      },
+      {
+        "id": "aeLigature",
+        "name": "Write the ligature æ as ae",
+        "variants": [[{"map": {"æ": "ae", "ǽ": "áe", "Æ": "Ae", "Ǽ": "Áe"}}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "sga",
+    "audioLanguage": "sga",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "det": "Determiner",
+        "artic": "Article",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "ptcl": "Particle",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "abbv": "Abbreviation",
+        "intj": "Interjection",
+        "masc": "Masculine",
+        "fem": "Feminine",
+        "neut": "Neuter"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "wty-sga-en (wiktionary-to-yomitan)",
+        "url": "https://huggingface.co/datasets/daxida/wty-release/resolve/main/latest/dict/sga/en/wty-sga-en.zip",
+        "description": "Old Irish to English, from English Wiktionary through kaikki.org, with form-of entries for inflected and mutated forms.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "caraid",
+      "practice": {
+        "text": "Ní·carat ind ḟir in n-ech.",
+        "lookup": "Ní·carat"
+      },
+      "entry": {
+        "expression": "caraid",
+        "reading": "caraid",
+        "glossary": ["to love"],
+        "definitionTags": "v",
+        "matched": "Ní·carat",
+        "trace": ["conjunct particle", "present", "absolute"]
+      },
+      "character": null
+    }
+  }
+}

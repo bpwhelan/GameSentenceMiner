@@ -40,7 +40,7 @@ def observation(
     )
 
 
-def test_first_observation_is_immediately_provisional():
+def test_first_non_speech_observation_is_immediately_complete():
     state = TextCoordinatorState(session_id="session")
     result = state.ingest(observation("hello", SourceKind.OCR, "ocr-1"), now=NOW)
 
@@ -50,10 +50,11 @@ def test_first_observation_is_immediately_provisional():
     assert record.text == "hello"
     assert record.stream_sequence == 1
     assert record.revision == 1
-    assert record.state is TextRecordState.PROVISIONAL
+    assert record.state is TextRecordState.FROZEN
+    assert record.finalized_at_utc == NOW
 
 
-def test_higher_quality_hook_revises_ocr_record_in_place():
+def test_matching_hook_does_not_rewrite_a_completed_ocr_record():
     state = TextCoordinatorState(session_id="session")
     first = state.ingest(observation("I0ve you", SourceKind.OCR, "ocr-1"), now=NOW)
     second = state.ingest(
@@ -61,14 +62,13 @@ def test_higher_quality_hook_revises_ocr_record_in_place():
         now=NOW + timedelta(milliseconds=50),
     )
 
-    assert first.events[0].record.line_id == second.events[0].record.line_id
-    assert second.events[0].kind is TextEventKind.UPDATED
-    assert second.events[0].record.text == "I love you"
-    assert second.events[0].record.revision == 2
-    assert second.events[0].record.source_kind is SourceKind.TEXTHOOK
+    assert second.ack.status is IngressStatus.DUPLICATE
+    assert second.ack.line_id == first.ack.line_id
+    assert second.events == ()
+    assert state.snapshot().records == (first.events[0].record,)
 
 
-def test_hook_can_upgrade_ocr_after_one_second_without_delaying_first_visibility():
+def test_later_matching_hook_is_deduplicated_without_changing_the_ocr_line():
     state = TextCoordinatorState(session_id="session")
     first = observation("I0ve you", SourceKind.OCR, "ocr-1")
     first = TextObservation(**{**first.__dict__, "received_monotonic_ns": 1_000_000_000, "metadata": {}})
@@ -87,8 +87,9 @@ def test_hook_can_upgrade_ocr_after_one_second_without_delaying_first_visibility
     )
 
     assert appended.events[0].kind is TextEventKind.APPENDED
-    assert revised.events[0].kind is TextEventKind.UPDATED
-    assert revised.events[0].record.line_id == appended.events[0].record.line_id
+    assert revised.ack.status is IngressStatus.DUPLICATE
+    assert revised.ack.line_id == appended.ack.line_id
+    assert revised.events == ()
 
 
 def test_lower_quality_ocr_cannot_downgrade_hook_record():
@@ -127,7 +128,7 @@ def test_ocr_after_already_frozen_hook_is_suppressed_as_supporting_evidence():
     assert len(state.snapshot().records) == 1
 
 
-def test_unrelated_text_freezes_previous_then_appends_next():
+def test_unrelated_completed_text_appends_without_an_extra_freeze_event():
     state = TextCoordinatorState(session_id="session")
     state.ingest(observation("first", SourceKind.TEXTHOOK, "1"), now=NOW)
     result = state.ingest(
@@ -135,9 +136,9 @@ def test_unrelated_text_freezes_previous_then_appends_next():
         now=NOW + timedelta(seconds=1),
     )
 
-    assert [event.kind for event in result.events] == [TextEventKind.FROZEN, TextEventKind.APPENDED]
+    assert [event.kind for event in result.events] == [TextEventKind.APPENDED]
     assert result.events[0].record.state is TextRecordState.FROZEN
-    assert result.events[1].record.stream_sequence == 2
+    assert result.events[0].record.stream_sequence == 2
 
 
 def test_recurrence_after_an_intervening_line_always_gets_a_new_record():
@@ -209,7 +210,7 @@ def test_back_to_back_exact_duplicate_is_suppressed_from_any_source():
     assert len(state.snapshot().records) == 1
 
 
-def test_same_source_fragments_are_visible_immediately_then_joined_by_revision():
+def test_hook_payloads_are_completed_lines_even_when_a_legacy_sender_requests_merging():
     state = TextCoordinatorState(session_id="session")
     first = observation("first fragment", SourceKind.TEXTHOOK, "1", source_instance="hook-4")
     first = TextObservation(**{**first.__dict__, "merge_fragments": True, "metadata": {}})
@@ -226,8 +227,9 @@ def test_same_source_fragments_are_visible_immediately_then_joined_by_revision()
     revised = state.ingest(second, now=NOW + timedelta(milliseconds=25))
 
     assert appended.events[0].kind is TextEventKind.APPENDED
-    assert revised.events[0].kind is TextEventKind.UPDATED
-    assert revised.events[0].record.text == "first fragment\nsecond fragment"
+    assert revised.events[0].kind is TextEventKind.APPENDED
+    assert revised.ack.line_id != appended.ack.line_id
+    assert [record.text for record in state.snapshot().records] == ["first fragment", "second fragment"]
 
 
 def test_matching_prefix_is_removed_from_cumulative_source_lines():
@@ -413,11 +415,11 @@ def test_delayed_unacknowledged_observation_is_retained_in_live_stream():
 
 def test_freeze_is_atomic_and_late_revision_becomes_a_new_line():
     state = TextCoordinatorState(session_id="session")
-    appended = state.ingest(observation("draft", SourceKind.OCR, "1"), now=NOW)
+    appended = state.ingest(observation("draft", SourceKind.SPEECH_RECOGNITION, "1"), now=NOW)
     line_id = appended.events[0].record.line_id
     frozen = state.freeze(line_id, now=NOW + timedelta(milliseconds=10))
     late = state.ingest(
-        observation("draft corrected", SourceKind.TEXTHOOK, "2", emitted_at=NOW + timedelta(milliseconds=20)),
+        observation("draft corrected", SourceKind.SPEECH_RECOGNITION, "2", emitted_at=NOW + timedelta(milliseconds=20)),
         now=NOW + timedelta(milliseconds=20),
     )
 
@@ -428,7 +430,7 @@ def test_freeze_is_atomic_and_late_revision_becomes_a_new_line():
 
 def test_revision_deadline_uses_monotonic_time_not_wall_clock_changes():
     state = TextCoordinatorState(session_id="session")
-    first = observation("draft", SourceKind.MANUAL, "1")
+    first = observation("draft", SourceKind.SPEECH_RECOGNITION, "1")
     first = TextObservation(
         **{
             **first.__dict__,
@@ -506,10 +508,10 @@ def test_expiry_uses_first_seen_stream_time_not_old_capture_time():
         now=NOW + timedelta(seconds=2),
     )
     replacement_id = replacement.events[-1].record.line_id
-    frozen = state.freeze(replacement_id, now=NOW + timedelta(seconds=3))
+    assert state.freeze(replacement_id, now=NOW + timedelta(seconds=3)) == ()
 
     assert replacement.events[-1].record.stream_sequence == 2
-    assert frozen[-1].record.state is TextRecordState.FROZEN
+    assert replacement.events[-1].record.state is TextRecordState.FROZEN
 
 
 def test_concurrent_producers_receive_unique_authoritative_sequences():
@@ -558,7 +560,7 @@ def test_ten_producers_process_ten_thousand_observations_without_duplicates():
     assert len({record.line_id for record in snapshot.records}) == 10_000
 
 
-def test_actor_schedules_the_full_cross_source_upgrade_window_for_ocr():
+def test_actor_does_not_schedule_a_revision_window_for_ocr():
     scheduled: list[tuple[str, float]] = []
     actor = TextCoordinatorActor(
         state=TextCoordinatorState(session_id="scheduler"),
@@ -570,4 +572,5 @@ def test_actor_schedules_the_full_cross_source_upgrade_window_for_ocr():
     finally:
         actor.stop(drain=True, timeout=1)
 
-    assert scheduled == [(result.ack.line_id, 5.0)]
+    assert result.events[0].record.state is TextRecordState.FROZEN
+    assert scheduled == []

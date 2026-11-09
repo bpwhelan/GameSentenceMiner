@@ -13,6 +13,12 @@ function makeProcRoot(): string {
     return dir;
 }
 
+function writeExecutable(filePath: string): string {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, '#!/bin/sh\n', { mode: 0o755 });
+    return filePath;
+}
+
 /** Create a fake /proc/<pid> entry with the given cmdline args, comm, environ map, and RSS pages. */
 function writeProcEntry(
     procRoot: string,
@@ -210,5 +216,138 @@ describe('resolveWineLaunch', () => {
         expect(ctx.launcherPath).toBe('/opt/proton/files/bin/wine');
         expect(ctx.launcherKind).toBe('wine');
         expect(ctx.env.PROTON_VERB).toBe('waitforexitandrun');
+    });
+
+    it.each(['WINE', 'WINELOADER'])('recognizes Lutris UMU from %s without surviving launcher ancestry', (key) => {
+        const procRoot = makeProcRoot();
+        const umuRunner = writeExecutable(path.join(procRoot, 'lutris', 'runtime', 'umu', 'umu-run'));
+        writeProcEntry(procRoot, 930, {
+            comm: 'game.exe',
+            environ: {
+                [key]: umuRunner,
+                WINEPREFIX: '/home/deck/Games/umu/umu-default/pfx',
+                PROTON_VERB: 'waitforexitandrun',
+            },
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1);
+
+        expect(ctx.launcherPath).toBe(umuRunner);
+        expect(ctx.launcherKind).toBe('umu');
+        expect(ctx.env.PROTON_VERB).toBe('run');
+    });
+
+    it('uses the UMU launcher from WINE even when Proton also exposes its internal WINELOADER', () => {
+        const procRoot = makeProcRoot();
+        const umuRunner = writeExecutable(path.join(procRoot, 'lutris', 'umu-run'));
+        writeProcEntry(procRoot, 940, {
+            comm: 'game.exe',
+            environ: { WINE: umuRunner, WINELOADER: '/opt/proton/files/bin/wine' },
+        });
+
+        expect(resolveWineLaunch('game.exe', procRoot, 1)).toMatchObject({
+            launcherPath: umuRunner,
+            launcherKind: 'umu',
+        });
+    });
+
+    it.each([false, true])('recovers Lutris bundled UMU from the parent command (other runner on PATH: %s)', (otherRunnerOnPath) => {
+        const procRoot = makeProcRoot();
+        const umuRunner = writeExecutable(path.join(procRoot, 'lutris', 'runtime', 'umu', 'umu-run'));
+        // A different installation on PATH must not replace the game's runner.
+        if (otherRunnerOnPath) writeExecutable(path.join(procRoot, 'bin', 'umu-run'));
+        writeProcEntry(procRoot, 950, {
+            comm: 'game.exe',
+            parentPid: 951,
+            environ: { PATH: otherRunnerOnPath ? path.join(procRoot, 'bin') : '' },
+        });
+        writeProcEntry(procRoot, 951, { comm: 'pv-bwrap', parentPid: 952 });
+        writeProcEntry(procRoot, 952, {
+            comm: 'python3',
+            cmdline: ['/usr/bin/python3', umuRunner, 'game.exe'],
+        });
+
+        expect(resolveWineLaunch('game.exe', procRoot, 1)).toMatchObject({
+            launcherPath: umuRunner,
+            launcherKind: 'umu',
+        });
+    });
+
+    it('preserves UMU runtime settings and game identity without copying unrelated environment values', () => {
+        const procRoot = makeProcRoot();
+        const umuEnv = {
+            GAMEID: 'umu-12345',
+            STORE: 'steam',
+            UMU_ID: 'umu-12345',
+            UMU_LOG: 'debug',
+            UMU_RUNTIME_UPDATE: '0',
+            UMU_FOLDERS_PATH: '/home/deck/.local/share',
+            UMU_CONTAINER_NSENTER: '1',
+            UMU_NO_RUNTIME: '1',
+            PROTONFIXES_DISABLE: '1',
+        };
+        writeProcEntry(procRoot, 960, {
+            comm: 'game.exe',
+            environ: { ...umuEnv, WINE: '/opt/lutris/umu-run', PRIVATE_TOKEN: 'do-not-copy' },
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1);
+
+        expect(ctx.env).toMatchObject(umuEnv);
+        expect(ctx.env.PRIVATE_TOKEN).toBeUndefined();
+    });
+
+    it('uses Flatpak host data for UMU runtime storage without claiming the helper is inside Flatpak', () => {
+        const procRoot = makeProcRoot();
+        writeProcEntry(procRoot, 970, {
+            comm: 'game.exe',
+            environ: {
+                WINE: '/opt/lutris/umu-run',
+                container: 'flatpak',
+                HOME: '/home/deck',
+                HOST_XDG_DATA_HOME: '/home/deck/.local/share',
+                XDG_DATA_HOME: '/home/deck/.var/app/net.lutris.Lutris/data',
+            },
+        });
+
+        const ctx = resolveWineLaunch('game.exe', procRoot, 1);
+
+        expect(ctx.env.UMU_FOLDERS_PATH).toBe('/home/deck/.local/share');
+        expect(ctx.env.XDG_DATA_HOME).toBe('/home/deck/.var/app/net.lutris.Lutris/data');
+        expect(ctx.env.container).toBeUndefined();
+    });
+
+    it.each([
+        { extra: {}, expected: path.join('/home/deck', '.local', 'share') },
+        { extra: { UMU_FOLDERS_PATH: '/custom/runtimes' }, expected: '/custom/runtimes' },
+    ])('respects Flatpak defaults and explicit UMU folder overrides ($expected)', ({ extra, expected }) => {
+        const procRoot = makeProcRoot();
+        writeProcEntry(procRoot, 980, {
+            comm: 'game.exe',
+            environ: {
+                WINE: '/opt/lutris/umu-run',
+                FLATPAK_ID: 'net.lutris.Lutris',
+                HOME: '/home/deck',
+                XDG_DATA_HOME: '/home/deck/.var/app/net.lutris.Lutris/data',
+                ...extra,
+            },
+        });
+
+        expect(resolveWineLaunch('game.exe', procRoot, 1).env.UMU_FOLDERS_PATH).toBe(expected);
+    });
+
+    it('does not select an unrelated UMU installation on PATH for an ordinary Wine game', () => {
+        const procRoot = makeProcRoot();
+        const binDir = path.join(procRoot, 'bin');
+        writeExecutable(path.join(binDir, 'umu-run'));
+        writeProcEntry(procRoot, 990, {
+            comm: 'game.exe',
+            environ: { PATH: binDir, WINELOADER: '/opt/wine/bin/wine' },
+        });
+
+        expect(resolveWineLaunch('game.exe', procRoot, 1)).toMatchObject({
+            launcherPath: '/opt/wine/bin/wine',
+            launcherKind: 'wine',
+        });
     });
 });

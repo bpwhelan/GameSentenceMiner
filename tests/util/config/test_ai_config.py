@@ -228,3 +228,21 @@ def test_ai_clears_non_gemini_backup_model_when_same_as_primary():
     assert openai_cfg.open_ai_backup_model == ""
     assert ollama_cfg.ollama_backup_model == ""
     assert lm_cfg.lm_studio_backup_model == ""
+
+
+@pytest.mark.parametrize("effort", ["", "none", "minimal", "low", "medium", "high", "xhigh", "max"])
+def test_openai_reasoning_effort_round_trip(effort):
+    cfg = Ai(provider=AI_OPENAI, open_ai_reasoning_effort=effort)
+    assert Ai.from_dict(cfg.to_dict()).open_ai_reasoning_effort == effort
+
+
+@pytest.mark.parametrize("saved, expected", [(None, ""), ("invalid", ""), (" HIGH ", "high"), ("NONE", "none")])
+def test_openai_reasoning_effort_normalization(saved, expected):
+    assert Ai.from_dict({"open_ai_reasoning_effort": saved}).open_ai_reasoning_effort == expected
+
+
+def test_openai_reasoning_default_and_change_detection():
+    current = Ai.from_dict({"provider": AI_OPENAI})
+    assert current.open_ai_reasoning_effort == ""
+    assert not ai_config_changed(Ai(provider=AI_OPENAI), current)
+    assert ai_config_changed(Ai(provider=AI_OPENAI, open_ai_reasoning_effort="none"), current)

@@ -99,3 +99,38 @@ def test_file_watcher_routes_dialogue_replay_to_concurrent_refresh_lane(tmp_path
     assert normal_executor.calls == []
     assert len(refresh_executor.calls) == 1
     assert refresh_executor.calls[0][1][1] is request
+
+
+def test_future_review_capture_routes_to_its_own_job_without_anki_processing(monkeypatch, tmp_path):
+    from GameSentenceMiner import session_review_context
+
+    jobs, saved, captured = [], [], []
+    monkeypatch.setattr(replay_handler.anki, "card_queue", jobs)
+    monkeypatch.setattr(replay_handler.obs, "save_replay_buffer", lambda: saved.append(list(jobs)))
+    monkeypatch.setattr(replay_handler, "get_config", lambda: SimpleNamespace(paths=SimpleNamespace(remove_video=True)))
+    future = replay_handler.request_session_review_replay(["target"])
+    assert saved and saved[0][0] is jobs[0]
+    assert isinstance(jobs[0], replay_handler.SessionReviewReplayRequest)
+    monkeypatch.setattr(
+        session_review_context, "capture_replay", lambda path, targets: captured.append((path, targets))
+    )
+    original_context = object()
+    monkeypatch.setattr(replay_handler.gsm_state, "current_replay_context", original_context)
+    path = tmp_path / "Replay future.mkv"
+    path.write_bytes(b"replay")
+    replay_handler.ReplayAudioExtractor().process_replay(str(path), queued_job=jobs.pop())
+    assert future.result(timeout=0) is None
+    assert captured == [(str(path), ["target"])]
+    assert replay_handler.gsm_state.current_replay_context is original_context
+    assert not path.exists()
+
+
+def test_future_capture_failure_does_not_leave_a_job_for_the_next_mined_card(monkeypatch):
+    jobs = []
+    monkeypatch.setattr(replay_handler.anki, "card_queue", jobs)
+    monkeypatch.setattr(
+        replay_handler.obs, "save_replay_buffer", lambda: (_ for _ in ()).throw(RuntimeError("OBS offline"))
+    )
+    future = replay_handler.request_session_review_replay(["target"])
+    assert jobs == []
+    assert str(future.exception(timeout=0)) == "OBS offline"

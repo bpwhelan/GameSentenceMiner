@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "code": "ga",
+  "iso639_3": "gle",
+  "name": "Irish",
+  "nativeName": "Gaeilge",
+  "bcp47": "ga",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1D79\\u1E00-\\u1EFF\\uA779-\\uA787\\uFB00-\\uFB06]",
+    "word": "[{letter}\\p{M}\\p{Nd}\\u204A]",
+    "vowel": "[aeiouáéíóúAEIOUÁÉÍÓÚ]",
+    "lowerVowel": "[aeiouáéíóú]",
+    "upperVowel": "[AEIOUÁÉÍÓÚ]",
+    "broadVowel": "[aouáóú]",
+    "consonant": "[bcdfghlmnprst]",
+    "afterMutation": "[aeiouáéíóúlnr]",
+    "afterCapitalMutation": "[aeiouáéíóúlnrAEIOUÁÉÍÓÚLNR]",
+    "beforeVerbalNounT": "[glnr]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u204A]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "[\\u00AD]",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["“", "”"], ["\"", "\""], ["«", "»"], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFC)",
+        "variants": [[{"normalize": "NFC"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "normalizeApostrophes",
+        "name": "Typographic apostrophes as '",
+        "variants": [[{"map": {"’": "'", "‘": "'", "ʼ": "'", "＇": "'", "`": "'"}}]]
+      },
+      {
+        "id": "normalizeHyphens",
+        "name": "Unicode hyphens as -",
+        "variants": [[{"map": {"‐": "-", "‑": "-"}}]]
+      },
+      {
+        "id": "removeSoftHyphens",
+        "name": "Remove soft hyphens",
+        "keepInput": false,
+        "variants": [[{"strip": "[\\u00AD]"}]]
+      },
+      {
+        "id": "gaelicScript",
+        "name": "Gaelic type: dotted consonants and insular letters",
+        "variants": [[{"map": {"ḃ": "bh", "ċ": "ch", "ḋ": "dh", "ḟ": "fh", "ġ": "gh", "ṁ": "mh", "ṗ": "ph", "ṡ": "sh", "ṫ": "th", "Ḃ": "Bh", "Ċ": "Ch", "Ḋ": "Dh", "Ḟ": "Fh", "Ġ": "Gh", "Ṁ": "Mh", "Ṗ": "Ph", "Ṡ": "Sh", "Ṫ": "Th", "ꝺ": "d", "Ꝺ": "D", "ꝼ": "f", "Ꝼ": "F", "ᵹ": "g", "Ᵹ": "G", "ꞃ": "r", "Ꞃ": "R", "ꞅ": "s", "Ꞅ": "S", "ꞇ": "t", "Ꞇ": "T", "ı": "i", "ſ": "s", "⁊": "agus"}}]]
+      },
+      {
+        "id": "addMissingFada",
+        "name": "Add a missing síneadh fada",
+        "optional": true,
+        "variants": [[{"map": {"a": "á", "A": "Á"}, "at": "first"}], [{"map": {"a": "á", "A": "Á"}, "at": "last"}], [{"map": {"e": "é", "E": "É"}, "at": "first"}], [{"map": {"e": "é", "E": "É"}, "at": "last"}], [{"map": {"i": "í", "I": "Í"}, "at": "first"}], [{"map": {"i": "í", "I": "Í"}, "at": "last"}], [{"map": {"o": "ó", "O": "Ó"}, "at": "first"}], [{"map": {"o": "ó", "O": "Ó"}, "at": "last"}], [{"map": {"u": "ú", "U": "Ú"}, "at": "first"}], [{"map": {"u": "ú", "U": "Ú"}, "at": "last"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "missingFada",
+      "type": "boolean",
+      "default": false,
+      "label": "Words written without a síneadh fada",
+      "description": "Also look a word up with one long vowel added (ta → tá, se → sé), for text typed without accents. Off by default, because many words differ only by the fada (sean and seán, cáca and caca).",
+      "group": "lookup",
+      "effect": {"preprocessor": "addMissingFada"}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "ga-IE",
+    "audioLanguage": "ga",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "det": "Determiner",
+        "intj": "Interjection",
+        "num": "Numeral",
+        "ptcl": "Particle",
+        "artic": "Article",
+        "char": "Character",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "contr": "Contraction",
+        "abbv": "Abbreviation",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "wty-ga-en (Wiktionary Irish-English, wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "English Wiktionary definitions of Irish words, with the inflected and mutated forms Wiktionary lists and the parts of speech the inflection rules filter on.",
+        "licence": "CC BY-SA 4.0 (Wiktionary content)"
+      }
+    ],
+    "sample": {
+      "warmup": "cheannaigh",
+      "practice": {
+        "text": "Cheannaigh sí bróga nua sa siopa inné.",
+        "lookup": "Cheannaigh"
+      },
+      "entry": {
+        "expression": "ceannaigh",
+        "reading": "ceannaigh",
+        "glossary": ["to buy"],
+        "definitionTags": "v",
+        "matched": "Cheannaigh",
+        "trace": ["lenition"]
+      },
+      "character": null
+    }
+  }
+}

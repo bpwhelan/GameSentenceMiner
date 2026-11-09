@@ -30,6 +30,7 @@ vi.mock('node:fs', () => ({
 }));
 
 vi.mock('./data_dir.js', () => ({
+    getProfileDir: () => null,
     getBaseDir: () => 'C:\gsm-data',
     getDefaultBaseDir: () => 'C:\default-gsm-data',
 }));

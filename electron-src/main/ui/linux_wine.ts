@@ -35,7 +35,9 @@ const WINE_ENV_KEYS = [
     'WINEARCH', 'WINE_CRASH_REPORT_DIR', 'WINE_LARGE_ADDRESS_AWARE',
     'WINEPRELOADRESERVE', 'WINE_GST_REGISTRY_DIR',
     'PROTONPATH', 'PROTON_VERB', 'PROTON_LOG', 'PROTON_DUMP_DEBUG_COMMANDS',
-    'PROTON_CRASH_REPORT_DIR',
+    'PROTON_CRASH_REPORT_DIR', 'PROTONFIXES_DISABLE',
+    'GAMEID', 'STORE', 'UMU_ID', 'UMU_LOG', 'UMU_RUNTIME_UPDATE',
+    'UMU_FOLDERS_PATH', 'UMU_CONTAINER_NSENTER', 'UMU_NO_RUNTIME',
     'STEAM_COMPAT_PROTON', 'STEAM_COMPAT_APP_ID', 'STEAM_COMPAT_CLIENT_INSTALL_PATH',
     'STEAM_COMPAT_DATA_PATH', 'STEAM_COMPAT_INSTALL_PATH', 'STEAM_COMPAT_MOUNTS',
     'STEAM_COMPAT_TOOL_PATHS', 'STEAM_COMPAT_FLAGS', 'STEAM_COMPAT_LIBRARY_PATHS',
@@ -236,7 +238,22 @@ function deriveWineFromProcess(procRoot: string, linuxPid: number, env: Record<s
     return '';
 }
 
-function processWasLaunchedByUmu(procRoot: string, linuxPid: number): boolean {
+function isUmuCommand(value: string): boolean {
+    const name = basenameLower(value);
+    return name === 'umu-run' || name === 'umu';
+}
+
+function deriveUmuFromProcess(procRoot: string, linuxPid: number, env: Record<string, string>): string {
+    // Lutris exposes its bundled umu-run through WINE. It need not be on PATH,
+    // and Proton may also set WINELOADER to the Wine binary inside its runtime.
+    let launchedByUmu = false;
+    for (const value of [env.WINELOADER, env.WINE]) {
+        if (!isUmuCommand(value)) continue;
+        launchedByUmu = true;
+        const launcher = existingExecutable(value, env.PATH ?? '');
+        if (launcher) return launcher;
+    }
+
     let currentPid = linuxPid;
     const visited = new Set<number>();
     for (let depth = 0; depth < 12 && currentPid > 1 && !visited.has(currentPid); depth += 1) {
@@ -249,10 +266,17 @@ function processWasLaunchedByUmu(procRoot: string, linuxPid: number): boolean {
         if (!Number.isFinite(parentPid) || parentPid <= 0 || parentPid === currentPid) break;
         currentPid = parentPid;
         const comm = (readProcFile(procRoot, currentPid, 'comm')?.toString('utf-8') ?? '').trim().toLowerCase();
-        const args = splitNulString(readProcFile(procRoot, currentPid, 'cmdline')).map(basenameLower);
-        if (comm === 'umu-run' || comm === 'umu' || args.includes('umu-run') || args.includes('umu')) return true;
+        const args = splitNulString(readProcFile(procRoot, currentPid, 'cmdline'));
+        if (isUmuCommand(comm)) launchedByUmu = true;
+        for (const arg of args.filter(isUmuCommand)) {
+            launchedByUmu = true;
+            const launcher = existingExecutable(arg, env.PATH ?? '');
+            if (launcher) return launcher;
+        }
     }
-    return false;
+    return launchedByUmu
+        ? existingExecutable('umu-run', env.PATH ?? '') || existingExecutable('/usr/bin/umu-run')
+        : '';
 }
 
 /**
@@ -284,16 +308,21 @@ export function resolveWineLaunch(
     if (!winePrefix && env.STEAM_COMPAT_DATA_PATH) winePrefix = path.join(env.STEAM_COMPAT_DATA_PATH, 'pfx');
     if (winePrefix) env.WINEPREFIX = winePrefix;
 
-    const launchedByUmu = linuxPid > 0 && processWasLaunchedByUmu(procRoot, linuxPid);
-    const umuRunner = launchedByUmu
-        ? existingExecutable(resolveFromPath('umu-run', env.PATH ?? '')) || existingExecutable('/usr/bin/umu-run')
-        : '';
+    const umuRunner = linuxPid > 0 ? deriveUmuFromProcess(procRoot, linuxPid, gameEnv) : '';
     const launcherPath = umuRunner || deriveWineFromProcess(procRoot, linuxPid, gameEnv);
-    const launcherKind: WineLaunchContext['launcherKind'] = umuRunner ? 'umu' : 'wine';
+    const launcherKind: WineLaunchContext['launcherKind'] = isUmuCommand(launcherPath) ? 'umu' : 'wine';
     if (launcherKind === 'umu') {
         // `waitforexitandrun` is correct for a game, but would make the helper
         // wait for the game to exit. UMU uses `run` for sidecar processes.
         env.PROTON_VERB = 'run';
+        // Flatpak UMU keeps its runtimes in HOST_XDG_DATA_HOME (or the host's
+        // ~/.local/share), not Lutris's sandbox XDG_DATA_HOME. Use UMU's folder
+        // override to retain that location without copying container=flatpak
+        // into a helper GSM starts outside the sandbox.
+        if (!env.UMU_FOLDERS_PATH && (gameEnv.container === 'flatpak' || gameEnv.FLATPAK_ID)) {
+            const dataHome = gameEnv.HOST_XDG_DATA_HOME || (env.HOME ? path.join(env.HOME, '.local', 'share') : '');
+            if (dataHome) env.UMU_FOLDERS_PATH = dataHome;
+        }
     }
     return { linuxPid, winePrefix, launcherPath, launcherKind, env };
 }

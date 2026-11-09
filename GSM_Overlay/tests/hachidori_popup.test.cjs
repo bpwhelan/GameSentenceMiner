@@ -75,6 +75,35 @@ test('revealing an action ancestor still refreshes controller readiness', async 
   assert.equal(h.selected(), h.mine);
 });
 
+test('clickable Anki checking spinners wait for readiness before becoming the default', async t => {
+  const h = setup(t);
+  // Hachidori 0.4 permits mouse clicks here to add without a duplicate check.
+  h.mine.dataset.state = 'checking';
+  h.mine.disabled = false;
+  await Promise.resolve();
+  assert.equal(h.selected(), h.audio);
+  h.navigation.control('select-action', { direction: 1 });
+  assert.equal(h.selected(), h.audio, 'Pending mining must not be selectable');
+
+  h.navigation.control('reset-action-selection');
+  h.mine.dataset.state = 'ready';
+  await Promise.resolve();
+  assert.equal(h.selected(), h.mine, 'A state-only change must promote the ready action');
+});
+
+test('a selected mining action that returns to checking cannot submit or play audio', async t => {
+  const h = setup(t);
+  h.mine.disabled = false;
+  h.navigation.control('reset-action-selection');
+  let mined = 0, played = 0;
+  h.mine.addEventListener('click', () => mined++);
+  h.audio.addEventListener('click', () => played++);
+  h.mine.dataset.state = 'checking';
+  assert.equal(h.navigation.control('confirm-action'), false);
+  assert.equal(mined, 0);
+  assert.equal(played, 0);
+});
+
 for (const audioState of ['playing', 'no-result', 'error']) {
   test(`mining readiness updates the default while audio is ${audioState}, without another popup event`, async t => {
     const h = setup(t);

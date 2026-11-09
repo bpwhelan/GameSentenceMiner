@@ -1,4 +1,5 @@
 import type { IpcBridge, IpcEventLike } from "../types/global";
+import { normalizeGameLaunchOptions } from '../../../shared/game_launcher';
 
 const DEV_PREVIEW_PARAMETER = "preview";
 const PREVIEW_SCENE = { id: "agent-preview", name: "Agent Preview" };
@@ -162,6 +163,7 @@ export function installDevPreviewBridge(): void {
   let previewSelectedHook: string | null = null;
   let hookProfile: unknown = null;
   let speechRunning = false;
+  let gameLaunchOptions = normalizeGameLaunchOptions({ executablePath: 'C:\\Games\\Agent Preview\\game.exe' });
   let speechPreviewSettings = {
     backend: "embedded",
     language: "ja",
@@ -202,6 +204,14 @@ export function installDevPreviewBridge(): void {
 
   const bridge: IpcBridge = {
     invoke: async <T>(channel: string, ...args: unknown[]) => {
+      if (channel === 'game-launcher.getOptions') return gameLaunchOptions as T;
+      if (channel === 'game-launcher.detect') return 'C:\\Games\\Agent Preview\\game.exe' as T;
+      if (channel === 'game-launcher.save') {
+        gameLaunchOptions = normalizeGameLaunchOptions(args[1]);
+        return { success: true } as T;
+      }
+      if (channel === 'game-launcher.launch') return { success: true } as T;
+      if (channel === 'game-launcher.browse') return null as T;
       if (channel === "speech-recognition.loadScene")
         return {
           success: true,

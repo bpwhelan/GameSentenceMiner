@@ -43,7 +43,7 @@ const OVERLAY_PRESETS = [
     family: "recipe",
     name: "Clean screen",
     blurb: "Hide readings and capture indicators.",
-    effect: "Turns off readings, red borders, ready and recycled-line indicators.",
+    effect: "Turns off readings, text borders, ready and recycled-line indicators.",
     values: { showFurigana: false, showTextIndicators: false, showReadyIndicator: false, showRecycledIndicator: false },
   },
   {

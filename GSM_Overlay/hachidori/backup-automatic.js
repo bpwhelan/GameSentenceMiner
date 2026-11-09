@@ -1,7 +1,7 @@
 // Local daily automatic snapshots using the complete manual-backup payload.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { assertLookupStatsRows } from "./lookup-stats.js";
-import { assertBackupSnapshot } from "./backup-state.js";
+import { assertBackupProfiles, assertBackupSnapshot } from "./backup-state.js";
 
 export const AUTOMATIC_BACKUPS_KEY = "automaticBackups";
 export const AUTOMATIC_BACKUP_ALARM = "hachidori-automatic-backup";
@@ -54,8 +54,11 @@ export async function assertAutomaticBackupRecord(record) {
       || !Array.isArray(record.lookupStatsRows)) {
     throw new Error("The automatic backup record is invalid.");
   }
-  await assertBackupSnapshot(record.snapshot);
+  await assertBackupSnapshot(record.snapshot, { allowInvalidSettings: true });
   assertLookupStatsRows(record.snapshot.lookupStats, record.lookupStatsRows);
+  // The snapshot of records with profiles keeps them beside its Japanese view
+  // (docs/languages.md 17.2), checked by the version 4 rules.
+  if (record.profiles !== undefined) await assertBackupProfiles(record.snapshot, record.profiles, { allowInvalidSettings: true });
   return record;
 }
 

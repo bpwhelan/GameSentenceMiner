@@ -3520,7 +3520,7 @@ background: rgba(202, 12, 12, 0.692);
             blockBox.style.position = "absolute";
             blockBox.style.pointerEvents = "none";
             blockBox.style.zIndex = "998";
-            // Keep the red indicator aligned with the translated text boxes
+            // Keep the capture indicator aligned with the translated text boxes
             // when the user applies the overlay calibration offset.
             blockBox.style.left = `${bounds.minx + offsetX}%`;
             blockBox.style.top = `${bounds.miny + offsetY}%`;
@@ -4717,7 +4717,9 @@ background: rgba(202, 12, 12, 0.692);
     selectors.forEach(sel => {
         const elements = document.querySelectorAll(sel);
         for (let i = 0; i < elements.length; i++) {
-            elements[i].style.display = 'block';
+            // Match applyTextBoxLayout: block glyphs become separate sentence
+            // boundaries to Hachidori, truncating mined sentences to one glyph.
+            elements[i].style.display = sel === '.text-box' ? 'flex' : 'block';
         }
     });
     updateFuriganaVisibilityState();
@@ -5278,12 +5280,13 @@ background: rgba(202, 12, 12, 0.692);
 
   function applyIndicatorBoxStyles(lineBox) {
     if (showTextIndicators) {
-      lineBox.style.border = '1px solid rgba(255, 0, 0, 0.6)';
+      lineBox.style.border = '1px solid rgba(180, 196, 212, 0.28)';
+      lineBox.style.borderRadius = '4px';
       lineBox.style.background = 'rgba(0, 0, 0, 0)';
       if (fadeTextIndicators) {
         lineBox.style.transition = 'border-color 1.5s ease-out, background-color 1.5s ease-out';
         setTimeout(() => {
-          lineBox.style.borderColor = 'rgba(255, 0, 0, 0)';
+          lineBox.style.borderColor = 'rgba(180, 196, 212, 0)';
           lineBox.style.background = 'rgba(0, 0, 0, 0)';
         }, 1000);
       } else {

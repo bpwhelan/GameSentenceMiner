@@ -4,6 +4,7 @@ import {
     buildAgentScriptCandidateList,
     filterAgentScriptCandidatesForQuery,
     formatAgentScriptDisplay,
+    getAgentScriptSearchQueries,
     getHighConfidenceAgentScriptCandidate,
     isListableAgentScriptPath,
     scoreAgentScriptForContext,
@@ -135,6 +136,14 @@ describe("agent script helpers", () => {
         );
         expect(candidates[3]).toMatchObject({ path: "PC_Unrelated.js", score: 1 });
         expect(getHighConfidenceAgentScriptCandidate(candidates)).toBeNull();
+    });
+
+    it("ignores the Lichii emulator name when searching for game scripts", () => {
+        expect(getAgentScriptSearchQueries({ processName: "LICHII.EXE", windowTitle: "Lichii" })).toEqual([]);
+        expect(getAgentScriptSearchQueries({
+            processName: "lichii.exe",
+            windowTitle: "Lichii | ANONYMOUS;CODE",
+        })).toEqual(["anonymous code"]);
     });
 
     it("uses corroborating context to rank otherwise equally strong matches", () => {

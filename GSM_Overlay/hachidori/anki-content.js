@@ -4,8 +4,15 @@
   const text = (node, value) => { if (node.textContent !== value) node.textContent = value; };
 
   const FEEDBACK_PRIORITY = { info: 0, success: 1, warning: 2, error: 3 };
-  // Why a Netflix note has no sentence audio or GIF, by the reason the reader,
-  // the page or the worker reported.
+  // Why a Netflix or YouTube note has no sentence audio or GIF, by the reason
+  // the reader, the page or the worker reported. Tab capture and the line
+  // audio report these the same way on both sites.
+  const RECORDING_UNAVAILABLE = {
+    grant: "Chrome has not let Hachidori record this tab yet. Click Hachidori's toolbar button once on this tab, or add notes with the “Add the current popup entry to Anki” shortcut from chrome://extensions/shortcuts; later notes in this tab will record the line.",
+    "no-gif": "no GIF could be made of the line.",
+    unheard: "the line did not play through, so its audio was not recorded.",
+    unsupported: "this browser does not let extensions record a tab.",
+  };
   const NETFLIX_UNAVAILABLE = {
     "no-timeline": "Netflix's subtitle timing for this episode was not found. Reload the Netflix page; Netflix may also have changed its data.",
     image: "this episode's Japanese subtitles are images, which have no timed text.",
@@ -13,41 +20,62 @@
     failed: "Netflix's subtitle file for this episode could not be read.",
     "no-match": "the hovered subtitle matched no line in Netflix's subtitle file.",
     ambiguous: "the hovered subtitle matched more than one line in Netflix's subtitle file.",
-    grant: "Chrome has not let Hachidori record this tab yet. Click Hachidori's toolbar button once on this tab, or add notes with the “Add the current popup entry to Anki” shortcut from chrome://extensions/shortcuts; later notes in this tab will record the line.",
     silent: "the recording was silent, so no audio was attached. If the video is not muted, Netflix may be blocking capture of protected playback; turning off Chrome's “Use graphics acceleration when available” can help.",
-    "no-gif": "no GIF could be made of the line.",
-    unheard: "the line did not play through, so its audio was not recorded.",
     player: "Netflix's player controls were not found, so the line could not be replayed.",
     replay: "Netflix did not finish replaying the line.",
     linked: "this browser is linked to another Hachidori, so Netflix lines are not recorded.",
+    ...RECORDING_UNAVAILABLE,
   };
-  const netflixReason = reason => Object.hasOwn(NETFLIX_UNAVAILABLE, reason) ? NETFLIX_UNAVAILABLE[reason] : reason;
+  const YOUTUBE_UNAVAILABLE = {
+    "no-timeline": "YouTube's caption timing for this video was not found. Reload the YouTube page; YouTube may also have changed its data.",
+    live: "live streams are not supported.",
+    failed: "YouTube's caption file for this video could not be read.",
+    "no-match": "the hovered caption matched no line in YouTube's caption file.",
+    ambiguous: "the hovered caption matched more than one line in YouTube's caption file.",
+    silent: "the recording was silent, so no audio was attached. Check that the video is not muted.",
+    player: "YouTube's player was not found, so the line could not be replayed.",
+    replay: "YouTube did not finish replaying the line.",
+    ad: "an ad was playing, so the line could not be replayed.",
+    linked: "this browser is linked to another Hachidori, so YouTube lines are not recorded.",
+    ...RECORDING_UNAVAILABLE,
+  };
+  // The sites whose subtitle lines a note can record: the mining request's
+  // field, the controller option that records a line, the flag a linked
+  // browser's worker adds to a preflight, and the warnings' label and reasons.
+  // The first is also what a stale decision without the field reads as.
+  const VIDEO_SITES = [
+    { field: "netflix", recorder: "recordNetflixLine", linked: "netflixLinked", label: "Netflix mining",
+      reasons: NETFLIX_UNAVAILABLE },
+    { field: "youtube", recorder: "recordYouTubeLine", linked: "youtubeLinked", label: "YouTube mining",
+      reasons: YOUTUBE_UNAVAILABLE },
+  ];
+  const siteReason = (site, reason) => Object.hasOwn(site.reasons, reason) ? site.reasons[reason] : reason;
   const heldMedia = media => media && typeof media.filename === "string" && media.filename
     ? { token: media.token, filename: media.filename } : null;
   // `wanted` is { audio, gif }, the media the note's fields map; a warning
   // names those it is about. `outcome` collects the warnings and the
   // captureUnavailable kinds while a recording is applied.
-  function netflixLabel(wanted) {
+  function mediaLabel(wanted) {
     if (wanted.audio && wanted.gif) return "Sentence audio and GIF";
     return wanted.audio ? "Sentence audio" : "GIF";
   }
-  function markUnavailable(outcome, wanted, reason) {
-    outcome.warnings.push(`${netflixLabel(wanted)}: ${netflixReason(reason)}`);
+  function markUnavailable(site, outcome, wanted, reason) {
+    outcome.warnings.push(`${mediaLabel(wanted)}: ${siteReason(site, reason)}`);
     if (wanted.audio) outcome.captureUnavailable.push("sentence-audio");
     if (wanted.gif) outcome.captureUnavailable.push("gif");
   }
-  function applyRecordedMedia(record, outcome, wanted, recorded) {
+  function applyRecordedMedia(site, record, outcome, wanted, recorded) {
     if (wanted.audio) {
       const audio = heldMedia(recorded?.audio);
       if (audio) record.sentenceAudio = audio;
-      else markUnavailable(outcome, { audio: true }, typeof recorded?.audio?.unavailable === "string"
+      else markUnavailable(site, outcome, { audio: true }, typeof recorded?.audio?.unavailable === "string"
         ? recorded.audio.unavailable : "no audio was recorded.");
     }
     // The GIF is held under its own token, or {gif} falls back to the screenshot.
     if (wanted.gif) {
       const gif = heldMedia(recorded?.gif);
       if (gif) record.gif = gif;
-      else markUnavailable(outcome, { gif: true }, typeof recorded?.gif?.unavailable === "string"
+      else markUnavailable(site, outcome, { gif: true }, typeof recorded?.gif?.unavailable === "string"
         ? recorded.gif.unavailable : "no-gif");
     }
   }
@@ -78,7 +106,7 @@
     const button = record.add;
     button.dataset.state = state;
     const actionTitle = message || {
-      checking: "Checking Anki card status",
+      checking: "Checking Anki card status — click to add anyway",
       ready: "Mine to Anki",
       "add-duplicate": "Add duplicate to Anki",
       overwrite: "Overwrite note in Anki",
@@ -130,7 +158,8 @@
   function disabled(record) {
     if (!record.add) return;
     record.add.disabled = record.busy
-      || (!record.terminal && (record.needsCheck || (!record.decision?.canAdd && !views(record))));
+      || (!record.terminal && !record.opensSettings && record.add.dataset.state !== "checking"
+        && (record.needsCheck || (!record.decision?.canAdd && !views(record))));
   }
   function payload(record) {
     return {
@@ -214,6 +243,7 @@
       record.viewChecked = false;
       record.needsCheck = true;
       record.decision = null;
+      record.opensSettings = false;
       if (record.add) setMiningButtonState(record, "checking");
     }
   }
@@ -235,6 +265,33 @@
     if (configKey !== null && result.configKey !== configKey) return { configKey, changed: true };
     return { configKey: result.configKey, changed: false };
   }
+  // The action disables itself while it works, and Chrome then moves focus
+  // out of the popup. Pressed from the keyboard, it gets focus back once it
+  // is enabled again, unless the reader has focused something else since.
+  // A mouse press takes none back.
+  function keyboardFocusReturn(control) {
+    if (!control.matches(":focus-visible")) return () => {};
+    return () => {
+      const document = control.ownerDocument;
+      const unfocused = (control.getRootNode().activeElement ?? document.body) === document.body
+        && document.activeElement === document.body;
+      if (unfocused && control.isConnected && !control.disabled) control.focus({ preventScroll: true });
+    };
+  }
+  // The button of a Template without a deck says so and opens Settings; a
+  // custom button's Template that is unavailable says so in its status.
+  function showUnavailable(record, value, error) {
+    if (record.opensSettings && !record.custom) {
+      record.needsCheck = false;
+      setMiningButtonState(record, "unavailable", error);
+    }
+    if (!value && record.custom) {
+      record.needsCheck = false;
+      setMiningButtonState(record, "unavailable", error || "This Anki Template is unavailable.");
+      setStatus(record, error || "This Anki Template is unavailable.", "error");
+    }
+  }
+
   function createAnkiController({
     send,
     onChange,
@@ -246,6 +303,12 @@
     // (netflix-content.js). Its options { audio, gif } name the media wanted;
     // `conceal` is passed on for the tab capture a GIF needs.
     recordNetflixLine = async () => { throw new Error("this page cannot replay Netflix lines."); },
+    // Experimental YouTube mining: the same for a YouTube caption's cue, which
+    // the same reader records (netflix-content.js).
+    recordYouTubeLine = async () => { throw new Error("this page cannot replay YouTube lines."); },
+    // Opens Settings → Anki for the profile the popup's controls act in, or
+    // null where the page cannot open Settings.
+    openSettings = null,
   }) {
     const owners = new Map(), bound = new WeakMap();
     let enabled = false, settingsKey = "", checks = Promise.resolve();
@@ -256,17 +319,17 @@
     const boundHere = record => bound.get(record.binding) === record && record.binding.isConnected;
     const current = record => live(record.group) && boundHere(record);
     const needsCheck = record => boundHere(record) && record.needsCheck && !record.busy && !record.terminal;
-    function available(records, value, error = "") {
+    // `emptyDeck`: the Template's only problem is that it names no deck. Its
+    // button then says so and opens Settings → Anki (docs/languages.md 6.3).
+    function available(records, value, error = "", emptyDeck = false) {
       for (const record of records) {
-        const show = value || record.custom || record.terminal || cachedView(record.decision);
+        record.opensSettings = !value && emptyDeck && typeof openSettings === "function"
+          && !record.terminal && !cachedView(record.decision);
+        const show = value || record.custom || record.terminal || cachedView(record.decision) || record.opensSettings;
         if (show && record.actions.isConnected) controls(record);
         if (record.control) showControls(record, show);
         if (!value && !show) record.needsCheck = false;
-        if (!value && record.custom) {
-          record.needsCheck = false;
-          setMiningButtonState(record, "unavailable", error || "This Anki Template is unavailable.");
-          setStatus(record, error || "This Anki Template is unavailable.", "error");
-        }
+        showUnavailable(record, value, error);
       }
     }
     async function requestCachedView(record) {
@@ -278,7 +341,7 @@
       }
     }
     function applyCachedView(group, record, result) {
-      if (!cachedView(result)) return;
+      if (!cachedView(result) || record.busy || record.terminal) return;
       record.needsCheck = false;
       controls(record);
       showControls(record, true);
@@ -320,7 +383,7 @@
         replies = pending.map(() => ({ state: "error", canAdd: false, error: error.message }));
       }
       pending.forEach((record, index) => {
-        if (owns() && boundHere(record)) decision(record, replies[index]);
+        if (owns() && boundHere(record) && !record.busy && !record.terminal) decision(record, replies[index]);
       });
     }
     function recordsByTemplate(records) {
@@ -340,7 +403,7 @@
         return;
       }
       for (const record of records) record.configKey = status.configKey;
-      available(records, status.available, status.error);
+      available(records, status.available, status.error, status.emptyDeck === true);
       if (!status.available) return;
       onChange(group.owner);
       await checkRecords(records, owns);
@@ -385,6 +448,7 @@
         if (needsCheck(record)) {
           // Readiness belongs to this result, not to the whole popup's queue.
           record.decision = null;
+          record.opensSettings = false;
           if (enabled) {
             controls(record);
             showControls(record, true);
@@ -440,7 +504,7 @@
         await discardCaptures(record);
       }
       if (!owns()) return;
-      setMiningButtonState(record, decisionState(record.decision));
+      setMiningButtonState(record, decisionState(record.decision ?? { state: "error" }));
       setStatus(record, `Could not add: ${error.message}`, "error");
     }
     // One viewport screenshot for this submission, taken with Hachidori's own
@@ -452,7 +516,9 @@
       if (record.decision?.screenshot !== true) return request;
       if (owns()) setStatus(record, "Taking the screenshot…");
       try {
-        const taken = await conceal(() => send("hd_anki_screenshot", { templateId: record.templateId }));
+        // A note from a YouTube caption asks for the video's frame (YouTube mining).
+        const taken = await conceal(() => send("hd_anki_screenshot", { templateId: record.templateId,
+          ...(request.youtube ? { videoFrame: true } : {}) }));
         if (typeof taken?.filename !== "string" || !taken.filename) throw new Error("no screenshot was taken");
         record.screenshot = { token: taken.token, filename: taken.filename };
         return { ...request, screenshot: record.screenshot };
@@ -461,45 +527,49 @@
         return { ...request, captureUnavailable: [...(request.captureUnavailable ?? []), "screenshot"] };
       }
     }
-    // Experimental Netflix mining: the hovered subtitle line's audio and, when
-    // a {gif} field needs it, a looping GIF. The page records the line, with
-    // the reader concealed while it captures the tab. Like the screenshot,
-    // media that cannot be recorded is a warning on an otherwise ordinary
-    // note; {gif} falls back to the screenshot the submission already took.
+    const recorders = { recordNetflixLine, recordYouTubeLine };
+    // Experimental Netflix and YouTube mining: the hovered subtitle line's
+    // audio and, when a {gif} field needs it, a looping GIF. The page records
+    // the line, with the reader concealed while it captures the tab. Like the
+    // screenshot, media that cannot be recorded is a warning on an otherwise
+    // ordinary note; {gif} falls back to the screenshot the submission already took.
     //
     // `wanted` is { audio, gif }; `outcome` collects the warnings and the
     // captureUnavailable kinds while each recorded item is applied to `record`.
-    async function recordNetflixMedia(record, outcome, wanted, cue) {
+    async function recordVideoMedia(site, record, outcome, wanted, cue) {
       try {
-        const recorded = await recordNetflixLine(cue, record.templateId, { ...wanted, conceal });
-        if (typeof recorded?.unavailable === "string") markUnavailable(outcome, wanted, recorded.unavailable);
-        else applyRecordedMedia(record, outcome, wanted, recorded);
+        const recorded = await recorders[site.recorder](cue, record.templateId, { ...wanted, conceal });
+        if (typeof recorded?.unavailable === "string") markUnavailable(site, outcome, wanted, recorded.unavailable);
+        else applyRecordedMedia(site, record, outcome, wanted, recorded);
       } catch (error) {
-        markUnavailable(outcome, wanted, error.message);
+        markUnavailable(site, outcome, wanted, error.message);
       }
     }
-    async function prepareNetflixMedia(record, request, owns) {
-      record.netflixWarning = "";
+    async function prepareVideoMedia(record, request, owns) {
+      record.videoWarning = "";
       record.sentenceAudio = null;
       record.gif = null;
-      // A linked browser records nothing. Its host never sees the Netflix cue,
-      // so its preflight cannot say which media the fields map; the reader
-      // warns for any linked Netflix note, and {gif} keeps its screenshot.
-      if (record.decision?.netflixLinked === true) {
-        record.netflixWarning = `Netflix mining: ${NETFLIX_UNAVAILABLE.linked}`;
+      // A linked browser records nothing. Its host never sees the cue, so its
+      // preflight cannot say which media the fields map; the reader warns for
+      // any linked Netflix or YouTube note, and {gif} keeps its screenshot.
+      const linked = VIDEO_SITES.find(entry => record.decision?.[entry.linked] === true);
+      if (linked !== undefined) {
+        record.videoWarning = `${linked.label}: ${linked.reasons.linked}`;
         return request;
       }
       const wanted = { audio: record.decision?.sentenceAudio === true, gif: record.decision?.gif === true };
       if (!wanted.audio && !wanted.gif) return request;
+      const site = VIDEO_SITES.find(entry => request[entry.field] !== null && typeof request[entry.field] === "object")
+        ?? VIDEO_SITES[0];
       const outcome = { warnings: [], captureUnavailable: [...(request.captureUnavailable ?? [])] };
-      const cue = request.netflix?.cue;
+      const cue = request[site.field]?.cue;
       if (!cue) {
-        markUnavailable(outcome, wanted, request.netflix?.unavailable ?? "no-timeline");
+        markUnavailable(site, outcome, wanted, request[site.field]?.unavailable ?? "no-timeline");
       } else {
         if (owns()) setStatus(record, "Recording the line…");
-        await recordNetflixMedia(record, outcome, wanted, cue);
+        await recordVideoMedia(site, record, outcome, wanted, cue);
       }
-      record.netflixWarning = outcome.warnings.join(" ");
+      record.videoWarning = outcome.warnings.join(" ");
       const next = { ...request };
       if (record.sentenceAudio) next.sentenceAudio = record.sentenceAudio;
       if (record.gif) next.gif = record.gif;
@@ -514,30 +584,53 @@
       record.terminal = true;
       record.noteIds = [result.noteId];
       const label = result.state === "added" ? "Added" : "Updated";
-      const warnings = [record.screenshotWarning, record.netflixWarning, ...(result.warnings ?? [])].filter(Boolean);
+      const warnings = [record.screenshotWarning, record.videoWarning, ...(result.warnings ?? [])].filter(Boolean);
       setMiningButtonState(record, "success", `Find ${label.toLowerCase()} note in Anki`);
       setStatus(record, `${label} note ${result.noteId}. ${warnings.join(" ")}`.trim(),
         warnings.length > 0 ? "warning" : "success");
       refreshAll(); // Best-effort checks cannot turn a confirmed write into a retry.
       return true;
     }
+    // Add anyway: this note's media requirements without waiting for its
+    // duplicate lookup. The override belongs only to this submission; any
+    // other request is returned unchanged. Returns null once the popup no
+    // longer owns the record.
+    async function addAnywayRequest(record, request, owns) {
+      if (request.allowDuplicate !== true) return request;
+      let checkedRequest = request;
+      if (checkedRequest.configKey === null) {
+        const status = await send("hd_anki_status", { templateId: record.templateId });
+        if (!status.available) throw new Error(status.error || "Anki mining is unavailable.");
+        checkedRequest = { ...checkedRequest, configKey: status.configKey };
+      }
+      const checked = await send("hd_anki_preflight", { request: checkedRequest });
+      if (!owns()) return null;
+      record.decision = checked;
+      if (!checked.canAdd) throw new Error(checked.error || "Anki rejected this note.");
+      return checked.clientSpeech ? { ...checkedRequest, clientSpeech: checked.clientSpeech } : checkedRequest;
+    }
     async function submit(record, fromPointer) {
       if (!current(record) || record.add.disabled || record.busy || record.terminal) return;
       const group = record.group, epoch = group.epoch;
       const owns = () => current(record) && record.group === group && group.epoch === epoch;
       const baseRequest = (fromPointer && record.pointerRequest) || payload(record);
-      const request = record.decision?.clientSpeech
+      let request = record.decision?.clientSpeech
         ? { ...baseRequest, clientSpeech: record.decision.clientSpeech }
         : baseRequest;
+      if (record.add.dataset.state === "checking") request = { ...request, allowDuplicate: true };
+      const returnFocus = keyboardFocusReturn(record.add);
       record.pointerRequest = null;
       record.busy = true;
+      record.needsCheck = false;
       setMiningButtonState(record, "mining");
       disabled(record);
       setStatus(record, "Saving to Anki…");
       let writeSent = false;
       try {
+        request = await addAnywayRequest(record, request, owns);
+        if (request === null) return;
         const screenshotted = await prepareScreenshot(record, request, owns);
-        const prepared = await prepareNetflixMedia(record, screenshotted, owns);
+        const prepared = await prepareVideoMedia(record, screenshotted, owns);
         if (owns()) setStatus(record, "Saving to Anki…");
         writeSent = true;
         const result = await send("hd_anki_submit", { request: prepared });
@@ -549,12 +642,13 @@
         await handleSubmissionFailure(record, error, writeSent, owns);
       } finally {
         record.busy = false;
-        if (current(record)) { disabled(record); onChange(record.group.owner); refresh(record.group); }
+        if (current(record)) { disabled(record); onChange(record.group.owner); refresh(record.group); returnFocus(); }
       }
     }
     // An unconfirmed write has no note ID, so Anki searches for the expression.
     async function browse(record) {
       if (!current(record) || record.add.disabled) return;
+      const returnFocus = keyboardFocusReturn(record.add);
       record.add.disabled = true;
       const noteIds = record.terminal ? record.noteIds : record.decision?.noteIds;
       try {
@@ -581,7 +675,7 @@
       }
       catch (error) { if (current(record)) setStatus(record, `Could not open Anki: ${error.message}`, "error"); }
       finally {
-        if (current(record)) { disabled(record); onChange(record.group.owner); }
+        if (current(record)) { disabled(record); onChange(record.group.owner); returnFocus(); }
       }
     }
     function controls(record) {
@@ -619,10 +713,15 @@
       Object.assign(record, { feedback, control, add, output, hidden: false });
       setMiningButtonState(record, "checking");
       record.onMouseDown = event => {
-        if (event.button === 0 && current(record) && !views(record)) record.pointerRequest = payload(record);
+        if (event.button === 0 && current(record) && !views(record) && !record.opensSettings) {
+          record.pointerRequest = payload(record);
+          if (add.dataset.state === "checking") record.pointerRequest.allowDuplicate = true;
+        }
       };
       record.onClick = event => {
-        if (views(record)) void browse(record);
+        if (record.opensSettings) {
+          if (current(record)) openSettings();
+        } else if (views(record) && !(event.detail > 0 && record.pointerRequest?.allowDuplicate === true)) void browse(record);
         else void submit(record, event.detail > 0);
       };
       add.addEventListener("mousedown", record.onMouseDown);

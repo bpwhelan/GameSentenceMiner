@@ -19,6 +19,9 @@ export function createBackupDownloads(chrome, relay) {
     if (!Object.hasOwn(tracked, id)) return;
     const [download] = await chrome.downloads.search({ id: Number(id) });
     if (download?.state === "in_progress") return;
+    // Chrome reports a save that failed after it started (#577) only in its
+    // downloads list; the debug log keeps the reason.
+    if (download?.state === "interrupted") console.warn(`hachidori: the backup download was interrupted: ${download.error}`);
     const reply = await release(tracked[id]);
     if (!reply?.ok) throw new Error(reply?.error || "Could not release the saved backup archive.");
     delete tracked[id];

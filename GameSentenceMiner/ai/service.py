@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import List, Optional
@@ -10,8 +11,13 @@ from GameSentenceMiner.ai.contracts import AIRequest, AIResponse, AIError
 from GameSentenceMiner.ai.features.character_context import CharacterContextProvider
 from GameSentenceMiner.ai.features.character_summary import CharacterSummaryService
 from GameSentenceMiner.ai.parsing.output_parser import OutputParser
-from GameSentenceMiner.ai.prompts.builder import PromptBuilder
+from GameSentenceMiner.ai.prompts.builder import PromptBuilder, PromptSelector
 from GameSentenceMiner.ai.registry import ProviderRegistry
+from GameSentenceMiner.ai.translation_cache import (
+    is_successful_translation,
+    line_translation_cache,
+    normalize_translation_source,
+)
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
     AI_GROQ,
@@ -90,6 +96,7 @@ class AIService:
             top_p=ai_cfg.top_p,
             max_tokens=ai_cfg.max_output_tokens,
             request_kind=request_kind,
+            reasoning_effort=(ai_cfg.open_ai_reasoning_effort or None) if provider == AI_OPENAI else None,
         )
 
     @staticmethod
@@ -167,6 +174,7 @@ class AIService:
                 game_title=request.game_title,
                 request_kind=request.request_kind,
                 metadata=request.metadata,
+                reasoning_effort=request.reasoning_effort,
             )
             try:
                 response = client.generate(backup_request)
@@ -192,6 +200,61 @@ class AIService:
         current_line: GameLine,
         game_title: str = "",
         custom_prompt: Optional[str] = None,
+        *,
+        force_refresh: bool = False,
+        translation_only: bool = False,
+    ) -> str:
+        ai = self.config_snapshot.ai
+        general = self.config_snapshot.general
+        selection = PromptSelector.select(
+            ai.use_canned_translation_prompt,
+            ai.use_canned_context_prompt,
+            ai.custom_prompt,
+            general.get_native_language_name(),
+            custom_prompt_override=custom_prompt,
+            prompt_preset=ai.prompt_preset,
+        )
+        is_translation = translation_only or selection.prompt_kind == "translation" or ai.provider == AI_DEEPL
+        scope = (
+            "translation"
+            if is_translation
+            else hashlib.sha256(
+                f"{selection.prompt_kind}\0{selection.prompt_text}\0{ai.custom_full_prompt}".encode("utf-8")
+            ).hexdigest()
+        )
+        source = normalize_translation_source(sentence)
+        language = ai.deepl_target_lang if ai.provider == AI_DEEPL else general.native_language
+        line_id = getattr(current_line, "id", None)
+
+        def generate():
+            return self._translate_uncached(lines, sentence, current_line, game_title, custom_prompt)
+
+        if line_id and source:
+            result = line_translation_cache.get_or_translate(
+                (str(line_id), source, str(language).casefold(), scope), generate, force_refresh=force_refresh
+            )
+        else:
+            result = generate()
+
+        # A batch or an edited selection belongs to its own source, not to this
+        # line. Also reject late responses for text revised during the request.
+        if (
+            current_line is not None
+            and is_translation
+            and source == normalize_translation_source(current_line.text)
+            and is_successful_translation(result)
+        ):
+            current_line.translation = result
+            current_line.TL = result
+        return result
+
+    def _translate_uncached(
+        self,
+        lines: List[GameLine],
+        sentence: str,
+        current_line: GameLine,
+        game_title: str = "",
+        custom_prompt: Optional[str] = None,
     ) -> str:
         if (not lines or not current_line) and not sentence:
             self.logger.warning(
@@ -202,39 +265,28 @@ class AIService:
         if not self._ensure_connectivity():
             return ""
 
-        character_context = self.character_context_provider.get_character_context(
-            game_title=game_title,
-            ai_service=self,
-        )
-
-        full_prompt, prompt_kind = self.prompt_builder.build(
-            lines=lines,
-            sentence=sentence,
-            current_line=current_line,
-            game_title=game_title,
-            dialogue_context_length=self.config_snapshot.ai.dialogue_context_length,
-            use_canned_translation_prompt=self.config_snapshot.ai.use_canned_translation_prompt,
-            use_canned_context_prompt=self.config_snapshot.ai.use_canned_context_prompt,
-            custom_prompt=self.config_snapshot.ai.custom_prompt,
-            custom_prompt_override=custom_prompt,
-            character_context=character_context,
-            prompt_preset=self.config_snapshot.ai.prompt_preset,
-            custom_full_prompt=self.config_snapshot.ai.custom_full_prompt,
-        )
-
-        self.logger.debug(f"DeepL Prompt being sent: {full_prompt[:500]}")
-
-        # NOTE:
-        # DeepL is now primarily handled directly in prefetch_ai_translation() (anki.py)
-        # to avoid going through the LLM prompt pipeline.
-        # This branch is kept for compatibility with other flows (e.g. manual translate).
-
         if self.config_snapshot.ai.provider == AI_DEEPL:
-            # DeepL should only receive the raw sentence
             prompt_to_send = sentence
-            self.logger.debug(f"SENTENCE SENT TO DEEPL: {sentence}")
+            prompt_kind = "translation"
         else:
-            prompt_to_send = full_prompt
+            character_context = self.character_context_provider.get_character_context(
+                game_title=game_title,
+                ai_service=self,
+            )
+            prompt_to_send, prompt_kind = self.prompt_builder.build(
+                lines=lines,
+                sentence=sentence,
+                current_line=current_line,
+                game_title=game_title,
+                dialogue_context_length=self.config_snapshot.ai.dialogue_context_length,
+                use_canned_translation_prompt=self.config_snapshot.ai.use_canned_translation_prompt,
+                use_canned_context_prompt=self.config_snapshot.ai.use_canned_context_prompt,
+                custom_prompt=self.config_snapshot.ai.custom_prompt,
+                custom_prompt_override=custom_prompt,
+                character_context=character_context,
+                prompt_preset=self.config_snapshot.ai.prompt_preset,
+                custom_full_prompt=self.config_snapshot.ai.custom_full_prompt,
+            )
 
         request = self._make_request(prompt_to_send, request_kind=prompt_kind)
         try:
@@ -243,14 +295,6 @@ class AIService:
             self.logger.debug(f"=== TRANSLATION DEBUG ===")
             self.logger.debug(f"Original sentence: {sentence}")
             self.logger.debug(f"Translation returned: {response.text}")
-
-            # ADD THIS BLOCK so that prefetch_ai_translation() in anki.py can work
-            try:
-                if current_line is not None and prompt_kind in {"translation", "custom"}:
-                    current_line.translation = response.text
-            except Exception:
-                self.logger.debug(f"Failed to set translation on current_line: {current_line}")
-                pass
 
             return response.text
 

@@ -1,10 +1,11 @@
 // Settings → Advanced → Troubleshooting → Get debug info. One JSON report of
 // what a maintainer needs to reproduce a problem: the version, install and
-// browser; the engine's status, memory and recent log from every extension
-// context; the installed dictionaries, Anki and sharing state; every setting;
-// and what is stored where (storage areas, IndexedDB, OPFS files, caches).
-// Each probe is recorded on its own, so one that fails or is missing in this
-// host leaves `{ error }` in its place instead of losing the report.
+// browser; the engine's status and memory; the debug log, with what happened
+// in earlier sessions and every extension context (debug-log.js); the
+// installed dictionaries, Anki and sharing state; every setting; and what is
+// stored where (storage areas, IndexedDB, OPFS files, caches). Each probe is
+// recorded on its own, so one that fails or is missing in this host leaves
+// `{ error }` in its place instead of losing the report.
 //
 // Credentials are redacted. Reader-authored content is reduced to counts: the
 // personal dictionary text, lookup history rows, Anki duplicate-index rows, the
@@ -15,13 +16,10 @@ import { CUSTOM_DICTIONARY_SOURCE_KEY } from "./custom-dictionary.js";
 import { LOOKUP_STATS_ROW_PREFIX } from "./lookup-stats.js";
 import { ANKI_INDEX_KEY } from "./anki-index-cache.js";
 import { AUTOMATIC_BACKUPS_KEY } from "./backup-automatic.js";
-import { readDebugLog } from "./debug-log.js";
+import { DEBUG_LOG_DATABASE, openDebugLogStore, readDebugLog, redactSecrets } from "./debug-log.js";
 import "./word-status-overrides.js";
 
-export const DEBUG_INFO_SCHEMA_VERSION = 1;
-export const REDACTED = "[redacted]";
-
-const SECRET_KEY = /api.?key|token|secret|password/iu;
+export const DEBUG_INFO_SCHEMA_VERSION = 2;
 
 // A probe that never settles (an engine or Anki that stopped answering) must
 // not hold the report: broken setups are when it is needed most. The extension
@@ -58,15 +56,6 @@ async function probeAll(probes, timeoutMs) {
   return Object.fromEntries(entries.map(([key], index) => [key, values[index]]));
 }
 
-// Replace every non-empty string under a credential-like key, at any depth.
-// An empty value stays empty so the report still shows it was never set.
-export function redactSecrets(value) {
-  if (Array.isArray(value)) return value.map(redactSecrets);
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,
-    SECRET_KEY.test(key) && typeof entry === "string" && entry !== "" ? REDACTED : redactSecrets(entry)]));
-}
-
 const jsonBytes = value => new TextEncoder().encode(JSON.stringify(value) ?? "").length;
 
 function summariseCustomDictionary(value) {
@@ -76,10 +65,14 @@ function summariseCustomDictionary(value) {
     : value;
 }
 
+// One snapshot, or one per source key once profiles name several (languages.md 12).
 function summariseAnkiIndex(value) {
+  const omitted = snapshot => (Array.isArray(snapshot?.rows)
+    ? { ...snapshot, rows: { omitted: true, count: snapshot.rows.length } } : snapshot);
+  if (Array.isArray(value?.snapshots)) return { ...value, snapshots: value.snapshots.map(omitted) };
   const rows = value?.snapshot?.rows;
   if (!Array.isArray(rows)) return value;
-  return { ...value, snapshot: { ...value.snapshot, rows: { omitted: true, count: rows.length } } };
+  return { ...value, snapshot: omitted(value.snapshot) };
 }
 
 function summariseWordStatusOverrides(value) {
@@ -208,6 +201,68 @@ async function listCaches(caches) {
 const scriptSummary = scripts => scripts.map(({ id, matches, excludeMatches, allFrames, runAt, world }) =>
   ({ id, matches, excludeMatches, allFrames, runAt, world }));
 
+const entryId = entry => `${entry.session}:${entry.n}`;
+
+// The report's debug log: every entry the ring keeps, from this session and
+// earlier ones, joined by any a live context still holds in memory (its write
+// failed, or had not happened), each once and oldest first, with a summary of
+// every session they came from. `stored` is the ring's read() or { error };
+// `live` maps each probe to its readDebugLog() result, a list of them, or
+// { error }.
+export function assembleDebugLog(stored, live) {
+  const entries = new Map();
+  const keep = (entry) => {
+    const kept = entries.get(entryId(entry));
+    if (!kept || (entry.repeat ?? 1) > (kept.repeat ?? 1)) entries.set(entryId(entry), entry);
+  };
+  for (const { bytes, ...entry } of stored.records ?? []) keep(entry);
+  const contexts = [];
+  for (const [probe, value] of Object.entries(live)) {
+    for (const log of Array.isArray(value) ? value : [value]) {
+      const { entries: held = [], ...status } = log ?? {};
+      contexts.push({ probe, ...status });
+      for (const entry of held) keep(entry);
+    }
+  }
+  const ordered = [...entries.values()].sort((left, right) => left.at.localeCompare(right.at)
+    || left.session.localeCompare(right.session) || left.n - right.n);
+  const liveSessions = new Set(contexts.map(status => status.session));
+  const sessions = new Map();
+  for (const entry of ordered) {
+    const session = sessions.get(entry.session) ?? { session: entry.session, context: entry.context,
+      version: entry.version, firstAt: entry.at, lastAt: entry.at, live: liveSessions.has(entry.session), levels: {} };
+    const lastAt = entry.lastAt ?? entry.at;
+    if (lastAt > session.lastAt) session.lastAt = lastAt;
+    session.version ??= entry.version;
+    session.levels[entry.level] = (session.levels[entry.level] ?? 0) + (entry.repeat ?? 1);
+    sessions.set(entry.session, session);
+  }
+  return {
+    database: DEBUG_LOG_DATABASE,
+    stored: stored.error ? { error: stored.error }
+      : { entries: stored.totals.count, bytes: stored.totals.bytes, maxEntries: stored.maxEntries, maxBytes: stored.maxBytes },
+    contexts,
+    sessions: [...sessions.values()],
+    entries: ordered,
+  };
+}
+
+// Each live context's log first, which writes what it holds to the ring, then
+// the ring itself.
+async function collectDebugLog({ window, send, targets, timeoutMs }) {
+  const answered = async (reply) => {
+    if (reply?.ok !== true) throw new Error(reply?.error || "no reply");
+    return reply;
+  };
+  const live = await probeAll({
+    serviceWorker: async () => (await answered(await send("hd_debug_log", {}, targets.worker))).log,
+    engine: async () => (await answered(await send("hd_debug_log"))).logs,
+    settings: () => readDebugLog(window),
+  }, timeoutMs);
+  const stored = await probe(() => openDebugLogStore(window.indexedDB).read(), timeoutMs);
+  return assembleDebugLog(stored, live);
+}
+
 // `send(type, fields, target)` is Settings' runtime message helper; `targets`
 // names the worker, sharing and Anki message targets; `context` is what only
 // the page knows (its host capabilities and the visible state).
@@ -216,7 +271,7 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
   const { navigator } = window;
   const startedAt = now();
   const manifest = chrome.runtime.getManifest();
-  const results = await probeAll({
+  const [results, debugLog] = await Promise.all([probeAll({
     os: () => chrome.runtime.getPlatformInfo(),
     userAgentHints: () => navigator.userAgentData.getHighEntropyValues(HIGH_ENTROPY_HINTS),
     self: () => chrome.management.getSelf(),
@@ -243,14 +298,11 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
     engineStatus: () => send("hd_status"),
     engineMemory: () => send("hd_memory"),
     extensionMemory: () => send("hd_memory_total"),
-    engineLogs: () => send("hd_debug_log"),
-    workerLog: () => send("hd_debug_log", {}, targets.worker),
     dictionaryState: () => send("hd_state_read", {}, targets.worker),
     automaticBackups: () => send("hd_backup_auto_list", {}, targets.worker),
     sharing: () => send("hd_sharing_status", {}, targets.sharing),
     anki: () => send("hd_anki_status", {}, targets.anki),
-    settingsLog: () => readDebugLog(window),
-  }, timeoutMs);
+  }, timeoutMs), collectDebugLog({ window, send, targets, timeoutMs })]);
   return {
     schemaVersion: DEBUG_INFO_SCHEMA_VERSION,
     generatedAt: startedAt.toISOString(),
@@ -283,7 +335,7 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
       sharing: redactSecrets(results.sharing),
       automaticBackups: results.automaticBackups,
     },
-    logs: { serviceWorker: results.workerLog, engine: results.engineLogs, settings: results.settingsLog },
+    debugLog,
     storage: {
       estimate: results.storageEstimate, persisted: results.storagePersisted,
       bytesInUse: { local: results.localBytesInUse, session: results.sessionBytesInUse, sync: results.syncBytesInUse },

@@ -22,8 +22,14 @@ test('settings load and search the default catalogue, save the chosen guide, and
   let folder = { canceled: true, filePaths: [] };
   const catalogue = new GuideCatalogue(directory, { fetchJson: async url => {
     requests.push(url);
+    if (url.startsWith('https://api.github.com/')) return { truncated: false, tree: [
+      { path: 'two/catalog.json', type: 'blob', mode: '100644' },
+      { path: 'two/guide.json', type: 'blob', mode: '100644' },
+    ] };
+    if (url.endsWith('/two/catalog.json')) return { vndb_id: 'v2', title: 'Two', alttitle: '二' };
+    if (url.endsWith('/two/guide.json')) return { vndb_id: 'v2', title: 'Two',
+      routes: [{ id: 'first', title: 'First route', reviewed: true }] };
     return { v1: { slug: 'one', title: 'One', alttitle: '一', has_guide: true },
-      v2: { slug: 'two', title: 'Two', alttitle: '二', has_guide: true },
       v3: { slug: 'wip', title: 'Unfinished', has_guide: false } };
   } });
   const route = { id: 'first', title: 'First route', reviewed: true };

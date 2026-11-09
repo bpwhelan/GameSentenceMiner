@@ -139,7 +139,7 @@ def test_overlay_source_warning_is_shown_on_every_overlay_only_card(monkeypatch)
             overlay_only=overlay_only,
         )
         assert dialog.overlay_source_warning_label.isHidden() is (not overlay_only)
-        assert dialog.disable_session_checkbox.isHidden() is overlay_only
+        assert not dialog.disable_session_checkbox.isHidden()
     warning = dialog.overlay_source_warning_label.text()
     assert "text hooking" in warning.lower()
     assert "ocr" in warning.lower()
@@ -152,28 +152,58 @@ def test_overlay_source_warning_is_shown_on_every_overlay_only_card(monkeypatch)
     app.processEvents()
 
 
-def test_overlay_source_warning_bypasses_session_disable(monkeypatch):
+@pytest.mark.parametrize("overlay_only", [False, True])
+@pytest.mark.parametrize("reusing_audio", [False, True])
+@pytest.mark.parametrize("voice_detected", [False, True])
+def test_confirmation_session_disable_is_respected(monkeypatch, overlay_only, reusing_audio, voice_detected):
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "disable_anki_confirmation_session", True)
-    monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
+    monkeypatch.setattr(
+        anki_confirmation_qt.gsm_state,
+        "vad_result",
+        SimpleNamespace(success=voice_detected, trimmed_audio_path="trimmed.opus"),
+    )
     populated = []
-    dialog = SimpleNamespace(populate_ui=lambda *args: populated.append(args), exec=lambda: "confirmed")
+    dialog = SimpleNamespace(
+        populate_ui=lambda *args: populated.append(args),
+        exec=lambda: pytest.fail("Session-disabled confirmation must not open, including for overlay cards"),
+    )
     monkeypatch.setattr(anki_confirmation_qt, "_anki_confirmation_dialog_instance", dialog)
 
     result = anki_confirmation_qt.show_anki_confirmation(
-        None, "overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True
+        None,
+        "overlay",
+        "The overlay sentence.",
+        "shot.webp",
+        None,
+        "preview.opus",
+        "Translation",
+        0,
+        0,
+        reusing_audio=reusing_audio,
+        overlay_only=overlay_only,
     )
 
-    assert result == "confirmed"
-    assert len(populated) == 1
-    assert populated[0][-1] is True
+    assert result == (
+        reusing_audio or voice_detected,
+        "The overlay sentence.",
+        "Translation",
+        "shot.webp",
+        None,
+        False,
+        None if reusing_audio else "preview.opus",
+        {},
+    )
+    assert populated == []
     app.processEvents()
 
 
-def test_overlay_source_warning_requires_confirmation_even_with_auto_accept(monkeypatch):
+@pytest.mark.parametrize("overlay_only", [False, True])
+@pytest.mark.parametrize("auto_accept_timer", [0, 10])
+def test_confirmation_respects_auto_accept_setting(monkeypatch, overlay_only, auto_accept_timer):
     app = QApplication.instance() or QApplication([])
     config = deepcopy(anki_confirmation_qt.get_config())
-    config.anki.auto_accept_timer = 1
+    config.anki.auto_accept_timer = auto_accept_timer
     config.anki.autoplay_audio = False
     config.anki.confirmation_gamepad_enabled = False
     monkeypatch.setattr(anki_confirmation_qt, "get_config", lambda: config)
@@ -183,13 +213,18 @@ def test_overlay_source_warning_requires_confirmation_even_with_auto_accept(monk
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "audio_edit_context", None)
     monkeypatch.setattr(anki_confirmation_qt.gsm_state, "vad_result", None)
     dialog = anki_confirmation_qt.AnkiConfirmationDialog()
-    dialog.populate_ui("overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=True)
+    dialog.populate_ui("overlay", "The overlay sentence.", None, None, None, "", 0, 0, overlay_only=overlay_only)
     dialog.show()
     app.processEvents()
 
-    assert dialog._auto_accept_qtimer is None
-    assert dialog.auto_accept_label.isHidden()
+    if auto_accept_timer:
+        assert dialog._auto_accept_qtimer.isActive()
+        assert not dialog.auto_accept_label.isHidden()
+    else:
+        assert dialog._auto_accept_qtimer is None
+        assert dialog.auto_accept_label.isHidden()
 
+    dialog._cancel_auto_accept()
     dialog.hide()
     dialog.deleteLater()
     app.processEvents()
@@ -324,14 +359,15 @@ def focus_confirmation_dialog(monkeypatch):
 
 @pytest.mark.parametrize("previous_image", [False, True])
 @pytest.mark.parametrize("overlay_only", [False, True])
+@pytest.mark.parametrize("tts_available", [False, True])
 def test_confirmation_shows_dialogue_animation_and_audio_without_scrolling(
-    focus_confirmation_dialog, monkeypatch, tmp_path, previous_image, overlay_only
+    focus_confirmation_dialog, monkeypatch, tmp_path, previous_image, overlay_only, tts_available
 ):
     dialog, config = focus_confirmation_dialog
     config.anki.confirmation_focus_on_show = False
     config.anki.previous_image_field = "Previous Picture"
     config.screenshot.animated_settings.extension = "avif"
-    config.vad.tts_url = ""
+    config.vad.tts_url = "http://tts.invalid/?term=$s" if tts_available else ""
     # The Windows offscreen plugin has no font database until fonts are loaded.
     # Real font metrics are essential to catch layout overflow in this test.
     if not QFontDatabase.families() and os.name == "nt":
@@ -385,7 +421,7 @@ def test_confirmation_shows_dialogue_animation_and_audio_without_scrolling(
     assert dialog.sentence_text.toPlainText() == sentence
     assert dialog.sentence_text.verticalScrollBar().maximum() > 0
     assert dialog.dialogue_timeline.height() <= 76
-    assert sentence in dialog.dialogue_timeline.toolTip()
+    assert not dialog.dialogue_timeline.toolTip()
     dialog.resize(760, 200)
     app.processEvents()
     assert dialog.height() >= dialog.minimumHeight()
@@ -401,7 +437,6 @@ def test_confirmation_shows_dialogue_animation_and_audio_without_scrolling(
         dialog.animated_audio_notice_label,
         dialog.waveform_widget,
         dialog.audio_button,
-        dialog.play_original_button,
         dialog.cut_audio_button,
         dialog.undo_audio_cut_button,
         dialog.reset_audio_button,
@@ -410,6 +445,8 @@ def test_confirmation_shows_dialogue_animation_and_audio_without_scrolling(
     ]
     if previous_image:
         controls.extend([dialog.prev_image_label, dialog.prev_screenshot_button])
+    if tts_available:
+        controls.append(dialog.tts_button)
     for control in controls:
         assert control.isVisible(), control
         ancestor = control.parentWidget()
@@ -484,7 +521,17 @@ def test_confirmation_game_pause_lasts_until_dialog_finishes(
         calls.append("finish")
         getattr(dialog, finish)()
 
-    QTimer.singleShot(20, finish_dialog)
+    # The offscreen window can take longer than 20 ms to show under load.
+    # Closing an invisible modeless dialog does not emit the finished signal.
+    finish_timer = QTimer(dialog)
+
+    def finish_when_visible():
+        if dialog.isVisible():
+            finish_timer.stop()
+            finish_dialog()
+
+    finish_timer.timeout.connect(finish_when_visible)
+    finish_timer.start(20)
     dialog.exec()
 
     assert visible_when_finished == [True]
@@ -517,7 +564,15 @@ def test_canceling_discard_prompt_keeps_game_pause_and_focus_in_confirmation(
         still_editing.append((dialog.isVisible(), list(calls)))
         QTimer.singleShot(0, getattr(dialog, finish))
 
-    QTimer.singleShot(20, cancel_discard)
+    cancel_timer = QTimer(dialog)
+
+    def cancel_when_visible():
+        if dialog.isVisible():
+            cancel_timer.stop()
+            cancel_discard()
+
+    cancel_timer.timeout.connect(cancel_when_visible)
+    cancel_timer.start(20)
     dialog.exec()
 
     assert still_editing == [(True, [True])]
@@ -1081,6 +1136,49 @@ def test_failed_audio_save_keeps_confirmation_open(gamepad_confirmation_dialog, 
     assert "save failed" in errors[0][2]
 
 
+def test_audio_toggle_previews_edits_and_resumes_after_pausing(gamepad_confirmation_dialog, tmp_path):
+    dialog = gamepad_confirmation_dialog
+    previews = []
+    player = SimpleNamespace(audio_available=True, is_playing=False, get_current_time=lambda: 0.5)
+
+    def play(samples, rate):
+        previews.append((samples.copy(), rate))
+        player.is_playing = True
+        return True
+
+    player.play_audio_data = play
+    player.stop_audio = lambda: setattr(player, "is_playing", False)
+    dialog.audio_player = player
+    audio = tmp_path / "preview.wav"
+    samples = np.arange(1000, dtype=np.float32) / 1000
+    sf.write(audio, samples, 100, subtype="FLOAT")
+    dialog.audio_path = str(audio)
+    waveform = dialog.waveform_widget
+    assert waveform.load_audio(str(audio))
+    waveform.start_time, waveform.end_time = 1.0, 9.0
+    waveform.set_cut_ranges([(2.0, 3.0)])
+
+    dialog.audio_button.click()
+
+    assert player.is_playing
+    assert dialog.audio_button.accessibleName() == "Pause audio"
+    np.testing.assert_allclose(previews[0][0], np.concatenate([samples[100:200], samples[300:900]]))
+    assert previews[0][1] == 100
+
+    dialog.audio_button.click()
+
+    assert not player.is_playing
+    assert dialog.audio_button.accessibleName() == "Play selected audio"
+    assert dialog._playback_resume_position == pytest.approx(1.5)
+
+    dialog.audio_button.click()
+
+    assert player.is_playing
+    np.testing.assert_allclose(previews[1][0], np.concatenate([samples[150:200], samples[300:900]]))
+    player.stop_audio()
+    dialog.playback_timer.stop()
+
+
 def test_play_full_uses_decoded_waveform_if_audio_player_cannot_open_file(monkeypatch):
     data = np.arange(100, dtype=np.float32)
     calls = []
@@ -1557,7 +1655,6 @@ def test_audio_expansion_uses_output_format_instead_of_source_container(monkeypa
         audio_player=SimpleNamespace(stop_audio=lambda: None),
         playback_timer=SimpleNamespace(stop=lambda: None),
         audio_button=_WidgetProbe(),
-        play_original_button=_WidgetProbe(),
         reset_audio_button=_WidgetProbe(),
         _set_audio_cut_controls_visible=lambda visible: None,
         _sync_audio_edit_selection_to_current_clip=lambda start, end: None,
@@ -1583,7 +1680,6 @@ def test_refresh_audio_controls_shows_reused_audio_without_waveform():
         codec_info_label=_WidgetProbe(),
         waveform_widget=_WidgetProbe(),
         audio_button=_WidgetProbe(),
-        play_original_button=_WidgetProbe(),
         reset_audio_button=_WidgetProbe(),
         tts_button=_WidgetProbe(),
         tts_status_label=_WidgetProbe(),
@@ -2018,7 +2114,6 @@ def test_next_line_control_stays_visible_and_disabled_while_waiting():
 
     assert next_button.visible is True
     assert next_button.enabled is False
-    assert "Waiting" in next_button.tooltip
 
 
 def test_dialogue_timeline_shows_previous_selected_and_next_lines():

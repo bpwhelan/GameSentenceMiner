@@ -22,6 +22,19 @@
         "run_function": "Ejecutar Función"
       },
       "tabs": {
+        "session_review": {
+          "title": "Revisión tras la sesión",
+          "description": "Crea tarjetas sin interrupciones. GSM las actualiza durante la partida y guarda la repetición, el audio, las imágenes y el diálogo para editarlas al cerrar el juego. La cola se conserva tras reiniciar.",
+          "enabled": "Revisar tarjetas Anki después de la sesión",
+          "open_on_game_close": "Abrir la revisión al cerrar el juego",
+          "auto_advance": "Seleccionar la siguiente tarjeta al guardar",
+          "delete_local_after_review": "Eliminar los archivos guardados al terminar",
+          "cleanup_anki_media": "Eliminar de Anki los archivos multimedia reemplazados",
+          "seconds_suffix": " segundos",
+          "delay_seconds": "Espera tras cerrar el juego",
+          "review_now": "Revisar las tarjetas pendientes",
+          "storage_note": "Las repeticiones ocupan espacio hasta revisarlas. Cerrar la ventana conserva las tarjetas pendientes. Anki debe estar abierto para guardar cambios."
+        },
         "key_settings": {
           "title": "Configuración Clave",
           "description": "Una interfaz de configuración simplificada para una configuración rápida.",
@@ -195,6 +208,18 @@
           "enabled": {
             "label": "Habilitado:",
             "tooltip": "Habilitar o deshabilitar la integración con Anki."
+          },
+          "confirmation_enabled": {
+            "label": "Activado",
+            "tooltip": "Confirma las actualizaciones de tarjetas de Anki lo antes posible o revísalas después de la sesión."
+          },
+          "confirmation_immediate": {
+            "label": "Lo antes posible",
+            "tooltip": "Confirma cada tarjeta antes de que GSM la actualice."
+          },
+          "confirmation_after_session": {
+            "label": "Después de la sesión",
+            "tooltip": "Guarda las tarjetas mientras juegas y revísalas al cerrar el juego. Omite la confirmación inmediata y su cuenta atrás."
           },
           "show_update_confirmation_dialog": {
             "label": "Mostrar Diálogo de Confirmación de Actualización:",
@@ -822,6 +847,20 @@
           "openai_apikey": {
             "label": "Clave API de OpenAI:",
             "tooltip": "Clave API para el proveedor de OpenAI."
+          },
+          "openai_reasoning_effort": {
+            "label": "Nivel de razonamiento",
+            "tooltip": "El valor predeterminado del modelo deja que el proveedor elija. Ninguno desactiva el razonamiento. Un nivel más alto puede aumentar el tiempo de respuesta y el uso de tokens. Se aplica a los modelos principal y de respaldo; los niveles disponibles dependen del modelo.",
+            "options": {
+              "default": "Predeterminado del modelo",
+              "none": "Ninguno (desactivado)",
+              "minimal": "Mínimo",
+              "low": "Bajo",
+              "medium": "Medio",
+              "high": "Alto",
+              "xhigh": "Muy alto",
+              "max": "Máximo"
+            }
           },
           "openai_url": {
             "label": "URL de API de OpenAI:",

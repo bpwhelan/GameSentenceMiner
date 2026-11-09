@@ -32,6 +32,9 @@
   const HOST_TAG = "hachidori-host";
   const POPUP_SHOWN_EVENT = "hachidori-popup-shown";
   const POPUP_HIDDEN_EVENT = "hachidori-popup-hidden";
+  // Asks Custom JavaScript's bridge (custom-javascript-bridge.js) to attach the
+  // popup's closed root from the user-script world.
+  const POPUP_ROOT_EVENT = "hachidori-popup-root";
   const EXTENSION_PROTOCOL = (() => {
     try {
       return new URL(chrome.runtime.getURL("")).protocol;
@@ -50,20 +53,22 @@
     keybindModifiers,
     keybindWheelKey,
     normaliseActivationKey,
+    popupRenderer,
     projectContentOptions,
+    LANGUAGE_SELECTION_KEY,
   } = globalThis.HDReaderOptions;
   const { normaliseLookupTerm, lookupStatsKey } = globalThis.HDLookupStats;
   const { normaliseDictionaryTab: normalizedDictionaryTab } = globalThis.HDPopup;
   const {
     mergeKanjiGroupResults, nativeKanjiEntries, normalizeDictionaryState, projectResultsToDictionary, sameDictionaries,
-    sameDictionaryContents,
+    sameDictionaryContents, searchStart,
   } = globalThis.HDContent;
   const {
     EDITING_SELECTOR, JAPANESE_CHARACTER_PATTERN, OPAQUE_TAGS, blockOf, candidateSignature, candidateStart,
     caretRangeAt, collectScanEntries, collectSentenceSources, computedStyleFor, expandCandidateAnchor, glyphAtPoint,
-    hasVisibleContent, isEditingElement, isHiddenElement, isJapaneseToken, isScannableElement, isScannableTextNode,
-    rangeOffsetWithin, rawMatchedText, refineSentence, runEntries, sameAnchorNode, selectionSentence,
-    sentenceMatchedText, sourceOffset, textBlocks, textRuns, withSentence,
+    hasVisibleContent, isEditingElement, isHiddenElement, isJapaneseToken, isLanguageToken, isScannableElement,
+    isScannableTextNode, isWordLanguageToken, rangeOffsetWithin, rawMatchedText, refineSentence, runEntries, sameAnchorNode,
+    selectionSentence, sentenceMatchedText, sourceOffset, textBlocks, textRuns, withSentence, wordStart,
   } = globalThis.HDContent.createPageScanner({ isOurNode });
   const MODIFIER_PROPERTIES = new Map([
     ["Shift", "shiftKey"],
@@ -73,6 +78,11 @@
   ]);
   // MouseEvent.button values of Back and Forward, which navigate on release.
   const NAVIGATION_BUTTONS = new Set([3, 4]);
+  // Yomitan's HotkeyHandler takes every keydown, so a held Alt+ArrowDown keeps
+  // moving between entries (#597). Other actions still ignore auto-repeat,
+  // which would add notes, replay audio or flip options.
+  const REPEATING_KEYBIND_ACTIONS = new Set(["nextEntry", "previousEntry",
+    "nextEntryDifferentDictionary", "previousEntryDifferentDictionary"]);
   // Popup text that looks up child popups.
   const DEFINITION_TEXT_SELECTOR = ".gsm-hoshidicts-glossary-content, .gsm-hoshidicts-compact-definition-summary";
 
@@ -93,16 +103,21 @@
     return;
   }
   // The reader belongs to ordinary pages. First-run setup loads these same
-  // scripts into its own startup page for the practice step. Its native skip
-  // link may leave the known heading fragment before the module loads or on
-  // reload; query variants and every other internal page stay excluded.
+  // scripts into its own startup page for the practice step, and the search
+  // page (#610) into itself, the sandboxed frame search.html holds (#644). The
+  // startup page's native skip link may leave the known heading fragment
+  // before the module loads or on reload; query variants and every other
+  // internal page stay excluded.
   if (
     location.protocol === EXTENSION_PROTOCOL &&
-    location.href !== chrome.runtime.getURL("startup.html") &&
-    location.href !== chrome.runtime.getURL("startup.html#setup-heading")
+    !["startup.html", "startup.html#setup-heading", "search-frame.html"]
+      .some((page) => location.href === chrome.runtime.getURL(page))
   ) {
     return;
   }
+  // The search page's own document, where search.js runs Custom JavaScript (#644).
+  const SEARCH_FRAME = location.protocol === EXTENSION_PROTOCOL
+    && location.href === chrome.runtime.getURL("search-frame.html");
 
   let gsmBridge = null; // GSM hook
   let disposed = false;
@@ -118,15 +133,361 @@
   const rootLevel = createLevelState(0);
   const levels = [rootLevel];
   let nextLevelId = 0;
-  const themeHost = window.HDThemeHost.createThemeHost({
-    getOptions: () => options,
+  const themeHost = globalThis.HDThemeHost.createThemeHost({
+    // The popups' look follows the root view's profile in effect (8.1).
+    getOptions: () => controlsOptions(),
     onReady() {
       styleGeneration = -1;
       appearance?.refreshHighlight();
       wordHighlights?.refreshColors();
       if (shadow) ensureDictionaryStyles(currentGeneration);
+      // A rebuilt view lost the label naming its profile in effect.
+      if (readingProfiles !== null) for (const level of levels) syncProfileLabel(level);
     },
   });
+  // The stored options record, whose `profiles` say whether the records have
+  // profiles (docs/languages.md 4.5).
+  let storedOptionsRecord = null;
+  let renderLanguageCache = { key: null, language: null };
+
+  // The language a render is for (11.1): the profile its request names, else
+  // the Japanese profile, which a request without a profile always means
+  // (5.2). In the single-profile shape, or without the registry, it is the
+  // unmarked Japanese language, with which every theme renders today's markup.
+  function renderLanguage(request = null) {
+    const layer = globalThis.HDReaderOptions;
+    const registry = globalThis.HDLanguages;
+    const profileId = registry && layer.hasProfiles(storedOptionsRecord) ? request?.profileId ?? "ja" : null;
+    const profile = profileId ? layer.profileDescriptor(storedOptionsRecord, profileId) : null;
+    // The pack settings are the options the language reads; the dictionary
+    // state gives the target languages.
+    const key = profileId ? JSON.stringify([profileId, profile?.language ?? null, profile?.packSettings ?? null,
+      dictionaryStateRevision]) : "single-profile";
+    if (renderLanguageCache.key !== key) {
+      const descriptor = profile ? registry.get?.(profile.language) ?? null : null;
+      // A dictionary's target language belongs to its package, so every
+      // package counts, also one the active profile does not use.
+      renderLanguageCache = { key, language: globalThis.HDThemeHost.createLanguage(descriptor, profileId ? {
+        marked: true, packSettings: profile?.packSettings ?? {}, dictionaries: storedDictionaryRecord?.dictionaries ?? dictionaries,
+      } : {}) };
+    }
+    return renderLanguageCache.language;
+  }
+
+  // The direction and target language of each dictionary of a mined result,
+  // as its view's language gives them (docs/languages.md 10.2, 12), so the
+  // note builder writes what the popup shows.
+  function miningLanguageFields(result, request) {
+    const language = renderLanguage(request);
+    const titles = [...new Set(result.term.glossaries.map(glossary => glossary.dictionary))];
+    return {
+      dictionaryDirections: Object.fromEntries(titles.map(title => [title, language.dictionaryDirection(title, result)])),
+      dictionaryTargetLanguages: Object.fromEntries(titles.flatMap(title => {
+        const tag = language.dictionaryLanguage(title);
+        return tag ? [[title, tag]] : [];
+      })),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Profiles (docs/languages.md 8). Once the records have profiles the reader
+  // holds every profile's projection, and each lookup uses the profile in
+  // effect: the active profile or, with automatic switching, the one whose
+  // language the hovered element's `lang` names. `options`, `dictionaries` and
+  // `dictionaryGroups` are the active profile's; each view renders with its
+  // own profile in effect (profileView), and the popups' look, one theme in
+  // one shadow root, follows the root view's. In the single-profile shape
+  // there are no reading profiles and every path below is today's.
+  // ---------------------------------------------------------------------------
+  let storedDictionaryRecord = null;
+  let languageSelection = null;
+  // Profile id → { id, language, options, dictionaries, groups, text }.
+  let readingProfiles = null;
+  // The startup and search pages read in the active profile (8.1 rule 4).
+  const READER_PAGE = location.protocol === EXTENSION_PROTOCOL;
+
+  // The language layer (docs/languages.md 5): the registry's copy for content
+  // scripts and the display transforms, which a Japanese-only frame never
+  // parses. While the records have profiles the worker registers both beside
+  // these scripts (language-scripts.js); a frame without them (open before
+  // the records gained profiles, or a reader page) imports them the first time
+  // its records have profiles. Until they have loaded the reader adopts
+  // nothing: the storage delivery that brought the profiles and every later
+  // one wait, in order, so profiles are always read with their descriptors.
+  const LANGUAGE_LAYER = ["vendor/languages/registry-reader.js", "language-text.js"];
+  let languageLayer = null;
+  let languageLayerLoaded = false;
+
+  async function loadLanguageLayer() {
+    try {
+      await Promise.all(LANGUAGE_LAYER.map(file => import(chrome.runtime.getURL(file))));
+    } catch (error) {
+      console.warn("hachidori: the language layer did not load", error);
+    }
+    languageLayerLoaded = true;
+  }
+
+  // Runs `adopt` now, or after the language layer while it loads or when
+  // `storedOptions` is the first record with profiles in a frame without it.
+  function afterLanguageLayer(storedOptions, adopt) {
+    if (languageLayer === null && globalThis.HDReaderOptions.hasProfiles(storedOptions)
+        && (globalThis.HDLanguages === undefined || globalThis.HDLanguageText === undefined)) {
+      languageLayer = loadLanguageLayer();
+    }
+    if (languageLayer === null || languageLayerLoaded) adopt();
+    else void languageLayer.then(adopt);
+  }
+
+  // Today's Japanese rules: the gate, a scan from the cursor, sentence.js's
+  // tables and word-highlights.js's chunk breaks (8.2-8.4).
+  const JAPANESE_TEXT_RULES = Object.freeze({
+    gate: text => isJapaneseToken(text),
+    isText: text => JAPANESE_CHARACTER_PATTERN.test(text),
+    words: null,
+    sentenceRules: undefined,
+    highlightBreaks: null,
+    lineJoiner: "",
+  });
+
+  function patternOf(source) {
+    if (typeof source !== "string" || source === "") return null;
+    try {
+      return new RegExp(source, "u");
+    } catch {
+      return null;
+    }
+  }
+
+  // A pack's text rules (registry-reader.js holds them with class references
+  // expanded). Japanese keeps today's, whatever its pack holds.
+  function textRules(language, descriptor) {
+    const text = descriptor?.text;
+    if (language === "ja" || !text) return JAPANESE_TEXT_RULES;
+    const pattern = patternOf(text.pattern) ?? JAPANESE_CHARACTER_PATTERN;
+    const word = text.scanStart === "word" ? patternOf(text.wordCharacters) ?? pattern : null;
+    const sentence = text.sentence && typeof text.sentence === "object" ? text.sentence : null;
+    const breaks = text.highlightBreaks && typeof text.highlightBreaks === "object" ? text.highlightBreaks
+      : { sentenceEnd: sentence?.terminators ?? [], clauseEnd: [] };
+    return {
+      gate: value => (word === null ? isLanguageToken(value, pattern) : isWordLanguageToken(value, pattern, word)),
+      isText: value => pattern.test(value),
+      words: word === null ? null : { word, internal: patternOf(text.wordInternal), limit: MAX_SCAN_WINDOW },
+      sentenceRules: sentence === null ? undefined : globalThis.HDSentence.sentenceRules(sentence),
+      lineJoiner: typeof text.lineJoiner === "string" ? text.lineJoiner : "",
+      highlightBreaks: { sentenceEnd: new Set(breaks.sentenceEnd ?? []), clauseEnd: new Set(breaks.clauseEnd ?? []) },
+    };
+  }
+
+  function emptyDictionaryView(revision) {
+    return { schemaVersion: 1, revision, dictionaries: [], groups: [] };
+  }
+
+  // The highlighter reads each block with its profile once the records have
+  // profiles; it is made again when they gain or lose them, and reads every
+  // block again when a profile changes.
+  function reprofileHighlights(withProfiles) {
+    if (wordHighlights === null) return;
+    if (wordHighlights.profiled !== withProfiles) {
+      wordHighlights.stop();
+      wordHighlights = null;
+    } else if (withProfiles) wordHighlights.reprofile();
+  }
+
+  // Every profile's projection, from the stored records and the registry.
+  function rebuildReadingProfiles() {
+    const layer = globalThis.HDReaderOptions;
+    if (!layer.hasProfiles(storedOptionsRecord)) {
+      readingProfiles = null;
+      languageOverrides.clear();
+      reprofileHighlights(false);
+      return;
+    }
+    const previous = readingProfiles;
+    const revision = Number.isInteger(storedDictionaryRecord?.revision) ? storedDictionaryRecord.revision : 0;
+    readingProfiles = new Map(layer.profiles(storedOptionsRecord).map(profile => {
+      const descriptor = globalThis.HDLanguages?.get?.(profile.language) ?? null;
+      const view = storedDictionaryRecord === null ? null : layer.projectDictionaryState(storedDictionaryRecord, profile.id);
+      const state = normalizeDictionaryState(view ?? emptyDictionaryView(revision));
+      const kept = previous?.get(profile.id);
+      return [profile.id, {
+        id: profile.id,
+        language: profile.language,
+        options: applyHostCapabilities(layer.projectOptions(storedOptionsRecord, profile.id)),
+        dictionaries: state.dictionaries,
+        groups: state.groups,
+        text: kept?.language === profile.language ? kept.text : textRules(profile.language, descriptor),
+      }];
+    }));
+    reprofileHighlights(true);
+  }
+
+  function activeProfileId() {
+    return globalThis.HDReaderOptions.activeProfileId(storedOptionsRecord, languageSelection);
+  }
+
+  function activeReadingProfile() {
+    return readingProfiles?.get(activeProfileId()) ?? null;
+  }
+
+  // The fields that name a request's profile: none in the single-profile shape.
+  function profileFields(profile) {
+    return readingProfiles !== null && profile ? { profileId: profile.id } : {};
+  }
+
+  function requestProfile(request) {
+    return readingProfiles?.get(request?.profileId) ?? activeReadingProfile();
+  }
+
+  // The profile a level's view renders with: none in the single-profile shape.
+  function levelProfile(level) {
+    return readingProfiles === null ? null : requestProfile(level?.currentViewRequest);
+  }
+
+  // A profile's options and dictionary view; without one, the globals.
+  function profileView(profile) {
+    return profile ? { options: profile.options, dictionaries: profile.dictionaries, groups: profile.groups }
+      : { options, dictionaries, groups: dictionaryGroups };
+  }
+
+  function primarySubtag(tag) {
+    return typeof tag === "string" ? tag.trim().split(/[-_]/u)[0].toLowerCase() : "";
+  }
+
+  // The profile whose language a `lang` names by primary subtag (`ja-JP` →
+  // ja, `zh-Hant` → zh), or null.
+  function profileForLang(tag) {
+    const wanted = primarySubtag(tag);
+    if (wanted === "" || readingProfiles === null) return null;
+    for (const profile of readingProfiles.values()) {
+      const bcp47 = globalThis.HDLanguages?.get?.(profile.language)?.bcp47;
+      if (profile.language === wanted || primarySubtag(bcp47) === wanted) return profile;
+    }
+    return null;
+  }
+
+  function autoSwitching() {
+    return readingProfiles !== null && !READER_PAGE && globalThis.HDReaderOptions.languagesEnabled(storedOptionsRecord)
+      && globalThis.HDReaderOptions.normaliseLanguageSelection(languageSelection).autoSwitch;
+  }
+
+  // The profile in effect for a lookup at `element` (8.1): the active profile,
+  // or with automatic switching the one the nearest `lang` names.
+  function profileForElement(element) {
+    if (readingProfiles === null) return null;
+    const active = activeReadingProfile();
+    if (!autoSwitching()) return active;
+    const labelled = element?.closest?.("[lang]") ?? element?.ownerDocument?.documentElement;
+    return profileForLang(captionLanguage(element) ?? labelled?.getAttribute?.("lang")) ?? active;
+  }
+
+  // The root view's profile in effect, else the active profile: the popups'
+  // look follows it, and so do the word-status controls' options. Anki and
+  // pronunciation have a controller per profile (perProfileControllers).
+  let controlsProfileId = null;
+
+  function controlsProfile() {
+    return readingProfiles?.get(controlsProfileId) ?? activeReadingProfile();
+  }
+
+  function controlsOptions() {
+    return controlsProfile()?.options ?? options;
+  }
+
+  function syncControls() {
+    const next = controlsOptions();
+    audio?.update(next);
+    mining?.update(next);
+    wordStatusActions?.update(next);
+  }
+
+  // One controller per profile in effect, so a popup's notes and audio use
+  // its own profile's Templates, decks and sources (docs/languages.md 5.4,
+  // 8.1). `update` gives each its profile's options; without profiles there
+  // is one controller and it gets `next`, as today.
+  function perProfileControllers(create) {
+    const controllers = new Map();
+    return {
+      of(profile) {
+        const key = profile?.id ?? null;
+        if (!controllers.has(key)) {
+          const controller = create(profile);
+          controller.update(profileView(profile).options, optionsStorageRevision >= 0);
+          controllers.set(key, controller);
+        }
+        return controllers.get(key);
+      },
+      each(run) {
+        for (const controller of controllers.values()) run(controller);
+      },
+      update(next, ready) {
+        for (const [key, controller] of controllers) {
+          controller.update(key === null ? next : readingProfiles?.get(key)?.options ?? next, ready);
+        }
+      },
+    };
+  }
+
+  // The custom buttons of a level's view are its profile in effect's.
+  function syncCustomButtons(level) {
+    const buttons = profileView(levelProfile(level)).options.customButtons;
+    const key = JSON.stringify(buttons);
+    if (!level.view || level.customButtonsKey === key) return;
+    level.customButtonsKey = key;
+    level.view.setCustomButtons(buttons);
+  }
+
+  // The popup names the profile in effect when it is not the active one
+  // (docs/languages.md 8.1): a small label on a line of its own at the top of
+  // the popup, so it never covers what a theme draws there. order:-1 keeps it
+  // first when the renderer moves its header back to the top.
+  function syncProfileLabel(level) {
+    if (!level.popup) return;
+    const profile = readingProfiles === null ? null : requestProfile(level.currentViewRequest);
+    if (profile === null || profile.id === activeProfileId()) {
+      level.profileLabel?.remove();
+      level.profileLabel = null;
+      return;
+    }
+    let label = level.profileLabel;
+    if (!label) {
+      label = document.createElement("span");
+      label.className = "gsm-hoshidicts-profile-label";
+      label.lang = "en";
+      // The popup's own text colour at 11px, legible in every palette (WCAG AA).
+      label.style.cssText = "display:block;order:-1;margin:2px 8px 0;text-align:end;pointer-events:none;"
+        + "font-size:11px;line-height:1.4;color:var(--hoshidicts-text,currentColor);";
+      level.profileLabel = label;
+    }
+    const name = globalThis.HDLanguages?.get?.(profile.language)?.name ?? profile.language;
+    if (label.textContent !== name) label.textContent = name;
+    if (level.popup.firstChild !== label) level.popup.prepend(label);
+  }
+
+  // Before a view renders it takes its profile's custom buttons, and a root
+  // view's profile becomes the one the look and word-status controls follow.
+  function adoptControlsProfile(request, level) {
+    if (readingProfiles === null) return;
+    syncCustomButtons(level);
+    if (level !== rootLevel) return;
+    const id = requestProfile(request)?.id ?? null;
+    if (id === controlsProfileId) return;
+    controlsProfileId = id;
+    syncControls();
+    appearance?.update(controlsOptions());
+    void themeHost.sync();
+  }
+
+  // A lookup inside a popup uses its parent's profile, or with automatic
+  // switching the one the nearest `lang` inside the popup's content names
+  // (8.1 rule 3). The popup's own `lang="en"` is its interface, not content.
+  function profileForDefinition(element, level) {
+    if (readingProfiles === null) return null;
+    const parent = requestProfile(level?.currentViewRequest);
+    if (!autoSwitching()) return parent;
+    const labelled = element?.closest?.("[lang]");
+    if (!labelled || labelled === level.popup || !level.popup?.contains(labelled)) return parent;
+    return profileForLang(labelled.getAttribute("lang")) ?? parent;
+  }
 
   function createLevelState(depth) {
     return {
@@ -146,6 +507,11 @@
   let shadow = null;
   let highlighter = null;
   let uiPromise = null;
+  // Settles once start()'s first storage read has been adopted, or has failed.
+  // The popup host waits for it: its shadow root depends on the stored Custom
+  // JavaScript and cannot be replaced once attached.
+  let resolveStoredOptions;
+  const storedOptions = new Promise(resolve => { resolveStoredOptions = resolve; });
   let popupLayoutFrame = null;
   let popupLayouts = new Map();
   let pageZoom = 1;
@@ -153,6 +519,10 @@
   let pageZoomRequest = 0;
   let sessionPopupSize = null;
   let popupResize = null;
+  // The search page's results area (#610). Docked, the root popup fills it
+  // and stays until a lookup replaces it; see dismissPopups().
+  let dock = null;
+  let dockObserver = null;
 
   let styleGeneration = -1;
   let styleRequest = null;
@@ -161,7 +531,9 @@
   let mediaCacheBytes = 0;
   let activeMediaRequests = 0;
   let mediaQueue = [];
-  let popupImageSources = null;
+  // Profile id (null without profiles) → its effective image route.
+  const popupImageSources = new Map();
+  const popupMediaResolvers = new Map();
 
   let lastPointer = null;
   let scanTimer = null;
@@ -249,8 +621,10 @@
       const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
       const miningChanged = customButtonsChanged;
       options = next;
+      // Each profile's options carry the host's capabilities too.
+      if (customButtonsChanged && readingProfiles !== null) rebuildReadingProfiles();
       if (customButtonsChanged) {
-        for (const level of levels) level.view?.setCustomButtons(options.customButtons);
+        for (const level of levels) syncCustomButtons(level);
       }
       if (miningChanged) mining?.update(options, optionsStorageRevision >= 0);
     } catch {
@@ -269,8 +643,8 @@
 
   const projectHostOptions = stored => applyHostCapabilities(projectContentOptions(stored));
 
-  function dictionaryPresentation() {
-    return dictionaries
+  function dictionaryPresentation(profile = null) {
+    return profileView(profile).dictionaries
       .filter((entry) => entry.enabled !== false)
       .map((entry) => ({
         id: entry.id,
@@ -281,18 +655,21 @@
       }));
   }
 
-  function dictionaryTabGroups() {
-    const titles = new Map(dictionaries.filter((entry) => entry.enabled)
+  function dictionaryTabGroups(profile = null) {
+    const view = profileView(profile);
+    const titles = new Map(view.dictionaries.filter((entry) => entry.enabled)
       .map((entry) => [entry.id, entry.title]));
-    return dictionaryGroups.map((group) => ({
+    return view.groups.map((group) => ({
       id: group.id,
       name: group.name,
       dictionaries: group.dictionaryIds.filter((id) => titles.has(id)).map((id) => titles.get(id)),
     }));
   }
 
-  function selectedKanjiDictionaryCapability() {
-    return globalThis.HDReaderOptions.resolveKanjiDictionary(options.kanjiClickDictionary, dictionaries, dictionaryGroups);
+  // The clicked-character dictionary of `profile` (the active one without one).
+  function selectedKanjiDictionaryCapability(profile = null) {
+    return globalThis.HDReaderOptions.resolveKanjiDictionary((profile?.options ?? options).kanjiClickDictionary,
+      profile?.dictionaries ?? dictionaries, profile?.groups ?? dictionaryGroups);
   }
 
   function isOurNode(node) {
@@ -332,15 +709,24 @@
   const LONG_KEY_INFLECTION_SLACK = 8;
   const MAX_SCAN_WINDOW = 256;
 
-  function scanWindow() {
+  // Over the enabled packages of the profile in effect (8.3); the active
+  // profile's without one.
+  function scanWindow(profile = null) {
     let longest = 0;
-    for (const entry of dictionaries) {
+    for (const entry of profile?.dictionaries ?? dictionaries) {
       if (entry.enabled !== false && entry.termCount > 0 && entry.longKeyLength > longest) {
         longest = entry.longKeyLength;
       }
     }
-    if (longest === 0) return options.scanLength;
-    return Math.min(MAX_SCAN_WINDOW, Math.max(options.scanLength, longest + LONG_KEY_INFLECTION_SLACK));
+    const scanLength = (profile?.options ?? options).scanLength;
+    if (longest === 0) return scanLength;
+    return Math.min(MAX_SCAN_WINDOW, Math.max(scanLength, longest + LONG_KEY_INFLECTION_SLACK));
+  }
+
+  // A candidate's profile and the language rules it was read with; a Netflix
+  // or YouTube cue's lines are joined with the language's joiner (8.5).
+  function profileCandidateFields(profile) {
+    return profile ? { profile, sentenceRules: profile.text.sentenceRules, lineJoiner: profile.text.lineJoiner } : {};
   }
 
   // Google Docs paints text to <canvas>. While Settings → Advanced →
@@ -360,38 +746,72 @@
     return GOOGLE_DOCS_HOST && options.experimental.googleDocs === true;
   }
 
-  // Experimental Features → Netflix mining: background.js registers
-  // netflix-content.js on Netflix while the flag is on; the switch also gates
-  // a page that loaded it before the switch went off.
+  // Experimental Features → Netflix mining and YouTube mining: background.js
+  // registers each site's reader (netflix-content.js, youtube-content.js) on
+  // the site while its flag is on; the switch also gates a page that loaded it
+  // before the switch went off. `api` is the site's reader, `recorder` the Anki
+  // controller's option that records its lines (anki-content.js), `lines` its
+  // subtitle boxes (as its reader's description names them), and on Netflix
+  // the subtitle tracks are the reading language's (8.5).
+  const VIDEO_SITES = {
+    "www.netflix.com": { flag: "netflixMining", api: () => globalThis.HDNetflix, target: "hachidori-netflix",
+      load: "hd_netflix_load", recorder: "recordNetflixLine", subtitleLanguage: true,
+      lines: ".player-timedtext .player-timedtext-text-container", controlBar: null },
+    "www.youtube.com": { flag: "youtubeMining", api: () => globalThis.HDYouTube, target: "hachidori-youtube",
+      load: "hd_youtube_load", recorder: "recordYouTubeLine", subtitleLanguage: false,
+      lines: "#movie_player .ytp-caption-window-container .caption-window",
+      controlBar: "#movie_player .ytp-chrome-bottom" },
+  };
+  const VIDEO_SITE = Object.hasOwn(VIDEO_SITES, location.hostname) ? VIDEO_SITES[location.hostname] : null;
   const NETFLIX_HOST = location.hostname === "www.netflix.com";
-  function netflixMiningEnabled() {
-    return NETFLIX_HOST && options.experimental.netflixMining === true
-      && typeof window.HDNetflix?.miningFields === "function";
+  function videoMiningEnabled() {
+    return VIDEO_SITE !== null && options.experimental[VIDEO_SITE.flag] === true
+      && typeof VIDEO_SITE.api()?.miningFields === "function";
   }
 
-  // netflix-content.js cannot read the switch, so the reader tells it whether
-  // to pause Netflix while a subtitle is hovered and to keep what the viewer
+  // The site's reader cannot read the switch, so this reader tells it whether
+  // to pause the video while a subtitle is hovered and to keep what the viewer
   // hears for sentence audio, and turns both off when it stops.
-  function syncNetflix() {
-    if (typeof window.HDNetflix?.setHoverPause !== "function") {
-      loadNetflix();
+  // The subtitle language last set for a profile, or null while Japanese's
+  // (today's) applies.
+  let videoSubtitleLanguage = null;
+
+  function syncVideoSite() {
+    const site = VIDEO_SITE?.api();
+    if (typeof site?.setHoverPause !== "function") {
+      loadVideoSite();
       return;
     }
-    const enabled = !disposed && netflixMiningEnabled();
-    window.HDNetflix.setHoverPause(enabled);
-    window.HDNetflix.setLineAudio(enabled);
+    const enabled = !disposed && videoMiningEnabled();
+    site.setHoverPause(enabled);
+    site.setLineAudio(enabled);
+    site.setSubtitleDragging(enabled);
+    // Netflix's subtitle tracks are the active language's, by its primary
+    // subtag (8.5); Japanese's again once the records have no profiles.
+    const active = activeReadingProfile();
+    if (VIDEO_SITE.subtitleLanguage && enabled && (active !== null || videoSubtitleLanguage !== null)) {
+      const tag = active === null ? "ja" : globalThis.HDLanguages?.get?.(active.language)?.bcp47 ?? active.language;
+      videoSubtitleLanguage = active === null ? null : primarySubtag(tag);
+      site.setSubtitleLanguage?.(primarySubtag(tag));
+    }
   }
 
-  // background.js registers netflix-content.js for Netflix pages that load
-  // after the switch goes on. A page that was already open has this reader
-  // without it, so the reader asks the worker once to add the Netflix scripts
-  // to its document, then follows the switch.
-  let netflixLoad = null;
-  function loadNetflix() {
-    if (netflixLoad !== null || disposed || !NETFLIX_HOST || window !== window.top
-        || options.experimental.netflixMining !== true) return;
-    netflixLoad = sendRequest("hd_netflix_load", {}, "hachidori-netflix")
-      .then(syncNetflix, () => { netflixLoad = null; });
+  // background.js registers the site's scripts for pages that load after the
+  // switch goes on. A page that was already open has this reader without
+  // them, so the reader asks the worker once to add them to its document, then
+  // follows the switch.
+  let videoSiteLoad = null;
+  function loadVideoSite() {
+    if (videoSiteLoad !== null || disposed || VIDEO_SITE === null || window !== window.top
+        || options.experimental[VIDEO_SITE.flag] !== true) return;
+    videoSiteLoad = sendRequest(VIDEO_SITE.load, {}, VIDEO_SITE.target)
+      .then(syncVideoSite, () => { videoSiteLoad = null; });
+  }
+
+  // The language of the YouTube caption track a lookup is in, which YouTube's
+  // markup does not always carry (8.5); null elsewhere.
+  function captionLanguage(element) {
+    return videoMiningEnabled() ? VIDEO_SITE.api().captionLanguage?.(element) ?? null : null;
   }
 
   // Reading → Word highlighting (#520, experimental): word-highlights.js marks
@@ -411,12 +831,53 @@
   // Storage events arrive in commit order, so each one is the current record,
   // whatever its revision: a linked browser's mirror starts again from the
   // host's. The first read applies only if no event has come before it.
+  // With profiles, marks are kept per language (docs/languages.md 4.3): the
+  // highlighter and the popup's buttons read the language of the profile they
+  // act for.
+  let wordStatusOverrideRecord = null;
+  const languageOverrides = new Map();
+
+  function overridesForLanguage(language = "ja") {
+    if (!languageOverrides.has(language)) {
+      languageOverrides.set(language, globalThis.HDWordStatusOverrides.wordStatusOverrideMapFor(wordStatusOverrideRecord, language));
+    }
+    return languageOverrides.get(language);
+  }
+
+  function shareWordStatusOverrides() {
+    if (readingProfiles === null) {
+      wordHighlights?.setOverrides(wordStatusOverrides);
+      wordStatusActions?.setOverrides(wordStatusOverrides);
+      return;
+    }
+    wordHighlights?.setOverrides(profile => overridesForLanguage(profile.language));
+    wordStatusActions?.setOverrides(context => overridesForLanguage(context?.language));
+  }
+
   function adoptWordStatusOverrides(value, changed) {
     if (!changed && wordStatusOverridesChanged) return;
     wordStatusOverridesChanged ||= changed;
-    wordStatusOverrides = window.HDWordStatusOverrides.wordStatusOverrideMap(value);
-    wordHighlights?.setOverrides(wordStatusOverrides);
-    wordStatusActions?.setOverrides(wordStatusOverrides);
+    wordStatusOverrides = globalThis.HDWordStatusOverrides.wordStatusOverrideMap(value);
+    wordStatusOverrideRecord = value ?? null;
+    languageOverrides.clear();
+    shareWordStatusOverrides();
+  }
+
+  // The profile a lookup in a block of text would use (8.5), for its marks: none
+  // when that profile does not mark words.
+  function highlightProfileOf(element) {
+    const profile = profileForElement(element);
+    if (!profile || !profile.options.wordHighlightEnabled) return null;
+    return { key: profile.id, language: profile.language, fields: profileFields(profile), options: profile.options,
+      isText: profile.text.isText, breaks: profile.text.highlightBreaks ?? undefined };
+  }
+
+  // Blocks with text in a language the frame's lookups may use.
+  function highlightText(text) {
+    if (readingProfiles === null) return JAPANESE_CHARACTER_PATTERN.test(text);
+    const candidates = autoSwitching() ? readingProfiles.values() : [activeReadingProfile()];
+    for (const profile of candidates) if (profile?.text.isText(text)) return true;
+    return false;
   }
 
   function syncWordHighlights() {
@@ -426,18 +887,20 @@
       return;
     }
     if (!wordHighlights) {
-      wordHighlights = window.HDWordHighlights.createWordHighlighter({
+      wordHighlights = globalThis.HDWordHighlights.createWordHighlighter({
         window,
         send: sendRequest,
-        textBlocks,
+        textBlocks: readingProfiles === null ? textBlocks : root => textBlocks(root, highlightText),
         blockOf,
         textRuns,
         runEntries,
         isJapanese: (text) => JAPANESE_CHARACTER_PATTERN.test(text),
         prepare: ensureUi,
         readPalette: () => (host ? window.getComputedStyle(host) : null),
+        ...(readingProfiles === null ? {} : { profileOf: highlightProfileOf }),
       });
-      wordHighlights.setOverrides(wordStatusOverrides);
+      wordHighlights.profiled = readingProfiles !== null;
+      shareWordStatusOverrides();
     }
     if (wordHighlights.running) wordHighlights.update(options);
     else wordHighlights.start(options);
@@ -476,6 +939,13 @@
   }
 
   /** The SVG <text> carrying `rect`'s run at its position, transform and font; invisible and not hit-testable. */
+  // A run whose first letter is of a right-to-left script. Compiled the
+  // first time it is used, like glossary.js's patterns: a property escape in
+  // a literal costs every frame at injection.
+  let rightToLeftRun = null;
+  const RIGHT_TO_LEFT_RUN = () => rightToLeftRun ??= new RegExp(
+    String.raw`^\P{L}*[\p{Script=Arabic}\p{Script=Hebrew}\p{Script=Syriac}\p{Script=Thaana}\p{Script=Nko}\p{Script=Adlam}]`, "u");
+
   function docsImposterFor(rect) {
     const run = rect.getAttribute("aria-label");
     if (docsImposter?.rect === rect && docsImposter.text.isConnected && docsImposter.node.nodeValue === run) {
@@ -494,6 +964,12 @@
     important("transform", transform);
     important("font", rect.getAttribute("data-font-css") || "");
     important("text-anchor", "start");
+    // With profiles the imposter reads in the run's direction, from its first
+    // letter (docs/languages.md 8.5); a right-to-left run ends at the rect's left.
+    if (readingProfiles !== null && RIGHT_TO_LEFT_RUN().test(run)) {
+      important("direction", "rtl");
+      important("text-anchor", "end");
+    }
     rect.parentNode.append(text);
     // Docs positions the rect by its box and the <text> by its baseline.
     const box = rect.getBoundingClientRect();
@@ -506,7 +982,7 @@
     return docsImposter;
   }
 
-  /** The offset of the glyph under the pointer, found by bisecting an imposter's client rects. */
+  /** The offset of the glyph under the pointer, found by bisecting a text node's client rects. */
   function imposterOffsetAt(node, clientX, clientY) {
     const range = document.createRange();
     let start = 0;
@@ -530,12 +1006,17 @@
    * page, and the node is the sole source, so the sentence and the highlight
    * work in it as they do in a page's text nodes.
    */
-  function imposterCandidate(anchor, node, offset, vertical) {
+  // `labelled` is the page element whose `lang` the lookup follows (8.1): the
+  // field, or the Docs run.
+  function imposterCandidate(anchor, node, offset, vertical, labelled = null) {
     const styleCache = new Map();
-    const entries = collectScanEntries(node, offset, anchor, scanWindow(), styleCache);
+    const profile = profileForElement(labelled);
+    const rules = profile?.text ?? JAPANESE_TEXT_RULES;
+    const start = rules.words === null ? { offset } : wordStart(node, offset, anchor, rules.words, styleCache);
+    const entries = collectScanEntries(node, start.offset, anchor, scanWindow(profile), styleCache, rules.words);
     if (entries.length === 0) return null;
     const query = entries.map((entry) => entry.text).join("");
-    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) return null;
+    if ((profile?.options ?? options).onlyScanJapaneseText && !rules.gate(query)) return null;
     const first = entries[0];
     const anchorRange = document.createRange();
     anchorRange.setStart(node, first.offset);
@@ -548,6 +1029,7 @@
       sourceDepth: -1,
       sourceElements: [node],
       vertical,
+      ...profileCandidateFields(profile),
     }, first.offset, first.sourceLength, styleCache);
   }
 
@@ -556,7 +1038,35 @@
     if (!rect) return null;
     const { text, node } = docsImposterFor(rect);
     // The <text> lives inside Docs' <svg>, which the page scan treats as opaque.
-    return imposterCandidate(text, node, imposterOffsetAt(node, clientX, clientY), false);
+    return imposterCandidate(text, node, imposterOffsetAt(node, clientX, clientY), false, rect);
+  }
+
+  // Netflix lays parts of its player over the subtitles (#662), and YouTube its
+  // auto-hidden control bar and its miniplayer's scrim, where the hit test
+  // finds them instead of the line. Where it finds no glyph under the pointer,
+  // the reader looks for one in the lines' own text, as netflix-content.js
+  // finds a hovered line for hover pause: on Netflix always, on YouTube while
+  // YouTube mining is on.
+  function videoLineGlyphAt(clientX, clientY) {
+    if (!NETFLIX_HOST && !videoMiningEnabled()) return null;
+    const contents = document.createRange();
+    for (const box of document.querySelectorAll(VIDEO_SITE.lines)) {
+      // On YouTube the reader skips a caption window whose text has no client
+      // rect near the pointer, since none of its glyphs can contain it. A
+      // window whose own box holds the pointer is walked at once; its box is
+      // not enough to skip one, since YouTube lets text overflow it. Netflix's
+      // lines are walked as before.
+      if (!NETFLIX_HOST && !nearRect(box.getBoundingClientRect(), clientX, clientY)) {
+        contents.selectNodeContents(box);
+        if (![...contents.getClientRects()].some(rect => nearRect(rect, clientX, clientY))) continue;
+      }
+      const walker = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const offset = imposterOffsetAt(node, clientX, clientY);
+        if (glyphContainsPoint(node, offset, clientX, clientY)) return { node, offset };
+      }
+    }
+    return null;
   }
 
   // An <input> or <textarea> keeps its value in user-agent shadow DOM, which
@@ -715,7 +1225,7 @@
     if (x < clip.left || x > clip.right || y < clip.top || y > clip.bottom) return null;
     const offset = imposterOffsetAt(node, clientX, clientY);
     return glyphContainsPoint(node, offset, clientX, clientY)
-      ? imposterCandidate(imposter, node, offset, vertical)
+      ? imposterCandidate(imposter, node, offset, vertical, field)
       : null;
   }
 
@@ -730,8 +1240,12 @@
     const glyph = document.createRange();
     glyph.setStart(node, offset);
     glyph.setEnd(node, offset + (text.codePointAt(offset) > 0xffff ? 2 : 1));
-    return [...glyph.getClientRects()].some((rect) => clientX >= rect.left - 2 && clientX <= rect.right + 2
-      && clientY >= rect.top - 2 && clientY <= rect.bottom + 2);
+    return [...glyph.getClientRects()].some(rect => nearRect(rect, clientX, clientY));
+  }
+
+  /** Whether the point is within two CSS pixels of `rect`, the slack a glyph allows the pointer. */
+  function nearRect(rect, clientX, clientY) {
+    return clientX >= rect.left - 2 && clientX <= rect.right + 2 && clientY >= rect.top - 2 && clientY <= rect.bottom + 2;
   }
 
   /**
@@ -746,33 +1260,86 @@
     const hit = document.elementFromPoint(clientX, clientY);
     const field = scannableField(hit);
     if (field) return resolveFieldCandidate(field, clientX, clientY);
-    const caretRange = caretRangeAt(clientX, clientY);
-    const node = caretRange?.startContainer;
-    if (node?.nodeType !== Node.TEXT_NODE || !hit?.contains(node)) return null;
-    const text = node.nodeValue || "";
-    let offset = caretRange.startOffset;
-    // Caret alignment can step back onto the low surrogate of a wide glyph.
-    if (offset > 0 && (text.charCodeAt(offset) & 0xfc00) === 0xdc00) offset -= 1;
-    return glyphContainsPoint(node, offset, clientX, clientY) ? resolveCandidateAt(node, offset) : null;
+    // The page's own glyph comes first, a Netflix menu over a line included,
+    // but not text in YouTube's control bar: its time display and chapter
+    // title take the hit test over a caption while the bar is auto-hidden, and
+    // still as a move onto the caption brings the bar back, so a caption glyph
+    // under the pointer outranks them. YouTube shows no caption over the bar
+    // otherwise.
+    const own = caretGlyphAt(hit, clientX, clientY);
+    const glyph = VIDEO_SITE !== null && (own === null || inControlBar(own.node))
+      ? videoLineGlyphAt(clientX, clientY) ?? own : own;
+    return glyph ? resolveCandidateAt(glyph.node, glyph.offset) : null;
   }
 
-  function resolveCandidateAt(startNode, startOffset) {
+  /** Whether `node` is in the video site's control bar, whose text a line under the pointer outranks. */
+  function inControlBar(node) {
+    return VIDEO_SITE.controlBar !== null && Boolean(node.parentElement?.closest(VIDEO_SITE.controlBar));
+  }
+
+  /**
+   * The glyph in `hit`, the element under the pointer, that contains the
+   * pointer: the caret's, or on a right-to-left line the one bidiGlyphAt finds.
+   */
+  function caretGlyphAt(hit, clientX, clientY) {
+    const caretRange = caretRangeAt(clientX, clientY);
+    const node = caretRange?.startContainer;
+    if (node?.nodeType === Node.TEXT_NODE && hit?.contains(node)) {
+      const text = node.nodeValue || "";
+      let offset = caretRange.startOffset;
+      // Caret alignment can step back onto the low surrogate of a wide glyph.
+      if (offset > 0 && (text.charCodeAt(offset) & 0xfc00) === 0xdc00) offset -= 1;
+      if (glyphContainsPoint(node, offset, clientX, clientY)) return { node, offset };
+    }
+    return bidiGlyphAt(hit, clientX, clientY);
+  }
+
+  /**
+   * On a right-to-left line, Chrome's caret hit test answers the outer half of
+   * the glyph at either end of a left-to-right run, such as Japanese, with the
+   * run's other end, in the same text node or another (Firefox answers with the
+   * glyph's own). The glyph is then found in `hit`'s own text nodes by
+   * bisection, as an imposter's is. A left-to-right block skips the search.
+   */
+  function bidiGlyphAt(hit, clientX, clientY) {
+    if (!hit || window.getComputedStyle(blockOf(hit)).direction !== "rtl") return null;
+    const contents = document.createRange();
+    for (const node of hit.childNodes) {
+      if (node.nodeType !== Node.TEXT_NODE) continue;
+      contents.selectNodeContents(node);
+      if (![...contents.getClientRects()].some(rect => nearRect(rect, clientX, clientY))) continue;
+      const offset = imposterOffsetAt(node, clientX, clientY);
+      if (glyphContainsPoint(node, offset, clientX, clientY)) return { node, offset };
+    }
+    return null;
+  }
+
+  // `japaneseOnly` defaults to the text gate of the profile in effect, which is
+  // `profile`, or the one `startNode`'s element chooses (8.1, 8.2).
+  function resolveCandidateAt(startNode, startOffset, japaneseOnly = undefined, profile = undefined) {
     const styleCache = new Map();
     if (!isScannableTextNode(startNode, styleCache)) {
       return null;
     }
+    const reading = profile === undefined ? profileForElement(startNode.parentElement) : profile;
+    const rules = reading?.text ?? JAPANESE_TEXT_RULES;
+    const offset = Math.min(startOffset, (startNode.nodeValue || "").length);
+    // A language read word by word starts at the hovered word (8.3).
+    const start = rules.words === null ? { node: startNode, offset }
+      : wordStart(startNode, offset, document.body, rules.words, styleCache);
     const entries = collectScanEntries(
-      startNode,
-      Math.min(startOffset, (startNode.nodeValue || "").length),
+      start.node,
+      start.offset,
       document.body,
-      scanWindow(),
-      styleCache
+      scanWindow(reading),
+      styleCache,
+      rules.words,
     );
     if (entries.length === 0) {
       return null;
     }
     const query = entries.map((entry) => entry.text).join("");
-    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) {
+    if ((japaneseOnly ?? (reading?.options ?? options).onlyScanJapaneseText) && !rules.gate(query)) {
       return null;
     }
 
@@ -803,6 +1370,7 @@
       sourceElements,
       vertical: computedStyleFor(first.node.parentElement, styleCache)
         .writingMode.startsWith("vertical"),
+      ...profileCandidateFields(reading),
     }, matchStart, first.sourceLength, styleCache);
   }
 
@@ -813,7 +1381,10 @@
       level.retired ||
       levels[level.depth] !== level ||
       !level.popup ||
-      level.popup.hidden
+      level.popup.hidden ||
+      // Hovering reveals blurred definitions before a scan reaches them; with
+      // the click reveal their words are not looked up until clicked.
+      (options.definitionBlurReveal === "click" && definitionsBlurred(level))
     ) {
       return null;
     }
@@ -824,6 +1395,13 @@
     }
     const startNode = caretRange.startContainer;
     if (startNode.nodeType !== Node.TEXT_NODE) {
+      return null;
+    }
+    // As on the page, only the glyph under the pointer: past a line's end or
+    // between lines the caret still lands on the text beside it.
+    let caretOffset = caretRange.startOffset;
+    if (caretOffset > 0 && ((startNode.nodeValue || "").charCodeAt(caretOffset) & 0xfc00) === 0xdc00) caretOffset -= 1;
+    if (!glyphContainsPoint(startNode, caretOffset, clientX, clientY)) {
       return null;
     }
     const lookupText = startNode.parentElement?.closest(DEFINITION_TEXT_SELECTOR);
@@ -855,12 +1433,17 @@
         return null;
       }
     }
+    const profile = profileForDefinition(startNode.parentElement, level);
+    const rules = profile?.text ?? JAPANESE_TEXT_RULES;
+    const start = rules.words === null ? { node: startNode, offset: caretOffset }
+      : wordStart(startNode, caretOffset, lookupText, rules.words, styleCache);
     let entries = collectScanEntries(
-      startNode,
-      Math.min(caretRange.startOffset, (startNode.nodeValue || "").length),
+      start.node,
+      start.offset,
       lookupText,
-      scanWindow(),
-      styleCache
+      scanWindow(profile),
+      styleCache,
+      rules.words,
     );
     const linkBoundary = entries.findIndex((entry) =>
       entry.node.parentElement?.closest("a")
@@ -872,7 +1455,7 @@
       return null;
     }
     const query = entries.map((entry) => entry.text).join("");
-    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) {
+    if ((profile?.options ?? options).onlyScanJapaneseText && !rules.gate(query)) {
       return null;
     }
     const first = entries[0];
@@ -901,6 +1484,7 @@
       sourceElements: [lookupText],
       vertical: computedStyleFor(lookupText, styleCache)
         .writingMode.startsWith("vertical"),
+      ...profileCandidateFields(profile),
     }, matchStart, first.sourceLength, styleCache);
   }
 
@@ -908,15 +1492,20 @@
     return node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
   }
 
-  function resolveSelectedLookupCandidate(selection = window.getSelection()) {
+  // A selection is read in the profile its anchor chooses, or in `profile`
+  // (keybinds read in the active profile, 8.1 rule 4). It is never moved to a
+  // word start (8.3).
+  function resolveSelectedLookupCandidate(selection = window.getSelection(), profile = undefined) {
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
     const styleCache = new Map();
     if (!isScannableElement(selectionBoundaryElement(range.startContainer), styleCache)
         || !isScannableElement(selectionBoundaryElement(range.endContainer), styleCache)) return null;
     const query = selection.toString();
-    if (!query.trim() || (options.onlyScanJapaneseText && !isJapaneseToken(query))) return null;
     const anchor = selectionBoundaryElement(range.commonAncestorContainer);
+    const reading = profile === undefined ? profileForElement(anchor) : profile;
+    const rules = reading?.text ?? JAPANESE_TEXT_RULES;
+    if (!query.trim() || ((reading?.options ?? options).onlyScanJapaneseText && !rules.gate(query))) return null;
     for (const control of anchor.querySelectorAll(EDITING_SELECTOR)) {
       if (isEditingElement(control) && range.intersectsNode(control)
           && hasVisibleContent(control, styleCache)) return null;
@@ -933,6 +1522,7 @@
       sourceElements: [anchor],
       vertical: computedStyleFor(anchor, styleCache).writingMode.startsWith("vertical"),
       ...selectionSentence(range, styleCache),
+      ...profileCandidateFields(reading),
     }, rangeOffsetWithin(anchor, range.startContainer, range.startOffset), rawSelectionText.length, styleCache);
   }
 
@@ -941,7 +1531,9 @@
   function resolveSelectionScanCandidate(selection = window.getSelection()) {
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
     const query = selection.toString();
-    if (options.onlyScanJapaneseText && !isJapaneseToken(query)) return null;
+    // A keybind scan reads in the active profile (8.1 rule 4).
+    const active = activeReadingProfile();
+    if (options.onlyScanJapaneseText && !(active?.text ?? JAPANESE_TEXT_RULES).gate(query)) return null;
     const range = selection.getRangeAt(0);
     let node = range.startContainer, offset = range.startOffset;
     if (node.nodeType !== Node.TEXT_NODE) {
@@ -949,7 +1541,7 @@
       do node = walker.nextNode(); while (node && !range.intersectsNode(node));
       offset = 0;
     }
-    const candidate = node ? resolveCandidateAt(node, offset) : null;
+    const candidate = node ? resolveCandidateAt(node, offset, undefined, readingProfiles === null ? undefined : active) : null;
     return candidate && { ...candidate, selectionRange: range.cloneRange(), selectionText: query };
   }
 
@@ -990,6 +1582,7 @@
     window.removeEventListener("pagehide", onPageHide);
     window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("resize", refreshPageZoom);
+    dockObserver?.disconnect();
     try {
       chrome.storage.onChanged.removeListener(onStorageChanged);
       chrome.runtime.onMessage?.removeListener(onReaderCommand);
@@ -1007,7 +1600,7 @@
     appearance?.destroy();
     customStyle?.destroy();
     releaseDocsProbe();
-    syncNetflix();
+    syncVideoSite();
     releaseFieldImposter();
     host?.remove();
     host = null;
@@ -1232,17 +1825,22 @@
     return job.promise;
   }
 
-  function imageSourceContext() {
-    const next = window.HDReaderOptions.resolvePopupImageSources(options.popupImageSource, dictionaries, dictionaryGroups);
+  function imageSourceContext(profile = null) {
+    const key = profile?.id ?? null;
+    const view = profileView(profile);
+    const next = globalThis.HDReaderOptions.resolvePopupImageSources(view.options.popupImageSource, view.dictionaries, view.groups);
     // Keep the effective route's identity through alias/name-only changes.
     // In-flight consumers capture it, independently of broad storage revisions.
-    if (next !== popupImageSources && !sameDictionaries(next, popupImageSources)) popupImageSources = next;
-    return { popupImageSources, resolveMedia: resolvePopupMedia };
+    const previous = popupImageSources.get(key) ?? null;
+    if (!popupImageSources.has(key) || (next !== previous && !sameDictionaries(next, previous))) popupImageSources.set(key, next);
+    if (!popupMediaResolvers.has(key)) popupMediaResolvers.set(key, request => resolvePopupMedia(request, key));
+    return { popupImageSources: popupImageSources.get(key), resolveMedia: popupMediaResolvers.get(key) };
   }
 
-  function resolvePopupMedia(request) {
-    const sources = popupImageSources;
-    const isCurrent = () => sources === popupImageSources && request.generation === currentGeneration && request.isCurrent();
+  function resolvePopupMedia(request, key = null) {
+    const sources = popupImageSources.get(key) ?? null;
+    const isCurrent = () => sources === (popupImageSources.get(key) ?? null) && request.generation === currentGeneration
+      && request.isCurrent();
     const ownedRequest = { ...request, isCurrent };
     if (sources !== null) return resolveRoutedMedia(ownedRequest, sources);
     // Automatic retains the direct cache/queue path without candidate scans.
@@ -1283,7 +1881,7 @@
         return;
       }
       if (reply.generation !== generation) throw new Error("obsolete dictionary styles");
-      window.HDGlossary.applyDictionaryStyles(
+      globalThis.HDGlossary.applyDictionaryStyles(
         document,
         shadow,
         generation,
@@ -1303,11 +1901,11 @@
   // one on-screen size, so its lengths are unzoomed pixels and page geometry is
   // converted into them before placement.
   function popupRect(rect) {
-    return window.HDPopup.scaleRect(rect, window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent));
+    return globalThis.HDPopup.scaleRect(rect, globalThis.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent));
   }
 
   function popupViewport() {
-    const factor = window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
+    const factor = globalThis.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
     return { width: window.innerWidth * factor, height: window.innerHeight * factor };
   }
 
@@ -1330,7 +1928,7 @@
   }
 
   function calculatePopupPosition(anchorRect, viewport, vertical, preferBelow = false) {
-    return window.HDPopup.calculatePopupPosition(anchorRect, sessionPopupSize ?? {
+    return globalThis.HDPopup.calculatePopupPosition(anchorRect, sessionPopupSize ?? {
       width: options.popupWidthPx, height: options.popupHeightPx,
     }, viewport, { gap: POPUP_GAP_PX, padding: POPUP_PADDING_PX, vertical, preferBelow });
   }
@@ -1386,7 +1984,8 @@
     if (retireDetachedAncestor(level)) return false;
     // Initial selections still own the live page selection; Note/Back replays
     // intentionally use their stored descriptor even after focus collapses it.
-    if (!sourceRetained(candidate, level) || (level === rootLevel && pendingCandidateLookup?.token === token
+    // A docked selection lookup finishes like the search page's other lookups.
+    if (!sourceRetained(candidate, level) || (level === rootLevel && !dock && pendingCandidateLookup?.token === token
         && candidate.exactSelection === true && !selectionIsUnchanged(candidate))) {
       hide(level);
       return false;
@@ -1473,14 +2072,20 @@
     if (error?.code !== "dictionary-structured-content-limit") {
       console.debug("hachidori: lookup failed", error);
     }
-    const state = lookupFailureState(error, request);
+    // The search page always answers in its results area. A failure that
+    // names no request, such as a kanji view's late render step, repeats the
+    // view the result was showing.
+    const docked = level === rootLevel && dock !== null;
+    const state = lookupFailureState(error, request)
+      ?? (docked ? { kind: "lookup", title: "The lookup failed.", detail: "Try the search again." } : null);
     if (state === null) {
       if (!preserveView) hide(level);
       return false;
     }
+    const retry = request ?? (docked ? level.currentViewRequest : null);
     if (!preserveView) {
-      show(request?.candidate ?? level.activeCandidate, level);
-      level.currentViewRequest = request;
+      show(retry?.candidate ?? level.activeCandidate, level);
+      level.currentViewRequest = retry;
       level.activeHighlightText = "";
       level.activeTermRender = null;
       clearDefinitionBlurTimer(level);
@@ -1490,7 +2095,7 @@
       ...state,
       actionLabel: "Try again",
       onAction: () => executeViewRequest(
-        request,
+        retry,
         level,
         preserveView ? { preserveViewControls: true } : null,
       ),
@@ -1520,7 +2125,7 @@
   }
 
   function positionToolbar(level, placement, reset = false) {
-    const desired = window.HDPopup.resolveToolbarPosition(options.popupToolbarPosition, placement,
+    const desired = globalThis.HDPopup.resolveToolbarPosition(options.popupToolbarPosition, placement,
       reset ? "top" : level.popup.dataset.toolbarPosition);
     if (level.popup.dataset.toolbarPosition !== desired) level.view.setToolbarPosition(desired);
   }
@@ -1533,6 +2138,14 @@
     level.popup.style.height = `${position.height}px`;
     // A new size, scale or toolbar edge can move the chooser's button.
     audio?.positionMenu(level);
+  }
+
+  // The search page's root fills its results area, header on top like a
+  // popup below its word. Elsewhere a root opens beside its word.
+  function rootPosition(anchorRect, viewport) {
+    if (dock) return { ...popupRect(dock.getBoundingClientRect()), placement: "below" };
+    if (popupResize?.level === rootLevel) return popupResizePosition();
+    return calculatePopupPosition(popupRect(anchorRect), viewport, rootLevel.activeCandidate.vertical);
   }
 
   function positionPopup(fromLevel = rootLevel, resetToolbar = false) {
@@ -1553,13 +2166,7 @@
     }
     highlighter?.refresh();
     const viewport = popupViewport();
-    if (fromLevel === rootLevel) {
-      placePopup(rootLevel, popupResize?.level === rootLevel ? popupResizePosition() : calculatePopupPosition(
-        popupRect(anchorRect),
-        viewport,
-        rootLevel.activeCandidate.vertical
-      ), resetToolbar);
-    }
+    if (fromLevel === rootLevel) placePopup(rootLevel, rootPosition(anchorRect, viewport), resetToolbar);
     if (levels.length === 1) return;
     if (viewport.width <= POPUP_PADDING_PX * 2 || viewport.height <= POPUP_PADDING_PX * 2) {
       pruneLevels(1);
@@ -1628,7 +2235,7 @@
     if (!popupResize || event.pointerId !== popupResize.pointerId) return;
     if ((event.buttons & 1) === 0) { stopPopupResize(); return; }
     const drag = popupResize;
-    const factor = window.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
+    const factor = globalThis.HDPopup.popupCoordinateScale(pageZoom, options.popupScalePercent);
     sessionPopupSize = {
       width: Math.max(drag.minimum.width, drag.width + (event.clientX - drag.x) * factor),
       height: Math.max(drag.minimum.height, drag.height + (event.clientY - drag.y) * factor),
@@ -1708,6 +2315,8 @@
   }
 
   function hostParent() {
+    // The search page's results area holds its results.
+    if (dock) return dock;
     const fullscreen = document.fullscreenElement;
     if (!fullscreen || fullscreen === document.documentElement || fullscreen === document.body
         || fullscreen.shadowRoot
@@ -1726,14 +2335,36 @@
     positionPopup();
   }
 
+  // Dark Reader traverses open roots and rewrites their styles, so the popup's
+  // root is always closed. While Custom JavaScript is saved, its bridge
+  // attaches that root from the user-script world and returns it through
+  // host.shadowRoot to the saved scripts alone; it sees the request only once
+  // the host is in the page. Where user scripts do not run (Chrome's switch is
+  // off, a frame, an extension page) the reader attaches the root itself. The
+  // search page's frame runs the saved script in the reader's own world
+  // instead (#644), and nothing but the extension reaches its pages, so there
+  // the root is open.
+  function attachPopupRoot() {
+    if (options.customPopupJavascript) {
+      if (SEARCH_FRAME) return host.attachShadow({ mode: "open" });
+      host.dispatchEvent(new CustomEvent(POPUP_ROOT_EVENT));
+      const root = globalThis.chrome.dom?.openOrClosedShadowRoot(host) ?? host.openOrClosedShadowRoot;
+      if (root) return root;
+    }
+    return host.attachShadow({ mode: "closed" });
+  }
+
   function buildUi() {
     host = document.createElement(HOST_TAG);
     // Inline !important is the only declaration a page cannot override, and the
     // host must stay a zero-sized, non-interactive fixed anchor whatever the
     // page's CSS says. `all: initial` also stops inherited page typography from
-    // reaching the shadow tree.
+    // reaching the shadow tree, but not the page's direction, which `all`
+    // leaves out: the popup's English interface reads left to right on a
+    // right-to-left page too (docs/languages.md 10.1).
     host.style.cssText = [
       "all: initial !important",
+      "direction: ltr !important",
       "position: fixed !important",
       "top: 0 !important",
       "left: 0 !important",
@@ -1743,16 +2374,15 @@
       "z-index: 2147483647 !important",
     ].join("; ");
     applyPageZoom();
-    shadow = host.attachShadow({ mode: "open" });
-
     mountHost();
-    appearance = window.HDPopup.createPopupAppearance(host);
+    shadow = attachPopupRoot();
+    appearance = globalThis.HDPopup.createPopupAppearance(host);
     appearance.update(options);
-    customStyle = window.HDPopup.createCustomPopupStyle(shadow);
+    customStyle = globalThis.HDPopup.createCustomPopupStyle(shadow);
     customStyle.update(options.customPopupCss);
     themeHost.attach(shadow);
 
-    highlighter = window.HDPopup.createSourceHighlighter(
+    highlighter = globalThis.HDPopup.createSourceHighlighter(
       window,
       document,
       HIGHLIGHT_NAME,
@@ -1761,33 +2391,95 @@
     buildLevelUi(rootLevel);
   }
 
-  function buildLevelUi(level) {
-    mining ??= window.HDAnki.createAnkiController({
-      send: (type, fields) => sendRequest(type, fields, "hachidori-anki"),
+  // The popups' Anki controls: a controller per profile in effect, bound by
+  // each view's profile (perProfileControllers).
+  function ankiControllers() {
+    const set = perProfileControllers(profile => globalThis.HDAnki.createAnkiController({
+      send: async (type, fields) => {
+        const reply = await sendRequest(type, { ...fields, ...profileFields(profile) }, "hachidori-anki");
+        // The empty-deck hint is for a new profile's Templates (docs/languages.md
+        // 6.3); without profiles the button stays as it is today (4.5).
+        if (type !== "hd_anki_status" || readingProfiles !== null || reply?.emptyDeck === undefined) return reply;
+        const { emptyDeck: _emptyDeck, ...today } = reply;
+        return today;
+      },
       onChange: owner => positionPopup(owner),
       conceal: concealReader,
-      recordNetflixLine: (cue, templateId, options) => window.HDNetflix.record(cue, {
-        send: (type, fields) => sendRequest(type, fields, "hachidori-netflix"), templateId, ...options }),
-    });
-    mining.update(options, optionsStorageRevision >= 0);
-    audio ??= window.HDAudio.createAudioController({ window, popupRect,
-      send: (type, fields) => sendRequest(type, fields, "hachidori-audio"),
-      // The chooser places itself inside its pane. Open, it is that pane's
-      // interaction, so a child pane that would cover its choices closes.
-      onMenuChange(owner) {
-        cancelCandidateScan();
-        clearHideTimer();
-        if (audio.hasMenu(owner) && levels.length > owner.depth + 1 && !hasProtectedNote(owner.depth + 1)) {
-          dismissLevels(owner.depth + 1, false);
-        }
+      // The site's reader records a line through its page (netflix-content.js).
+      ...(VIDEO_SITE === null ? {} : { [VIDEO_SITE.recorder]: (cue, templateId, options) => VIDEO_SITE.api().record(cue, {
+        send: (type, fields) => sendRequest(type, fields, VIDEO_SITE.target), templateId, ...options }) }),
+      // A Template that names no deck opens Settings → Anki on the profile in
+      // effect (docs/languages.md 6.3); an overlay's host opens Settings itself.
+      openSettings: overlayMode ? null : () => {
+        // A lost reply may follow a successful open, so never retry it.
+        void sendRequest("hd_open_settings", { section: "anki", ...profileFields(profile) }, WORKER_TARGET)
+          .catch(error => console.debug("hachidori: Settings could not be opened", error));
       },
-      onSelectionChange: owner => mining.refresh(owner),
+    }));
+    return {
+      bind: (items, context) => set.of(levelProfile(context.owner)).bind(items, context),
+      retire: owner => set.each(controller => controller.retire(owner)),
+      refresh: owner => set.each(controller => controller.refresh(owner)),
+      update: (next, ready) => set.update(next, ready),
+    };
+  }
+
+  // The popups' pronunciation controls, a controller per profile in effect;
+  // one chooser is open at a time.
+  function audioControllers() {
+    const set = perProfileControllers(profile => {
+      const controller = globalThis.HDAudio.createAudioController({ window, popupRect,
+        send: (type, fields) => sendRequest(type, { ...fields, ...profileFields(profile) }, "hachidori-audio"),
+        // The chooser places itself inside its pane. Open, it is that pane's
+        // interaction, so a child pane that would cover its choices closes.
+        onMenuChange(owner) {
+          if (controller.hasMenu()) set.each(other => { if (other !== controller) other.closeMenu(false); });
+          cancelCandidateScan();
+          clearHideTimer();
+          if (audio.hasMenu(owner) && levels.length > owner.depth + 1 && !hasProtectedNote(owner.depth + 1)) {
+            dismissLevels(owner.depth + 1, false);
+          }
+        },
+        onSelectionChange: owner => mining.refresh(owner),
+      });
+      return controller;
     });
-    audio.update(options, optionsStorageRevision >= 0);
-    wordStatusActions ??= window.HDWordHighlights.createWordStatusActions({
+    const some = test => {
+      let found = false;
+      set.each(controller => { found ||= Boolean(test(controller)); });
+      return found;
+    };
+    return {
+      bind: (items, context) => set.of(levelProfile(context.owner)).bind(items, context),
+      retire: owner => set.each(controller => controller.retire(owner)),
+      dispose: () => set.each(controller => controller.dispose()),
+      closeMenu: (...args) => {
+        let closed = false;
+        set.each(controller => { closed = controller.closeMenu(...args) || closed; });
+        return closed;
+      },
+      hasMenu: owner => some(controller => controller.hasMenu(owner)),
+      positionMenu: owner => set.each(controller => controller.positionMenu(owner)),
+      playButton: (...args) => some(controller => controller.playButton(...args)),
+      selectionFor(result) {
+        let selection = null;
+        set.each(controller => { selection ??= controller.selectionFor(result); });
+        return selection;
+      },
+      settleAutoplay: (owner, request) => set.each(controller => controller.settleAutoplay(owner, request)),
+      update: (next, ready) => set.update(next, ready),
+    };
+  }
+
+  function buildLevelUi(level) {
+    mining ??= ankiControllers();
+    mining.update(controlsOptions(), optionsStorageRevision >= 0);
+    audio ??= audioControllers();
+    audio.update(controlsOptions(), optionsStorageRevision >= 0);
+    wordStatusActions ??= globalThis.HDWordHighlights.createWordStatusActions({
       send: (type, fields) => sendRequest(type, fields, WORKER_TARGET),
     });
-    wordStatusActions.update(options);
+    wordStatusActions.update(controlsOptions());
     wordStatusActions.setOverrides(wordStatusOverrides);
     const popup = document.createElement("div");
     popup.className = "gsm-hoshidicts-popup";
@@ -1826,14 +2518,15 @@
       cancelScanDwell();
       dismissLevels(depth, false);
     });
-    // Reading → Activation → Child popups → Click: a primary click on a word in
-    // the definitions opens its child once the press above has retired the
-    // previous one. A press that travels or leaves a selection is a copy, and
-    // links, images, buttons and disclosures keep their own click.
+    // Reading → Activation → Child popups → Click, and on the search page
+    // Reading → Search page → Look up words with a click (#656): a primary
+    // click on a word in the definitions opens its child once the press above
+    // has retired the previous one. A press that travels or leaves a selection
+    // is a copy, and links, images, buttons and disclosures keep their own click.
     popup.addEventListener("click", (event) => {
       const start = press;
       press = null;
-      if (options.definitionLookupMode !== "click" || !start || event.defaultPrevented || hasProtectedNote()
+      if (!definitionClickLookup() || !start || event.defaultPrevented || hasProtectedNote()
           || Math.hypot(event.clientX - start.x, event.clientY - start.y) >= GLYPH_DRAG_START_PX
           || event.target.closest("a, button, summary")) return;
       const selection = shadow.getSelection?.() ?? window.getSelection();
@@ -1846,16 +2539,16 @@
       (event) => onPopupMouseMove(event, level),
       { capture: true, passive: true }
     );
-    popup.addEventListener("mouseover", (event) => {
-      const request = level.currentViewRequest;
-      if (request?.blur && request.blur.state !== "revealed" && event.target instanceof Element
-          && event.target.closest(".gsm-hoshidicts-definitions, .gsm-hoshidicts-compact-definition-summary")) {
-        revealDefinitions(request, level);
-      }
+    level.definitionReveal = globalThis.HDPopup.createDefinitionReveal(popup, {
+      revealMode: () => options.definitionBlurReveal,
+      blurred: () => definitionsBlurred(level),
+      reveal: () => revealDefinitions(level.currentViewRequest, level),
     });
     shadow.appendChild(popup);
     level.popup = popup;
     level.highlighter = highlighter.scope(level);
+    const customButtons = profileView(levelProfile(level)).options.customButtons;
+    level.customButtonsKey = JSON.stringify(customButtons);
     level.view = themeHost.createView({
       onRendererRetired() {
         audio.retire(level);
@@ -1863,19 +2556,23 @@
         wordStatusActions.retire(level);
         level.noteEditing = false;
       },
-      appendExpressionRuby: window.HDGlossary.appendExpressionRuby,
-      createPronunciationPitchAccent: window.HDGlossary.createPronunciationPitchAccent,
-      appendTextOnlyGlossary: window.HDGlossary.appendTextOnlyGlossary,
-      appendStructuredImage: window.HDGlossary.appendStructuredImage,
+      // One-time work (font warm-up) for the active profile's language; each
+      // render carries its own (11.1).
+      language: renderLanguage({ profileId: activeProfileId() }),
+      appendExpressionRuby: globalThis.HDGlossary.appendExpressionRuby,
+      createPronunciationPitchAccent: globalThis.HDGlossary.createPronunciationPitchAccent,
+      appendTextOnlyGlossary: globalThis.HDGlossary.appendTextOnlyGlossary,
+      appendStructuredImage: globalThis.HDGlossary.appendStructuredImage,
       document,
       getPageZoom: () => pageZoom,
       getPopupScalePercent: () => options.popupScalePercent,
-      getPopupColumns: () => options.popupColumns,
-      getImageHoverPreview: () => options.imageHoverPreview,
-      onResizeStart: event => startPopupResize(event, level),
+      getPopupColumns: () => profileView(levelProfile(level)).options.popupColumns,
+      getImageHoverPreview: () => profileView(levelProfile(level)).options.imageHoverPreview,
+      // The docked root's size is the search page's results area.
+      onResizeStart: level === rootLevel && dock ? null : event => startPopupResize(event, level),
       onResizeMove: movePopupResize,
       onResizeEnd: stopPopupResize,
-      customButtons: options.customButtons,
+      customButtons,
       highlightName: HIGHLIGHT_NAME,
       idPrefix: level === rootLevel ? "hoshidicts" : `hoshidicts-${nextLevelId += 1}`,
       onAddCustomEntry: (entry) => appendCustomEntry(entry, level),
@@ -1902,14 +2599,14 @@
         && level.pendingCustomAppends === 0 && levels.length === level.depth + 1
         && requestCanRender(level.lookupToken, level.activeCandidate, level),
       canUpdateCompactSummary: () => requestCanRender(level.lookupToken, level.activeCandidate, level),
-      parseTagList: window.HDGlossary.parseTagList,
+      parseTagList: globalThis.HDGlossary.parseTagList,
       popup,
       positionPopup: () => positionPopup(level),
       queueMasonry: (layout) => queueMasonry(level, layout),
       cancelMasonry: (layout) => cancelMasonry(level, layout),
       sourceHighlighter: level.highlighter,
       sourceHighlightEnabled: options.sourceHighlightEnabled,
-      toolbarPosition: window.HDPopup.resolveToolbarPosition(options.popupToolbarPosition),
+      toolbarPosition: globalThis.HDPopup.resolveToolbarPosition(options.popupToolbarPosition),
       window,
     });
   }
@@ -1917,6 +2614,7 @@
   function bindResultActions(rendered, level) {
     gsmBridge?.scheduleRefresh(); // GSM hook
     const token = level.lookupToken, request = level.currentViewRequest;
+    level.definitionReveal.sync();
     // Keybinds index these like the view's entries; Show more grows the same
     // arrays and rebinds only the newly revealed controls. The count element
     // belongs to the initial render and stays until the next one.
@@ -1939,10 +2637,12 @@
     mining.bind(rendered.miningActions, { ...context, getRequest: result => {
       const candidate = level.activeCandidate;
       const selection = shadow.getSelection?.() ?? window.getSelection();
+      // The view's own profile's dictionaries (docs/languages.md 8.1).
+      const { dictionaries } = profileView(readingProfiles === null ? null : requestProfile(request));
       const frequencyModes = new Map(dictionaries.map(item => [item.title, item.frequencyMode]));
       const term = { ...result.term, frequencies: result.term.frequencies.map(group =>
         ({ ...group, frequencyMode: frequencyModes.get(group.dictionary) })) };
-      return { ...result, term, generation: level.activeTermRender.generation, sentence: candidate.sentence,
+      return { ...result, term, generation: result.generation ?? level.activeTermRender.generation, sentence: candidate.sentence,
         matchOffset: candidate.matchOffset, matched: sentenceMatchedText(candidate, result.matched || result.term.expression),
         searchQuery: request?.payload?.text ?? request?.kanjiPayload?.character ?? candidate.query,
         popupSelectionText: selection?.anchorNode && level.popup.contains(selection.anchorNode) ? selection.toString() : "",
@@ -1952,15 +2652,31 @@
         dictionaryAliases: Object.fromEntries(dictionaries.filter(item => item.displayName).map(item => [item.title, item.displayName])),
         dictionaryIds: Object.fromEntries(dictionaries.map(item => [item.title, item.id])),
         frequencyDictionaries: dictionaries.filter(item => item.enabled && item.frequencyCount > 0).map(item => item.title),
-        // Experimental Netflix mining: the root popup's pinned cue, and for the
-        // root lookup the whole cue as its sentence.
-        ...(netflixMiningEnabled() ? window.HDNetflix.miningFields(rootLevel.activeCandidate?.netflixObservation,
+        // Once the records have profiles, each dictionary's direction and
+        // target language travel beside its display name (docs/languages.md 12).
+        ...(readingProfiles === null ? {} : miningLanguageFields(result, request)),
+        // Experimental Netflix and YouTube mining: the root popup's pinned cue,
+        // and for the root lookup the whole cue as its sentence.
+        ...(videoMiningEnabled() ? VIDEO_SITE.api().miningFields(rootLevel.activeCandidate?.videoObservation,
           level === rootLevel ? candidate : null) : {}),
       };
     } });
     // Only Default's stylesheet styles Mark as known and Ignore; elsewhere
     // their keybinds act alone.
-    wordStatusActions.bind(rendered.miningActions, { ...context, buttons: themeHost.renderer === "default" });
+    wordStatusActions.bind(rendered.miningActions, { ...context, buttons: themeHost.renderer === "default",
+      ...(readingProfiles === null ? {} : { fields: profileFields(requestProfile(request)),
+        language: requestProfile(request)?.language ?? "ja" }) });
+  }
+
+  // Counts are kept per language (docs/languages.md 4.3): Japanese's
+  // generation is the descriptor's own, another language's is its entry under
+  // `languages`. Without profiles every entry is Japanese.
+  function statsGeneration(descriptor, language = "ja") {
+    return language === "ja" ? descriptor?.generation ?? null : descriptor?.languages?.[language] ?? null;
+  }
+
+  function statsKey(descriptor, entry) {
+    return lookupStatsKey({ generation: statsGeneration(descriptor, entry.language) }, entry);
   }
 
   // A count on its way keeps its slot's place, so its arrival moves nothing.
@@ -1973,7 +2689,8 @@
     if (request !== level.currentViewRequest
         || !requestCanRender(level.lookupToken, level.activeCandidate, level) || !level.lookupStatsElement?.isConnected) return;
     const entry = request?.lookupStats;
-    const statistics = entry?.payload?.descriptor.generation === lookupStatsDescriptor.generation
+    const statistics = entry?.payload
+      && statsGeneration(entry.payload.descriptor, entry.language) === statsGeneration(lookupStatsDescriptor, entry.language)
       ? entry.payload.statistics : null;
     const onItsWay = Boolean(entry) && (entry.needsRefresh || (entry.pending && !settled));
     level.view.setLookupStats(level.lookupStatsElement, statistics, onItsWay);
@@ -1985,14 +2702,17 @@
           && (typeof descriptor.generation !== "string" || descriptor.generation === ""))) return;
     const sameGeneration = descriptor.generation === lookupStatsDescriptor.generation;
     if (descriptor.revision < lookupStatsDescriptor.revision && !sameGeneration) return;
-    const replaced = descriptor.generation !== lookupStatsDescriptor.generation;
+    const previous = lookupStatsDescriptor;
     if (descriptor.revision >= lookupStatsDescriptor.revision) lookupStatsDescriptor = descriptor;
     for (const level of levels) {
       const request = level.currentViewRequest;
       const entry = request?.lookupStats;
       if (!entry) continue;
-      const row = changes[lookupStatsKey(descriptor, entry)]?.newValue;
-      if (row && (!entry.payload || entry.payload.descriptor.generation !== descriptor.generation
+      // Only a language whose generation changed reads its counts again.
+      const replaced = statsGeneration(descriptor, entry.language) !== statsGeneration(previous, entry.language);
+      const row = changes[statsKey(descriptor, entry)]?.newValue;
+      if (row && (!entry.payload
+          || statsGeneration(entry.payload.descriptor, entry.language) !== statsGeneration(descriptor, entry.language)
           || entry.payload.descriptor.revision < descriptor.revision)) {
         entry.payload = { descriptor, statistics: row };
         entry.needsRefresh = false;
@@ -2007,7 +2727,8 @@
   // The count that decides definition blur: null while unknown or unavailable.
   function currentLookupCount(entry) {
     const payload = entry.payload;
-    if (!payload || payload.descriptor.generation !== lookupStatsDescriptor.generation) return null;
+    if (!payload || statsGeneration(payload.descriptor, entry.language)
+        !== statsGeneration(lookupStatsDescriptor, entry.language)) return null;
     return payload.statistics?.lookupCount ?? null;
   }
 
@@ -2020,10 +2741,10 @@
     entry.needsRefresh = false;
     const requestedOptionsRevision = optionsStorageRevision;
     void sendRequest(record ? "hd_lookup_stats_record" : "hd_lookup_stats_read", {
-      term: entry.term, reading: entry.reading,
+      term: entry.term, reading: entry.reading, ...entry.fields,
     }, "hoshidicts-worker").then(payload => {
       adoptLookupStatsDescriptor(payload.descriptor);
-      if (payload.descriptor.generation !== lookupStatsDescriptor.generation) {
+      if (statsGeneration(payload.descriptor, entry.language) !== statsGeneration(lookupStatsDescriptor, entry.language)) {
         entry.needsRefresh = true;
         return;
       }
@@ -2053,9 +2774,13 @@
     const { term, reading } = normaliseLookupTerm(results[0].term.expression, results[0].term.reading);
     const firstVisit = !request.lookupStats;
     let entry = request.lookupStats;
+    // A count belongs to the language of the view's profile, which its requests name.
+    const profile = readingProfiles === null ? null : requestProfile(request);
     if (!entry || entry.term !== term || entry.reading !== reading) {
-      entry = request.lookupStats = { term, reading, pending: false, payload: null, needsRefresh: true };
-    } else if (entry.payload && entry.payload.descriptor.generation !== lookupStatsDescriptor.generation) {
+      entry = request.lookupStats = { term, reading, pending: false, payload: null, needsRefresh: true,
+        language: profile?.language ?? "ja", fields: profileFields(profile) };
+    } else if (entry.payload && statsGeneration(entry.payload.descriptor, entry.language)
+        !== statsGeneration(lookupStatsDescriptor, entry.language)) {
       entry.needsRefresh = true;
     }
     // The descriptor owns one visit, including a visit while counts are off.
@@ -2073,7 +2798,8 @@
     if (blur.awaitingOptions || !options.definitionBlurAnkiMature || blur.ankiCheck !== undefined) return;
     const check = blur.ankiCheck = { epoch: ankiMaturityEpoch };
     const { expression, reading } = level.activeTermRender.results[0].term;
-    void sendRequest("hd_anki_maturity", { request: { term: { expression, reading } } }, "hachidori-anki")
+    void sendRequest("hd_anki_maturity", { request: { term: { expression, reading } },
+      ...profileFields(readingProfiles === null ? null : requestProfile(request)) }, "hachidori-anki")
       .then(payload => payload.mature === true, () => false).then(mature => {
         if (blur.ankiCheck !== check) return;
         blur.ankiMature = check.epoch === ankiMaturityEpoch && mature;
@@ -2122,7 +2848,15 @@
   }
 
   function applyDefinitionBlurState(request, level) {
-    if (level.currentViewRequest === request && level.view) level.view.setDefinitionBlurState(request.blur.state);
+    if (level.currentViewRequest !== request || !level.view) return;
+    level.view.setDefinitionBlurState(request.blur.state);
+    level.definitionReveal.sync();
+  }
+
+  // Whether the level shows pending or blurred term definitions.
+  function definitionsBlurred(level) {
+    const blur = level.currentViewRequest?.blur;
+    return Boolean(blur) && blur.state !== "revealed";
   }
 
   function revealDefinitions(request, level) {
@@ -2152,12 +2886,15 @@
   // Before the stored settings arrive the decision stays pending, like the
   // audio controller's own options hold, so a first lookup cannot reveal or
   // auto-play against defaults that the stored settings then contradict.
+  // Blur decides on the first result, and a word that only frequency and
+  // pitch dictionaries have (#620) has no definitions to hide, so a request
+  // whose first result has none is never blurred.
   function beginDefinitionBlur(request, level, results) {
     clearDefinitionBlurTimer(level);
     if (!request) return;
     if (!request.blur) {
       const awaitingOptions = optionsStorageRevision < 0;
-      const active = awaitingOptions || definitionBlurActive();
+      const active = (awaitingOptions || definitionBlurActive()) && results[0]?.term?.glossaries?.length > 0;
       request.blur = { state: active ? "pending" : "revealed", displayedAt: Date.now(), awaitingOptions,
         lookupCount: undefined, ankiMature: undefined, autoplayHeld: active,
         frequency: snapshotDefinitionBlurFrequency(results) };
@@ -2221,10 +2958,10 @@
   function ensureUi() {
     if (!uiPromise) {
       uiPromise = (async () => {
-        if (!document.body || !window.HDPopup || !window.HDGlossary) {
+        if (!document.body || !globalThis.HDPopup || !globalThis.HDGlossary) {
           throw new Error("render modules or document body unavailable");
         }
-        await themeHost.sync();
+        await Promise.all([themeHost.sync(), storedOptions]);
         if (disposed) {
           throw new Error("torn down");
         }
@@ -2244,10 +2981,10 @@
   function show(candidate, level = rootLevel) {
     level.activeCandidate = candidate;
     level.activeSignature = candidateSignature(candidate);
-    // A Netflix subtitle line is pinned as the popup opens, so adding the note
-    // after the line has gone still records that line.
-    if (level === rootLevel && candidate.sourceDepth === -1 && netflixMiningEnabled()) {
-      candidate.netflixObservation ??= window.HDNetflix.observe(candidate.anchor);
+    // A Netflix or YouTube subtitle line is pinned as the popup opens, so
+    // adding the note after the line has gone still records that line.
+    if (level === rootLevel && candidate.sourceDepth === -1 && videoMiningEnabled()) {
+      candidate.videoObservation ??= VIDEO_SITE.api().observe(candidate.anchor);
     }
     // The body may have been replaced, or the player may have entered fullscreen.
     mountHost();
@@ -2335,6 +3072,44 @@
     syncHostAttention();
   }
 
+  // An outside click, a pointer that wanders off, a lost selection or Escape
+  // dismisses the popups. The search page's docked result is the page's
+  // content rather than a popup over a word, so there only the popups opened
+  // from it close, and whatever pointer or selection work led here ends.
+  function dismissPopups() {
+    if (!dock) {
+      hide();
+      return;
+    }
+    clearScanTimer();
+    cancelScanDwell();
+    clearHideTimer();
+    clearCursorExitTimer();
+    selectionDragActive = false;
+    dragSelection = null;
+    activeSelectionCandidate = null;
+    dismissLevels(1);
+    syncHostAttention();
+  }
+
+  // What would retire a stale view looks the docked result up again instead,
+  // with the current options, as Yomitan's search page searches again
+  // (Display.searchLast) when its options change. It stays the same request,
+  // so its visit is not counted twice.
+  function refreshDockedView(level) {
+    const request = level.currentViewRequest;
+    if (level !== rootLevel || !dock || !request) return false;
+    level.deferredDictionaryInvalidationRevision = -1;
+    if (request.kind === "term") {
+      request.payload = termPayload(request.payload.text, request.exactSelection || request.candidate.linkAnchor === true,
+        request.payload.options.primaryReading);
+    }
+    void executeViewRequest(request, level).catch((error) => {
+      console.debug("hachidori: the search result could not refresh", error);
+    });
+    return true;
+  }
+
   function clearHideTimer() {
     if (hideTimer !== null) {
       window.clearTimeout(hideTimer);
@@ -2401,10 +3176,11 @@
 
   // Like Yomitan, a running timer is not restarted, and even 0 ms waits for
   // the mousemove that follows the boundary events. Exact-selection lookups
-  // stay, as retainSelectedLookup() keeps them on every pointer path.
+  // stay, as retainSelectedLookup() keeps them on every pointer path, and so
+  // does a docked result with nothing open from it.
   function scheduleCursorExitHide() {
     if (!options.hidePopupOnCursorExit || cursorExitTimer !== null || activeSelectionCandidate
-        || !rootLevel.popup || rootLevel.popup.hidden) return;
+        || !rootLevel.popup || rootLevel.popup.hidden || (dock && levels.length === 1)) return;
     cursorExitTimer = window.setTimeout(() => {
       cursorExitTimer = null;
       // A page move may have stopped in a corridor between panes; leaving it
@@ -2417,7 +3193,7 @@
       }
       pointerInPopup = false;
       pointerLevel = null;
-      if (!hasProtectedNote() && !audio?.hasMenu() && !keyboardFocusInPopup()) hide();
+      if (!hasProtectedNote() && !audio?.hasMenu() && !popupFocusHoldsView()) dismissPopups();
     }, options.hidePopupOnCursorExitDelayMs);
   }
 
@@ -2437,7 +3213,7 @@
     const prune = () => {
       descendantTimer = null;
       if (!hasProtectedNote(depth) && (!pointerLevel || pointerLevel.depth < depth)
-          && !levels.slice(depth).some((child) => child.popup.contains(shadow.activeElement))) {
+          && !(popupFocusHoldsView() && levels.slice(depth).some((child) => child.popup.contains(shadow.activeElement)))) {
         dismissLevels(depth);
       }
     };
@@ -2449,14 +3225,16 @@
     return levels.some((level) => level.popup && !level.popup.hidden && level.popup.contains(shadow?.activeElement));
   }
 
-  // Keyboard focus keeps a popup the pointer left, but not the focus Chrome
-  // leaves on a clicked button: Yomitan hides regardless of focus.
-  function keyboardFocusInPopup() {
-    return popupHasFocus() && shadow.activeElement.matches(":focus-visible");
+  // Keyboard navigation and editing keep the view; the focus a mouse click
+  // leaves on Audio or another button must not hold page scanning or dismissal.
+  function popupFocusHoldsView() {
+    const focused = shadow?.activeElement;
+    return popupHasFocus() && (focused.matches(":focus-visible")
+      || (isEditingElement(focused) && focused.localName !== "button"));
   }
 
   function focusBlocksScan(level) {
-    return popupHasFocus() && (!level
+    return popupFocusHoldsView() && (!level
       || (isEditingElement(shadow.activeElement) && shadow.activeElement.localName !== "button"));
   }
 
@@ -2523,9 +3301,10 @@
   function onPopupFocusOut(event) {
     const target = event.target;
     window.queueMicrotask(() => {
-      // A redraw can remove the focused Note form. That is not departure
-      // from the refreshed popup; wait until removal/focus transfer settles.
-      if (target.isConnected && levels.some((level) => level.popup?.contains(target))) scheduleHide();
+      // A redraw can remove the focused Note form, and a control can disable
+      // itself while it works (an Anki action saving, Retry). Neither is
+      // departure from the popup; wait until removal/focus transfer settles.
+      if (target.isConnected && !target.disabled && levels.some((level) => level.popup?.contains(target))) scheduleHide();
       flushDictionaryPresentation();
     });
   }
@@ -2533,30 +3312,38 @@
   function scheduleHide() {
     if (gsmBridge?.navigationActive) return; // GSM hook
     if (disposed || hasProtectedNote() || audio?.hasMenu() || !rootLevel.popup || rootLevel.popup.hidden
-        || popupHasFocus() || hideTimer !== null || transferTimer !== null) {
+        || popupFocusHoldsView() || hideTimer !== null || transferTimer !== null || (dock && levels.length === 1)) {
       return;
     }
     // The gap between the word and the popup is dead space; give the pointer
     // time to cross it so the popup stays reachable and selectable.
     const dismiss = () => {
       hideTimer = null;
-      if (!hasProtectedNote() && !audio?.hasMenu() && !pointerInPopup && !popupHasFocus()) {
-        hide();
+      if (!hasProtectedNote() && !audio?.hasMenu() && !pointerInPopup && !popupFocusHoldsView()) {
+        dismissPopups();
       }
     };
     if (options.popupHideDelayMs === 0) dismiss();
     else hideTimer = window.setTimeout(dismiss, options.popupHideDelayMs);
   }
 
-  function compactSummaryOptions() {
-    return { showCompactDefinitionSummary: options.showCompactDefinitionSummary,
-      compactDefinitionSummaryCount: options.compactDefinitionSummaryCount,
-      compactDefinitionSummaryDictionary: options.compactDefinitionSummaryDictionary };
+  function compactSummaryOptions(source = options) {
+    return { showCompactDefinitionSummary: source.showCompactDefinitionSummary,
+      compactDefinitionSummaryCount: source.compactDefinitionSummaryCount,
+      compactDefinitionSummaryDictionary: source.compactDefinitionSummaryDictionary };
+  }
+
+  // What a view's dictionaries look like: its profile in effect's display
+  // names, favourites, frequency modes, tab groups, summary and metadata.
+  function presentationContext(profile = null) {
+    const own = profileView(profile).options;
+    return { dictionaryPresentation: dictionaryPresentation(profile), dictionaryTabGroups: dictionaryTabGroups(profile),
+      ...compactSummaryOptions(own), ...imageSourceContext(profile), ...globalThis.HDPopup.metadataOptions(own) };
   }
 
   function openExternalLink({ url, active }) {
     if (hostCapabilities.externalLinkHost) {
-      void window.HDExternalLinkHost.open(window, { url, active }).catch((error) => {
+      void globalThis.HDExternalLinkHost.open(window, { url, active }).catch((error) => {
         console.debug("hachidori: overlay host could not open external link", error);
       });
       return;
@@ -2570,14 +3357,11 @@
   function renderContextFor(level = rootLevel) {
     return {
       definitionBlurState: level.currentViewRequest?.blur?.state ?? "revealed",
-      dictionaryPresentation: dictionaryPresentation(),
-      dictionaryTabGroups: dictionaryTabGroups(),
       generation: currentGeneration,
+      language: renderLanguage(level.currentViewRequest),
       onExternalLink: openExternalLink,
       onInternalLink: (link) => onInternalLink(link, level),
-      ...imageSourceContext(),
-      ...compactSummaryOptions(),
-      ...window.HDPopup.metadataOptions(options),
+      ...presentationContext(levelProfile(level)),
     };
   }
 
@@ -2662,8 +3446,31 @@
 
   function backRenderOptions(request, level = rootLevel) {
     return request?.previous
-      ? { onBack: () => restoreTermRender(request.previous, request.returnFocus, level) }
+      ? { onBack: () => navigateBack(request, level) }
       : level === rootLevel ? {} : { onClose: () => hide(level) };
+  }
+
+  // The term view a kanji request returns to: its render and current viewport.
+  function termViewSnapshot(level) {
+    return level.activeTermRender && { ...level.activeTermRender, viewport: level.view.captureTermView?.() };
+  }
+
+  // Yomitan's DisplayHistory keeps the entry Back leaves as the next one. Back
+  // here leaves its request ahead of the term view it restores; Forward reopens
+  // that request as its kanji click did, and Back from there returns to the
+  // term view as Forward left it. A no-result notice or a failure in its place
+  // has no term view to return to, so Forward leaves the key alone.
+  function navigateBack(request, level) {
+    request.previous.request.next = request;
+    return restoreTermRender(request.previous, request.returnFocus, level);
+  }
+
+  function navigateForward(level) {
+    const request = level.currentViewRequest;
+    if (!request?.next || level.activeTermRender?.request !== request) return false;
+    request.next.previous = termViewSnapshot(level);
+    void executeViewRequest(request.next, level);
+    return true;
   }
 
   function renderTerms(
@@ -2693,6 +3500,7 @@
       results,
       token,
     };
+    adoptControlsProfile(request, level);
     try {
       level.view.renderResults(results, candidate, {
         ...renderContextFor(level),
@@ -2711,6 +3519,7 @@
       return false;
     }
     level.activeHighlightText = matchedText;
+    syncProfileLabel(level);
     ensureDictionaryStyles(currentGeneration);
     positionPopup(level);
     if (!replayOptions?.preserveViewControls
@@ -2725,7 +3534,9 @@
   function handleTermMiss(request, dictionaryCount, token, level, replayOptions) {
     if (retainProtectedReplay(request, token, level, replayOptions)) return false;
     const pencil = options.personalDictionaryEnabled;
-    if (dictionaryCount === 0 || (request.exactSelection && pencil && options.showNoResultNotice)) {
+    // The search page always answers in its results area, as Yomitan's does.
+    const docked = level === rootLevel && dock !== null;
+    if (dictionaryCount === 0 || docked || (request.exactSelection && pencil && options.showNoResultNotice)) {
       show(request.candidate, level);
       level.activeHighlightText = "";
       level.activeTermRender = null;
@@ -2733,14 +3544,13 @@
       // Keep the exact request so saving a new word can refresh this notice
       // into its personal definition, even after the form collapses selection.
       level.currentViewRequest = request;
-      level.view.renderNotice(
-        dictionaryCount === 0
-          ? `No dictionaries loaded. Import a Yomitan .zip in Settings${pencil
-            ? ", or add your own definition with the pencil" : ""}.`
-          : "No definition found. Add your own with the pencil.",
-        request.candidate,
-        { isCurrentRequest: () => !disposed && !level.retired && token === level.lookupToken },
-      );
+      let notice = "No definition found.";
+      if (dictionaryCount === 0) {
+        notice = `No dictionaries loaded. Import a Yomitan .zip in Settings${pencil
+          ? ", or add your own definition with the pencil" : ""}.`;
+      } else if (pencil) notice = "No definition found. Add your own with the pencil.";
+      level.view.renderNotice(notice, request.candidate,
+        { isCurrentRequest: () => !disposed && !level.retired && token === level.lookupToken });
       positionPopup(level);
       return false;
     }
@@ -2813,31 +3623,52 @@
     );
   }
 
+  // JL and Bee's Theme draw a result's definitions dictionary by dictionary,
+  // Plain draws only definitions, and Crystal hides a result without any, so
+  // a word that only frequency and pitch dictionaries have (#620) would leave
+  // them nothing to show. With them a lookup asks for words with definitions
+  // only, as with the option off.
+  const DEFINITION_ONLY_RENDERERS = new Set(["jl", "bee", "plain", "crystal"]);
+
+  // A term lookup's engine request, from the options of the profile in effect
+  // (the active profile's without one), which it names (docs/languages.md 5.4).
+  // The renderer is the frame's.
+  function termPayload(text, exactMatch, primaryReading, profile = null) {
+    const lookup = profile?.options ?? options;
+    return {
+      maxResults: lookup.maxResults,
+      options: {
+        frequencyDictionary: lookup.frequencyDictionary,
+        frequencyOrder: lookup.frequencyOrder,
+        metadataOnlyTerms: lookup.showMetadataOnlyResults
+          && !DEFINITION_ONLY_RENDERERS.has(popupRenderer(options.popupTheme)),
+        personalDictionary: lookup.personalDictionaryEnabled,
+        primaryReading,
+      },
+      scanLength: exactMatch ? clampOption("scanLength", Array.from(text).length) : lookup.scanLength,
+      text,
+      ...profileFields(profile),
+    };
+  }
+
   function runLookup(candidate, overrides = {}, level = rootLevel) {
     const text = typeof overrides.text === "string" ? overrides.text : candidate.query;
     const exactSelection = candidate.exactSelection === true && overrides.text === undefined;
     const exactMatch = exactSelection || candidate.linkAnchor === true;
+    // A candidate read in a profile looks up in it; one without (a keybind's
+    // or the search page's, before the records had profiles) in the active one.
+    const profile = readingProfiles === null ? null : candidate.profile ?? activeReadingProfile();
     return executeTermRequest({
       candidate,
       exactSelection,
       highlightText: overrides.keepHighlight === true ? level.activeHighlightText : undefined,
       kind: "term",
-      payload: {
-        maxResults: options.maxResults,
-        options: {
-          frequencyDictionary: options.frequencyDictionary,
-          frequencyOrder: options.frequencyOrder,
-          personalDictionary: options.personalDictionaryEnabled,
-          primaryReading: typeof overrides.primaryReading === "string"
-            ? overrides.primaryReading
-            : "",
-        },
-        scanLength: exactMatch ? clampOption("scanLength", Array.from(text).length) : options.scanLength,
-        text,
-      },
+      payload: termPayload(text, exactMatch, typeof overrides.primaryReading === "string" ? overrides.primaryReading : "",
+        profile),
       previous: overrides.previous ?? null,
       returnFocus: overrides.returnFocus ?? null,
       selectedDictionaryTab: normalizedDictionaryTab(overrides.selectedDictionaryTab),
+      ...profileFields(profile),
     }, level);
   }
 
@@ -2927,6 +3758,7 @@
     // and the whole of it is the match, so it is its own sentence.
     const candidate = withSentence({
       anchor, linkAnchor: true, query, sourceElements: [anchor], sourceDepth: level.depth, vertical: false,
+      ...profileCandidateFields(profileForDefinition(anchor, level)),
     }, 0, (anchor.textContent || "").length, new Map());
     return openChildLookup(candidate, level, {
       focusChild,
@@ -3005,6 +3837,7 @@
     level.deferredDictionaryInvalidationRevision = -1;
     level.retainedView = false;
     pruneLevels(level.depth + 1);
+    adoptControlsProfile(request, level);
     try {
       level.view.renderKanji({ ...kanji, entries }, candidate, {
         ...renderContextFor(level),
@@ -3021,6 +3854,7 @@
       console.warn("hachidori: could not render kanji", error);
       return handleLookupFailure(token, error, level, request, true);
     }
+    syncProfileLabel(level);
     ensureDictionaryStyles(currentGeneration);
     positionPopup(level);
     if (!replayOptions?.preserveViewControls) focusPopupControl(".gsm-hoshidicts-kanji-back", level);
@@ -3031,7 +3865,10 @@
     if (!level.activeCandidate || typeof character !== "string" || !character) {
       return;
     }
-    const capability = selectedKanjiDictionaryCapability();
+    // The character view belongs to the profile of the view it opens from.
+    const profile = readingProfiles === null ? null : requestProfile(level.currentViewRequest);
+    const lookup = profile?.options ?? options;
+    const capability = selectedKanjiDictionaryCapability(profile);
     const termSources = capability?.kind === "group"
       ? capability.members.filter((member) => member.kind === "term")
       : capability?.kind === "term" ? [capability] : [];
@@ -3040,26 +3877,25 @@
       capability,
       character,
       highlightText: level.activeHighlightText || character,
-      kanjiPayload: { character },
+      kanjiPayload: { character, ...profileFields(profile) },
       kind: "kanji",
-      previous: level.activeTermRender && {
-        ...level.activeTermRender,
-        viewport: level.view.captureTermView?.(),
-      },
+      previous: termViewSnapshot(level),
       returnFocus: kanjiLinkFocusTarget(sourceLink, character, level),
       selectedDictionaryTab: normalizedDictionaryTab(level.currentViewRequest?.selectedDictionaryTab),
       termPayloads: termSources.map((source) => ({
         dictionary: source.title,
-        maxResults: options.maxResults,
+        maxResults: lookup.maxResults,
         options: {
-          frequencyDictionary: options.frequencyDictionary,
-          frequencyOrder: options.frequencyOrder,
-          personalDictionary: options.personalDictionaryEnabled,
+          frequencyDictionary: lookup.frequencyDictionary,
+          frequencyOrder: lookup.frequencyOrder,
+          personalDictionary: lookup.personalDictionaryEnabled,
           primaryReading: "",
         },
         scanLength: 1,
         text: character,
+        ...profileFields(profile),
       })),
+      ...profileFields(profile),
     }, level);
   }
 
@@ -3089,7 +3925,8 @@
     const expectedView = level.currentViewRequest;
     level.pendingCustomAppends += 1;
     try {
-      const reply = await sendRequest("hd_custom_append", { entry });
+      const reply = await sendRequest("hd_custom_append", { entry,
+        ...profileFields(readingProfiles === null ? null : requestProfile(expectedView)) });
       const adoption = adoptDictionaryState(reply.state);
       if (adoption.dictionaryChanged) invalidateStoredState(true);
       else if (adoption.presentationChanged) updateDictionaryPresentation();
@@ -3120,13 +3957,16 @@
         level.deferredDictionaryInvalidationRevision = -1;
         // The append has committed. Replay failures must never invite a second
         // append, and a protected descendant must keep its source DOM alive.
-        void executeViewRequest(request, level).catch((error) => {
-          console.debug("hachidori: Note saved but the lookup could not refresh", error);
-        });
+        // A docked result also takes any option changed during the draft.
+        if (!refreshDockedView(level)) {
+          void executeViewRequest(request, level).catch((error) => {
+            console.debug("hachidori: Note saved but the lookup could not refresh", error);
+          });
+        }
         return;
       }
       if (!level.noteEditing && level.deferredDictionaryInvalidationRevision >= 0) {
-        hide(level);
+        if (!refreshDockedView(level)) hide(level);
         return;
       }
     }
@@ -3154,14 +3994,18 @@
   function cancelCandidateScan(insidePopup = false) {
     clearScanTimer();
     if (!insidePopup || scanDwell?.level === null) cancelScanDwell();
-    if (rootLevel.popup?.inert) {
-      hide();
-      return;
+    // A lookup sent for the search page's docked result finishes, as a click's
+    // does: the inert result it replaces has nothing to return to.
+    if (!dock) {
+      if (rootLevel.popup?.inert) {
+        hide();
+        return;
+      }
+      // Retaining a rendered popup during transfer must not invalidate its media
+      // or deferred glossary. Only an unfinished candidate loses ownership.
+      if (pendingCandidateLookup?.token === rootLevel.lookupToken) rootLevel.lookupToken += 1;
+      discardPendingCandidate();
     }
-    // Retaining a rendered popup during transfer must not invalidate its media
-    // or deferred glossary. Only an unfinished candidate loses ownership.
-    if (pendingCandidateLookup?.token === rootLevel.lookupToken) rootLevel.lookupToken += 1;
-    discardPendingCandidate();
     retireFieldImposter();
   }
 
@@ -3203,6 +4047,13 @@
 
   function definitionHoverAllowed() {
     return options.definitionLookupMode !== "click" && (!definitionKeyGated() || activationPressed);
+  }
+
+  // Whether a click on a word in a popup's definitions opens its child: Child
+  // popups → Click a word, or the search page's Look up words with a click
+  // (#656), which hover keeps working beside.
+  function definitionClickLookup() {
+    return options.definitionLookupMode === "click" || (dock !== null && options.searchClickLookup);
   }
 
   // Reading → Activation → Hover scan delay and Definition hover delay. Only a
@@ -3426,19 +4277,7 @@
     const signature = candidateSignature(candidate);
     // Scanning the popup's own word again, pending or shown, keeps the popup
     // and cancels its cursor-exit hide, and ends a dwell on any other word.
-    if (pendingCandidateLookup?.token === rootLevel.lookupToken
-        && pendingCandidateLookup.signature === signature
-        && sameAnchorNode(candidate, pendingCandidateLookup.candidate)) {
-      cancelScanDwell();
-      clearHideTimer();
-      clearCursorExitTimer();
-      return;
-    }
-    if (
-      rootLevel.popup && !rootLevel.popup.hidden && !rootLevel.popup.inert &&
-      rootLevel.activeSignature === signature &&
-      sameAnchorNode(candidate, rootLevel.activeCandidate)
-    ) {
+    if (rootHolds(candidate, signature)) {
       cancelScanDwell();
       clearHideTimer();
       clearCursorExitTimer();
@@ -3447,6 +4286,15 @@
     clearHideTimer();
     if (!dwellElapsed(candidate, null, signature)) return;
     lookupCandidate(candidate, signature);
+  }
+
+  // Whether the root popup is loading or shows the word at `candidate`.
+  function rootHolds(candidate, signature = candidateSignature(candidate)) {
+    if (pendingCandidateLookup?.token === rootLevel.lookupToken
+        && pendingCandidateLookup.signature === signature
+        && sameAnchorNode(candidate, pendingCandidateLookup.candidate)) return true;
+    return Boolean(rootLevel.popup) && !rootLevel.popup.hidden && !rootLevel.popup.inert
+      && rootLevel.activeSignature === signature && sameAnchorNode(candidate, rootLevel.activeCandidate);
   }
 
   function onPopupMouseMove(event, level) {
@@ -3521,7 +4369,7 @@
     pointerInPopup = false;
     pointerLevel = null;
     if (leavingChain) scheduleTransferCheck();
-    if (hasProtectedNote() || popupHasFocus()) {
+    if (hasProtectedNote() || popupFocusHoldsView()) {
       cancelCandidateScan();
       return;
     }
@@ -3610,7 +4458,7 @@
       if (overlayMode) dragSelection = startGlyphDrag(event);
       return;
     }
-    hide();
+    dismissPopups();
   }
 
   // The scan button works like the activation key: pressing it looks up the
@@ -3664,7 +4512,7 @@
       setSelectionDrag(false);
       const token = rootLevel.lookupToken;
       onSelectionChange();
-      if (dismissClick && rootLevel.lookupToken === token) hide();
+      if (dismissClick && rootLevel.lookupToken === token) dismissPopups();
     } finally {
       hostAttentionHold -= 1;
       syncHostAttention();
@@ -3685,7 +4533,7 @@
   function startSelectionLookup(candidate) {
     hostAttentionHold += 1;
     try {
-      hide();
+      dismissPopups();
       activeSelectionCandidate = candidate;
       lookupCandidate(candidate);
     } finally {
@@ -3702,6 +4550,10 @@
     return true;
   }
 
+  // Pressing a link in the popup moves the page selection into it, and Chrome
+  // reports that selection at the host's place in the page rather than as the
+  // host. The focus the press gives the link marks the change as the popup's
+  // own, so any focus counts here, not only keyboard focus.
   function onSelectionChange() {
     if (disposed || !options.hoverEnabled || selectionDragActive || hasProtectedNote()
         || popupHasFocus() || pageEditorFocused() || selectionIsUnchanged()) return;
@@ -3711,14 +4563,13 @@
     // Automatic selection lookups are the personal dictionary's entry point.
     // Off, as in Yomitan, a changed selection only releases one a keybind scanned.
     if (!options.personalDictionaryEnabled) {
-      if (activeSelectionCandidate) hide();
+      if (activeSelectionCandidate) dismissPopups();
       return;
     }
     const candidate = resolveSelectedLookupCandidate(selection);
     if (!candidate && !activeSelectionCandidate) return;
-    if (candidate && !activationAllowed()) hide();
-    else if (candidate) startSelectionLookup(candidate);
-    else hide();
+    if (candidate && activationAllowed()) startSelectionLookup(candidate);
+    else dismissPopups();
   }
 
   function onMouseUp(event) {
@@ -3775,9 +4626,15 @@
         event.stopPropagation();
         return true;
       }
+      const target = focused || levels.at(-1);
+      // The search page's docked result stays: Escape closes the popups opened
+      // from it, then goes on to the page, which focuses its search box as
+      // Yomitan's focusSearchBox does.
+      if (dock && target === rootLevel && levels.length === 1) return false;
       event.stopPropagation();
       cancelScanDwell();
-      hide(focused || levels.at(-1));
+      if (target === rootLevel) dismissPopups();
+      else hide(target);
       return true;
     }
     const dismissedCandidate = pendingCandidateLookup !== null || activeSelectionCandidate !== null || scanDwell !== null;
@@ -3803,10 +4660,76 @@
 
   function scanSelectedText() {
     if (disposed || !options.hoverEnabled) return false;
-    const candidate = resolveSelectedLookupCandidate();
+    // A keybind scan reads in the active profile (8.1 rule 4).
+    const candidate = resolveSelectedLookupCandidate(window.getSelection(),
+      readingProfiles === null ? undefined : activeReadingProfile());
     if (!candidate) return false;
     startSelectionLookup(candidate);
     return true;
+  }
+
+  // The search page (#610) docks the root popup in its results area before
+  // its first lookup. The popup follows the area's size, which the page's
+  // layout sets.
+  function dockResults(element) {
+    dock = element;
+    dockObserver = typeof window.ResizeObserver === "function" ? new window.ResizeObserver(() => positionPopup()) : null;
+    dockObserver?.observe(element);
+  }
+
+  // Yomitan's search looks its query up from the first character, as a hover
+  // there would, and shows the results in the page: from `offset`, or after the
+  // brackets, ellipses, spaces and wave dashes a pasted line opens with
+  // (searchStart). The reader typed the query, so Japanese text only does not
+  // apply, nor does the lookup switch. Resolves to the length of the text the
+  // shown result matched there, which the search page's cursor goes past
+  // (search.js), or 0 when nothing was shown for it.
+  async function search(node, offset = searchStart(node?.nodeValue ?? "")) {
+    const candidate = disposed || !dock ? null : resolveCandidateAt(node, offset, false);
+    if (!candidate) return 0;
+    dismissPopups();
+    const shown = await runLookup(candidate);
+    return shown === true && rootLevel.activeTermRender?.candidate === candidate ? rootLevel.activeHighlightText.length : 0;
+  }
+
+  // Reading → Search page → Look up words with a click (#656): a primary click
+  // on a word of `element`, the query the search page echoes, shows that
+  // word's results in the results area, as a click in Yomitan's query parser
+  // does (yomidevs/yomitan@ac1d839 ext/js/display/query-parser.js,
+  // searchOnClick). The word is looked up as the activation key would look it
+  // up, Japanese text only included, and while lookups are off, as a search
+  // is. A press that travels or leaves a selection is a copy, and a Note being
+  // written or saved keeps the result. `clicked(node, offset)`, the search
+  // page's, can take the lookup of the character clicked on, returning true:
+  // its cursor goes there and looks the word up from it (search.js).
+  function lookUpOnClick(element, clicked = null) {
+    let press = null;
+    element.addEventListener("mousedown", (event) => {
+      press = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+    });
+    element.addEventListener("click", (event) => {
+      const start = press;
+      press = null;
+      if (disposed || !dock || !options.searchClickLookup || !start || event.defaultPrevented || hasProtectedNote()
+          || Math.hypot(event.clientX - start.x, event.clientY - start.y) >= GLYPH_DRAG_START_PX) return;
+      if (window.getSelection()?.isCollapsed === false) return;
+      const glyph = clicked && caretGlyphAt(document.elementFromPoint(event.clientX, event.clientY), event.clientX,
+        event.clientY);
+      if (glyph && clicked(glyph.node, glyph.offset)) return;
+      const candidate = resolveCandidate(event.clientX, event.clientY);
+      if (!candidate || rootHolds(candidate)) return;
+      dismissPopups();
+      lookupCandidate(candidate);
+    });
+  }
+
+  // Yomitan's isTextLookupWorthy, for the search page's clipboard monitor
+  // (#639): whether copied text has a Japanese character in it. search.html
+  // passes the frame only text this accepts (search-shell.js, #644), testing
+  // the same set: a change here must change that filter too.
+  // With profiles, text in the language used for lookups (docs/languages.md 8.2).
+  function isLookupWorthy(text) {
+    return (activeReadingProfile()?.text ?? JAPANESE_TEXT_RULES).isText(text);
   }
 
   function runKeybindAction({ action, argument }, event,
@@ -3822,11 +4745,23 @@
     }
     if (action === "toggleOption") {
       if (!argument || optionsStorageRevision < 0) return false;
+      // A profile key toggles in the profile of the popup the keybind acts on,
+      // or the active one, and only when that language has what the key
+      // needs (docs/languages.md 7.3).
+      const layer = globalThis.HDReaderOptions;
+      const profile = readingProfiles === null ? null
+        : (level?.view && !level.popup.hidden ? requestProfile(level.currentViewRequest) : activeReadingProfile());
+      const requirement = layer.OPTION_REQUIREMENTS[argument];
+      const scoped = profile !== null && layer.PROFILE_OPTION_KEYS.includes(argument);
+      if (scoped && requirement && !layer.optionRequirementMet(requirement.requires, profile.language,
+        layer.profileDescriptor(storedOptionsRecord, profile.id)?.packSettings ?? {})) return false;
+      const current = (scoped ? profile.options : options)[argument];
       // A conflicting write changes nothing; the storage event carries the result.
       void sendRequest("hd_options_write", { baseRevision: optionsStorageRevision,
-        options: { [argument]: !options[argument] } }, WORKER_TARGET).catch(() => {});
+        options: { [argument]: !current }, ...(scoped ? profileFields(profile) : {}) }, WORKER_TARGET).catch(() => {});
       return true;
     }
+    if (action === "switchLanguage") return switchLanguage();
     if (action === "toggleWordHighlights") {
       if (!options.hoverEnabled || !options.wordHighlightEnabled) return false;
       wordHighlightsHidden = !wordHighlightsHidden;
@@ -3847,12 +4782,15 @@
         return level.view.focusEntry({ dictionary: action === "nextEntryDifferentDictionary" ? 1 : -1 });
       case "historyBackward":
         return clickKeybindControl(level.popup.querySelector(".gsm-hoshidicts-kanji-back"));
+      case "historyForward":
+        return navigateForward(level);
       case "addNote":
       case "viewNotes": {
         // The entry's own button: the lookup row may also hold a shown result's row.
+        // A click on the pending spinner adds anyway; Add note waits for the check.
         const state = action === "addNote" ? "add" : "view";
         return clickKeybindControl([...(level.entryMining?.[entry]?.actions.children ?? [])]
-          .find(child => child.matches(`.gsm-hoshidicts-mine-button[data-action="${state}"]`)));
+          .find(child => child.matches(`.gsm-hoshidicts-mine-button[data-action="${state}"]:not([data-state="checking"])`)));
       }
       case "playAudio":
       case "playAudioFromSource": {
@@ -3868,11 +4806,32 @@
     }
   }
 
-  // A browser shortcut runs its keybind action here; entry moves go one entry.
+  // Switch to the next language (docs/languages.md 16.2): the profile after the
+  // active one, in the records' order, becomes this browser's active profile.
+  function switchLanguage() {
+    if (readingProfiles === null || readingProfiles.size < 2
+        || !globalThis.HDReaderOptions.languagesEnabled(storedOptionsRecord)) return false;
+    const ids = [...readingProfiles.keys()];
+    const next = ids[(ids.indexOf(activeProfileId()) + 1) % ids.length];
+    // A choice made meanwhile in another page wins the race; its storage event
+    // moves this reader, and the next press goes on from there.
+    void sendRequest("hd_language_selection_write", {
+      baseRevision: globalThis.HDReaderOptions.normaliseLanguageSelection(languageSelection).revision, activeProfileId: next,
+    }, WORKER_TARGET).catch(() => {});
+    return true;
+  }
+
+  // A keybind action without its key, as a browser shortcut or the search
+  // page's searched text runs it; entry moves go one entry. Anything but false
+  // is handled, as runKeybinds counts it.
+  function runAction(action) {
+    return runKeybindAction({ action, argument: ["nextEntry", "previousEntry"].includes(action) ? "1" : "" },
+      { preventDefault() {}, stopPropagation() {} }) !== false;
+  }
+
   function onReaderCommand(message) {
     if (disposed || message?.target !== READER_TARGET || message.type !== "hd_reader_command") return false;
-    runKeybindAction({ action: message.action, argument: ["nextEntry", "previousEntry"].includes(message.action) ? "1" : "" },
-      { preventDefault() {}, stopPropagation() {} });
+    runAction(message.action);
     return false;
   }
 
@@ -3891,7 +4850,8 @@
       if (!bind.enabled || bind.action === "" || (bind.key === null && bind.modifiers.length === 0)
           || bind.key !== key || bind.modifiers.join() !== modifiers.join()
           || !(bind.scopes.includes("web") || (popupScope && bind.scopes.includes("popup")))
-          || (characterInput && textFieldFocused())) continue;
+          || (characterInput && textFieldFocused())
+          || (event.repeat && !REPEATING_KEYBIND_ACTIONS.has(bind.action))) continue;
       if (runKeybindAction(bind, event, level) === false) continue;
       if (bind.action !== "close") event.preventDefault();
       return true;
@@ -3901,7 +4861,7 @@
 
   function onKeyDown(event) {
     if (gsmBridge?.navigationActive) return; // GSM hook
-    if (disposed || event.repeat || runKeybinds(event)) {
+    if (disposed || runKeybinds(event) || event.repeat) {
       return;
     }
     if (!options.hoverEnabled) return;
@@ -3979,7 +4939,7 @@
       // popup. Leaving the tab, the window or the browser is not: Yomitan has
       // no blur listener, so the popup, its children and a Note draft wait for
       // the reader's return (#432). Only unfinished pointer work is cancelled.
-      if (document.hasFocus()) hide();
+      if (document.hasFocus()) dismissPopups();
       else cancelCandidateScan();
     }
   }
@@ -4019,12 +4979,22 @@
     if (!hasProtectedNote()) activeSelectionCandidate = null;
     for (const level of levels) {
       level.view?.hideImagePreview();
+      // A docked search in flight carries on, the first one included, even
+      // before the popup is built: its reply is the search's result.
+      if (level === rootLevel && dock && (!level.popup || level.popup.inert || level.popup.hidden)) return;
       if (level.popup?.inert) {
         hide(level);
         return;
       }
       level.lookupToken += 1;
       level.retainedView = Boolean(level.currentViewRequest && !level.popup.hidden);
+      // The docked result looks itself up again now, or once no Note draft
+      // or append holds the popups, whatever changed.
+      if (level === rootLevel && dock && level.retainedView) {
+        if (!hasProtectedNote()) refreshDockedView(level);
+        else level.deferredDictionaryInvalidationRevision = Math.max(0, dictionaryStateRevision);
+        continue;
+      }
       if (dictionaryChanged && level.popup && !level.popup.hidden) {
         if (!hasProtectedNote(level.depth)) {
           hide(level);
@@ -4049,25 +5019,50 @@
     }
   }
 
+  // A presentation update can replace a compact summary without a render.
   function updateDictionaryPresentation() {
-    const context = { dictionaryPresentation: dictionaryPresentation(), dictionaryTabGroups: dictionaryTabGroups(),
-      ...compactSummaryOptions(), ...imageSourceContext(), ...window.HDPopup.metadataOptions(options) };
+    const contexts = new Map();
+    const context = profile => {
+      if (!contexts.has(profile)) contexts.set(profile, presentationContext(profile));
+      return contexts.get(profile);
+    };
+    context(levelProfile(rootLevel));
     for (const level of levels) {
-      if (level.popup && !level.popup.hidden) level.view.updateDictionaryPresentation(context);
+      if (!level.popup || level.popup.hidden) continue;
+      level.view.updateDictionaryPresentation(context(levelProfile(level)));
+      level.definitionReveal.sync();
     }
   }
 
   function flushDictionaryPresentation() {
     for (const level of levels) {
-      if (level.popup && !level.popup.hidden) level.view.flushDictionaryPresentation();
+      if (!level.popup || level.popup.hidden) continue;
+      level.view.flushDictionaryPresentation();
+      level.definitionReveal.sync();
     }
   }
 
+  // The active profile's view of a stored state (docs/languages.md 5.1); the
+  // state itself in the single-profile shape.
+  function activeDictionaryView(stored) {
+    if (readingProfiles === null) return stored;
+    const revision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
+    return globalThis.HDReaderOptions.projectDictionaryState(stored ?? null, activeProfileId())
+      ?? emptyDictionaryView(revision);
+  }
+
   function adoptDictionaryState(stored) {
-    const next = normalizeDictionaryState(stored);
-    if (next.revision <= dictionaryStateRevision) {
+    const revision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
+    if (revision <= dictionaryStateRevision) {
       return { adopted: false, dictionaryChanged: false, presentationChanged: false };
     }
+    storedDictionaryRecord = stored ?? null;
+    rebuildReadingProfiles();
+    return adoptDictionaryView(normalizeDictionaryState(activeDictionaryView(stored)));
+  }
+
+  // The reader's dictionaries become `next`, the active profile's view.
+  function adoptDictionaryView(next) {
     const dictionaryChanged = !sameDictionaryContents(next.dictionaries, dictionaries);
     const presentationChanged = !sameDictionaries(next.dictionaries, dictionaries)
       || !sameDictionaries(next.groups, dictionaryGroups);
@@ -4085,20 +5080,48 @@
     if (disposed || area !== "local") {
       return;
     }
+    afterLanguageLayer(changes.options?.newValue, () => adoptStorageChanges(changes));
+  }
+
+  function adoptStorageChanges(changes) {
+    if (disposed) return;
     let changed = false;
     const previousLevelCount = levels.length;
     let dictionaryChanged = false;
     let presentationChanged = false;
+    // This browser's language choice is adopted in commit order whatever its
+    // revision (docs/languages.md 4.4), before the records it applies to.
+    const activeBefore = readingProfiles === null ? null : activeProfileId();
+    if (changes[LANGUAGE_SELECTION_KEY]) languageSelection = changes[LANGUAGE_SELECTION_KEY].newValue ?? null;
+    let optionsAdopted = false;
+    let stateAdopted = false;
     if (changes.options) {
       const adoption = adoptOptions(changes.options.newValue);
+      optionsAdopted = adoption.adopted === true;
       changed = adoption.lookupChanged;
       presentationChanged = adoption.presentationChanged;
     }
     if (changes.dictionaryState) {
       const adoption = adoptDictionaryState(changes.dictionaryState.newValue);
+      stateAdopted = adoption.adopted;
       dictionaryChanged = adoption.dictionaryChanged;
       presentationChanged ||= adoption.presentationChanged;
       changed ||= dictionaryChanged;
+    }
+    // Another active profile: the reader takes its options and dictionaries.
+    if (readingProfiles !== null && activeBefore !== null && activeProfileId() !== activeBefore) {
+      reprofileHighlights(true);
+      if (!optionsAdopted) {
+        const adoption = applyReaderOptions(activeReadingProfile().options, optionsStorageRevision);
+        changed ||= adoption.lookupChanged;
+        presentationChanged ||= adoption.presentationChanged;
+      }
+      if (!stateAdopted) {
+        const adoption = adoptDictionaryView(normalizeDictionaryState(activeDictionaryView(storedDictionaryRecord)));
+        dictionaryChanged ||= adoption.dictionaryChanged;
+        presentationChanged ||= adoption.presentationChanged;
+        changed ||= adoption.dictionaryChanged;
+      }
     }
     if (changes.lookupStats) adoptLookupStatsDescriptor(changes.lookupStats.newValue, changes);
     if (changes.wordStatusOverrides) adoptWordStatusOverrides(changes.wordStatusOverrides.newValue, true);
@@ -4114,10 +5137,17 @@
   function adoptOptions(stored) {
     const revision = Number.isInteger(stored?.revision) && stored.revision >= 0 ? stored.revision : 0;
     if (revision <= optionsStorageRevision) return { lookupChanged: false, presentationChanged: false };
-    const next = projectHostOptions(stored);
+    storedOptionsRecord = stored ?? null;
+    rebuildReadingProfiles();
+    // With profiles the reader's options are the active profile's (8.1).
+    return { ...applyReaderOptions(activeReadingProfile()?.options ?? projectHostOptions(stored), revision), adopted: true };
+  }
+
+  function applyReaderOptions(next, revision) {
     const personalChanged = next.personalDictionaryEnabled !== options.personalDictionaryEnabled;
     const lookupChanged = next.scanLength !== options.scanLength || next.maxResults !== options.maxResults
       || next.frequencyDictionary !== options.frequencyDictionary || next.frequencyOrder !== options.frequencyOrder
+      || next.showMetadataOnlyResults !== options.showMetadataOnlyResults
       || personalChanged
       || JSON.stringify(next.kanjiClickDictionary) !== JSON.stringify(options.kanjiClickDictionary);
     const activationChanged = next.lookupMode !== options.lookupMode || next.activationKey !== options.activationKey
@@ -4138,7 +5168,7 @@
       || next.compactDefinitionSummaryCount !== options.compactDefinitionSummaryCount
       || next.compactDefinitionSummaryDictionary !== options.compactDefinitionSummaryDictionary;
     const imageSourceChanged = JSON.stringify(next.popupImageSource) !== JSON.stringify(options.popupImageSource);
-    const metadataChanged = Object.entries(window.HDPopup.metadataOptions(next)).some(([key, value]) => value !== options[key]);
+    const metadataChanged = Object.entries(globalThis.HDPopup.metadataOptions(next)).some(([key, value]) => value !== options[key]);
     // The caller adopts the complete storage delivery before new summary work.
     // A simultaneous dictionary replacement must invalidate the old view first.
     const countsChanged = next.showLookupCounts !== options.showLookupCounts;
@@ -4158,9 +5188,9 @@
     options = next;
     if (activationChanged) syncHostAttention();
     if (docsProbeStyle && !docsEnabled()) releaseDocsProbe();
-    syncNetflix();
-    if (customButtonsChanged) {
-      for (const level of levels) level.view?.setCustomButtons(options.customButtons);
+    syncVideoSite();
+    if (customButtonsChanged || readingProfiles !== null) {
+      for (const level of levels) syncCustomButtons(level);
     }
     if (countsChanged) {
       for (const level of levels) {
@@ -4192,10 +5222,10 @@
         } else armDefinitionBlurTimer(request, level);
       }
     }
-    audio?.update(options);
-    mining?.update(options);
-    wordStatusActions?.update(options);
-    appearance?.update(options);
+    // The reveal mode decides whether blurred definitions are buttons.
+    if (optionsArrived || blurChanged) for (const level of levels) level.definitionReveal?.sync();
+    syncControls();
+    appearance?.update(controlsOptions());
     void themeHost.sync();
     // After the appearance, so a changed theme's palette is on the host.
     syncWordHighlights();
@@ -4235,7 +5265,8 @@
       lastPointer = null;
       activationPressed = false;
       activationCode = null;
-      hide();
+      // The search page searches when asked even while lookups are off.
+      dismissPopups();
     }
     else if (interactionChanged) {
       if (selectionIsUnchanged()) {
@@ -4246,7 +5277,7 @@
       cancelCandidateScan();
       clearHideTimer();
       const popupLevel = activePointerLevel(lastPointer);
-      if (!hasProtectedNote() && !popupHasFocus() && (!pointerInPopup || popupLevel)) {
+      if (!hasProtectedNote() && !popupFocusHoldsView() && (!pointerInPopup || popupLevel)) {
         if (!(popupLevel ? definitionHoverAllowed() : activationAllowed())) {
           if (popupLevel) cancelPendingHover(popupLevel);
           else schedulePointerHide();
@@ -4262,11 +5293,17 @@
 
   function start() {
     void loadOverlayMode();
-    // Startup awaits this snapshot before demonstrating its first selection.
+    // Startup awaits this snapshot before demonstrating its first selection,
+    // and the search page before it docks the results and takes searches.
     let storageReady;
-    const reader = Object.freeze({ scanSelectedText });
+    // The search page's clipboard monitor searches only lookup-worthy text, and
+    // nothing while a Note is being written or saved (#639). Its echoed query
+    // takes click lookups (#656), and runs keybind actions such as Add note on
+    // Enter (search.js).
+    const reader = Object.freeze({ scanSelectedText, dock: dockResults, search, lookUpOnClick, isLookupWorthy,
+      holdsNote: () => hasProtectedNote(), act: runAction });
     globalThis.HDReaderReady = new Promise(resolve => {
-      storageReady = () => { resolve(reader); };
+      storageReady = () => { resolveStoredOptions(); resolve(reader); };
     });
     try {
       chrome.storage.onChanged.addListener(onStorageChanged);
@@ -4274,19 +5311,26 @@
       chrome.runtime.onMessage?.addListener(onReaderCommand);
       chrome.runtime.onMessage?.addListener(onWordStatusChanged);
       chrome.storage.local.get({ dictionaryState: null, options: DEFAULT_OPTIONS, lookupStats: null,
-        wordStatusOverrides: null }, (stored) => {
-        try {
-          if (disposed || chrome.runtime.lastError) return;
-          adoptWordStatusOverrides(stored?.wordStatusOverrides, false);
-          const optionsAdoption = adoptOptions(stored && stored.options);
-          const adoption = adoptDictionaryState(stored && stored.dictionaryState);
-          adoptLookupStatsDescriptor(stored && stored.lookupStats);
-          if (optionsAdoption.lookupChanged || adoption.dictionaryChanged) {
-            invalidateStoredState(adoption.dictionaryChanged);
-          } else if (optionsAdoption.presentationChanged || adoption.presentationChanged) updateDictionaryPresentation();
-        } finally {
+        wordStatusOverrides: null, [LANGUAGE_SELECTION_KEY]: null }, (stored) => {
+        if (disposed || chrome.runtime.lastError) {
           storageReady();
+          return;
         }
+        afterLanguageLayer(stored?.options, () => {
+          try {
+            if (disposed) return;
+            languageSelection ??= stored?.[LANGUAGE_SELECTION_KEY] ?? null;
+            adoptWordStatusOverrides(stored?.wordStatusOverrides, false);
+            const optionsAdoption = adoptOptions(stored && stored.options);
+            const adoption = adoptDictionaryState(stored && stored.dictionaryState);
+            adoptLookupStatsDescriptor(stored && stored.lookupStats);
+            if (optionsAdoption.lookupChanged || adoption.dictionaryChanged) {
+              invalidateStoredState(adoption.dictionaryChanged);
+            } else if (optionsAdoption.presentationChanged || adoption.presentationChanged) updateDictionaryPresentation();
+          } finally {
+            storageReady();
+          }
+        });
       });
     } catch {
       // Without storage access the defaults are still usable.

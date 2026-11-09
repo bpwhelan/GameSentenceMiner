@@ -6,6 +6,11 @@ import pytest
 from GameSentenceMiner.util.downloader import download_tools
 
 
+@pytest.fixture(autouse=True)
+def isolate_shared_tools(monkeypatch):
+    monkeypatch.setattr(download_tools, "get_shared_app_directory", lambda: download_tools.get_app_directory())
+
+
 class _FakeResponse:
     def __init__(self, chunks, total_bytes):
         self._chunks = chunks

@@ -75,6 +75,65 @@ def test_clicking_waveform_requests_seek_without_changing_trim(waveform, app):
     assert waveform.get_selection_range() == (1.0, 9.0)
 
 
+def test_expansion_rail_does_not_seek_or_trim_audio(waveform):
+    waveform.set_expand_controls(True, can_expand_start=True, can_expand_end=True)
+    seeks = []
+    waveform.seek_requested.connect(seeks.append)
+
+    QTest.mouseClick(waveform, Qt.MouseButton.LeftButton, pos=QPoint(200, 12))
+
+    assert seeks == []
+    assert waveform.get_selection_range() == (1.0, 9.0)
+
+
+def test_time_mapping_uses_the_visible_waveform_bounds(waveform):
+    plot = waveform._content_rect()
+
+    assert plot.left() >= waveform.handle_width // 2
+    assert waveform._time_from_x(plot.left()) == 0.0
+    assert waveform._time_from_x(plot.right()) == waveform.duration
+    assert waveform._time_from_x(plot.left() + (plot.right() - plot.left()) * 0.25) == pytest.approx(2.5)
+
+
+def test_dragging_handles_can_restore_the_full_clip(waveform):
+    plot = waveform._content_rect()
+    span = plot.right() - plot.left()
+    start_x = round(plot.left() + span * 0.1)
+    end_x = round(plot.left() + span * 0.9)
+    y = plot.center().y()
+
+    QTest.mousePress(waveform, Qt.MouseButton.LeftButton, pos=QPoint(start_x, y))
+    QTest.mouseMove(waveform, QPoint(plot.left(), y))
+    QTest.mouseRelease(waveform, Qt.MouseButton.LeftButton, pos=QPoint(plot.left(), y))
+    QTest.mousePress(waveform, Qt.MouseButton.LeftButton, pos=QPoint(end_x, y))
+    QTest.mouseMove(waveform, QPoint(plot.right(), y))
+    QTest.mouseRelease(waveform, Qt.MouseButton.LeftButton, pos=QPoint(plot.right(), y))
+
+    assert waveform.get_selection_range() == (0.0, 10.0)
+
+
+@pytest.mark.parametrize("width", [240, 400, 780])
+def test_expansion_rail_keeps_long_timestamps_between_buttons(waveform, app, width):
+    waveform.resize(width, 110)
+    waveform.set_expand_step(5)
+    waveform.set_expand_controls(
+        True,
+        can_expand_start=True,
+        can_expand_end=True,
+        range_text="12345.67s → 12355.67s · 10.00s selected",
+    )
+    waveform._update_expand_step_labels(Qt.KeyboardModifier.ShiftModifier)
+    app.processEvents()
+
+    left = waveform.expand_start_button.geometry()
+    right = waveform.expand_end_button.geometry()
+    summary = waveform.range_chip.geometry()
+    assert left.right() < summary.left()
+    assert summary.right() < right.left()
+    assert waveform.rect().contains(left)
+    assert waveform.rect().contains(right)
+
+
 def test_cut_ranges_are_clamped_merged_and_undoable(waveform):
     waveform.add_cut_range(4.0, 6.0)
     waveform.add_cut_range(2.0, 3.0)
@@ -92,9 +151,12 @@ def test_cut_mode_drag_marks_audio_without_seeking(waveform, app):
     waveform.seek_requested.connect(seeks.append)
     waveform.set_cut_mode(True)
 
-    QTest.mousePress(waveform, Qt.MouseButton.LeftButton, pos=QPoint(80, 60))
-    QTest.mouseMove(waveform, QPoint(160, 60))
-    QTest.mouseRelease(waveform, Qt.MouseButton.LeftButton, pos=QPoint(160, 60))
+    plot = waveform._content_rect()
+    start = QPoint(round(plot.left() + (plot.right() - plot.left()) * 0.2), plot.center().y())
+    end = QPoint(round(plot.left() + (plot.right() - plot.left()) * 0.4), plot.center().y())
+    QTest.mousePress(waveform, Qt.MouseButton.LeftButton, pos=start)
+    QTest.mouseMove(waveform, end)
+    QTest.mouseRelease(waveform, Qt.MouseButton.LeftButton, pos=end)
     app.processEvents()
 
     assert waveform.get_cut_ranges() == [(2.0, 4.0)]
@@ -104,19 +166,22 @@ def test_cut_mode_drag_marks_audio_without_seeking(waveform, app):
 def test_shift_drag_marks_one_cut_without_entering_cut_mode(waveform, app):
     seeks = []
     waveform.seek_requested.connect(seeks.append)
+    plot = waveform._content_rect()
+    start = QPoint(round(plot.left() + (plot.right() - plot.left()) * 0.3), plot.center().y())
+    end = QPoint(round(plot.left() + (plot.right() - plot.left()) * 0.5), plot.center().y())
 
     QTest.mousePress(
         waveform,
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.ShiftModifier,
-        QPoint(120, 60),
+        start,
     )
-    QTest.mouseMove(waveform, QPoint(200, 60))
+    QTest.mouseMove(waveform, end)
     QTest.mouseRelease(
         waveform,
         Qt.MouseButton.LeftButton,
         Qt.KeyboardModifier.ShiftModifier,
-        QPoint(200, 60),
+        end,
     )
     app.processEvents()
 

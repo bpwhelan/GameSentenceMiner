@@ -289,7 +289,7 @@ def test_textfeed_legacy_projection_publishes_append_immediately(monkeypatch):
         def __init__(self):
             self.item = None
 
-        def upsert_gameline(self, line):
+        def upsert_gameline(self, line, **_selection_options):
             self.item = SimpleNamespace(
                 text=line.text,
                 to_serializable=lambda: {"id": line.id, "text": line.text, "state": "provisional"},

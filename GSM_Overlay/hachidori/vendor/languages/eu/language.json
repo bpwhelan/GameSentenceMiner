@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "code": "eu",
+  "iso639_3": "eus",
+  "name": "Basque",
+  "nativeName": "euskara",
+  "bcp47": "eu",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F]",
+    "word": "[{letter}\\p{M}\\p{Nd}]"
+  },
+  "text": {
+    "pattern": "{letter}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "eu-ES",
+    "audioLanguage": "eu",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "aux": "Auxiliary verb",
+        "ptcpl": "Participle",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "pron": "Pronoun",
+        "det": "Determiner",
+        "num": "Numeral",
+        "postp": "Postposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "ptcl": "Particle",
+        "phrase": "Phrase",
+        "char": "Character",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "animate": "Animate",
+        "inanim": "Inanimate"
+      }
+    },
+    "frequencySamples": {
+      "common": ["ez", "da", "eta", "bat", "dut", "zer", "egin", "duzu", "bai", "nahi"],
+      "rare": ["ezkurdi", "txingudi", "orratzontzi", "zaldiko", "intxaurrondo", "ezpeleta", "zurrumurrutsu", "otalur", "itsasargi", "mihiluze"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "wty-eu-en (Wiktionary Basque-English, wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Basque words with English definitions from English Wiktionary, with the declined and conjugated forms Wiktionary lists.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "etxean",
+      "practice": {
+        "text": "Gaur goizean etxetik irten naiz eta lagunekin hitz egin dut.",
+        "lookup": "etxetik"
+      },
+      "entry": {
+        "expression": "etxe",
+        "reading": "etxe",
+        "glossary": ["house, home"],
+        "definitionTags": "n",
+        "matched": "etxetik",
+        "trace": ["ablative singular"]
+      },
+      "character": null
+    }
+  }
+}

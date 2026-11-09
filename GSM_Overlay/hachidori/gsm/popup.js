@@ -7,7 +7,9 @@
   }
   function create(api, { window, document }) {
     const current = () => api.state().levels.findLast(level => level.popup && !level.popup.hidden && !level.retired);
-    const available = button => button?.isConnected && !button.disabled && !button.closest('[hidden]')
+    // Newer Hachidori lets mouse users bypass a pending duplicate check. Keep
+    // controller selection consistent with its native Add note keybind instead.
+    const available = button => button?.isConnected && !button.disabled && button.dataset.state !== 'checking' && !button.closest('[hidden]')
       && button.getClientRects().length > 0 && window.getComputedStyle(button).visibility !== 'hidden';
     let styledRoot, observedPopup;
     const identities = new WeakMap();
@@ -80,7 +82,7 @@
           observer.disconnect();
           observedPopup = level?.popup;
           if (observedPopup) observer.observe(observedPopup, { subtree: true, childList: true,
-            attributes: true, attributeFilter: ['disabled', 'hidden', 'data-action'] });
+            attributes: true, attributeFilter: ['disabled', 'hidden', 'data-action', 'data-state'] });
         }
         if (level) {
           const root = level.popup.getRootNode();

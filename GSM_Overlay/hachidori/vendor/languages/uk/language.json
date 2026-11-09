@@ -1,0 +1,161 @@
+{
+  "schema": 1,
+  "code": "uk",
+  "iso639_3": "ukr",
+  "name": "Ukrainian",
+  "nativeName": "Українська",
+  "bcp47": "uk",
+  "scripts": ["Cyrl"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[\\u0400-\\u045F\\u0490\\u0491]",
+    "apostrophe": "['\\u2018\\u2019\\u02BC`\\u00B4]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "stem": "[{letter}'\\u2019\\u02BC\\-]",
+    "vowel": "[аеєиіїоуюя]",
+    "vowelOrApostrophe": "[{vowel}{apostrophe}]",
+    "consonant": "[бвгґджзклмнпрстфхцчшщ]",
+    "hard": "[бвгґдзклмнпрстфх]",
+    "hardNoVelar": "[бвґдзлмнпрстф]",
+    "hushing": "[жчшщ]",
+    "softable": "[дтзсцлн]"
+  },
+  "text": {
+    "pattern": "[{letter}{apostrophe}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "{apostrophe}",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["„", "“"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "removeUkrainianDiacritics",
+        "name": "Remove stress marks",
+        "variants": [[{"strip": "[\\u0300\\u0301]"}]]
+      },
+      {
+        "id": "ukrainianApostropheVariants",
+        "name": "Search for apostrophe variants",
+        "variants": [
+          [{"map": {"‘": "'", "’": "'", "ʼ": "'", "`": "'", "´": "'"}}],
+          [{"map": {"'": "’", "‘": "’", "ʼ": "’", "`": "’", "´": "’"}}],
+          [{"map": {"'": "ʼ", "‘": "ʼ", "’": "ʼ", "`": "ʼ", "´": "ʼ"}}]
+        ]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "alternateInitialUV",
+        "name": "Initial у or в (учитель, вчитель)",
+        "variants": [
+          [{"map": {"вб": "уб", "вв": "ув", "вг": "уг", "вґ": "уґ", "вд": "уд", "вж": "уж", "вз": "уз", "вк": "ук", "вл": "ул", "вм": "ум", "вн": "ун", "вп": "уп", "вр": "ур", "вс": "ус", "вт": "ут", "вф": "уф", "вх": "ух", "вц": "уц", "вч": "уч", "вш": "уш", "вщ": "ущ", "Вб": "Уб", "Вв": "Ув", "Вг": "Уг", "Вґ": "Уґ", "Вд": "Уд", "Вж": "Уж", "Вз": "Уз", "Вк": "Ук", "Вл": "Ул", "Вм": "Ум", "Вн": "Ун", "Вп": "Уп", "Вр": "Ур", "Вс": "Ус", "Вт": "Ут", "Вф": "Уф", "Вх": "Ух", "Вц": "Уц", "Вч": "Уч", "Вш": "Уш", "Вщ": "Ущ"}, "at": "start"}],
+          [{"map": {"уб": "вб", "ув": "вв", "уг": "вг", "уґ": "вґ", "уд": "вд", "уж": "вж", "уз": "вз", "ук": "вк", "ул": "вл", "ум": "вм", "ун": "вн", "уп": "вп", "ур": "вр", "ус": "вс", "ут": "вт", "уф": "вф", "ух": "вх", "уц": "вц", "уч": "вч", "уш": "вш", "ущ": "вщ", "Уб": "Вб", "Ув": "Вв", "Уг": "Вг", "Уґ": "Вґ", "Уд": "Вд", "Уж": "Вж", "Уз": "Вз", "Ук": "Вк", "Ул": "Вл", "Ум": "Вм", "Ун": "Вн", "Уп": "Вп", "Ур": "Вр", "Ус": "Вс", "Ут": "Вт", "Уф": "Вф", "Ух": "Вх", "Уц": "Вц", "Уч": "Вч", "Уш": "Вш", "Ущ": "Вщ"}, "at": "start"}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "formOfNormalizer": [{"strip": "[\\u0301]"}, {"map": {" impf": "", " pf": ""}}],
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": "\"Noto Sans\", system-ui, sans-serif",
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "uk-UA",
+    "audioLanguage": "uk",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "vdt": "Ditransitive verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "prov": "Proverb",
+        "postp": "Postposition",
+        "char": "Character"
+      }
+    },
+    "frequencySamples": {
+      "common": ["я", "не", "в", "що", "на", "це", "ти", "так", "у", "і"],
+      "rare": ["гепатит", "хитрощі", "збіжжя", "аптечка", "приказка", "пастир", "парафія", "огорожа", "велетень", "звуження"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Ukrainian-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Ukrainian words with English definitions from English Wiktionary, with the inflected forms of its declension and conjugation tables.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "читаючи",
+      "practice": {
+        "text": "Учора ми довго гуляли містом і читали старі вивіски.",
+        "lookup": "гуляли"
+      },
+      "entry": {
+        "expression": "гуляти",
+        "reading": "гуляти",
+        "glossary": ["to walk, to stroll"],
+        "definitionTags": "v",
+        "matched": "гуляли",
+        "trace": ["past (вони)"]
+      },
+      "character": null
+    }
+  }
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { ankiMultiResults } from "./anki.js";
 import { ankiDigest } from "./anki-digest.js";
-import { ankiSetupFamily, ankiSetupTemplates, fieldList, modelMap } from "./anki-setup.js";
+import { ankiListedFamily, ankiSetupTemplates, fieldList, modelMap } from "./anki-setup.js";
 import { encodeAnkiClozeBraces, escapeAnkiHtml, resolveAnkiTemplates } from "./anki-templates.js";
 import "./reader-options.js";
 
@@ -51,6 +51,10 @@ export async function ankiIndexSource(config) {
     model: config.model,
     fields,
     ...(config.duplicateScope === "deck" ? { deck: config.deck } : {}),
+    // A language without note-type families recognises none beside the
+    // configured note type (docs/languages.md 12).
+    ...(Array.isArray(config.noteTypeFamilies) && config.duplicateScope !== "model"
+      ? { families: config.noteTypeFamilies } : {}),
   };
   return { key: await ankiDigest(new TextEncoder().encode(JSON.stringify(source))), ...source };
 }
@@ -62,8 +66,9 @@ async function recognizedModels(invoke, source) {
   if (positiveId(available[source.model])) {
     models.push({ name: source.model, fields: source.fields });
   }
+  const families = Array.isArray(source.families) ? source.families : null;
   const candidates = Object.entries(available).flatMap(([model, id]) => {
-    const family = model === source.model || !positiveId(id) ? null : ankiSetupFamily(model);
+    const family = model === source.model || !positiveId(id) ? null : ankiListedFamily(model, families);
     return family === null ? [] : [{ model, family }];
   });
   if (!candidates.length) return models;

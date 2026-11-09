@@ -1,14 +1,17 @@
 <script lang="ts">
 	import {
 		mdiClockOutline,
+		mdiCameraOutline,
 		mdiContentSave,
 		mdiContentSaveCheck,
 		mdiCreationOutline,
 		mdiHistory,
-		mdiMenu,
+		mdiDotsHorizontal,
+		mdiMovieOutline,
 		mdiPlay,
 		mdiStop,
 		mdiTrophy,
+		mdiTranslate,
 	} from '@mdi/js';
 	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
@@ -25,7 +28,6 @@
 		milestoneLines$,
 		timedOutIDs$,
 		unblurTLTimer$,
-		showGSMCheckboxes$,
 		showMenuButton$,
 		showExpiredIcon$,
 		showScreenshotButton$,
@@ -40,13 +42,13 @@
 		dummyFn,
 		getAutoScrollStick,
 		isScrolledToEnd,
-		newLineCharacter,
 		shouldAutoScroll,
 		updateScroll,
 	} from '../util';
 	import Icon from './Icon.svelte';
 	import AIHelp from './AIHelp.svelte';
 	import { formatMegabytes, getGSMEndpoint } from '../gsm';
+	import type { MiningClickDetail, MiningStartDetail } from '../mining-selection';
 
 	export let line: LineItem;
 	export let index: number;
@@ -58,13 +60,14 @@
 	export let isSavingClip = false;
 	export let isClipSaved = false;
 	export let clipSizeBytes: number | undefined = undefined;
+	export let miningSelected = false;
 
 	export function deselect() {
 		isSelected = false;
 	}
 
 	export function getIdIfSelected(range: Range) {
-		return isSelected || range.intersectsNode(paragraph) ? line.id : undefined;
+		return isSelected || (paragraph && range.intersectsNode(paragraph)) ? line.id : undefined;
 	}
 
 	const dispatch = createEventDispatcher<{
@@ -76,6 +79,9 @@
 		saveClip: { lineId: string };
 		deleteClip: { lineId: string };
 		openClipFolder: { lineId: string };
+		miningStart: MiningStartDetail;
+		miningToggle: { id: string; checked: boolean; shiftKey: boolean };
+		miningClick: MiningClickDetail;
 	}>();
 
 	let paragraph: HTMLElement;
@@ -84,6 +90,8 @@
 	let componentMounted = false;
 	let lineTextMounted = false;
 	let autoTranslationRevision = -1;
+	let translatedSourceText = line.translation ? line.text.trim() : null;
+	const pendingTranslations = new Set<string>();
 	let isSelected = false;
 	let isEditable = false;
 	// One popover for the line's menus: the ☰ actions, or the saved clip's own menu.
@@ -94,6 +102,7 @@
 	let actionsMenuPopover: HTMLElement;
 	let actionsMenuStyle = 'visibility: hidden;';
 	let aiError = '';
+	let isTranslating = false;
 	$: actionsMenuOpen = openMenu === 'actions';
 	$: if (!$showMenuButton$ && openMenu === 'actions') closeActionsMenu();
 	$: isAudioLine = audioLineId === line.id;
@@ -106,6 +115,11 @@
 
 	$: isVerticalDisplay = !pipWindow && $displayVertical$;
 	$: if (line.text !== previousLineText) {
+		if (translatedSourceText !== null && line.text.trim() !== translatedSourceText) {
+			line.translation = undefined;
+			line.blurTranslation = false;
+			translatedSourceText = null;
+		}
 		previousLineText = line.text;
 		void followUpdatedLineText();
 	}
@@ -150,14 +164,14 @@
 		if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
 			updateScroll(
 				pipWindow || window,
-				paragraph.parentElement?.parentElement ?? null,
+				paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null,
 				$reverseLineOrder$,
 				isVerticalDisplay,
 				$enableLineAnimation$ ? 'smooth' : 'auto',
 			);
 		}
 		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $autoTranslateLines$) {
-			handleAction(line.id, 'TL', $blurAutoTranslatedLines$);
+			handleAction(line.id, 'TL', $blurAutoTranslatedLines$, true);
 		}
 	}
 
@@ -168,7 +182,7 @@
 		// Revisions reuse this component, so onMount cannot follow growing speech
 		// transcripts. Capture the reader's position before the keyed text rerenders.
 		const view = pipWindow || window;
-		const container = paragraph.parentElement?.parentElement ?? null;
+		const container = paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null;
 		if (
 			!shouldAutoScroll(
 				$alwaysScrollToNewest$,
@@ -273,7 +287,7 @@
 				dispatch('selected', line.id);
 			}
 		} else {
-			originalText = paragraph.innerText;
+			originalText = line.text;
 			isEditable = true;
 
 			dispatch('edit', { inEdit: true });
@@ -295,24 +309,48 @@
 
 			dispatch('edit', {
 				inEdit: false,
-				data: { originalText, newText: paragraph.innerText, lineIndex: index, line },
+				data: { originalText, newText: paragraph.innerText ?? paragraph.textContent ?? '', lineIndex: index, line },
 			});
 		}
 	}
 
-	async function toggleCheckbox(id: string) {
-		try {
-			const res = await fetch(getGSMEndpoint('/update_checkbox'), {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ id }),
-			});
-			if (!res.ok) {
-				throw new Error(`HTTP error! Status: ${res.status}`);
-			}
-		} catch (error) {
-			console.error('Error updating checkbox:', error);
-		}
+	function toggleMiningFromKeyboard(event: KeyboardEvent) {
+		if (event.target !== event.currentTarget || !isActiveGSMLine || isEditable || $settingsOpen$
+			|| event.repeat || event.ctrlKey || event.metaKey || event.altKey
+			|| (event.key !== ' ' && event.key !== 'Enter')) return;
+		event.preventDefault();
+		dispatch('miningToggle', { id: line.id, checked: !miningSelected, shiftKey: event.shiftKey });
+	}
+
+	function isRowMiningTarget(event: MouseEvent) {
+		const target = event.target as Element | null;
+		return isActiveGSMLine && !isEditable && !$settingsOpen$ && !event.defaultPrevented
+			&& !event.ctrlKey && !event.metaKey && !event.altKey
+			&& !target?.closest('button, a, input, select, textarea, iframe, [contenteditable="true"], .line-actions-container');
+	}
+
+	function startRowMining(event: PointerEvent) {
+		// Keep touch drags available for scrolling the feed.
+		if (event.button !== 0 || event.pointerType === 'touch' || !isRowMiningTarget(event)) return;
+		if (event.shiftKey) event.preventDefault();
+		dispatch('miningStart', { id: line.id, checked: !miningSelected, event });
+	}
+
+	function clickRowMining(event: MouseEvent) {
+		if (event.button === 0 && isRowMiningTarget(event)) dispatch('miningClick', { id: line.id, event });
+	}
+
+	function miningRowEvents(node: HTMLElement) {
+		node.addEventListener('pointerdown', startRowMining);
+		node.addEventListener('click', clickRowMining);
+		node.addEventListener('keydown', toggleMiningFromKeyboard);
+		return {
+			destroy() {
+				node.removeEventListener('pointerdown', startRowMining);
+				node.removeEventListener('click', clickRowMining);
+				node.removeEventListener('keydown', toggleMiningFromKeyboard);
+			},
+		};
 	}
 
 	function handleAudioToggle() {
@@ -383,6 +421,15 @@
 		if (!endpoint) {
 			return;
 		}
+		const requestText = line.text.trim();
+		if (action === 'TL') {
+			if (pendingTranslations.has(requestText)) return;
+			// Manual requests consult GSM's cache so a changed target language
+			// can select a new result without relying on stale reader state.
+			if (automatic && line.translation && translatedSourceText === requestText) return;
+			pendingTranslations.add(requestText);
+			isTranslating = true;
+		}
 		fetch(getGSMEndpoint(endpoint), {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -397,6 +444,8 @@
 			})
 			.then((data) => {
 				if (action === 'TL') {
+					if (!componentMounted || line.id !== id || line.text.trim() !== requestText) return;
+					const container = paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null;
 					// Capture before render so a delayed translation respects the selected scroll behavior.
 					const shouldFollowTranslation =
 						isLast &&
@@ -404,12 +453,13 @@
 							$alwaysScrollToNewest$,
 							isScrolledToEnd(
 								pipWindow || window,
-								paragraph.parentElement?.parentElement ?? null,
+								container,
 								$reverseLineOrder$,
 								isVerticalDisplay,
 							),
 						);
 
+					translatedSourceText = requestText;
 					line.translation = data['TL'];
 					if (blurTranslate) {
 						line.blurTranslation = true;
@@ -422,53 +472,50 @@
 						}, $unblurTLTimer$ * 1000);
 					}
 
-					if (!line.text.endsWith('\n')) {
-						line.text += '\n';
-					}
 					if (line.index !== undefined) {
 						$lineData$[line.index] = line;
 					}
 					if (shouldFollowTranslation) {
-						tick().then(() => {
-							const behavior = $enableLineAnimation$ ? 'smooth' : 'auto';
-							paragraph?.scrollIntoView({
-								behavior,
-								block: $reverseLineOrder$ ? 'start' : 'end',
-								inline: isVerticalDisplay ? 'end' : 'nearest',
-							});
-							// Scroll a bit more down
-							(pipWindow || window).scrollBy(0, 50);
-						});
+						updateScroll(pipWindow || window, container, $reverseLineOrder$, isVerticalDisplay,
+							$enableLineAnimation$ ? 'smooth' : 'auto');
 					}
 				}
 			})
 			.catch((error) => {
-				if (action === 'TL') aiError = error.message || 'Translation failed. Check that GSM is running and retry.';
+				if (action === 'TL' && componentMounted && line.id === id && line.text.trim() === requestText) {
+					aiError = error.message || 'Translation failed. Check that GSM is running and retry.';
+				}
 				console.error(`Error performing ${action} action for event ID: ${id}`, error);
+			})
+			.finally(() => {
+				if (action === 'TL') {
+					pendingTranslations.delete(requestText);
+					isTranslating = pendingTranslations.size > 0;
+				}
 			});
 	}
 </script>
 
 {#key line.text}
-	<div class="textline2">
-		{#if $showGSMCheckboxes$}
-			<input
-				type="checkbox"
-				class="multi-line-checkbox"
-				class:invisible={!isActiveGSMLine}
-				id="multi-line-checkbox-{line.id}"
-				aria-label={line.id}
-				on:change={() => toggleCheckbox(line.id)}
-			/>
-		{/if}
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard mining belongs to the row; grouping preserves access to its child action buttons.) -->
+	<div
+		class="textline2"
+		class:mining-selected={miningSelected}
+		class:mining-selectable={isActiveGSMLine}
+		class:vertical={isVerticalDisplay}
+		role="group"
+		tabindex={isActiveGSMLine ? 0 : undefined}
+		aria-label={isActiveGSMLine ? (miningSelected ? 'Selected line for mining' : 'Select line for mining') : undefined}
+		aria-keyshortcuts={isActiveGSMLine ? 'Space Enter' : undefined}
+		data-line-id={line.id}
+		data-mining-id={isActiveGSMLine ? line.id : undefined}
+		use:miningRowEvents
+	>
+		<div class="line-body" aria-busy={isTranslating}>
 		{#if lineTextMounted}
 			<p
-				class="my-2 cursor-pointer border-2"
-				class:py-4={!isVerticalDisplay}
-				class:px-2={!isVerticalDisplay}
-				class:py-2={isVerticalDisplay}
-				class:px-4={isVerticalDisplay}
-				class:border-transparent={!isSelected}
+				class="line-source"
+				class:line-selected={isSelected}
 				class:cursor-text={isEditable}
 				class:border-primary={isSelected}
 				class:border-accent-focus={isEditable}
@@ -479,31 +526,19 @@
 				bind:this={paragraph}
 				in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
 			>
-				{line.text}
-				{#if line.translation}
-					<span
-						class:blur-translation={line.blurTranslation}
-						style="color: #888; padding-bottom: 16px; padding-top: 16px; width: 100%; {line.blurTranslation
-							? 'filter: blur(8px); transition: filter 0.2s;'
-							: ''}"
-						on:mouseenter={line.blurTranslation
-							? function (event: MouseEvent) {
-									const target = event.currentTarget as HTMLElement;
-									target.style.filter = 'blur(0px)';
-									target.style.transition = 'filter 0.3s';
-								}
-							: undefined}
-						on:mouseleave={line.blurTranslation
-							? function (event: MouseEvent) {
-									(event.currentTarget as HTMLElement).style.filter = 'blur(8px)';
-								}
-							: undefined}
-					>
-						<i>{line.translation}</i>
-					</span>
-				{/if}
+				<span class="source-text">{line.text}</span>
 			</p>
+			{#if line.translation}
+				<div class="line-translation" role="group" aria-label="Translation">
+					{#if line.blurTranslation}
+						<button type="button" class="translation-text translation-blurred" aria-label="Reveal translation" on:click={() => (line.blurTranslation = false)}>{line.translation}</button>
+					{:else}
+						<div class="translation-text"><span class="translation-content">{line.translation}</span></div>
+					{/if}
+				</div>
+			{/if}
 		{/if}
+		</div>
 		<div class="line-actions-container" class:hidden={$settingsOpen$}>
 			{#if line.excludedFromStats}
 				<div
@@ -523,7 +558,7 @@
 							title="Screenshot"
 							tabindex="-1"
 						>
-							&#x1F4F7;
+							<Icon path={mdiCameraOutline} width="20px" height="20px" />
 						</button>
 					{/if}
 					{#if $showTrimVideoButton$}
@@ -533,7 +568,7 @@
 							title="Save cropped replay"
 							tabindex="-1"
 						>
-							🎬
+							<Icon path={mdiMovieOutline} width="20px" height="20px" />
 						</button>
 					{/if}
 					{#if isClipSaved}
@@ -546,7 +581,7 @@
 							aria-expanded={openMenu === 'clip'}
 							tabindex="-1"
 						>
-							<Icon path={mdiContentSaveCheck} width="16px" height="16px" />
+							<Icon path={mdiContentSaveCheck} width="20px" height="20px" />
 						</button>
 					{:else if $showSaveClipButton$}
 						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
@@ -558,7 +593,7 @@
 							tabindex="-1"
 							disabled={isSavingClip}
 						>
-							<Icon path={mdiContentSave} width="16px" height="16px" />
+							<Icon path={mdiContentSave} width="20px" height="20px" />
 						</button>
 					{/if}
 					{#if $showAudioButton$}
@@ -570,7 +605,7 @@
 							tabindex="-1"
 							disabled={isAudioPending}
 						>
-							<Icon path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay} width="16px" height="16px" />
+							<Icon path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay} width="20px" height="20px" />
 						</button>
 					{/if}
 					{#if $showTranslateButton$}
@@ -580,7 +615,7 @@
 							title="Translate"
 							tabindex="-1"
 						>
-							🌐
+							<Icon path={mdiTranslate} width="20px" height="20px" />
 						</button>
 					{/if}
 				</div>
@@ -603,7 +638,7 @@
 						style="margin-left: 5px;"
 						tabindex="-1"
 					>
-						🌐
+						<Icon path={mdiTranslate} width="20px" height="20px" />
 					</button>
 				{/if}
 			{:else if line.gsmStatus === 'external'}
@@ -614,7 +649,7 @@
 						title="Translate"
 						tabindex="-1"
 					>
-						🌐
+						<Icon path={mdiTranslate} width="20px" height="20px" />
 					</button>
 				{/if}
 			{:else if $showExpiredIcon$}
@@ -639,7 +674,7 @@
 						aria-expanded={actionsMenuOpen}
 						bind:this={actionsMenuButton}
 					>
-						<Icon path={mdiMenu} width="16px" height="16px" />
+						<Icon path={mdiDotsHorizontal} width="20px" height="20px" />
 					</button>
 				</div>
 			{/if}
@@ -720,7 +755,6 @@
 		<AIHelp id={line.id} text={line.text} on:close={closeAIHelp} />
 	{/key}
 {/if}
-{@html newLineCharacter}
 {#if $milestoneLines$.has(line.id)}
 	<div
 		class="flex justify-center text-xs my-2 py-2 border-primary border-dashed milestone"
@@ -743,47 +777,43 @@
 		outline: none;
 	}
 
-	.multi-line-checkbox {
-		transform: scale(1.5);
-		margin-right: 10px;
-		background-color: #00ffff !important; /* Cyan/Electric Blue */
-		border: 4px solid #00ffff; /* Keep the border the same color */
-	}
-
-	.multi-line-checkbox.invisible {
-		visibility: hidden;
-	}
+	.textline2:focus-visible, .action-button:focus-visible,
+	button.translation-text:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+	.mining-selectable { cursor: pointer; }
+	.source-text, .translation-content { cursor: text; }
 
 	.action-button {
-		background-color: #333;
-		color: #fff;
-		border: 1px solid #555;
-		padding: 6px 10px;
-		font-size: 10px;
-		border-radius: 4px;
+		background-color: color-mix(in srgb, var(--color-base-content) 3%, transparent);
+		color: color-mix(in srgb, var(--color-base-content) 88%, transparent);
+		border: 1px solid transparent;
+		padding: 7px;
+		font-size: 13px;
+		border-radius: 7px;
 		cursor: pointer;
-		transition: background-color 0.2s ease;
+		transition: background-color 140ms, color 140ms;
 		user-select: none;
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
-		min-height: 28px;
-		min-width: 28px;
+		min-height: 36px;
+		min-width: 36px;
 	}
 
 	.action-button:hover {
-		background-color: #444;
+		background-color: color-mix(in srgb, var(--color-base-content) 12%, transparent);
+		color: var(--color-base-content);
 		cursor: pointer;
 	}
 
 	.action-button.audio-active {
-		background-color: #1f5f4f;
-		border-color: #2f8a73;
+		background-color: color-mix(in srgb, var(--color-success) 15%, transparent);
+		color: var(--color-success);
+		border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
 	}
 
 	.action-button.menu-open {
-		background-color: #444;
-		border-color: #777;
+		background-color: color-mix(in srgb, var(--color-base-content) 10%, transparent);
+		border-color: color-mix(in srgb, var(--color-base-content) 20%, transparent);
 	}
 
 	.action-button:disabled {
@@ -794,7 +824,7 @@
 	.textline-buttons {
 		margin-left: auto; /* Align buttons to the right */
 		display: flex;
-		gap: 10px;
+		gap: 5px;
 	}
 
 	.actions-menu {
@@ -808,9 +838,9 @@
 		width: min(172px, calc(100vw - 16px));
 		flex-direction: column;
 		overflow: hidden;
-		border: 1px solid #555;
-		border-radius: 4px;
-		background: #222;
+		border: 1px solid color-mix(in srgb, var(--color-base-content) 18%, transparent);
+		border-radius: 9px;
+		background: var(--color-base-200, #222);
 		box-shadow: 0 4px 14px rgb(0 0 0 / 35%);
 		font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 		font-size: 12px;
@@ -826,9 +856,9 @@
 		gap: 7px;
 		min-height: 30px;
 		border: 0;
-		border-bottom: 1px solid #444;
+		border-bottom: 1px solid color-mix(in srgb, var(--color-base-content) 8%, transparent);
 		background: transparent;
-		color: #fff;
+		color: var(--color-base-content);
 		padding: 6px 8px;
 		font: inherit;
 		text-align: left;
@@ -841,7 +871,7 @@
 	}
 
 	.actions-menu-popover button:hover {
-		background: #3a3a3a;
+		background: color-mix(in srgb, var(--color-base-content) 8%, transparent);
 	}
 
 	.actions-menu-popover button:disabled {
@@ -857,12 +887,77 @@
 	}
 
 	.textline2 {
-		margin: 15px 0;
-		padding: 15px;
-		display: flex;
+		margin: 4px 0;
+		padding: 14px 12px;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 15px;
+		gap: 12px;
+		border: 1px solid transparent;
+		border-left-width: 3px;
+		border-radius: 10px;
+		transition: background-color 140ms, border-color 140ms;
 	}
+	.textline2.mining-selectable:not(.mining-selected):hover,
+	.textline2.mining-selectable:not(.mining-selected):focus-within {
+		background: color-mix(in srgb, var(--color-base-content) 3%, transparent);
+		border-left-color: color-mix(in srgb, var(--color-base-content) 25%, transparent);
+	}
+	.textline2.mining-selected {
+		background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+		border-left-color: color-mix(in srgb, var(--color-primary) 75%, var(--color-base-content));
+	}
+	.textline2.mining-selected:hover { background: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+	.line-body { min-width: 0; }
+	.line-source {
+		margin: 0;
+		padding: 0;
+		inline-size: fit-content;
+		max-inline-size: 100%;
+		line-height: 1.65;
+		border-radius: 4px;
+		overflow-wrap: anywhere;
+	}
+	.line-source.line-selected { outline: 1px solid var(--color-primary); outline-offset: 5px; }
+	.line-source[contenteditable='true'] {
+		outline: 1px solid var(--color-primary);
+		outline-offset: 5px;
+		background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+	}
+	.line-translation { margin-block-start: 2px; }
+	.translation-text {
+		display: block;
+		margin: 0;
+		inline-size: fit-content;
+		max-inline-size: 100%;
+		border: 0;
+		padding: 0;
+		padding-inline-start: 8px;
+		background: transparent;
+		color: #888;
+		font: inherit;
+		font-size: 0.84em;
+		font-style: italic;
+		line-height: 1.6;
+		text-align: start;
+		white-space: pre-wrap;
+		word-break: normal;
+		overflow-wrap: anywhere;
+		transition: filter 150ms;
+	}
+	button.translation-text { cursor: pointer; }
+	.translation-blurred { filter: blur(6px); user-select: none; }
+	.translation-blurred:hover, .translation-blurred:focus-visible { filter: none; }
+	.textline2.vertical { display: flex; gap: 10px; }
+	.vertical .line-body { display: flex; flex-direction: column; gap: 12px; }
+	.vertical .line-translation { writing-mode: horizontal-tb; inline-size: 16rem; max-inline-size: 70vh; margin: 0; align-self: flex-start; }
+	.vertical .line-actions-container { writing-mode: horizontal-tb; }
+	@media (max-width: 640px) {
+		.textline2 { padding: 12px 2px; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+		.line-actions-container { grid-column: 1; grid-row: 2; padding-block-start: 0; }
+		.action-button { padding: 5px; }
+	}
+	@media (prefers-reduced-motion: reduce) { .textline2, .translation-text, .action-button { transition: none; } }
 
 	.unselectable,
 	.unselectable * {
@@ -902,11 +997,12 @@
 
 	.line-actions-container {
 		margin-left: auto;
-		min-width: 128px; /* Reserve minimum space for icons */
+		min-width: 0;
 		display: flex;
 		align-items: center;
+		align-self: center;
 		justify-content: flex-end;
-		gap: 10px;
+		gap: 5px;
 	}
 
 	.line-badge {

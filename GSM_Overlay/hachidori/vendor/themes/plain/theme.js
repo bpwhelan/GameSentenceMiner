@@ -6,7 +6,11 @@ function createView(options) {
   scroll.classList.add("plain-scroll");
   let activeSource, entries = [], selected = 0;
   let highlightEnabled = options.sourceHighlightEnabled;
-  const text = value => components.glossaryToPlainText(value);
+  // The render's language (docs/themes/README.md, "Languages"); without one,
+  // or before the records have profiles, today's text.
+  let language = options.language ?? null;
+  const marked = () => language?.marked === true;
+  const text = (value, direction = "ltr") => components.glossaryToPlainText(value, language, { direction });
   const selectEntry = event => {
     const index = entries.indexOf(event.target.closest(".gsm-hoshidicts-entry"));
     if (index >= 0) selected = index;
@@ -29,16 +33,38 @@ function createView(options) {
     entry.textContent = value;
     entries.push(entry);
     scroll.append(entry);
+    return entry;
+  }
+  // Once the records have profiles, each dictionary's text is its own block
+  // with the dictionary's direction and default language (10.2).
+  function dictionaryDefinitions(rows, result) {
+    const entry = definition("");
+    for (const [dictionary, glossaries] of Map.groupBy(rows, row => row.dictionary)) {
+      const block = document.createElement("div");
+      for (const [name, value] of Object.entries(language.glossaryAttributes(dictionary, result))) block.setAttribute(name, value);
+      block.dataset.hoshidictsDictionary = dictionary;
+      const direction = language.dictionaryDirection(dictionary, result);
+      block.textContent = glossaries.map(row => text(row.glossary, direction)).join("\n");
+      entry.append(block);
+    }
   }
   function renderResults(results, candidate, context = {}) {
     clear();
-    for (const result of results) definition(result.term.glossaries.map(glossary => text(glossary.glossary)).join("\n"));
+    language = context.language ?? options.language ?? null;
+    for (const result of results) {
+      if (marked()) dictionaryDefinitions(result.term.glossaries, result);
+      else definition(result.term.glossaries.map(glossary => text(glossary.glossary)).join("\n"));
+    }
     finish(candidate, results[0]?.matched || candidate?.query, context);
     options.onResultsRendered?.({ audioButtons: [], miningActions: [], lookupStats: null });
   }
   function renderKanji(kanji, candidate, context = {}) {
     clear();
-    for (const entry of kanji.entries) definition(text(entry.definitions));
+    language = context.language ?? options.language ?? null;
+    for (const entry of kanji.entries) {
+      if (marked()) dictionaryDefinitions([{ dictionary: entry.dictionary, glossary: entry.definitions }], null);
+      else definition(text(entry.definitions));
+    }
     finish(candidate, context.highlightText || kanji.character, context);
   }
   function renderNotice(message, candidate, context = {}) {

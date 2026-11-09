@@ -16,7 +16,7 @@
     // Visibility / capture indicators
     showReadyIndicator: "Show a small dot when the overlay is connected and ready to capture.",
     showTextIndicators:
-      "The red boxes/borders drawn around captured text — they show the overlay is working. Turn this off to remove the boxes.",
+      "Show subtle blue-gray borders around captured text so you can see where lookups are available. Turn this off to hide the borders.",
     showTextHitboxes: "Show red outlines around individual text lookup areas for debugging. Some languages use word-sized areas.",
     showRecycledIndicator: "Mark lines the overlay has already shown before (recycled text).",
 

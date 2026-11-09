@@ -1,10 +1,12 @@
-// Real Chromium content-script isolation and upstream rendering; only the dictionary/Anki services are fixtures.
+// Real Chromium content-script isolation and upstream rendering, with fixture
+// dictionary/Anki services and popup DOM access for assertions.
 const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { between, loadOverlayStartup, rendererGamepadConfigSource } = require('./helpers/overlay-startup.cjs');
+const { exposeHachidoriPopupRoot } = require('./helpers/hachidori-popup-dom.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-hachidori-smoke-'));
 app.setPath('userData', path.join(root, 'profile'));
 app.commandLine.appendSwitch('disable-gpu');
@@ -27,14 +29,22 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     let payload = {};
     switch (message.type) {
       case 'hd_page_zoom': payload = { zoomFactor: 1 }; break;
-      case 'hd_lookup':
+      case 'hd_lookup': {
         if (pendingLookups) await pendingLookups.promise;
         if (message.text.startsWith('遅')) await new Promise(resolve => setTimeout(resolve, 300));
-        payload = { generation: 1, dictionaryCount: 1, results: ['猫', '犬', '鳥'].map((word, index) => ({
-          matched: message.text[0], term: { expression: word, reading: ['ねこ','いぬ','とり'][index],
+        const sentenceFixture = [
+          { matched: '年老いた', expression: '年老いる', reading: 'としおいる' },
+          { matched: '連れ添う', expression: '連れ添う', reading: 'つれそう' },
+        ].find(entry => message.text.startsWith(entry.matched));
+        const entries = sentenceFixture ? [sentenceFixture] : ['猫', '犬', '鳥'].map((expression, index) => ({
+          matched: message.text[0], expression, reading: ['ねこ','いぬ','とり'][index],
+        }));
+        payload = { generation: 1, dictionaryCount: 1, results: entries.map(({ matched, expression, reading }) => ({
+          matched, term: { expression, reading,
             rules: '', frequencies: [], pitches: [], glossaries: [{ dictionary: 'Fixture',
               glossary: JSON.stringify([{ type: 'structured-content', content: { tag: 'a', href: '?query=犬', content: '犬' } }, 'Definition '.repeat(80)]), definitionTags: '', termTags: '', score: 0 }] }
         })) }; break;
+      }
       case 'hd_styles': payload = { styles: [] }; break;
       case 'hd_lookup_stats_record':
       case 'hd_lookup_stats_read': payload = { descriptor: { generation: null, revision: 0 }, statistics: null }; break;
@@ -89,7 +99,8 @@ app.whenReady().then(async () => {
   fs.writeFileSync(path.join(extension, 'manifest.json'), JSON.stringify({
     manifest_version: 3, name: 'GSM Hachidori smoke', version: '1.0', permissions: ['storage'],
     background: { service_worker: 'background.js', type: 'module' },
-    content_scripts: manifest.content_scripts, web_accessible_resources: manifest.web_accessible_resources,
+    content_scripts: manifest.content_scripts,
+    web_accessible_resources: manifest.web_accessible_resources,
   }));
   fs.writeFileSync(page, `<!doctype html><meta charset="utf-8"><style>
     body { margin:80px; font:32px sans-serif; } .text-block-container { display:block; }
@@ -103,7 +114,9 @@ app.whenReady().then(async () => {
   for (const file of ['extension_bridge.js', 'hachidori_bridge.js', 'dictionary_navigation.js', 'gamepad.js']) {
     await win.webContents.executeJavaScript(fs.readFileSync(path.join(__dirname, '..', file), 'utf8') + '\nvoid 0;');
   }
-  const result = await win.webContents.executeJavaScript(`(async () => {
+  // Open through native hover before the handler exists. Inspect the real
+  // closed root through the debugger after upstream creates it.
+  await win.webContents.executeJavaScript(`(async () => {
     const assert = (condition, message) => { if (!condition) throw new Error(message); };
     const wait = async (check, label) => {
       for (let attempt = 0; attempt < 150; attempt++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
@@ -111,6 +124,19 @@ app.whenReady().then(async () => {
     };
     await wait(async () => { try { return (await gsmHachidoriBridge.capabilities({ timeoutMs: 150 })).version === 1; } catch { return false; } }, 'bridge ready');
     await wait(async () => (await gsmHachidoriBridge.invoke('options'))?.revision === 1, 'fixture storage');
+    const mouseTarget = document.querySelectorAll('.text-box')[1];
+    const mouseRect = mouseTarget.getBoundingClientRect();
+    mouseTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, shiftKey: true,
+      clientX: mouseRect.x + mouseRect.width / 2, clientY: mouseRect.y + mouseRect.height / 2 }));
+    await wait(async () => (await gsmHachidoriBridge.state()).popups.length === 1, 'native mouse lookup');
+  })()`);
+  assert.equal(await exposeHachidoriPopupRoot(win.webContents), true, 'Popup DOM is accessible to test assertions');
+  const result = await win.webContents.executeJavaScript(`(async () => {
+    const assert = (condition, message) => { if (!condition) throw new Error(message); };
+    const wait = async (check, label) => {
+      for (let attempt = 0; attempt < 150; attempt++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
+      throw new Error('Timed out: ' + label);
+    };
     window.addEventListener('message', event => {
       if (event.data?.type === 'gsm-jiten-grading-config-request') window.postMessage({ type:'gsm-jiten-grading-config', enabled:true, hasApiKey:true }, '*');
       if (event.data?.type === 'gsm-jiten-grade') { window.lastGrade = event.data; window.postMessage({ type:'gsm-jiten-grade-result', requestId:event.data.requestId, ok:true }, '*'); }
@@ -118,12 +144,6 @@ app.whenReady().then(async () => {
     let mined = 0;
     window.addEventListener('gsm-anki-note-added', () => mined++);
     const root = () => document.querySelector('hachidori-host')?.shadowRoot;
-    // Open through native hover before the handler exists, then recover that popup's state.
-    const mouseTarget = document.querySelectorAll('.text-box')[1];
-    const mouseRect = mouseTarget.getBoundingClientRect();
-    mouseTarget.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, shiftKey: true,
-      clientX: mouseRect.x + mouseRect.width / 2, clientY: mouseRect.y + mouseRect.height / 2 }));
-    await wait(async () => (await gsmHachidoriBridge.state()).popups.length === 1, 'native mouse lookup');
     const handler = new GamepadHandler(${handlerConfig});
     await wait(() => handler.dictionaryPopupVisible, 'existing mouse popup tracking');
     handler.navigateDictionaryNextEntry();
@@ -187,7 +207,7 @@ app.whenReady().then(async () => {
       await gsmHachidoriBridge.invoke('status', { focusScenario: mode });
       handler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
       await wait(() => handler.dictionaryPopupVisible, 'focus scenario popup: ' + mode);
-      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length >= 2, 'pending Anki checks');
+      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:is(:disabled, [data-state="checking"])').length >= 2, 'pending Anki checks');
       handler.navigateDictionaryNextEntry();
       await wait(async () => (await gsmHachidoriBridge.invoke('selection')).index === 1, 'pending entry selected');
       const audio = () => root().querySelectorAll('.gsm-hoshidicts-audio-button')[1];
@@ -200,15 +220,15 @@ app.whenReady().then(async () => {
         await wait(() => audio()?.getAttribute('aria-busy') === 'false', 'no-result audio completed');
       }
       await wait(() => audio()?.classList.contains('gsm-controller-selected'), 'provisional audio default');
-      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:disabled').length >= 2, 'pending entry checks');
+      await wait(() => root().querySelectorAll('.gsm-hoshidicts-mine-button:is(:disabled, [data-state="checking"])').length >= 2, 'pending entry checks');
       await new Promise(resolve => setTimeout(resolve, 100));
       await gsmHachidoriBridge.invoke('status', { releaseFirst: true });
       const mine = () => root().querySelectorAll('.gsm-hoshidicts-mine-button')[1];
-      await wait(() => !mine().disabled, 'current entry ready');
+      await wait(() => !mine().disabled && mine().dataset.state !== 'checking', 'current entry ready');
       assert(mine().classList.contains('gsm-controller-selected'), 'Mining must be selected as soon as it is ready: ' + mode);
       if (mode === 'playing') assert(audio().getAttribute('aria-busy') === 'true', 'Audio must still be playing');
       await gsmHachidoriBridge.invoke('status', { finishFocus: true });
-      await wait(() => !root().querySelector('.gsm-hoshidicts-mine-button:disabled')
+      await wait(() => !root().querySelector('.gsm-hoshidicts-mine-button:is(:disabled, [data-state="checking"])')
         && audio().getAttribute('aria-busy') === 'false', 'focus scenario completed');
       handler.cancelSelection();
       await wait(() => !handler.dictionaryPopupVisible, 'focus scenario closed');
@@ -311,5 +331,78 @@ app.whenReady().then(async () => {
   })()`);
   console.log('Hachidori manual toggle, hold, nested-popup, and late-lookup smoke passed.');
   await win.webContents.executeJavaScript('window.fixtureHandler.destroy();');
+  // Use production glyph layout and hide/reveal code. The small inline boxes
+  // above do not cover sentence extraction after a real overlay activation.
+  const sentenceResults = await win.webContents.executeJavaScript(`(async () => {
+    const assert = (condition, message) => { if (!condition) throw new Error(message); };
+    const wait = async (check, label) => {
+      for (let attempt = 0; attempt < 150; attempt++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 20)); }
+      throw new Error('Timed out: ' + label);
+    };
+    const offsetX = 0, offsetY = 0, furiganaLayer = null, gamepadHandler = null;
+    const updateFuriganaVisibilityState = () => {};
+    ${between(renderer, '  function applyTextBoxLayout(', '  function createNavigationBox(')}
+    ${between(renderer, '  function hideTextBoxes()', '  let resizeMode = false;')}
+    const style = document.createElement('style');
+    style.textContent = ${JSON.stringify(between(renderer, '  .text-box {', '  body.show-text-hitboxes'))};
+    document.head.appendChild(style);
+    document.querySelectorAll('.text-block-container').forEach(block => block.remove());
+    const blocks = ['別の台詞。', '', '次の台詞。'].map(text => {
+      const block = document.createElement('p');
+      block.className = 'text-block-container';
+      block.textContent = text;
+      document.body.appendChild(block);
+      return block;
+    });
+    const fixtures = [
+      { sentence: 'そこでは年老いた一本の大木が森に住む者達を見守り続けている……', word: '年老いた', expression: '年老いる' },
+      { sentence: 'アタシ達コキリ族は一人一人に妖精が連れ添うんだから……', word: '連れ添う', expression: '連れ添う' },
+    ];
+    const calls = async () => (await gsmHachidoriBridge.invoke('status')).calls;
+    const submissions = async () => (await calls()).filter(call => call.type === 'hd_anki_submit');
+    const results = [];
+    for (const fixture of fixtures) {
+      blocks[1].replaceChildren(...Array.from(fixture.sentence, (glyph, index) => {
+        const box = createTextBox(glyph, 2 + index * 2, 20, 4 + index * 2, 25, 24);
+        box.style.fontSize = '24px';
+        return box;
+      }));
+      const target = blocks[1].children[fixture.sentence.indexOf(fixture.word)];
+      for (const phase of ['initial', 'first reveal', 'repeated reveal']) {
+        await gsmHachidoriBridge.closePopups();
+        if (phase !== 'initial') {
+          hideTextBoxes();
+          hideTextBoxes();
+          assert(target.getClientRects().length === 0, 'Hidden glyph must have no visible box');
+          showTextBoxes();
+          showTextBoxes();
+        }
+        assert(target.getClientRects().length > 0, 'Revealed glyph must be visible');
+        const baseline = (await submissions()).length;
+        target.setAttribute('data-gsm-hachidori-lookup-target', 'sentence-fixture');
+        await gsmHachidoriBridge.control('lookup-point', { targetId: 'sentence-fixture' });
+        await wait(async () => (await gsmHachidoriBridge.invoke('selection'))?.result?.term?.expression === fixture.expression,
+          fixture.expression + ' lookup after ' + phase);
+        await wait(() => document.querySelector('hachidori-host').shadowRoot.querySelector('[data-action="add"]:not(:disabled):not([data-state="checking"])'),
+          fixture.expression + ' mining ready after ' + phase);
+        assert(await gsmHachidoriBridge.control('mine'), 'Ready mining command must be accepted');
+        await wait(async () => (await submissions()).length === baseline + 1, fixture.expression + ' submitted after ' + phase);
+        const { request } = (await submissions()).at(-1);
+        results.push({ word: fixture.word, phase, sentence: request.sentence,
+          matched: request.matched, matchOffset: request.matchOffset });
+      }
+    }
+    await gsmHachidoriBridge.closePopups();
+    return results;
+  })()`);
+  for (const result of sentenceResults) {
+    const expected = result.word === '年老いた'
+      ? 'そこでは年老いた一本の大木が森に住む者達を見守り続けている……'
+      : 'アタシ達コキリ族は一人一人に妖精が連れ添うんだから……';
+    assert.equal(result.sentence, expected, `${result.word}: full sentence after ${result.phase}`);
+    assert.equal(result.matched, result.word, `${result.word}: complete mined word after ${result.phase}`);
+    assert.equal(result.matchOffset, expected.indexOf(result.word), `${result.word}: sentence offset after ${result.phase}`);
+  }
+  console.log('Hachidori full-sentence mining before and after repeated hide/reveal passed.');
   win.destroy(); clearTimeout(timeout); app.exit(0);
 }).catch(error => { console.error(error); clearTimeout(timeout); app.exit(1); });

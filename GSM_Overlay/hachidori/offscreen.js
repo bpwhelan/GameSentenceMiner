@@ -9,16 +9,18 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { extensionApi as chrome, expectedBackgroundUrl } from "./browser-api.js";
+import { extensionApi as chrome, expectedBackgroundUrl, isFirefox } from "./browser-api.js";
 import { engineWorkerName, createEngineRecycler } from "./engine-recycler.js";
 import { boundResponseFailure } from "./response-limits.js";
 import { decodeBase64 } from "./base64.js";
-import { captureDebugLog, readDebugLog, recordDebugFailure } from "./debug-log.js";
+import { captureDebugLog, openDebugLogStore, readDebugLog, recordDebugFailure, setDebugLogLanguages } from "./debug-log.js";
 import { describeError } from "./error-text.js";
+import { CLIPBOARD_TARGET, clipboardSearchText, readClipboardText } from "./search-clipboard.js";
 
-// Settings → Advanced → Get debug info reads this document's recent warnings,
-// errors and failed replies, and the engine worker's (debug-log.js).
-captureDebugLog(globalThis, { context: "offscreen" });
+// Settings → Advanced → Get debug info reads this document's warnings, errors
+// and failed replies, and the engine worker's, from the extension's debug log
+// ring (debug-log.js).
+captureDebugLog(globalThis, { context: "offscreen", store: openDebugLogStore(globalThis.indexedDB) });
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
@@ -46,23 +48,17 @@ const MUTATION_TYPES = new Set([
   "hd_backup_auto_cleanup",
   "hd_backup_restore",
   "hd_backup_cancel",
+  // Adding and removing a language change what the engine loads
+  // (docs/languages.md 5.2).
+  "hd_profile_add",
+  "hd_profile_remove",
 ]);
 const STAGED_MUTATION_TYPES = new Set(["hd_custom_append"]);
 const POLL_TYPES = new Set(["hd_status", "hd_memory"]);
-const IMPORT_READ_TYPES = new Set([
-  "hd_debug_log",
-  "hd_lookup",
-  "hd_lookup_dictionary",
-  "hd_segment",
-  "hd_kanji",
-  "hd_styles",
-  "hd_media",
-  "hd_memory",
-  "hd_backup_release",
-  "hd_api_dictionary_read",
-  "hd_api_dictionary_close",
-]);
-const STAGED_MUTATION_READ_TYPES = new Set([
+// Reads answer from the committed dictionaries, so they run beside an import's
+// download and a staged mutation. A mutation that holds the engine refuses them
+// at once: a hover must not wait out an import.
+const READ_TYPES = new Set([
   "hd_debug_log",
   "hd_lookup",
   "hd_lookup_dictionary",
@@ -74,6 +70,7 @@ const STAGED_MUTATION_READ_TYPES = new Set([
   "hd_api_dictionary_read",
   "hd_api_dictionary_close",
 ]);
+const IMPORT_READ_TYPES = new Set([...READ_TYPES, "hd_backup_release"]);
 
 function supportsSharedWasmMemory() {
   if (globalThis.crossOriginIsolated !== true
@@ -94,6 +91,10 @@ const CAN_THREAD = supportsSharedWasmMemory();
 let worker = null;
 let workerScript = null;
 let localEngine = null;
+let engineSelection = null;
+let engineStarted = false;
+let linked = false;
+let pushedLink = null;
 let nextRequestId = 0;
 let engineError = null;
 let activeMutationRequestId = null;
@@ -114,6 +115,10 @@ let lastEngineStatus = {
   generation: 0,
 };
 const pending = new Map();
+// Requests a held dictionary change blocks, other than reads, wait here in
+// arrival order and are admitted as it releases the engine: one import or
+// change never makes the next one fail (#578).
+const waiting = [];
 // Engine-side state one request leaves for a later one to consume: a prepared
 // backup, an exported archive URL, a dictionary download. A worker restart
 // would lose it, so the recycler waits until it is released.
@@ -192,24 +197,57 @@ function finishRequest(id, response) {
   // dictionaries keep the idle window open.
   if (!POLL_TYPES.has(request.message.type)) recycler.noteIdle();
   if (response?.type === "hd_status_result") {
-    lastEngineStatus = {
-      ...lastEngineStatus,
-      ok: response.ok === true,
-      error: response.error ?? null,
-      ready: response.ready === true,
-      loading: response.loading === true,
-      dictionaryCount: Number(response.dictionaryCount) || 0,
-      packageCount: Number(response.packageCount) || 0,
-      registeredKindCount: Number(response.registeredKindCount) || 0,
-      dictionaryIndexStorage: response.dictionaryIndexStorage,
-      useLessRamByDefault: response.useLessRamByDefault,
-      hashIndexStorage: response.hashIndexStorage,
-      residentHashBudgetBytes: response.residentHashBudgetBytes,
-      failedDictionaries: Array.isArray(response.failedDictionaries) ? response.failedDictionaries : [],
-      generation: Number(response.generation) || 0,
-    };
+    adoptEngineStatus(response);
+    // The engine cannot see the bridge's lock; Settings waits on it.
+    request.sendResponse({ ...response, mutating: mutating() });
+  } else {
+    request.sendResponse(response);
   }
-  request.sendResponse(response);
+  if (mutated) admitWaiting();
+  suspendLinkedEngine();
+}
+
+// Finish admitted requests, startup recovery and held backup/download handles
+// before releasing the heap. Audio and clipboard listeners stay in this page.
+function suspendLinkedEngine() {
+  if (!linked || (!engineStarted && engineError === null) || pending.size > 0 || waiting.length > 0 || held.size > 0) return;
+  if (worker !== null) {
+    const retired = worker;
+    worker = null;
+    retired.terminate();
+    recycler.setRunning(null);
+    engineSelection = null;
+    engineStarted = false;
+    engineError = null;
+  } else if (localEngine !== null) {
+    // Hosts without Worker own the WASM heap in this document. Reloading is
+    // the only way to release that module; the new page starts engine-free.
+    globalThis.location.reload();
+  }
+}
+
+// The engine's last status, which Settings reads while a mutation holds it.
+function adoptEngineStatus(response) {
+  lastEngineStatus = {
+    ...lastEngineStatus,
+    ok: response.ok === true,
+    error: response.error ?? null,
+    ready: response.ready === true,
+    loading: response.loading === true,
+    dictionaryCount: Number(response.dictionaryCount) || 0,
+    packageCount: Number(response.packageCount) || 0,
+    registeredKindCount: Number(response.registeredKindCount) || 0,
+    dictionaryIndexStorage: response.dictionaryIndexStorage,
+    useLessRamByDefault: response.useLessRamByDefault,
+    hashIndexStorage: response.hashIndexStorage,
+    residentHashBudgetBytes: response.residentHashBudgetBytes,
+    failedDictionaries: Array.isArray(response.failedDictionaries) ? response.failedDictionaries : [],
+    generation: Number(response.generation) || 0,
+  };
+  // Present once the records have profiles (docs/languages.md 9.2), so the
+  // single-profile reply served during a mutation stays today's.
+  if (Array.isArray(response.failedLanguages)) lastEngineStatus.failedLanguages = response.failedLanguages;
+  else delete lastEngineStatus.failedLanguages;
 }
 
 function adoptEngineProgress(progress) {
@@ -247,6 +285,7 @@ function failEngine(error) {
   for (const [id, request] of pending) {
     finishRequest(id, failedResponse(request.message, engineError, "engine-start-failed"));
   }
+  admitWaiting();
 }
 
 function probeDirectOpfs() {
@@ -305,20 +344,34 @@ async function selectEngine() {
 // The name tells engine-worker-runtime.js which pthread pool and import
 // threading to start with; see docs/memory.md.
 function startWorkerEngine(script, lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault) {
+  engineStarted = false;
   workerScript = script;
   worker = new Worker(new URL(script, import.meta.url), {
     type: "module",
     name: engineWorkerName(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault),
   });
   recycler.setRunning(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
-  worker.addEventListener("error", (event) => failEngine(event.error || event.message));
-  worker.addEventListener("messageerror", () => failEngine("the engine worker sent an unreadable message"));
-  worker.onmessage = (event) => {
+  const current = worker;
+  current.addEventListener("error", (event) => { if (worker === current) failEngine(event.error || event.message); });
+  current.addEventListener("messageerror", () => { if (worker === current) failEngine("the engine worker sent an unreadable message"); });
+  current.onmessage = (event) => {
+    if (worker !== current) return;
     const data = event.data;
+    if (data?.channel === "engine-started") {
+      engineStarted = true;
+      suspendLinkedEngine();
+      return;
+    }
     if (data?.channel === "host-request") {
       Promise.resolve(chrome.runtime.sendMessage(data.message)).then(
-        (response) => worker.postMessage({ channel: "host-response", id: data.id, ok: true, response }),
-        (error) => worker.postMessage({ channel: "host-response", id: data.id, ok: false, error: describeError(error) }),
+        (response) => {
+          // The records' languages, which this document's debug log redacts
+          // too (docs/languages.md 8.5). A local engine, run in this
+          // document, sets them from the same reply itself.
+          if (data.message?.type === "hd_state_read" && response?.ok === true) setDebugLogLanguages(response.languages ?? []);
+          if (worker === current) current.postMessage({ channel: "host-response", id: data.id, ok: true, response });
+        },
+        (error) => { if (worker === current) current.postMessage({ channel: "host-response", id: data.id, ok: false, error: describeError(error) }); },
       );
       return;
     }
@@ -346,22 +399,24 @@ function reportEngineProgress(progress) {
   }
 }
 
-function startLocalEngine() {
-  return Promise.all([
+async function startLocalEngine() {
+  const [service, module] = await Promise.all([
     import("./engine-service.js"),
     import("./vendor/hoshidicts.mjs"),
-  ]).then(([service, module]) => {
-    service.configureEngineService(
-      (message) => chrome.runtime.sendMessage(message),
-      {
-        createHoshidicts: module.default,
-        storageBackend: "idbfs",
-        lowRam: true,
-        reportProgress: reportEngineProgress,
-      },
-    );
-    service.startEngine();
-    localEngine = service;
+  ]);
+  service.configureEngineService(
+    (message) => chrome.runtime.sendMessage(message),
+    {
+      createHoshidicts: module.default,
+      storageBackend: "idbfs",
+      lowRam: true,
+      reportProgress: reportEngineProgress,
+    },
+  );
+  localEngine = service;
+  void Promise.resolve(service.startEngine()).then(() => {
+    engineStarted = true;
+    suspendLinkedEngine();
   });
 }
 
@@ -370,7 +425,7 @@ function startLocalEngine() {
 async function readEngineConfig() {
   try {
     const reply = await chrome.runtime.sendMessage({ target: WORKER_TARGET, type: "hd_engine_config" });
-    return { lowMemoryMode: reply?.ok === true && reply.lowMemoryMode === true,
+    return { linked: reply?.linked === true, lowMemoryMode: reply?.ok === true && reply.lowMemoryMode === true,
       dictionaryEntryStorage: reply?.dictionaryEntryStorage ?? "auto", dictionaryIndexStorage: reply?.dictionaryIndexStorage ?? "auto",
       useLessRamByDefault: reply?.useLessRamByDefault === true };
   } catch (error) {
@@ -383,17 +438,45 @@ async function readEngineConfig() {
 let pushedEngineConfig = null;
 // Only the pthread workers have a Low memory mode or entry policy to switch to.
 let recyclable = false;
-const engineSelection = Promise.all([selectEngine(), readEngineConfig()]).then(([mode, storedConfig]) => {
-  const { lowMemoryMode: lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault } = pushedEngineConfig ?? storedConfig;
-  lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
-  lastEngineStatus.threaded = mode !== "local" && mode !== "worker-local";
-  if (mode === "local") return startLocalEngine();
-  if (mode === "worker-local") return startWorkerEngine("./engine-worker-local.js", false);
-  recyclable = true;
-  recycler.setDesired(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
-  return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js",
-    lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
+const initialEngineConfig = readEngineConfig().then(storedConfig => {
+  pushedEngineConfig ??= storedConfig;
+  linked = pushedLink ?? storedConfig.linked === true;
+  recycler.setEnabled(!linked);
+  if (!linked) return ensureEngine();
 }).catch(failEngine);
+
+function ensureEngine() {
+  if (engineSelection !== null) return engineSelection;
+  if (linked) return Promise.resolve();
+  engineSelection = selectEngine().then(mode => {
+    // Link may have completed during the OPFS probe.
+    if (linked) return;
+    const { lowMemoryMode: lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault } = pushedEngineConfig;
+    lastEngineStatus.storageBackend = mode === "opfs" ? "opfs" : "idbfs";
+    lastEngineStatus.threaded = mode !== "local" && mode !== "worker-local";
+    if (mode === "local") return startLocalEngine();
+    if (mode === "worker-local") return startWorkerEngine("./engine-worker-local.js", false);
+    recyclable = true;
+    recycler.setDesired(lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
+    return startWorkerEngine(mode === "opfs" ? "./engine-worker.js" : "./engine-worker-idbfs.js",
+      lowMemory, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault);
+  }).catch(failEngine).finally(() => {
+    if (worker === null && localEngine === null) engineSelection = null;
+  });
+  return engineSelection;
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== TARGET || message.type !== "hd_engine_link" || message.relayed !== true
+      || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)
+      || sender.tab !== undefined) return false;
+  pushedLink = linked = message.linked === true;
+  recycler.setEnabled(!linked);
+  if (linked) suspendLinkedEngine();
+  else void initialEngineConfig.then(ensureEngine);
+  sendResponse({ type: "hd_engine_link_result", requestId: message.requestId ?? null, ok: true });
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.target !== TARGET || message.type !== "hd_engine_config" || message.relayed !== true
@@ -430,57 +513,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-// Admission and the mutation lock are shared by relayed runtime requests and the
-// first-run installer, so both see one engine queue.
-function dispatchEngine(message, sendResponse) {
-  if (engineError !== null) {
-    sendResponse(failedResponse(message, engineError, "engine-start-failed"));
-    return;
-  }
-  if (message.type === "hd_status"
-      && (activeMutationRequestId !== null
-        || activeStagedMutationRequestId !== null
-        || activeImportRequestId !== null
-        || pending.size >= MAX_PENDING_REQUESTS)) {
-    sendResponse({
-      type: "hd_status_result",
-      requestId: message.requestId ?? null,
-      ...lastEngineStatus,
-      loading: activeMutationRequestId !== null
-        || activeStagedMutationRequestId !== null
-        || activeImportRequestId !== null
-        || lastEngineStatus.loading,
-      updating: updatingStatus(),
-    });
-    return;
-  }
-  const activeMutation = pending.get(activeMutationRequestId)?.message;
-  const cancelsBackup = message.type === "hd_backup_cancel" && typeof message.token === "string" && message.token !== "";
-  if (activeMutationRequestId !== null && message.type !== "hd_backup_release" && !cancelsBackup) {
-    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
-    return;
-  }
-  if (activeStagedMutationRequestId !== null
-      && !STAGED_MUTATION_READ_TYPES.has(message.type)
-      && message.type !== "hd_status") {
-    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
-    return;
-  }
-  if (activeImportRequestId !== null && !IMPORT_READ_TYPES.has(message.type)) {
-    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
-    return;
-  }
-  // One serialized download release and one token-scoped backup cancellation
-  // must fit even if ordinary requests occupy all 128 slots. The cancellation
-  // remains queued behind the active mutation and takes over its lock.
-  const cleanupSlots = message.type === "hd_backup_release"
-    ? 1 + Number(activeMutation?.type === "hd_backup_cancel") : 2 * Number(cancelsBackup);
-  const limit = MAX_PENDING_REQUESTS + cleanupSlots;
-  if (pending.size >= limit) {
-    sendResponse(failedResponse(message, "the dictionary engine request queue is full"));
-    return;
-  }
+// The search page's clipboard monitor (#639): the worker relays its reads here,
+// where the clipboard can be read while no extension page has focus. Only the
+// start the page searches is sent: this document and the worker carry every
+// lookup too, and sending a 1,000,000-character copy through them four times a
+// second held lookups for up to 270 ms.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== CLIPBOARD_TARGET || message.relayed !== true
+      || sender.id !== chrome.runtime.id || sender.url !== expectedBackgroundUrl(chrome)) return false;
+  readClipboardText({ document, navigator, firefox: isFirefox(chrome) }).then(
+    text => sendResponse({ type: `${message.type}_result`, ok: true, error: null, text: clipboardSearchText(text) }),
+    error => sendResponse(failedResponse(message, describeError(error))),
+  );
+  return true;
+});
 
+// Whether an import, mutation or staged mutation holds the engine lock.
+function mutating() {
+  return activeMutationRequestId !== null || activeStagedMutationRequestId !== null || activeImportRequestId !== null;
+}
+
+function cancelsBackup(message) {
+  return message.type === "hd_backup_cancel" && typeof message.token === "string" && message.token !== "";
+}
+
+// Whether the held lock keeps `message` from the engine for now. A token-scoped
+// backup cancellation is admitted behind the active mutation and takes over its
+// lock.
+function blocked(message) {
+  return (activeMutationRequestId !== null && message.type !== "hd_backup_release" && !cancelsBackup(message))
+    || (activeStagedMutationRequestId !== null && !READ_TYPES.has(message.type))
+    || (activeImportRequestId !== null && !IMPORT_READ_TYPES.has(message.type));
+}
+
+function admit(message, sendResponse) {
   // Reserve before engine selection or module loading can retain the payload.
   const id = ++nextRequestId;
   pending.set(id, { message, sendResponse });
@@ -489,14 +555,66 @@ function dispatchEngine(message, sendResponse) {
     importPhase = { phase: "downloading", fallback: null };
   } else if (MUTATION_TYPES.has(message.type)) activeMutationRequestId = id;
   else if (STAGED_MUTATION_TYPES.has(message.type)) activeStagedMutationRequestId = id;
-  engineSelection.then(() => {
+  const selection = engineSelection ?? initialEngineConfig.then(ensureEngine);
+  selection.then(() => {
     if (!pending.has(id)) return undefined;
+    if (worker === null && localEngine === null) {
+      finishRequest(id, failedResponse(message, "The local dictionary engine is suspended while linked.", "engine-linked"));
+      return undefined;
+    }
     if (worker === null) {
       return localEngine.handleEngineMessage(message).then((response) => finishRequest(id, response));
     }
     worker.postMessage({ channel: "engine-request", id, message });
     return undefined;
   }).catch((error) => finishRequest(id, failedResponse(message, describeError(error), "engine-start-failed")));
+}
+
+// Admits waiting requests in arrival order until the next one is blocked again.
+function admitWaiting() {
+  while (waiting.length > 0 && (engineError !== null || !blocked(waiting[0].message))) {
+    const { message, sendResponse } = waiting.shift();
+    if (engineError === null) admit(message, sendResponse);
+    else sendResponse(failedResponse(message, engineError, "engine-start-failed"));
+  }
+}
+
+// Admission and the mutation lock are shared by relayed runtime requests and the
+// first-run installer, so both see one engine queue.
+function dispatchEngine(message, sendResponse) {
+  if (engineError !== null) {
+    sendResponse(failedResponse(message, engineError, "engine-start-failed"));
+    return;
+  }
+  if (message.type === "hd_status" && (mutating() || pending.size >= MAX_PENDING_REQUESTS)) {
+    sendResponse({
+      type: "hd_status_result",
+      requestId: message.requestId ?? null,
+      ...lastEngineStatus,
+      loading: mutating() || lastEngineStatus.loading,
+      mutating: mutating(),
+      updating: updatingStatus(),
+    });
+    return;
+  }
+  const isBlocked = blocked(message);
+  if (isBlocked && READ_TYPES.has(message.type)) {
+    sendResponse(failedResponse(message, "the dictionary engine is busy mutating", "engine-mutating"));
+    return;
+  }
+  // One serialized download release and one token-scoped backup cancellation
+  // must fit even if ordinary requests occupy all 128 slots. The cancellation
+  // remains queued behind the active mutation and takes over its lock. A
+  // waiting request holds its payload too, so it counts against the bound.
+  const activeMutation = pending.get(activeMutationRequestId)?.message;
+  const cleanupSlots = message.type === "hd_backup_release"
+    ? 1 + Number(activeMutation?.type === "hd_backup_cancel") : 2 * Number(cancelsBackup(message));
+  if (pending.size + waiting.length >= MAX_PENDING_REQUESTS + cleanupSlots) {
+    sendResponse(failedResponse(message, "the dictionary engine request queue is full"));
+    return;
+  }
+  if (isBlocked) waiting.push({ message, sendResponse });
+  else admit(message, sendResponse);
 }
 
 // The engine worker and its pthreads: the isolates that share the engine heap.
@@ -541,7 +659,7 @@ async function readDebugLogs(message) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.target !== TARGET || message.relayed !== true || message.type === "hd_engine_config") {
+  if (message?.target !== TARGET || message.relayed !== true || ["hd_engine_config", "hd_engine_link"].includes(message.type)) {
     return false;
   }
   if (message.type === "hd_debug_log") {
@@ -610,9 +728,11 @@ async function answerUpload(message) {
     case "hd_upload_import": {
       const blobUrl = URL.createObjectURL(uploadedArchive(message.token));
       try {
+        // The import joins the profile the upload named (docs/languages.md 17.3 item 5).
         return await new Promise((resolve) => dispatchEngine({
           target: TARGET, type: "hd_import", requestId: message.requestId ?? null,
           blobUrl, fileName: message.fileName, importDecision: message.importDecision,
+          ...(message.profileId === undefined ? {} : { profileId: message.profileId }),
         }, resolve));
       } finally {
         URL.revokeObjectURL(blobUrl);

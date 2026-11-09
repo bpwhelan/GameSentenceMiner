@@ -65,15 +65,25 @@ function assertFileList(files) {
   }
 }
 
-export async function createBackupArchive(snapshot, files, lookupStatsRows, createdAt = new Date().toISOString()) {
+// Each file's data is a Blob or a zip.js reader ({ size, readUint8Array }) read
+// while the archive is written. `output` is a Writer or a WritableStream. A
+// backup of records with profiles is version 4: `profiles` sits beside the
+// version 3 snapshot of their Japanese view (docs/languages.md 17.2), and the
+// files are those of the packages that view lists.
+export async function createBackupArchive(snapshot, files, lookupStatsRows, createdAt = new Date().toISOString(),
+  output = new BackupBlobWriter("application/zip"), profiles = undefined) {
   const entries = files.map(({ path, data }) => ({ path, size: data.size }));
   assertFileList(entries);
   assertLookupStatsRows(snapshot?.lookupStats, lookupStatsRows);
-  const manifest = { format: "hachidori-backup", version: 3, createdAt, snapshot, lookupStatsRows, files: entries };
+  const manifest = profiles === undefined
+    ? { format: "hachidori-backup", version: 3, createdAt, snapshot, lookupStatsRows, files: entries }
+    : { format: "hachidori-backup", version: 4, createdAt, snapshot, lookupStatsRows, files: entries, profiles };
   /** @type {{add(name: string, reader: object): Promise<unknown>, close(): Promise<Blob>}} */
-  const writer = new ZipWriter(new BackupBlobWriter("application/zip"), ZIP_OPTIONS);
+  const writer = new ZipWriter(output, ZIP_OPTIONS);
   await writer.add(MANIFEST, new BlobReader(new Blob([JSON.stringify(manifest)])));
-  for (const file of files) await writer.add(file.path, new BlobReader(file.data));
+  for (const { path, data } of files) {
+    await writer.add(path, data instanceof Blob ? new BlobReader(data) : data); // NOSONAR: entries stream into one archive in order
+  }
   return writer.close();
 }
 
@@ -88,26 +98,68 @@ function assertRegularEntry(entry) {
   }
 }
 
-function readEntry(entry) {
-  return entry.getData(new BackupBlobWriter(), {
+function readEntry(entry, writer = new BackupBlobWriter()) {
+  return entry.getData(writer, {
     useWebWorkers: false, checkSignature: true, checkOverlappingEntry: true, checkAmbiguity: true,
   });
 }
 
-// A supported manifest's snapshot and statistics rows in the current shape:
-// version 1 has no lookup statistics, and versions 1 and 2 no words marked as
-// known or ignored. Older backups also include the retired external corpus
-// integration; only those fields are dropped before the complete snapshot
-// contract validates the restore.
+// A stored entry is a range of the archive. zip.js checks its CRC without
+// keeping the bytes, then the range is sliced from the archive itself, so a
+// restore never copies the backup into memory or Blob storage (#577).
+async function entryData(archive, entry) {
+  await readEntry(entry, new Writer());
+  const header = new DataView(await archive.slice(entry.offset, entry.offset + 30).arrayBuffer());
+  const start = entry.offset + 30 + header.getUint16(26, true) + header.getUint16(28, true);
+  return archive.slice(start, start + entry.uncompressedSize);
+}
+
+// A manifest's snapshot and statistics rows in the current shape. Version 1
+// has no lookup statistics and versions 1 and 2 no words marked as known or
+// ignored; statistics or marked words this version cannot read are skipped
+// the same way (#577). prepareBackupSnapshot reads the settings.
 function currentSnapshot(manifest) {
-  let { snapshot } = manifest;
-  if (manifest.version === 1) snapshot = { ...snapshot, lookupStats: emptyLookupStats() };
-  if (manifest.version < 3) {
-    snapshot = { ...snapshot, wordStatusOverrides: globalThis.HDWordStatusOverrides.emptyWordStatusOverrides() };
+  const { emptyWordStatusOverrides, normaliseWordStatusOverrides } = globalThis.HDWordStatusOverrides;
+  const snapshot = { ...manifest.snapshot };
+  if (manifest.version < 3) snapshot.wordStatusOverrides = emptyWordStatusOverrides();
+  else if (snapshot.wordStatusOverrides !== undefined) {
+    snapshot.wordStatusOverrides = normaliseWordStatusOverrides(snapshot.wordStatusOverrides);
   }
-  delete snapshot?.options?.corpusSeenEnabled;
-  delete snapshot?.options?.corpusSeenUrl;
-  return { snapshot, lookupStatsRows: manifest.version === 1 ? [] : manifest.lookupStatsRows };
+  try {
+    assertLookupStatsRows(snapshot.lookupStats, manifest.lookupStatsRows);
+    return { snapshot, lookupStatsRows: manifest.lookupStatsRows };
+  } catch {
+    return { snapshot: { ...snapshot, lookupStats: emptyLookupStats() }, lookupStatsRows: [] };
+  }
+}
+
+// A version 4 manifest's `profiles` (docs/languages.md 17.2). Like the
+// snapshot's, the lookup rows of a language this version cannot read are
+// skipped and its marked words read as a stored record is; the rest is
+// validated with the snapshot when the restore is prepared.
+function currentProfiles(manifest) {
+  if (manifest.version < 4 || manifest.profiles === undefined) return undefined;
+  const { profiles } = manifest;
+  const plain = value => value && typeof value === "object" && !Array.isArray(value);
+  if (!plain(profiles) || !plain(profiles.languages)) return profiles;
+  const { normaliseWordStatusOverrides } = globalThis.HDWordStatusOverrides;
+  const languages = Object.fromEntries(Object.entries(profiles.languages).map(([code, part]) => {
+    if (!plain(part)) return [code, part];
+    const next = { ...part };
+    if (next.lookupStatsRows !== undefined) {
+      try {
+        assertLookupStatsRows({ generation: code, revision: 0 }, next.lookupStatsRows);
+      } catch {
+        delete next.lookupStatsRows;
+      }
+    }
+    if (next.wordStatusOverrides !== undefined) {
+      const { known, ignored } = normaliseWordStatusOverrides(next.wordStatusOverrides);
+      next.wordStatusOverrides = { known, ignored };
+    }
+    return [code, next];
+  }));
+  return { ...profiles, languages };
 }
 
 export async function openBackupArchive(blob) {
@@ -123,12 +175,13 @@ export async function openBackupArchive(blob) {
     const manifestEntry = byPath.get(MANIFEST);
     if (!manifestEntry) throw new Error("The selected archive is not a Hachidori backup.");
     const manifest = JSON.parse(await (await readEntry(manifestEntry)).text());
-    if (manifest?.format !== "hachidori-backup" || ![1, 2, 3].includes(manifest.version)
+    // Any version: a newer one is read like this one, skipping what it added.
+    if (manifest?.format !== "hachidori-backup" || !Number.isSafeInteger(manifest.version) || manifest.version < 1
         || typeof manifest.createdAt !== "string" || Number.isNaN(Date.parse(manifest.createdAt))) {
       throw new Error("The selected archive is not a supported Hachidori backup.");
     }
     const { snapshot, lookupStatsRows } = currentSnapshot(manifest);
-    assertLookupStatsRows(snapshot?.lookupStats, lookupStatsRows);
+    const profiles = currentProfiles(manifest);
     assertFileList(manifest.files);
     if (entries.length !== manifest.files.length + 1) throw new Error("The backup contains unlisted or missing files.");
     const files = [];
@@ -136,11 +189,11 @@ export async function openBackupArchive(blob) {
       const entry = byPath.get(file.path);
       if (!entry) throw new Error(`The backup is missing ${file.path}`);
       if (entry.uncompressedSize !== file.size) throw new Error(`Incorrect backup file size: ${file.path}`);
-      const data = await readEntry(entry);
+      const data = await entryData(blob, entry); // NOSONAR: one entry's CRC is checked at a time
       if (data.size !== file.size) throw new Error(`Incorrect extracted backup file size: ${file.path}`);
       files.push({ path: file.path, data });
     }
-    return { snapshot, lookupStatsRows, createdAt: manifest.createdAt, files };
+    return { snapshot, lookupStatsRows, createdAt: manifest.createdAt, files, ...(profiles === undefined ? {} : { profiles }) };
   } finally {
     await reader.close();
   }

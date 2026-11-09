@@ -531,6 +531,96 @@ describe('live stats hotkey visibility cycle', () => {
   });
 });
 
+describe('live stats hover avoidance', () => {
+  function hover(dom: JSDOM, x?: number, y?: number) {
+    dom.window.dispatchEvent(new dom.window.CustomEvent('gsm-overlay-hover', {
+      detail: { active: x !== undefined, x, y, overText: false, overPopup: false },
+    }));
+  }
+
+  it.each(['one-line', 'stacked'])('hides over its click-through bounds in %s layout until the pointer leaves', (layout) => {
+    const { dom, widget, ipcSend } = loadWidget();
+    widget.applySettings({ liveStatsLayoutV2: layout, hideLiveStatsOnTextOverlap: false });
+    widget.handleStatsUpdate({ values: {}, session_active: false });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    root.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+    ipcSend.mockClear();
+
+    hover(dom, 850, 109);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    widget.handleStatsUpdate({ values: { total_characters: 10 }, session_active: false });
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    expect(ipcSend).not.toHaveBeenCalled();
+
+    hover(dom, 850, 111);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    hover(dom, 850, 50);
+    hover(dom);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    dom.window.close();
+  });
+
+  it('rechecks a stationary pointer when the widget moves or changes layout', () => {
+    const { dom, widget } = loadWidget();
+    widget.handleStatsUpdate({ values: {}, session_active: false });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    let bounds = rect(800, 10, 1000, 110);
+    root.getBoundingClientRect = vi.fn(() => bounds as DOMRect);
+    hover(dom, 700, 50);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+
+    bounds = rect(600, 10, 800, 110);
+    dom.window.dispatchEvent(new dom.window.Event('resize'));
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    bounds = rect(800, 10, 1000, 110);
+    widget.applySettings({ liveStatsLayoutV2: 'stacked' });
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    dom.window.close();
+  });
+
+  it('keeps text overlap and expired auto-hide in effect after the pointer leaves', () => {
+    vi.useFakeTimers();
+    const { dom, widget } = loadWidget();
+    dom.window.setTimeout = setTimeout as unknown as typeof dom.window.setTimeout;
+    dom.window.clearTimeout = clearTimeout as unknown as typeof dom.window.clearTimeout;
+    widget.applySettings({ liveStatsDisplayModeV2: 'new-line', liveStatsAutoHideSeconds: 1 });
+    widget.handleStatsUpdate({ values: {}, session_active: false });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    root.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+
+    hover(dom, 850, 50);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    widget.handleTextBoundsUpdate([rect(850, 40, 900, 80)]);
+    hover(dom, 100, 300);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    widget.handleTextBoundsUpdate([]);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    hover(dom, 850, 50);
+    vi.advanceTimersByTime(1000);
+    hover(dom, 100, 300);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+
+  it('also hides the pinned intake warning while hovered and restores it on exit', () => {
+    const { dom, widget } = loadWidget();
+    widget.applySettings({ showLiveStats: false, showLiveGoals: false, liveStatsVisibilityMode: 'hidden' });
+    widget.handleStatsUpdate({ text_intake_paused: true });
+    const root = dom.window.document.querySelector<HTMLElement>('#gsm-live-stats')!;
+    root.getBoundingClientRect = vi.fn(() => rect(800, 10, 1000, 110) as DOMRect);
+
+    hover(dom, 850, 50);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    hover(dom, -1, -1);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(true);
+    widget.handleStatsUpdate({ text_intake_paused: false });
+    hover(dom, 850, 50);
+    hover(dom, 100, 300);
+    expect(root.classList.contains('gsm-live-stats-visible')).toBe(false);
+    dom.window.close();
+  });
+});
+
 describe('live stats text overlap avoidance', () => {
   it('exposes a default-on setting and forwards authoritative rendered text bounds', () => {
     const dom = new JSDOM(settingsHtml);

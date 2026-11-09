@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
     findAgentScriptById,
+    isSwitchEmulatorTarget,
     listAgentScriptFiles,
     resolveSwitchAgentScript,
 } from "./agent_script_resolver.js";
@@ -53,7 +54,7 @@ describe("agent script file listing", () => {
         expect(listAgentScriptFiles(root)).toEqual([visible]);
     });
 
-    it("does not use PC scripts as YUZU fallback matches", () => {
+    it.each(["yuzu", "eden", "lichii"])("does not use PC scripts as %s fallback matches", (emulator) => {
         const root = makeTempRoot();
         const switchScript = path.join(root, "NS_0100A3501946E000_Octopath_Traveler_2.js");
         const pcScript = path.join(root, "PC_Steam_Unreal_OCTOPATH_TRAVELER_0.js");
@@ -62,12 +63,13 @@ describe("agent script file listing", () => {
 
         const result = resolveSwitchAgentScript({
             scriptsPath: root,
-            processName: "yuzu.exe",
-            windowTitle: "yuzu | Octopath Traveler 0 (64-bit)",
+            processName: `${emulator}.exe`,
+            windowTitle: `${emulator} | Octopath Traveler 0 (64-bit)`,
             sceneName: "Octopath Traveler 0",
             explicitGameId: null,
         });
 
+        expect(result.isSwitchTarget).toBe(true);
         expect(result.path).not.toBe(pcScript);
         expect(result.candidates.every((candidate) => path.basename(candidate.path).startsWith("NS_"))).toBe(true);
     });
@@ -109,14 +111,29 @@ describe("agent script file listing", () => {
         }
     });
 
-    it("preserves explicit and detected Switch title IDs over conflicting name hints", () => {
+    it.each(["yuzu", "lichii"])("preserves explicit and detected %s title IDs over conflicting name hints", (emulator) => {
         const root = makeTempRoot();
         const first = path.join(root, "NS_01000AE01954A000_Unicorn_Overlord.js");
         const second = path.join(root, "NS_01001DC01486A000_Tsukihime.js");
         fs.writeFileSync(first, "");
         fs.writeFileSync(second, "");
-        const input = { scriptsPath: root, processName: "yuzu.exe", sceneName: "Tsukihime", windowTitle: "yuzu | Tsukihime [01000AE01954A000]" };
+        const input = { scriptsPath: root, processName: `${emulator}.exe`, sceneName: "Tsukihime", windowTitle: `${emulator} | Tsukihime [01000AE01954A000]` };
         expect(resolveSwitchAgentScript(input)).toMatchObject({ path: first, reason: "matched_title_id" });
         expect(resolveSwitchAgentScript({ ...input, explicitGameId: "01001DC01486A000" })).toMatchObject({ path: second, reason: "matched_explicit_id" });
+    });
+});
+
+describe("Switch emulator detection", () => {
+    it.each([
+        ["lichii.exe", null],
+        ["C:\\Emulators\\Lichii\\LICHII.EXE", null],
+        ["/opt/lichii/lichii", null],
+        [null, "Lichii | v0.0.4 | ANONYMOUS;CODE (64-bit)"],
+    ])("recognizes Lichii from process %s or title %s", (processName, windowTitle) => {
+        expect(isSwitchEmulatorTarget(processName, windowTitle)).toBe(true);
+    });
+
+    it("does not classify an ordinary game as a Switch emulator", () => {
+        expect(isSwitchEmulatorTarget("game.exe", "ANONYMOUS;CODE")).toBe(false);
     });
 });

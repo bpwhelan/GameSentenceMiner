@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import { getOwocrConfigPath } from '../data_dir.js';
 import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent, clipboard, shell } from 'electron';
 import {
     getAutoUpdateElectron,
@@ -950,7 +951,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.open-global-owocr-config', async () => {
         try {
-            const configPath = path.join(os.homedir(), '.config', 'owocr_config_gsm.ini');
+            const configPath = getOwocrConfigPath();
 
             // Check if file exists, create it if it doesn't
             if (!fs.existsSync(configPath)) {

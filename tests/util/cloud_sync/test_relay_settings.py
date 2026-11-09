@@ -45,6 +45,20 @@ def test_settings_are_validated_before_any_mutation():
         apply_portable_settings(config, {"general.target_language": 1}, ["language"])
 
 
+def test_language_filter_preferences_sync_and_remain_typed():
+    config = ProfileConfig()
+    config.text_processing.language_filter = True
+    config.text_processing.language_filter_config.mode = "trim"
+    exported = export_portable_settings(config, ["text_processing"])
+    assert exported["text_processing.language_filter"] is True
+    assert exported["text_processing.language_filter_config"] == {"mode": "trim"}
+
+    restored = ProfileConfig()
+    apply_portable_settings(restored, exported, ["text_processing"])
+    assert restored.text_processing.language_filter is True
+    assert restored.text_processing.language_filter_config.mode == "trim"
+
+
 def test_only_selected_groups_apply_and_anki_objects_remain_typed():
     config = ProfileConfig()
     apply_portable_settings(

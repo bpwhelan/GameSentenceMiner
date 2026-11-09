@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-const SCRIPT_ID = "hachidori-custom-javascript";
+export const SCRIPT_ID = "hachidori-custom-javascript";
 let application = Promise.resolve();
 
 // Chrome MV3 `userScripts` registration. Hosts without a USER_SCRIPT world
-// leave saved code inert and hide the editor through host capabilities.
+// leave saved code inert and hide the editor through host capabilities. The
+// bridge runs first in the same world, so the saved code reaches the popup's
+// closed root through host.shadowRoot (custom-javascript-bridge.js).
 async function apply(browser, code) {
   let scripts;
   try {
@@ -18,7 +20,7 @@ async function apply(browser, code) {
   await scripts.register([{
     id: SCRIPT_ID,
     matches: ["<all_urls>"],
-    js: [{ code }],
+    js: [{ file: "custom-javascript-bridge.js" }, { code }],
     runAt: "document_idle",
     world: "USER_SCRIPT",
   }]);

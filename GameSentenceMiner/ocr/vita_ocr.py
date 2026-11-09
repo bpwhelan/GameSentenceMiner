@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from GameSentenceMiner.util.data_directory import get_app_directory
+from GameSentenceMiner.util.data_directory import get_profile_directory, get_shared_app_directory
 
 UPSTREAM_REVISION = "205f47ec4e56ca87c00e7dba0a61c9aaec726707"
 RELEASE = "v0.5.0"
@@ -30,7 +30,17 @@ SETUP_HELP = "Select VOCR in GSM to download its runtime and model automatically
 
 def get_install_directory():
     override = os.environ.get("GSM_VITA_OCR_DIR")
-    return Path(override).expanduser().resolve() if override else Path(get_app_directory()) / "ocr" / "vita-vn-ocr"
+    return (
+        Path(override).expanduser().resolve() if override else Path(get_shared_app_directory()) / "ocr" / "vita-vn-ocr"
+    )
+
+
+def _installation_path(directory):
+    # Runtime/model bytes are reusable; the chosen model belongs to this profile.
+    profile = get_profile_directory()
+    if profile and Path(directory).resolve() == get_install_directory().resolve():
+        return Path(profile) / "ocr" / "vita-vn-ocr" / "installation.json"
+    return Path(directory) / "installation.json"
 
 
 def library_name():
@@ -44,7 +54,7 @@ def library_name():
 def read_installation(directory=None):
     directory = Path(directory) if directory is not None else get_install_directory()
     try:
-        installation = json.loads((directory / "installation.json").read_text(encoding="utf-8"))
+        installation = json.loads(_installation_path(directory).read_text(encoding="utf-8"))
     except FileNotFoundError as error:
         raise FileNotFoundError(f"VOCR is not installed. {SETUP_HELP}") from error
     if (
@@ -61,15 +71,17 @@ def write_installation(directory, model):
     if model not in MODELS:
         raise ValueError("Choose a VOCR model: small, normal or large")
     directory = Path(directory)
+    destination = _installation_path(directory)
+    destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=directory, suffix=".tmp", delete=False
+            mode="w", encoding="utf-8", dir=destination.parent, suffix=".tmp", delete=False
         ) as file:
             temporary = Path(file.name)
             json.dump({"revision": UPSTREAM_REVISION, "release": RELEASE, "model": model}, file, indent=2)
             file.write("\n")
-        os.replace(temporary, directory / "installation.json")
+        os.replace(temporary, destination)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
@@ -79,7 +91,7 @@ def read_model_selection(directory=None):
     """Preserve the user's size across package upgrades, independently of C's ABI."""
     directory = Path(directory) if directory is not None else get_install_directory()
     try:
-        selection = json.loads((directory / "installation.json").read_text(encoding="utf-8"))
+        selection = json.loads(_installation_path(directory).read_text(encoding="utf-8"))
     except FileNotFoundError:
         return "normal"
     model = selection.get("model") if isinstance(selection, dict) else None

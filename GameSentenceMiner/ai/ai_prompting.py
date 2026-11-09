@@ -47,6 +47,8 @@ def get_ai_prompt_result(
     game_title: str = "",
     force_refresh: bool = False,
     custom_prompt=None,
+    *,
+    translation_only: bool = False,
 ) -> str:
     lines, game_title = _clip_context(lines, current_line, game_title)
     try:
@@ -60,6 +62,8 @@ def get_ai_prompt_result(
             current_line=current_line,
             game_title=game_title,
             custom_prompt=custom_prompt,
+            force_refresh=force_refresh,
+            translation_only=translation_only,
         )
     except Exception as e:
         logger.error(
@@ -108,6 +112,7 @@ def ai_config_changed(config: Ai, current: Optional[Ai]) -> bool:
         or config.open_ai_model != current.open_ai_model
         or config.open_ai_backup_model != current.open_ai_backup_model
         or config.open_ai_url != current.open_ai_url
+        or config.open_ai_reasoning_effort != current.open_ai_reasoning_effort
     ):
         return True
     if config.provider == AI_GSM_CLOUD and (

@@ -1,9 +1,12 @@
 import datetime
 import threading
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from GameSentenceMiner.util.text_log import GameLine
+
+SELECTION_NEW_LINE_LIMIT = 2
 
 
 @dataclass
@@ -60,6 +63,7 @@ class EventManager:
         self.events_dict = {}
         self.session_events = []
         self.session_events_dict = {}
+        self._selection_lines_remaining = 0
         self._lock = threading.RLock()
 
     def __iter__(self):
@@ -72,39 +76,51 @@ class EventManager:
             self.session_events = list(new_events)
             self.session_events_dict = dict(self.events_dict)
             self.timed_out_ids.clear()
+            self._selection_lines_remaining = (
+                SELECTION_NEW_LINE_LIMIT if any(event.checked for event in new_events) else 0
+            )
 
-    def add_gameline(self, line: GameLine):
+    def add_gameline(
+        self, line: GameLine, *, age_selection: bool = True, on_selection_expired: Callable[[], None] | None = None
+    ):
+        """Admit a distinct line; any selection-expiry callback must be nonblocking."""
         line_session_id = str(getattr(line, "session_id", "") or "")
         with self._lock:
+            if line.id in self.session_events_dict:
+                return self.upsert_gameline(line)
             if line_session_id and not self.session_events:
                 self.session_id = line_session_id
-        new_event = EventItem(
-            line,
-            line.id,
-            line.text,
-            line.time,
-            False,
-            False,
-            bool(getattr(line, "excluded_from_stats", False)),
-            line_session_id or self.session_id,
-            int(getattr(line, "stream_sequence", 0) or 0),
-            int(getattr(line, "revision", 1) or 1),
-            str(getattr(line, "state", "frozen") or "frozen"),
-        )
-        with self._lock:
+            new_event = EventItem(
+                line,
+                line.id,
+                line.text,
+                line.time,
+                False,
+                False,
+                bool(getattr(line, "excluded_from_stats", False)),
+                line_session_id or self.session_id,
+                int(getattr(line, "stream_sequence", 0) or 0),
+                int(getattr(line, "revision", 1) or 1),
+                str(getattr(line, "state", "frozen") or "frozen"),
+            )
             self.events_dict[line.id] = new_event
             self.events.append(new_event)
             self.session_events_dict[line.id] = new_event
             self.session_events.append(new_event)
             self.timed_out_ids.discard(line.id)
+            selection_expired = age_selection and self._age_selection_locked()
+        if selection_expired and on_selection_expired is not None:
+            on_selection_expired()
         return new_event
 
-    def upsert_gameline(self, line: GameLine):
+    def upsert_gameline(
+        self, line: GameLine, *, age_selection: bool = True, on_selection_expired: Callable[[], None] | None = None
+    ):
         """Insert or revise a line without changing its authoritative position."""
         with self._lock:
             existing = self.session_events_dict.get(line.id)
             if existing is None:
-                return self.add_gameline(line)
+                return self.add_gameline(line, age_selection=age_selection, on_selection_expired=on_selection_expired)
             incoming_revision = int(getattr(line, "revision", 1) or 1)
             if incoming_revision < existing.revision:
                 return existing
@@ -121,6 +137,33 @@ class EventManager:
         with self._lock:
             for event in self.session_events:
                 event.checked = False
+            self._selection_lines_remaining = 0
+
+    def _age_selection_locked(self) -> bool:
+        if not self._selection_lines_remaining:
+            return False
+        self._selection_lines_remaining -= 1
+        if self._selection_lines_remaining:
+            return False
+        self.reset_checked_lines()
+        return True
+
+    def set_checked_lines(self, updates: dict[str, bool]) -> list[str]:
+        """Apply a reader gesture once, including retries, under the collection lock."""
+        with self._lock:
+            changed = []
+            selection_changed = False
+            for event_id, checked in updates.items():
+                event = self.session_events_dict.get(event_id)
+                if event is not None:
+                    selection_changed |= event.checked != checked
+                    event.checked = checked
+                    changed.append(event_id)
+            if selection_changed:
+                self._selection_lines_remaining = (
+                    SELECTION_NEW_LINE_LIMIT if any(event.checked for event in self.session_events) else 0
+                )
+            return changed
 
     def get_events(self):
         with self._lock:
@@ -154,6 +197,7 @@ class EventManager:
             return {
                 "session_id": self.session_id,
                 "ids": [event.id for event in self.events],
+                "selected_ids": [event.id for event in self.session_events if event.checked],
                 "timed_out_ids": [event.id for event in self.session_events if event.id in self.timed_out_ids],
             }
 

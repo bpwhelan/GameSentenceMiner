@@ -16,7 +16,7 @@ import { pipeline } from 'node:stream/promises';
 import { net } from 'electron';
 import semver from 'semver';
 import extract from '../services/zip_extract.js';
-import { BASE_DIR } from '../util.js';
+import { getSharedBaseDir } from '../data_dir.js';
 import type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
 export type { EngineStatus, EngineDownloadProgress } from '../../shared/texthook_updates.js';
 
@@ -28,7 +28,7 @@ const DOWNLOAD_ATTEMPTS = 2;
 const RETRY_DELAY_MS = 250;
 
 /** Writable directory that mirrors the old assets/texthook/ structure. */
-export const TEXTHOOK_DOWNLOAD_DIR = path.join(BASE_DIR, 'texthook');
+export const TEXTHOOK_DOWNLOAD_DIR = path.join(getSharedBaseDir(), 'texthook');
 
 /**
  * Set GSM_FORCE_TEXTHOOK_DOWNLOAD=1 in the environment to skip the bundled-assets

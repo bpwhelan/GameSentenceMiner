@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Experimental Netflix mining: Netflix's subtitle files as cue timelines, and
-// the cue a hovered subtitle line belongs to. netflix.js registers this classic
-// script on netflix.com while the flag is on; Node tests load it directly. It
-// has no Chrome dependency and produces plain text, never HTML.
+// Experimental Netflix and YouTube mining: the sites' subtitle files as cue
+// timelines, and the cue a hovered subtitle line belongs to. netflix.js
+// registers this classic script on netflix.com, and youtube.js on youtube.com,
+// while their flag is on; Node tests load it directly. It has no Chrome
+// dependency and produces plain text, never HTML.
 (function () {
   "use strict";
 
@@ -194,9 +195,48 @@
     return sortCues(cues);
   }
 
+  // YouTube's json3 caption file (netflix-page.js on YouTube): `events`, each shown from
+  // `tStartMs` for `dDurationMs`, its text the `utf8` of its `segs`. YouTube's
+  // auto-generated captions roll up in a window (`wWinId`): a line stays up
+  // while the next one is said, and an `aAppend` event only adds a line break
+  // to the window. There a cue ends where the next line of its window starts,
+  // which is when its words were said, and `shownUntilMs` keeps how long it is
+  // still shown, which is what a hovered line is matched by.
+  function parseJson3(source) {
+    let file = null;
+    try {
+      file = JSON.parse(String(source));
+    } catch {
+      // Reported below.
+    }
+    if (!Array.isArray(file?.events)) throw new Error("This is not a json3 caption file.");
+    const events = file.events.filter(event => event !== null && typeof event === "object" && !event.aAppend
+      && Number.isFinite(event.tStartMs) && Array.isArray(event.segs)).sort((left, right) => left.tStartMs - right.tStartMs);
+    const cues = [];
+    const windows = new Map();
+    for (const event of events) {
+      const text = cleanLines(event.segs.map(segment => (typeof segment?.utf8 === "string" ? segment.utf8 : "")).join(""));
+      if (!text) continue;
+      const startMs = Math.max(0, Math.round(event.tStartMs));
+      const durationMs = Number.isFinite(event.dDurationMs) ? Math.max(0, Math.round(event.dDurationMs)) : 0;
+      const cue = { startMs, endMs: startMs + durationMs, text };
+      if (event.wWinId !== undefined) {
+        const previous = windows.get(event.wWinId);
+        if (previous !== undefined && previous.endMs > startMs) {
+          previous.shownUntilMs = previous.endMs;
+          previous.endMs = Math.max(previous.startMs, startMs);
+        }
+        windows.set(event.wWinId, cue);
+      }
+      cues.push(cue);
+    }
+    return sortCues(cues);
+  }
+
   function parseSubtitles(format, text, options) {
     if (format === "webvtt") return parseWebVtt(text);
     if (format === "ttml") return parseTtml(text, options);
+    if (format === "json3") return parseJson3(text);
     throw new Error(`Unsupported subtitle format ${JSON.stringify(format)}.`);
   }
 
@@ -206,11 +246,13 @@
     return String(text).normalize("NFC").replace(INVISIBLE, "").replace(/\s+/gu, "");
   }
 
-  // Every cue active within the tolerance of `mediaTimeMs` whose text contains the line.
+  // Every cue shown within the tolerance of `mediaTimeMs` whose text contains
+  // the line. A cue is shown until its end, or its `shownUntilMs` (json3).
   function matchingCues(cues, mediaTimeMs, line, toleranceMs = MATCH_TOLERANCE_MS) {
     const key = normaliseCueText(line ?? "");
     if (!key || !Number.isFinite(mediaTimeMs)) return [];
-    return cues.filter(cue => cue.startMs - toleranceMs <= mediaTimeMs && mediaTimeMs <= cue.endMs + toleranceMs
+    return cues.filter(cue => cue.startMs - toleranceMs <= mediaTimeMs
+      && mediaTimeMs <= (cue.shownUntilMs ?? cue.endMs) + toleranceMs
       && (cue.key ?? normaliseCueText(cue.text)).includes(key));
   }
 
@@ -221,18 +263,20 @@
   }
 
   // The whole cue as the note's sentence, its lines joined without a separator
-  // as Japanese subtitles wrap. The match stays where the reader's sentence put
-  // it; null keeps the reader's sentence when that sentence is not exactly once
-  // in the cue.
-  function cueSentence(cueText, sentence, matchOffset) {
+  // as Japanese subtitles wrap, or with a language pack's `lineJoiner` (a
+  // space for languages written with spaces, docs/languages.md 8.5). The match
+  // stays where the reader's sentence put it; null keeps the reader's sentence
+  // when that sentence is not exactly once in the cue.
+  function cueSentence(cueText, sentence, matchOffset, joiner = "") {
     if (typeof sentence !== "string" || sentence === "" || !Number.isSafeInteger(matchOffset)) return null;
-    const whole = String(cueText).split("\n").map(line => line.trim()).join("");
+    const whole = String(cueText).split("\n").map(line => line.trim()).join(typeof joiner === "string" ? joiner : "");
     const at = whole.indexOf(sentence);
     if (at < 0 || whole.includes(sentence, at + 1)) return null;
     return { sentence: whole, matchOffset: at + matchOffset };
   }
 
   globalThis.HDNetflixSubtitles = {
-    MATCH_TOLERANCE_MS, cueSentence, matchCue, matchingCues, normaliseCueText, parseSubtitles, parseTtml, parseWebVtt,
+    MATCH_TOLERANCE_MS, cueSentence, matchCue, matchingCues, normaliseCueText, parseJson3, parseSubtitles, parseTtml,
+    parseWebVtt,
   };
 }());

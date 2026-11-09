@@ -13,8 +13,7 @@ from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.database.stats_export_state_table import StatsExportStateTable
 
 
-# The OpenAPI document still advertises /api/immersion/, but Tadoku's deployed
-# web client and ingress route the service through /api/internal/immersion/.
+# Tadoku's canonical OpenAPI contract uses /api/internal/immersion/.
 TADOKU_API_BASE_URL = "https://tadoku.app/api/internal/immersion/"
 TADOKU_AUTH_BASE_URL = "https://tadoku.app/api/internal/identity/"
 TADOKU_ORIGIN = "https://tadoku.app"
@@ -335,7 +334,8 @@ class TadokuClient:
             raise TadokuSyncError(f"Tadoku returned HTTP {response.status_code}{suffix}")
         return self._json_payload(response, "Tadoku returned an invalid JSON response")
 
-    def resolve_character_unit_id(self, language_code: str) -> str:
+    def resolve_character_unit_key(self, language_code: str) -> str:
+        """Resolve the API's stable unit key, preferring a language-specific unit."""
         payload = self._request_json("GET", "logs/configuration-options")
         candidates = [
             unit
@@ -349,9 +349,9 @@ class TadokuClient:
         )
         fallback = next((unit for unit in candidates if not unit.get("language_code")), None)
         selected = language_specific or fallback
-        if not selected or not selected.get("id"):
+        if not selected or not selected.get("unit_key"):
             raise TadokuSyncError(f"Tadoku has no Character unit available for language '{language_code}'")
-        return str(selected["id"])
+        return str(selected["unit_key"])
 
     def get_eligible_registration_ids(self, language_code: str, activity_id: int) -> list[str]:
         """Return every ongoing contest registration that accepts this log."""
@@ -463,7 +463,7 @@ def run_tadoku_sync(
             getattr(stats_config, "tadoku_password", ""),
             session_cookie=saved_session_cookie,
         )
-        unit_id = tadoku_client.resolve_character_unit_id(language_code)
+        unit_key = tadoku_client.resolve_character_unit_key(language_code)
         registration_ids = tadoku_client.get_eligible_registration_ids(
             language_code,
             TADOKU_READING_ACTIVITY_ID,
@@ -475,7 +475,7 @@ def run_tadoku_sync(
                     "language_code": language_code,
                     "activity_id": TADOKU_READING_ACTIVITY_ID,
                     "amount": entry["characters"],
-                    "unit_id": unit_id,
+                    "unit_key": unit_key,
                     "tags": [entry["media_tag"], TADOKU_GSM_TAG],
                     "description": descriptions.get(
                         entry["game_key"], entry["game_name"][:TADOKU_LOG_DESCRIPTION_MAX_LENGTH]

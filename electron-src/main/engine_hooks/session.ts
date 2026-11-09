@@ -140,7 +140,7 @@ function deliverText(
         copyToClipboard: current.copyToClipboard,
         capturedAt,
         sourceSequence,
-        revisionWindowMs: current.flushDelayMs,
+        revisionWindowMs: 0,
         mergeFragments: false,
         textGeometry,
     });

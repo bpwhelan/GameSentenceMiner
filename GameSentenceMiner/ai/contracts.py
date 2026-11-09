@@ -15,6 +15,7 @@ class AIRequest:
     game_title: str = ""
     request_kind: str = "translation"
     metadata: Optional[Dict[str, Any]] = None
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True)

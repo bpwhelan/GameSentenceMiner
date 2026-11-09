@@ -1466,7 +1466,10 @@ class GoogleVision:
             logger.warning("google-cloud-vision not available, Google Vision will not work!")
         else:
             logger.info("Parsing Google credentials")
-            google_credentials_file = os.path.join(os.path.expanduser("~"), ".config", "google_vision.json")
+            from GameSentenceMiner.util.data_directory import get_profile_directory
+
+            credentials_directory = get_profile_directory() or os.path.join(os.path.expanduser("~"), ".config")
+            google_credentials_file = os.path.join(credentials_directory, "google_vision.json")
             try:
                 google_credentials = deps["service_account"].Credentials.from_service_account_file(
                     google_credentials_file
@@ -4419,7 +4422,10 @@ class MeikiOCR:
         self.punctuation_regex = regex.compile(r"[\p{P}\p{S}]")
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
         self.debug_dump_response = bool(config.get("debug_dump_response", False))
-        self.debug_response_path = Path.home() / "GSM" / "temp" / "meikiocr_response.json"
+        from GameSentenceMiner.util.data_directory import get_profile_directory
+
+        debug_root = Path(get_profile_directory()) if get_profile_directory() else Path.home() / "GSM"
+        self.debug_response_path = debug_root / "temp" / "meikiocr_response.json"
         self.model = SharedMeikiOCRModel.get_model(force_cpu=not gpu_enabled("meiki"))
         self.available = self.model is not None
         if self.available:

@@ -6,12 +6,18 @@ const dirs = vi.hoisted(() => ({ base: '', defaultBase: '' }));
 vi.mock('./data_dir.js', () => ({
     getBaseDir: () => dirs.base,
     getDefaultBaseDir: () => dirs.defaultBase,
+    getProfileDir: () => process.env.GSM_PROFILE_DIR || null,
 }));
 import { getOverlayDataPath } from './overlay_data_dir.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
 describe('overlay settings location shared by the overlay and input server', () => {
+    it('keeps explicit profiles inside their root even when pointing at the default GSM directory', () => {
+        dirs.base = dirs.defaultBase = path.resolve('appdata', 'GameSentenceMiner');
+        vi.stubEnv('GSM_PROFILE_DIR', dirs.base);
+        expect(getOverlayDataPath()).toBe(path.join(dirs.base, 'gsm_overlay'));
+    });
     it('preserves the sibling overlay settings directory for default installations', () => {
         vi.stubEnv('APPDATA', path.resolve('appdata'));
         dirs.base = dirs.defaultBase = path.join(process.env.APPDATA!, 'GameSentenceMiner');

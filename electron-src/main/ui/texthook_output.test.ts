@@ -116,6 +116,38 @@ describe('selected CLI hook output', () => {
         vi.useRealTimers();
     });
 
+    it.each(['luna', 'textractor'] as const)('aggregates %s fragments before backend delivery', async (selectedEngine) => {
+        await start(selectedEngine, 100);
+        const capturedAt = Date.now();
+        emitText('first fragment');
+        await vi.advanceTimersByTimeAsync(50);
+        emitText('second fragment');
+        expect(outputTexts()).toEqual([]);
+        await vi.advanceTimersByTimeAsync(99);
+        expect(outputTexts()).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(outputTexts()).toEqual(['first fragment\nsecond fragment']);
+        expect(mocks.sendTextHookLine.mock.calls[0][0]).toMatchObject({ capturedAt, mergeFragments: false, revisionWindowMs: 0 });
+    });
+
+    it('keeps only the latest cumulative hook text within one buffer', async () => {
+        await start('luna', 100);
+        emitText('你');
+        emitText('你好');
+        emitText('你好！');
+        await vi.advanceTimersByTimeAsync(100);
+        expect(outputTexts()).toEqual(['你好！']);
+    });
+
+    it('flushes a pending line once when the hook stops', async () => {
+        await start('luna', 100);
+        emitText(subtitle);
+        hook.stopHookSession();
+        expect(outputTexts()).toEqual([subtitle]);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(outputTexts()).toEqual([subtitle]);
+    });
+
     it.each(['luna', 'textractor'] as const)('drops a burst of 1,000 identical %s events before forwarding', async (selectedEngine) => {
         await start(selectedEngine);
 

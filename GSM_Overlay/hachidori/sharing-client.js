@@ -9,13 +9,15 @@
 
 import { describeError } from "./error-text.js";
 import {
-  LINKED_ANKI_UNSUPPORTED, PROTOCOL_VERSION, SHARING_CAPABILITIES, assertLinkedAnkiFrame, parseHostFrame,
+  LANGUAGE_PROFILES_CAPABILITY, LANGUAGE_PROFILES_OPT_IN, LINKED_ANKI_UNSUPPORTED, PROTOCOL_VERSION, SHARING_CAPABILITIES,
+  assertLinkedAnkiFrame, parseHostFrame,
 } from "./sharing-protocol.js";
 
 export const SHARING_LOCAL_STATE_KEY = "sharingLocalState";
 export const NOT_REACHABLE = "The linked Hachidori is not reachable.";
 export const OUTCOME_UNKNOWN = "The linked Hachidori may have completed this change. Check its state before trying again.";
 const CONNECT_WAIT_MS = 5000;
+const OPT_IN_FAILED = "The linked Hachidori did not answer the language opt-in.";
 
 function requestFailure(failure, entry) {
   if (!entry.sent || !entry.mutation) return failure;
@@ -24,11 +26,32 @@ function requestFailure(failure, entry) {
   return unknown;
 }
 
+// The opt-in request a profile-aware client sends a host whose hello has the
+// capability, with its pack codes (docs/languages.md 17.3 item 2).
+function optInFrame(id, languages) {
+  return JSON.stringify({ kind: "request", id, message: {
+    target: "hoshidicts-worker", type: LANGUAGE_PROFILES_OPT_IN, requestId: `language-profiles-${id}`, languages } });
+}
+
+// What the opt-in reply says, or null when it says nothing usable.
+function optInOutcome(response) {
+  const snapshot = response?.snapshot;
+  if (response?.ok !== true || !["accepted", "refused"].includes(response.optIn)
+      || !snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) return null;
+  const codes = value => (Array.isArray(value) ? value.filter(code => typeof code === "string") : []);
+  return { snapshot, languageProfiles: { capability: true, optIn: response.optIn,
+    missingLanguages: codes(response.missingLanguages), hostLanguages: codes(response.hostLanguages) } };
+}
+
 // `applyBatch(changes, isCurrent, snapshot)` writes one host storage batch locally, checking
 // isCurrent inside its storage queue; `version` and `name` introduce this install.
 // `onWordStatus(revision)` hears the host's Anki index revision, and null
 // whenever the host's index starts or stops answering this browser.
-export function createSharingClient({ WebSocket, applyBatch, version, name, capabilities = SHARING_CAPABILITIES, onWordStatus = () => {} }) {
+// `languages()` gives this build's pack codes, or null for a client that
+// does not opt in to a host's profiles.
+export function createSharingClient({
+  WebSocket, applyBatch, version, name, capabilities = SHARING_CAPABILITIES, onWordStatus = () => {}, languages = () => null,
+}) {
   const pending = new Map();
   const waiting = new Set();
   let address = null;
@@ -40,9 +63,14 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
   let retryTimer = null;
   let nextId = 0;
   let linkGeneration = 0;
+  // The opt-in of the current connection while unanswered, and what the host
+  // said about its profiles; null for a host whose hello lacks the capability.
+  let optIn = null;
+  let languageProfiles = null;
 
   function status() {
-    return { linked: address !== null, address, connected: ready, host, error };
+    return { linked: address !== null, address, connected: ready, host, error,
+      ...(languageProfiles === null ? {} : { languageProfiles }) };
   }
 
   function sendHello(target) {
@@ -74,6 +102,57 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     }, delay);
   }
 
+  // The connection is ready once its snapshot is stored: the hello's, or for a
+  // client that opted in, the opt-in reply's.
+  async function adoptSnapshot(current, currentGeneration, snapshot) {
+    await applyBatch(snapshot, () => socket === current && linkGeneration === currentGeneration, true);
+    if (socket !== current || linkGeneration !== currentGeneration) return;
+    ready = true;
+    error = null;
+    attempt = 0;
+    settleWaiting();
+    // Word-status frames sent while this browser was away are lost, and
+    // this host's revisions do not continue the index that answered before.
+    onWordStatus(null);
+  }
+
+  // A host with profiles: opt in before storing anything, so this
+  // browser's pages never adopt the Japanese view first.
+  async function handleHello(current, currentGeneration, frame) {
+    host = { version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
+      capabilities: frame.capabilities };
+    const codes = frame.capabilities.includes(LANGUAGE_PROFILES_CAPABILITY) ? languages() : null;
+    if (codes !== null) {
+      languageProfiles = { capability: true, optIn: null, missingLanguages: [], hostLanguages: [] };
+      optIn = { id: ++nextId };
+      current.send(optInFrame(optIn.id, codes));
+      return;
+    }
+    languageProfiles = null;
+    await adoptSnapshot(current, currentGeneration, frame.snapshot);
+  }
+
+  // The opt-in's reply, or a request's.
+  async function handleReply(current, currentGeneration, frame) {
+    if (optIn !== null && frame.id === optIn.id) {
+      optIn = null;
+      const outcome = optInOutcome(frame.response);
+      if (outcome === null) {
+        // Nothing is stored; the connection starts over.
+        error = frame.response?.error || OPT_IN_FAILED;
+        current.close();
+        return;
+      }
+      languageProfiles = outcome.languageProfiles;
+      await adoptSnapshot(current, currentGeneration, outcome.snapshot);
+      return;
+    }
+    const entry = pending.get(frame.id);
+    if (entry === undefined || entry.generation !== currentGeneration) return;
+    pending.delete(frame.id);
+    entry.resolve(frame.response);
+  }
+
   async function handleFrame(current, currentGeneration, text) {
     if (socket !== current || linkGeneration !== currentGeneration) return;
     let frame;
@@ -85,27 +164,15 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     }
     switch (frame.kind) {
       case "hello":
-        host = { version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
-          capabilities: frame.capabilities };
-        await applyBatch(frame.snapshot,
-          () => socket === current && linkGeneration === currentGeneration, true);
-        if (socket !== current || linkGeneration !== currentGeneration) return;
-        ready = true;
-        error = null;
-        attempt = 0;
-        settleWaiting();
-        // Word-status frames sent while this browser was away are lost, and
-        // this host's revisions do not continue the index that answered before.
-        onWordStatus(null);
+        await handleHello(current, currentGeneration, frame);
         return;
-      case "reply": {
-        const entry = pending.get(frame.id);
-        if (entry === undefined || entry.generation !== currentGeneration) return;
-        pending.delete(frame.id);
-        entry.resolve(frame.response);
+      case "reply":
+        await handleReply(current, currentGeneration, frame);
         return;
-      }
       case "storage":
+        // Changes sent before the host answered the opt-in are no newer than
+        // its reply.
+        if (optIn !== null) return;
         await applyBatch(frame.changes,
           () => socket === current && linkGeneration === currentGeneration);
         return;
@@ -143,6 +210,8 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       socket = null;
       ready = false;
       host = null;
+      optIn = null;
+      languageProfiles = null;
       const failure = new Error(NOT_REACHABLE);
       rejectPending(failure);
       settleWaiting(failure);
@@ -218,8 +287,11 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
     });
   }
 
-  // One short connection that reports what answers at an address.
-  function probe(target) {
+  // One short connection that reports what answers at an address. With
+  // `optIn`, a host with profiles is asked for them as the link's own
+  // connection asks, and the snapshot is the opt-in reply's: a new link stores
+  // that, never the hello's (docs/languages.md 17.3 item 2).
+  function probe(target, { optIn: askProfiles = false } = {}) {
     return new Promise((resolve, reject) => {
       let probeSocket;
       try {
@@ -229,6 +301,7 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
         return;
       }
       let settled = false;
+      let hello = null;
       const finish = (callback) => {
         if (settled) return;
         settled = true;
@@ -237,13 +310,27 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
         probeSocket.close();
       };
       const timer = setTimeout(() => finish(() => reject(new Error(`No shared Hachidori answered at ${target}.`))), CONNECT_WAIT_MS);
+      const found = frame => ({ version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
+        capabilities: frame.capabilities, snapshot: frame.snapshot });
       probeSocket.onopen = () => sendHello(probeSocket);
       probeSocket.onmessage = (event) => {
         try {
           const frame = parseHostFrame(String(event.data));
           if (frame.kind === "hello") {
-            finish(() => resolve({ version: frame.version, name: frame.name, dictionaryCount: frame.dictionaryCount,
-              capabilities: frame.capabilities, snapshot: frame.snapshot }));
+            const codes = askProfiles && frame.capabilities.includes(LANGUAGE_PROFILES_CAPABILITY) ? languages() : null;
+            if (codes === null) {
+              finish(() => resolve(found(frame)));
+              return;
+            }
+            hello = frame;
+            probeSocket.send(optInFrame("probe-language-profiles", codes));
+          } else if (frame.kind === "reply" && hello !== null && frame.id === "probe-language-profiles") {
+            const outcome = optInOutcome(frame.response);
+            if (outcome === null) {
+              finish(() => reject(new Error(frame.response?.error || OPT_IN_FAILED)));
+              return;
+            }
+            finish(() => resolve({ ...found(hello), snapshot: outcome.snapshot, languageProfiles: outcome.languageProfiles }));
           } else if (frame.kind === "bye") {
             finish(() => reject(new Error(frame.reason || "The shared Hachidori refused the connection.")));
           }
@@ -273,6 +360,8 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       socket = null;
       ready = false;
       host = null;
+      optIn = null;
+      languageProfiles = null;
       previous?.close();
       connect();
     },
@@ -286,6 +375,8 @@ export function createSharingClient({ WebSocket, applyBatch, version, name, capa
       ready = false;
       host = null;
       error = null;
+      optIn = null;
+      languageProfiles = null;
       const failure = new Error(NOT_REACHABLE);
       rejectPending(failure);
       settleWaiting(failure);

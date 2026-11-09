@@ -9,6 +9,7 @@ from pathlib import Path
 
 from GameSentenceMiner.util.data_directory import (
     get_pointer_path,
+    get_profile_directory,
     read_data_dir_pointer,
     write_data_dir_pointer,
 )
@@ -16,6 +17,8 @@ from GameSentenceMiner.util.database.sqlite_core import atomic_sqlite_backup, du
 
 
 def recover_legacy_database(directory: str) -> None:
+    if get_profile_directory():
+        return
     try:
         pointer = read_data_dir_pointer()
     except ValueError:

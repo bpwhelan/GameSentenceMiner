@@ -57,6 +57,8 @@ npm run agent:restart -- --help
 `--delay` accepts 5–300 seconds (30 by default). `--timeout` includes the countdown and startup
 (120 seconds by default). `--data-dir "C:\path\to\GSM-data"` overrides discovery;
 normally the command resolves GSM's relocated data directory automatically.
+For a launch using `-profile`, pass that profile folder with `--data-dir`.
+See [Portable profiles](PORTABLE_PROFILES.md) for isolated development and language data.
 
 Use `npm start` for this workflow. `npm run dev` owns a watcher-driven restart loop
 and is deliberately rejected, since rebuilding watched files could otherwise

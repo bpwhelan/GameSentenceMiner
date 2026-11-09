@@ -70,7 +70,8 @@ export function createAnkiOffscreenService(window, getAudioRepository) {
     if (message.type !== "hd_anki_fields") throw new Error("Unknown Anki rendering request.");
     return buildAnkiResourceFields(message.request, message.templates, {
       document: window.document, dictionaryPaths: message.dictionaryPaths, audio: message.audio,
-      compactGlossary: message.compactGlossary === true,
+      compactGlossary: message.compactGlossary === true, compactGlossaries: message.compactGlossaries === true,
+      profile: message.profile ?? null,
       styles: async () => {
         const reply = await extensionApi.runtime.sendMessage({ target: "hoshidicts-offscreen", type: "hd_styles", requestId: message.requestId });
         if (!reply.ok || reply.generation !== message.request.generation) throw new Error(reply.error || "Dictionary styles changed during Anki preparation.");

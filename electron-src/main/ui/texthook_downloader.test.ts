@@ -30,6 +30,7 @@ const manifest = {
 
 vi.mock('electron', () => ({ net: { fetch: fetchMock } }));
 vi.mock('../util.js', () => ({ get BASE_DIR() { return baseDir; } }));
+vi.mock('../data_dir.js', () => ({ getSharedBaseDir: () => baseDir }));
 
 async function makeZip(entries = runtimeFiles.map(file => [file, fileContents(file)]), symlink = false): Promise<Buffer> {
     const archive = archiver('zip');

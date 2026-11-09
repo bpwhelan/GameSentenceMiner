@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hachidori Search</title>
+    <!-- The saved theme's background, painted as Settings paints it (#296),
+         shows until the frame below has its own theme. settings.css takes
+         its palette from render/reader.css. -->
+    <script src="reader-options.js"></script>
+    <script src="settings-theme.js"></script>
+    <link rel="stylesheet" href="render/reader.css" />
+    <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="search.css" />
+  </head>
+  <!-- search-shell.js adds the search page itself, the sandboxed
+       search-frame.html (#644), over the whole window. The Anki Template
+       switch (#656) and the Clipboard monitor switch (#639) lie over the end
+       of its header: Firefox asks for a permission only from the document
+       whose control the user clicked, and the frame's options cannot be
+       written from the frame. -->
+  <body class="search-shell">
+    <!-- The frame's icon and title are laid out here but invisible
+         (search.css), so the switches land at the end of the frame's header
+         at any width; being invisible, they are not in the accessibility tree. -->
+    <div class="search-header search-shell-header" hidden>
+      <img src="icons/hachidori-48.png" width="24" height="24" alt="" />
+      <h1>Hachidori Search</h1>
+      <select class="search-template" id="search-template" aria-label="Anki Template"
+        title="Anki Template: the Template the popup's Anki button adds notes with" hidden></select>
+      <label class="lookup-enable" title="Search Japanese text as soon as you copy it, in any tab or program">
+        <span>Clipboard monitor</span>
+        <input type="checkbox" id="search-clipboard" disabled />
+      </label>
+    </div>
+    <script type="module" src="search-shell.js"></script>
+  </body>
+</html>

@@ -1,0 +1,203 @@
+{
+  "schema": 1,
+  "code": "el",
+  "iso639_3": "ell",
+  "name": "Greek",
+  "nativeName": "Ελληνικά",
+  "bcp47": "el",
+  "scripts": ["Grek"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[\\u0386\\u0388-\\u038A\\u038C\\u038E-\\u03A1\\u03A3-\\u03CE\\u1F00-\\u1FBC\\u1FBE\\u1FC2-\\u1FCC\\u1FD0-\\u1FDB\\u1FE0-\\u1FEC\\u1FF2-\\u1FFC]",
+    "apostrophe": "['\\u2019\\u02BC\\u1FBD\\u0384]",
+    "word": "[{letter}{apostrophe}\\u0300-\\u036F0-9]",
+    "greek": "[\\u0390\\u03AC-\\u03CE]",
+    "unaccented": "[\\u03B1-\\u03CB]",
+    "greekAll": "[\\u0386\\u0388-\\u038A\\u038C\\u038E-\\u03A1\\u03A3-\\u03CE]",
+    "unaccentedAll": "[\\u0391-\\u03A1\\u03A3-\\u03AB\\u03B1-\\u03CB]",
+    "vowel": "[αεηιουωάέήίόύώϊϋΐΰ]",
+    "accented": "[άέήίόύώΐΰΆΈΉΊΌΎΏ]",
+    "consonant": "[βγδζθκλμνξπρσςτφχψΒΓΔΖΘΚΛΜΝΞΠΡΣΤΦΧΨ]"
+  },
+  "text": {
+    "pattern": "[{letter}{apostrophe}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", ";", "\u037E", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "legacyCapitalAccent",
+        "name": "Write \u0384\u039F as \u038C",
+        "variants": [[{"map": {"\u0384\u0391": "\u0386", "\u0384\u0395": "\u0388", "\u0384\u0397": "\u0389", "\u0384\u0399": "\u038A", "\u0384\u039F": "\u038C", "\u0384\u03A5": "\u038E", "\u0384\u03A9": "\u038F"}}]]
+      },
+      {
+        "id": "normalizeApostrophes",
+        "name": "Write apostrophes as '",
+        "variants": [[{"map": {"\u2019": "'", "\u02BC": "'", "\u1FBD": "'", "\u0384": "'"}}]]
+      },
+      {
+        "id": "polytonicToMonotonic",
+        "name": "Polytonic to monotonic",
+        "variants": [
+          [
+            {"normalize": "NFD"},
+            {"map": {"\u0300": "\u0301", "\u0342": "\u0301"}},
+            {"strip": "[\\u0313\\u0314\\u0343\\u0345]"},
+            {"normalize": "NFC"}
+          ],
+          [
+            {"normalize": "NFD"},
+            {"strip": "[\\u0300\\u0313\\u0314\\u0342\\u0343\\u0345]"},
+            {"normalize": "NFC"}
+          ]
+        ]
+      },
+      {
+        "id": "removeDoubleAcuteAccents",
+        "name": "Remove the second acute accent",
+        "variants": [[{"normalize": "NFD"}, {"pattern": "(\u0301[^\u0301]*)\u0301", "replace": "$1", "repeat": true}, {"normalize": "NFC"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "addMissingAccent",
+        "name": "Add a missing accent",
+        "optional": true,
+        "variants": [
+          [{"map": {"α": "ά"}, "at": "first"}],
+          [{"map": {"α": "ά"}, "at": "last"}],
+          [{"map": {"ε": "έ"}, "at": "first"}],
+          [{"map": {"ε": "έ"}, "at": "last"}],
+          [{"map": {"η": "ή"}, "at": "first"}],
+          [{"map": {"η": "ή"}, "at": "last"}],
+          [{"map": {"ι": "ί"}, "at": "first"}],
+          [{"map": {"ι": "ί"}, "at": "last"}],
+          [{"map": {"ο": "ό"}, "at": "first"}],
+          [{"map": {"ο": "ό"}, "at": "last"}],
+          [{"map": {"υ": "ύ"}, "at": "first"}],
+          [{"map": {"υ": "ύ"}, "at": "last"}],
+          [{"map": {"ω": "ώ"}, "at": "first"}],
+          [{"map": {"ω": "ώ"}, "at": "last"}],
+          [{"map": {"αι": "αί", "ει": "εί", "οι": "οί", "ου": "ού", "αυ": "αύ", "ευ": "εύ"}, "at": "first"}],
+          [{"map": {"αι": "αί", "ει": "εί", "οι": "οί", "ου": "ού", "αυ": "αύ", "ευ": "εύ"}, "at": "last"}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": "\"Noto Sans\", system-ui, sans-serif",
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "missingAccents",
+      "type": "boolean",
+      "default": false,
+      "label": "Text without accents",
+      "description": "Also look words up with one accent added, for text written in capitals or without accents (ΚΑΛΗΜΕΡΑ, καλημερα → καλημέρα). Adds less likely readings and makes lookups slower.",
+      "group": "lookup",
+      "effect": {"preprocessor": "addMissingAccent"}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "el-GR",
+    "audioLanguage": "el",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "artic": "Article",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "contr": "Contraction",
+        "abbv": "Abbreviation",
+        "char": "Character"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Greek-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Modern Greek words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary Greek-Greek (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Modern Greek words with Greek definitions from Greek Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "γράφοντας",
+      "practice": {
+        "text": "Χθες γράψαμε ένα μεγάλο γράμμα στη γιαγιά μας.",
+        "lookup": "γράψαμε"
+      },
+      "entry": {
+        "expression": "γράφω",
+        "reading": "γράφω",
+        "glossary": ["to write"],
+        "definitionTags": "v",
+        "matched": "γράψαμε",
+        "trace": ["aorist (1st pl)"]
+      },
+      "character": null
+    }
+  }
+}

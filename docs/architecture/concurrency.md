@@ -4,16 +4,18 @@ GSM treats concurrency as message passing between explicit owners. Domain state 
 
 ## Text ownership
 
-`TextCoordinatorActor` is the only owner of live text identity, order, revision, and finalization. Producers create immutable `TextObservation` values and submit them through its bounded 2,048-item mailbox. The coordinator assigns `stream_sequence`; capture timestamps never determine stream order.
+`TextCoordinatorActor` is the only owner of live text identity, order, and speech revisions. Producers create immutable `TextObservation` values and submit them through its bounded 2,048-item mailbox. The coordinator assigns `stream_sequence`; capture timestamps never determine stream order.
 
 The coordinator emits immutable events in this lifecycle:
 
-1. `append`: a provisional record is immediately visible.
-2. `update`: a correlated, higher-quality observation revises the same `line_id`.
-3. `freeze`: the quiet window expires or mining selects the record. Persistence, SRT, translation, and media work consume this final snapshot. Live stats consume append/update revisions immediately through an idempotent revision ledger.
+1. `append`: ordinary sources arrive as completed (`frozen`) records and are immediately available for translation, SRT, and media work. Only speech recognition starts as `provisional`.
+2. `update`: another hypothesis from the same speech recognizer revises its open `line_id`. Other sources never rewrite admitted text.
+3. `freeze`: the speech quiet window expires or mining selects the speech record. This completes its text. Live stats apply speech corrections through an idempotent revision ledger. Skip detection can delay stats eligibility independently of text completion.
 4. `expire`: reserved for explicit retention removal.
 
-Source authority is manual/hotkey, texthook, clipboard/external WebSocket, OCR, then periodic overlay OCR. A lower-authority source may not replace higher-authority text. Correlation only examines the newest provisional record and never crosses an intervening line.
+Text hooks aggregate fragments in their sender using the configured flush delay before submitting one complete line. Cumulative typewriter prefixes replace earlier prefixes within that buffer. The backend does not add another aggregation or revision window. Matching observations from different ordinary sources can be deduplicated against the newest completed record, but cannot replace it. Ordinary input does not close or revise an open speech hypothesis.
+
+The wire `revision` field remains an event version for ordered projections, including stats eligibility changes. A metadata version increase does not make ordinary text revisable. The legacy `mergeFragments` and `revisionWindowMs` input fields cannot enable revisions for non-speech sources.
 
 `GameText` and `EventManager` are compatibility projections. They are not allowed to assign IDs or ordering for authoritative observations. Their public collection reads return snapshots.
 
@@ -21,7 +23,7 @@ Source authority is manual/hotkey, texthook, clipboard/external WebSocket, OCR, 
 
 | Owner | Mailbox/policy | Responsibility |
 | --- | --- | --- |
-| Text coordinator | 2,048, ordered | Text identity, order, correlation, revision, freeze, snapshots |
+| Text coordinator | 2,048, ordered | Text identity, order, deduplication, speech revisions/finalization, snapshots |
 | Text projection | 2,048, ordered | Compatibility views and non-blocking subscriber dispatch |
 | Database writer | 4,096, priority ordered | All SQLite writes and transaction ownership |
 | Producer outbox | 256, ordered | Request/ack delivery and two-second freshness cutoff |
@@ -46,7 +48,7 @@ CPU affinity and priority are best-effort on platforms that expose those control
 - `captured_at_utc`: when source text/pixels were observed; used for media matching.
 - `first_seen_at_utc`: when Python admitted the line; used for display order and statistics.
 - `received_monotonic_ns`: durations, deadlines, and latency only.
-- `finalized_at_utc`: frozen revision time.
+- `finalized_at_utc`: admission time for ordinary text; finalization time for speech.
 
 Legacy naive datetimes are interpreted in the host timezone and normalized to UTC at ingress. Code must never assume insertion order is capture-time order.
 
@@ -63,8 +65,8 @@ Electron and OCR send a bus request on `text.ingress.v2`:
   "sourceDisplayName": "Luna · game.exe · #4",
   "capturedAt": 1786320000000,
   "emittedAt": 1786320000000,
-  "revisionWindowMs": 100,
-  "mergeFragments": true
+  "revisionWindowMs": 0,
+  "mergeFragments": false
 }
 ```
 
@@ -74,7 +76,7 @@ The backend responds with `accepted`, `duplicate`, `backpressured`, or `rejected
 
 The bundled client requests `text_v2_snapshot_request`. That request is also the explicit capability negotiation boundary: an unnegotiated socket never receives a `text_v2_*` frame, and a negotiated v2 socket no longer receives legacy frozen `text_received` lines. Python replies with a `text_v2_snapshot` containing `snapshot_sequence`, then sends `text_v2_append`, `text_v2_update`, and `text_v2_freeze` deltas. Deltas generated while a snapshot is being written are buffered per client and drained afterward. A client that exceeds the 256-delta barrier is disconnected and recovers with a new snapshot.
 
-Legacy HTTP routes, session sync, structured `text_received`, and plaintext output remain available. Legacy consumers receive one frozen value and therefore never render revisions as duplicates.
+Legacy HTTP routes, session sync, structured `text_received`, and plaintext output remain available. Ordinary lines arrive complete. Speech updates retain the same line ID so compatible readers can replace hypotheses in place.
 
 ## Overlay projection
 

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import "./theme-host.js";
 import { buildAnkiFields } from "./anki-values.js";
 import { createAnkiDefinitionRenderer } from "./anki-glossary.js";
 import { ankiDigest } from "./anki-digest.js";
@@ -9,12 +10,31 @@ export async function ankiMediaFilename(bytes, extension) {
   return `hachidori_${await ankiDigest(bytes)}.${extension}`;
 }
 
+const LANGUAGE_TAG = /^[A-Za-z0-9-]{1,35}$/u;
+
+// The language object of the profile a note is mined in (docs/languages.md
+// 12), knowing the target language each of the request's dictionaries
+// declares; null in the single-profile shape, whose notes are today's. A
+// Japanese-profile note keeps today's glossary markup, so it takes no
+// dictionary's target language as its body's default (12).
+function noteLanguage(profile, request) {
+  if (!profile) return null;
+  const targets = profile.language === "ja" ? null : request.dictionaryTargetLanguages;
+  const dictionaries = targets && typeof targets === "object" && !Array.isArray(targets)
+    ? Object.entries(targets).filter(([, tag]) => typeof tag === "string" && LANGUAGE_TAG.test(tag))
+      .map(([title, targetLanguage]) => ({ title, targetLanguage }))
+    : [];
+  return globalThis.HDThemeHost.createLanguage(globalThis.HDLanguages?.get?.(profile.language) ?? null,
+    { marked: true, packSettings: profile.packSettings ?? {}, dictionaries });
+}
+
 // Planning reads no dictionary bytes and uploads nothing. Stable generation
 // paths, unlike an engine's restart counter, keep first-field image identities
 // identical between preflight and the authoritative write.
 export async function buildAnkiResourceFields(request, templates, {
-  document, dictionaryPaths, styles, audio = "", compactGlossary = false,
+  document, dictionaryPaths, styles, audio = "", compactGlossary = false, compactGlossaries = false, profile = null,
 }) {
+  const language = noteLanguage(profile, request);
   const media = new Map();
   const source = { ...request, dictionaryMedia: [], dictionaryStyles: [] };
   let plainRenderer, richRenderer;
@@ -30,13 +50,14 @@ export async function buildAnkiResourceFields(request, templates, {
     }
     return media.get(key).then(item => item.filename);
   }
-  const fields = await buildAnkiFields(request, templates, { audio, definition: async options => {
+  const fields = await buildAnkiFields(request, templates, { audio, language, definition: async options => {
     if (options.plain) {
-      plainRenderer ??= createAnkiDefinitionRenderer(document, source);
+      plainRenderer ??= createAnkiDefinitionRenderer(document, source, undefined, { compactGlossaries, language });
       return plainRenderer(options);
     }
     richRenderer ??= Promise.resolve(styles()).then(dictionaryStyles =>
-      createAnkiDefinitionRenderer(document, { ...source, dictionaryStyles }, filenameFor, { compact: compactGlossary }));
+      createAnkiDefinitionRenderer(document, { ...source, dictionaryStyles }, filenameFor,
+        { compact: compactGlossary, compactGlossaries, language }));
     return (await richRenderer)(options);
   } });
   return { fields, media: await Promise.all(media.values()) };

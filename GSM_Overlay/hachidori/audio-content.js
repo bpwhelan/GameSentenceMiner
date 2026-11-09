@@ -26,7 +26,7 @@
     const bound = new WeakMap(), visited = new WeakMap();
     const controls = new Set();
     let selections = new WeakMap();
-    let options = window.HDReaderOptions.DEFAULT_OPTIONS;
+    let options = globalThis.HDReaderOptions.DEFAULT_OPTIONS;
     let sourceKey = JSON.stringify(options.audioSources);
     let active = null, menu = null;
     let optionsReady = false;
@@ -137,7 +137,7 @@
       element.style.maxHeight = "";
       const box = popupRect(popup.getBoundingClientRect()), anchor = popupRect(button.getBoundingClientRect());
       const left = box.left + popup.clientLeft, top = box.top + popup.clientTop;
-      const position = window.HDPopup.calculatePopupPosition(
+      const position = globalThis.HDPopup.calculatePopupPosition(
         { left: anchor.left - left, right: anchor.right - left, top: anchor.top - top, bottom: anchor.bottom - top },
         { width: element.offsetWidth, height: element.offsetHeight },
         { width: popup.clientWidth, height: popup.clientHeight },
@@ -261,7 +261,7 @@
           const section = document.createElement("div");
           const title = document.createElement("h4");
           title.className = "gsm-hoshidicts-audio-menu-heading";
-          title.textContent = `${sourceIndex + 1}. ${window.HDReaderOptions.AUDIO_SOURCE_LABELS[group.type]}`;
+          title.textContent = `${sourceIndex + 1}. ${globalThis.HDReaderOptions.AUDIO_SOURCE_LABELS[group.type]}`;
           section.append(title);
           if (group.error) {
             const error = document.createElement("p");
@@ -340,7 +340,7 @@
           || message.requestId !== active?.requestId || !current(active.record)) return;
       active.record.button.dataset.state = "playing";
     };
-    window.chrome.runtime.onMessage.addListener(listener);
+    chrome.runtime.onMessage.addListener(listener);
     // Chrome 128 can tear down the content owner before content.js receives
     // pagehide. Listen here too so the offscreen player is stopped while this
     // document can still identify its owned request.
@@ -387,7 +387,7 @@
         retire();
         controls.clear();
         window.removeEventListener("pagehide", onPageHide);
-        window.chrome.runtime.onMessage.removeListener(listener);
+        chrome.runtime.onMessage.removeListener(listener);
       },
     };
   }

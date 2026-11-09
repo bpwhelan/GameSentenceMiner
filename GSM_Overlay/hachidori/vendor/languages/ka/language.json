@@ -1,0 +1,124 @@
+{
+  "schema": 1,
+  "code": "ka",
+  "iso639_3": "kat",
+  "name": "Georgian",
+  "nativeName": "ქართული",
+  "bcp47": "ka",
+  "scripts": ["Geor"],
+  "direction": "ltr",
+  "classes": {
+    "mkhedruli": "[\\u10D0-\\u10FA\\u10FC-\\u10FF]",
+    "mtavruli": "[\\u1C90-\\u1CBA\\u1CBD-\\u1CBF]",
+    "khutsuri": "[\\u10A0-\\u10C5\\u10C7\\u10CD\\u2D00-\\u2D25\\u2D27\\u2D2D]",
+    "letter": "[{mkhedruli}{mtavruli}{khutsuri}]",
+    "word": "[{letter}\\u0300-\\u036F0-9]"
+  },
+  "text": {
+    "pattern": "{letter}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["„", "“"], ["«", "»"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "mtavruliToMkhedruli",
+        "name": "Mtavruli (capitals) to Mkhedruli",
+        "variants": [[{"case": "lower"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "ka-GE",
+    "audioLanguage": "ka",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "pron": "Pronoun",
+        "num": "Numeral",
+        "postp": "Postposition",
+        "conj": "Conjunction",
+        "ptcl": "Particle",
+        "intj": "Interjection",
+        "det": "Determiner",
+        "ptcpl": "Participle",
+        "phrase": "Phrase",
+        "suf": "Suffix",
+        "pref": "Prefix",
+        "char": "Character",
+        "vdt": "Ditransitive verb",
+        "vr": "Reflexive verb",
+        "prov": "Proverb",
+        "prep": "Preposition"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "wty-ka-en (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Georgian-English definitions from English Wiktionary (via Kaikki), with the declension and conjugation tables as form-of entries.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "სახლი",
+      "practice": {
+        "text": "ბავშვები ყოველ დილით სკოლაში მიდიან.",
+        "lookup": "სკოლაში"
+      },
+      "entry": {
+        "expression": "სკოლა",
+        "reading": "სკოლა",
+        "glossary": ["school"],
+        "definitionTags": "n",
+        "matched": "სკოლაში",
+        "trace": ["-ში (in)", "dative"]
+      },
+      "character": null
+    }
+  }
+}

@@ -1,0 +1,385 @@
+{
+  "schema": 1,
+  "code": "ar",
+  "iso639_3": "ara",
+  "name": "Arabic",
+  "nativeName": "العربية",
+  "bcp47": "ar",
+  "scripts": [
+    "Arab"
+  ],
+  "direction": "rtl",
+  "classes": {
+    "base": "[\\u0621-\\u063A\\u0641-\\u064A]",
+    "letter": "[{base}\\u0620\\u063B-\\u063F\\u066E\\u066F\\u0671-\\u06D3\\u06D5\\u06EE\\u06EF\\u06FA-\\u06FC\\u06FF\\uFB50-\\uFBB1\\uFBD3-\\uFD3D\\uFD50-\\uFD8F\\uFD92-\\uFDC7\\uFDF0-\\uFDFB\\uFE70-\\uFE74\\uFE76-\\uFEFC]",
+    "marks": "[\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06DC\\u06DF-\\u06E8\\u06EA-\\u06ED]",
+    "word": "[{letter}{marks}\\u0640]"
+  },
+  "text": {
+    "pattern": "{word}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [
+        ".",
+        "!",
+        "?",
+        "؟",
+        "۔",
+        "…"
+      ],
+      "quotePairs": [
+        [
+          "«",
+          "»"
+        ],
+        [
+          "“",
+          "”"
+        ],
+        [
+          "”",
+          "“"
+        ],
+        [
+          "\"",
+          "\""
+        ],
+        [
+          "(",
+          ")"
+        ],
+        [
+          "﴿",
+          "﴾"
+        ]
+      ]
+    },
+    "highlightBreaks": {
+      "sentenceEnd": [
+        ".",
+        "!",
+        "?",
+        "؟",
+        "۔",
+        "…"
+      ],
+      "clauseEnd": [
+        "،",
+        "؛",
+        ",",
+        ";",
+        ":"
+      ]
+    },
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode",
+        "variants": [
+          [
+            {
+              "normalize": "NFKC"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "daggerAlif",
+        "name": "Write the dagger alif as alif",
+        "variants": [
+          [
+            {
+              "map": {
+                "ٰ": "ا"
+              },
+              "at": "all"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "removeArabicScriptDiacritics",
+        "name": "Remove diacritics",
+        "variants": [
+          [
+            {
+              "strip": "[\\u0618-\\u061A\\u064B-\\u0656\\u0670]"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "removeQuranicMarks",
+        "name": "Remove Quranic marks",
+        "variants": [
+          [
+            {
+              "strip": "[\\u0610-\\u0617\\u0657-\\u065F\\u06D6-\\u06DC\\u06DF-\\u06E8\\u06EA-\\u06ED]"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "removeTatweel",
+        "name": "Remove tatweel characters",
+        "variants": [
+          [
+            {
+              "strip": "[\\u0640]"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "arabicLetterForms",
+        "name": "Arabic letters for Persian and Quranic letter forms",
+        "variants": [
+          [
+            {
+              "map": {
+                "ی": "ي",
+                "ک": "ك",
+                "ڪ": "ك",
+                "ٱ": "ا"
+              },
+              "at": "all"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "addHamza",
+        "name": "Add hamza to an alif that starts a word, or follows ال or a one-letter proclitic",
+        "variants": [
+          [
+            {
+              "pattern": "^([وف]?[بك]?ال|[وف]?لل|[وف]?[بكل]|[وف]|)ا(?!ل[ء-ي]{2})",
+              "replace": "$1أ"
+            }
+          ],
+          [
+            {
+              "pattern": "^([وف]?[بك]?ال|[وف]?لل|[وف]?[بكل]|[وف]|)ا(?!ل[ء-ي]{2})",
+              "replace": "$1إ"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "convertAlifMaqsuraToYaa",
+        "name": "Convert Alif Maqsura to Yaa",
+        "variants": [
+          [
+            {
+              "map": {
+                "ى": "ي"
+              },
+              "at": "end"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "convertYaaToAlifMaqsura",
+        "name": "Convert final Yaa to Alif Maqsura",
+        "optional": true,
+        "variants": [
+          [
+            {
+              "map": {
+                "ي": "ى"
+              },
+              "at": "end"
+            }
+          ]
+        ]
+      },
+      {
+        "id": "convertHaToTaMarbuta",
+        "name": "Convert final Ha to Ta Marbuta",
+        "optional": true,
+        "variants": [
+          [
+            {
+              "map": {
+                "ه": "ة"
+              },
+              "at": "end"
+            }
+          ]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "optional",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": true
+    },
+    "labels": {
+      "reading": "Vowelled"
+    },
+    "displayTransforms": {
+      "stripVowelMarks": [
+        {
+          "strip": "{marks}"
+        }
+      ]
+    }
+  },
+  "settings": [
+    {
+      "id": "vowelMarks",
+      "type": "enum",
+      "default": "show",
+      "values": [
+        {
+          "id": "show",
+          "label": "Show"
+        },
+        {
+          "id": "hide",
+          "label": "Hide"
+        }
+      ],
+      "label": "Vowel marks in headwords",
+      "description": "Arabic dictionaries often write short vowels. Hiding them shows words as they appear in most text.",
+      "group": "display",
+      "effect": {
+        "display": {
+          "fields": [
+            "expression",
+            "reading"
+          ],
+          "when": "hide",
+          "transform": "stripVowelMarks"
+        }
+      }
+    },
+    {
+      "id": "informalTaMarbuta",
+      "type": "boolean",
+      "default": false,
+      "label": "Read a final ه as ة",
+      "description": "Informal writing often spells ة as ه (مدرسه for مدرسة). With this on, a word ending in ه is also looked up with ة, after its readings of ه as a pronoun.",
+      "group": "lookup",
+      "effect": {
+        "preprocessor": "convertHaToTaMarbuta"
+      }
+    },
+    {
+      "id": "informalFinalYa",
+      "type": "boolean",
+      "default": false,
+      "label": "Read a final ي as ى",
+      "description": "Informal writing often spells a final ى as ي (حتي for حتى, إلي for إلى). With this on, a word ending in ي is also looked up with ى, after its readings as written (ي as \"my\" or a verb ending).",
+      "group": "lookup",
+      "effect": {
+        "preprocessor": "convertYaaToAlifMaqsura"
+      }
+    },
+    {
+      "id": "derivedForms",
+      "type": "boolean",
+      "default": false,
+      "label": "Verbs behind participles and verbal nouns",
+      "description": "Also look up the verb a participle or verbal noun is formed from (مستخدم and استخدام give استخدم). Dictionaries list most of these words on their own.",
+      "group": "lookup",
+      "effect": {
+        "transforms": [
+          "participle",
+          "verbalNoun"
+        ]
+      }
+    },
+    {
+      "id": "brokenPlurals",
+      "type": "boolean",
+      "default": false,
+      "label": "Singular of broken plurals by their pattern",
+      "description": "Also read a broken plural as its singular by its pattern (أطفال as طفل, مكاتب as مكتب, رسائل as رسالة). Dictionaries such as wty-ar-en list most plurals with their singular already; turn this on for a dictionary that does not.",
+      "group": "lookup",
+      "effect": {
+        "transforms": [
+          "brokenPlural"
+        ]
+      }
+    }
+  ],
+  "host": {
+    "ttsLanguage": "ar-SA",
+    "audioLanguage": "ar",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "num": "Numeral",
+        "det": "Determiner",
+        "phrase": "Phrase",
+        "prov": "Proverb"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "wty-ar-en (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Arabic-English definitions from Wiktionary, with vowelled readings and the inflected forms of each word.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "الكتاب",
+      "practice": {
+        "text": "ذهبتُ إلى المكتبة واستعرتُ كتابين.",
+        "lookup": "واستعرت"
+      },
+      "entry": {
+        "expression": "استعار",
+        "reading": "اِسْتَعَارَ",
+        "glossary": [
+          "to borrow"
+        ],
+        "definitionTags": "v",
+        "matched": "واستعرت",
+        "trace": [
+          "و (and)",
+          "past (I, you, she)"
+        ]
+      },
+      "character": null
+    }
+  }
+}

@@ -112,6 +112,204 @@
 	import Spinner from './Spinner.svelte';
 	import Stats from './Stats.svelte';
 	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
+	import {
+		selectMiningRange, miningSelectionChanges, type MiningUpdate, type MiningStartDetail, type MiningClickDetail,
+	} from '../mining-selection';
+
+	let miningSelectedIds = new Set<string>();
+	let miningAnchor = '';
+	let miningSaving = false;
+	let miningError = '';
+	let miningVersion = 0;
+	let miningResetVersion = 0;
+	let inFlightMiningUpdates: MiningUpdate[] = [];
+	let miningClickSuppression: { view: Window; until: number } | undefined;
+	const pendingMiningUpdates = new Map<string, boolean>();
+	let miningDrag: {
+		anchor: string; end: string; initial: Set<string>; checked: boolean;
+		view: Window; document: Document; pointerId: number; x: number; y: number; frame: number;
+		startX: number; startY: number; moved: boolean; mining: boolean;
+	} | undefined;
+
+	function miningOrder() {
+		const lines: LineItem[] = clipsViewOpen ? clipLines : $lineData$;
+		return lines
+			.filter((line) => line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$.includes(line.id)))
+			.map((line) => line.id);
+	}
+
+	function receiveMiningSelection(ids: string[]) {
+		if (!miningDrag && !miningSaving && !pendingMiningUpdates.size) miningSelectedIds = new Set(ids);
+	}
+
+	function beginMiningSelection({ detail }: CustomEvent<MiningStartDetail>) {
+		const { id, checked, event } = detail;
+		const order = miningOrder();
+		if (!order.includes(id)) return;
+		if (miningDrag) finishMiningSelection(false);
+		const view = (event.currentTarget as HTMLElement)?.ownerDocument.defaultView || window;
+		const mining = event.shiftKey;
+		const anchor = event.shiftKey && order.includes(miningAnchor) ? miningAnchor : id;
+		miningDrag = { anchor, end: id, initial: new Set(miningSelectedIds), checked, view,
+			document: view.document, pointerId: event.pointerId, x: event.clientX, y: event.clientY, frame: 0,
+			startX: event.clientX, startY: event.clientY, moved: false, mining };
+		if (mining) {
+			view.getSelection()?.removeAllRanges();
+			if (!event.shiftKey) miningAnchor = id;
+			miningVersion += 1;
+			miningSelectedIds = selectMiningRange(miningDrag.initial, order, anchor, id, checked);
+		}
+		view.addEventListener('pointermove', moveMiningSelection);
+		view.addEventListener('pointerup', endMiningSelection);
+		view.addEventListener('pointercancel', cancelMiningSelection);
+		view.addEventListener('blur', cancelMiningSelection);
+	}
+
+	function miningTargetId() {
+		if (!miningDrag) return undefined;
+		const hit = miningDrag.document.elementFromPoint?.(miningDrag.x, miningDrag.y)?.closest<HTMLElement>('[data-mining-id]');
+		return hit?.dataset.miningId;
+	}
+
+	function updateMiningTarget() {
+		if (!miningDrag?.mining) return;
+		const id = miningTargetId();
+		if (id && id !== miningDrag.end && miningOrder().includes(id)) {
+			miningDrag.end = id;
+			miningSelectedIds = selectMiningRange(miningDrag.initial, miningOrder(), miningDrag.anchor, id, miningDrag.checked);
+		}
+	}
+
+	function scrollMiningSelection() {
+		const drag = miningDrag;
+		if (!drag?.mining) return;
+		drag.frame = 0;
+		const vertical = $displayVertical$ && drag.view === window;
+		const position = vertical ? drag.x : drag.y;
+		const extent = vertical ? drag.view.innerWidth : drag.view.innerHeight;
+		const start = vertical ? 48 : 90;
+		const speed = position < start ? -Math.min(18, (start - position) / 3)
+			: position > extent - 48 ? Math.min(18, (position - extent + 48) / 3) : 0;
+		if (speed) {
+			const x = vertical ? speed : 0;
+			const y = vertical ? 0 : speed;
+			const scrollsInContainer = vertical
+				? lineContainer.scrollWidth > lineContainer.clientWidth
+				: lineContainer.clientHeight > 0 && lineContainer.scrollHeight > lineContainer.clientHeight;
+			if (drag.view === window && scrollsInContainer) lineContainer.scrollBy(x, y);
+			else drag.view.scrollBy(x, y);
+			updateMiningTarget();
+			drag.frame = drag.view.requestAnimationFrame(scrollMiningSelection);
+		}
+	}
+
+	function moveMiningSelection(event: PointerEvent) {
+		const drag = miningDrag;
+		if (!drag || event.pointerId !== drag.pointerId) return;
+		drag.x = event.clientX;
+		drag.y = event.clientY;
+		if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) >= 6) drag.moved = true;
+		if (!drag.mining) {
+			const id = miningTargetId();
+			// Leave the browser's native text selection alone until another row is crossed.
+			if (!drag.moved || !id || id === drag.anchor || !miningOrder().includes(id)) return;
+			miningDrag!.mining = true;
+			miningAnchor = drag.anchor;
+			miningVersion += 1;
+		}
+		event.preventDefault();
+		drag.view.getSelection()?.removeAllRanges();
+		updateMiningTarget();
+		if (!drag.frame) drag.frame = drag.view.requestAnimationFrame(scrollMiningSelection);
+	}
+
+	function finishMiningSelection(commit = true) {
+		const drag = miningDrag;
+		if (!drag) return;
+		drag.view.removeEventListener('pointermove', moveMiningSelection);
+		drag.view.removeEventListener('pointerup', endMiningSelection);
+		drag.view.removeEventListener('pointercancel', cancelMiningSelection);
+		drag.view.removeEventListener('blur', cancelMiningSelection);
+		drag.view.cancelAnimationFrame(drag.frame);
+		miningDrag = undefined;
+		if (drag.mining) {
+			if (commit) queueMiningSelection(miningSelectionChanges(drag.initial, miningSelectedIds));
+			else miningSelectedIds = drag.initial;
+		}
+	}
+	function endMiningSelection(event: PointerEvent) {
+		if (event.pointerId !== miningDrag?.pointerId) return;
+		if (miningDrag.mining || miningDrag.moved) {
+			miningClickSuppression = { view: miningDrag.view, until: event.timeStamp + 100 };
+		}
+		finishMiningSelection();
+	}
+	function cancelMiningSelection() { finishMiningSelection(false); }
+
+	function clickMiningRow({ detail }: CustomEvent<MiningClickDetail>) {
+		const { id, event } = detail;
+		const view = (event.currentTarget as HTMLElement)?.ownerDocument.defaultView || window;
+		if (event.detail > 2 || (miningClickSuppression?.view === view && event.timeStamp <= miningClickSuppression.until)) return;
+		if (event.detail < 2 && !view.getSelection()?.isCollapsed) return;
+		// Two native clicks restore the original checked state before double-click editing starts.
+		toggleMiningSelection(new CustomEvent('miningToggle', {
+			detail: { id, checked: !miningSelectedIds.has(id), shiftKey: event.shiftKey },
+		}));
+	}
+
+	function toggleMiningSelection({ detail }: CustomEvent<{ id: string; checked: boolean; shiftKey: boolean }>) {
+		const before = miningSelectedIds;
+		const anchor = detail.shiftKey && miningOrder().includes(miningAnchor) ? miningAnchor : detail.id;
+		if (!detail.shiftKey) miningAnchor = detail.id;
+		miningSelectedIds = selectMiningRange(before, miningOrder(), anchor, detail.id, detail.checked);
+		miningVersion += 1;
+		queueMiningSelection(miningSelectionChanges(before, miningSelectedIds));
+	}
+
+	function queueMiningSelection(updates: MiningUpdate[]) {
+		for (const update of updates) pendingMiningUpdates.set(update.id, update.checked);
+		if (updates.length) void saveMiningSelection();
+	}
+
+	async function saveMiningSelection() {
+		if (miningSaving || !pendingMiningUpdates.size) return;
+		// A failed request can outlive a cancelled drag. Retry the current committed
+		// state, never the temporary range that was visible when the failure arrived.
+		const committed = miningDrag?.initial ?? miningSelectedIds;
+		const updates = [...pendingMiningUpdates.keys()].map((id) => ({ id, checked: committed.has(id) }));
+		inFlightMiningUpdates = updates;
+		pendingMiningUpdates.clear();
+		const version = miningVersion;
+		const resetVersion = miningResetVersion;
+		miningSaving = true;
+		miningError = '';
+		try {
+			const response = await fetch(getGSMEndpoint('/update_checkboxes'), {
+				method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updates }),
+			});
+			if (!response.ok) throw new Error('Selection request failed');
+			const data = await response.json();
+			if (version === miningVersion && !miningDrag && !pendingMiningUpdates.size && Array.isArray(data.selected_ids)) miningSelectedIds = new Set(data.selected_ids);
+		} catch (error) {
+			for (const update of updates) {
+				if (!pendingMiningUpdates.has(update.id)) pendingMiningUpdates.set(update.id, miningSelectedIds.has(update.id));
+			}
+			if (resetVersion === miningResetVersion) miningError = 'Could not save mining selection.';
+		} finally {
+			inFlightMiningUpdates = [];
+			miningSaving = false;
+			if (!miningError && pendingMiningUpdates.size) void saveMiningSelection();
+		}
+	}
+
+	function clearMiningSelection() {
+		if (miningDrag) finishMiningSelection(false);
+		const before = miningSelectedIds;
+		miningSelectedIds = new Set();
+		miningAnchor = '';
+		miningVersion += 1;
+		queueMiningSelection(miningSelectionChanges(before, miningSelectedIds));
+	}
 
 	let isSmFactor = false;
 	let settingsComponent: Settings;
@@ -351,6 +549,7 @@
 		return () => {
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
+			finishMiningSelection(false);
 			window.removeEventListener('focus', loadSavedClips);
 			if (audioElement) {
 				audioElement.pause();
@@ -392,8 +591,9 @@
 			} else if (event.altKey) {
 				removeLastLine();
 			}
-		} else if (selectedLineIds.length && key === 'escape') {
-			deselectLines();
+		} else if (key === 'escape') {
+			if (selectedLineIds.length) deselectLines();
+			if (miningSelectedIds.size || miningDrag) clearMiningSelection();
 		} else if (event.altKey && key === 'a') {
 			settingsComponent.handleReset(false);
 		} else if (event.altKey && key === 'q') {
@@ -438,12 +638,14 @@
 	}
 
 	async function fetchGSMTextIntakePausedState() {
+		const version = miningVersion;
 		try {
 			const response = await fetch(getGSMEndpoint('/get_ids'));
 			if (!response.ok) {
 				throw new Error(`HTTP error: ${response.status}`);
 			}
 			const data = await response.json();
+			if (version === miningVersion && Array.isArray(data.selected_ids)) receiveMiningSelection(data.selected_ids);
 			if (typeof data.text_intake_paused === 'boolean') {
 				gsmTextIntakePaused = data.text_intake_paused;
 			}
@@ -1005,16 +1207,20 @@
 		}
 	}
 
-	// Assuming 'lineData' is a correctly defined array for this vanilla JS example
 	function resetCheckBoxes() {
-		$lineData$.forEach((line) => {
-			const checkboxElement = document.getElementById(`multi-line-checkbox-${line.id}`) as HTMLInputElement | null;
-			if (checkboxElement && checkboxElement.type === 'checkbox') {
-				checkboxElement.checked = false;
-			} else {
-				console.warn(`Checkbox with ID 'multi-line-checkbox-${line.id}' not found or is not a valid checkbox element.`);
-			}
-		});
+		const staleIds = new Set([...miningSelectedIds, ...pendingMiningUpdates.keys(), ...inFlightMiningUpdates.map(({ id }) => id)]);
+		finishMiningSelection(false);
+		miningVersion += 1;
+		miningResetVersion += 1;
+		pendingMiningUpdates.clear();
+		miningSelectedIds = new Set();
+		miningAnchor = '';
+		miningError = '';
+		// A request already on the wire may arrive after the authoritative reset.
+		// Follow it with explicit clears so it cannot leave a hidden selection in GSM.
+		if (inFlightMiningUpdates.length) {
+			for (const id of staleIds) pendingMiningUpdates.set(id, false);
+		}
 	}
 
 	async function undoLastAction() {
@@ -1584,6 +1790,7 @@
 	class:py-16={!$displayVertical$}
 	class:py-8={$displayVertical$}
 	class:opacity-50={$notesOpen$}
+	class:selection-dragging={!!miningDrag?.mining}
 	class:flex-col-reverse={$reverseLineOrder$}
 	style:font-size={`${$fontSize$}px`}
 	style:font-family={$onlineFont$ !== OnlineFont.OFF ? $onlineFont$ : undefined}
@@ -1598,6 +1805,10 @@
 				{line}
 				{index}
 				isLast={clipLines.length - 1 === index}
+				miningSelected={miningSelectedIds.has(line.id)}
+				on:miningStart={beginMiningSelection}
+				on:miningToggle={toggleMiningSelection}
+				on:miningClick={clickMiningRow}
 				audioLineId={activeAudioLineId}
 				audioIsPlaying={browserAudioPlaying}
 				audioPendingLineId={pendingAudioLineId}
@@ -1615,6 +1826,10 @@
 				{line}
 				{index}
 				isLast={$lineData$.length - 1 === index}
+				miningSelected={miningSelectedIds.has(line.id)}
+				on:miningStart={beginMiningSelection}
+				on:miningToggle={toggleMiningSelection}
+				on:miningClick={clickMiningRow}
 				audioLineId={activeAudioLineId}
 				audioIsPlaying={browserAudioPlaying}
 				audioPendingLineId={pendingAudioLineId}
@@ -1641,8 +1856,23 @@
 	
 </main>
 
+<div class="reader-footer">
+{#if miningSelectedIds.size || miningSaving || miningError}
+	<aside class="mining-toolbar" aria-label="Mining selection" aria-busy={miningSaving}>
+		<span class="mining-summary" role="status">
+			{#if miningSelectedIds.size}
+				Create card with <a href="https://docs.gamesentenceminer.com/docs/getting-started/yomitan-anki/" target="_blank" rel="noopener noreferrer">Yomitan</a> to mine {miningSelectedIds.size} {miningSelectedIds.size === 1 ? 'line' : 'lines'}
+			{:else}
+				{miningSaving ? 'Saving selection…' : 'No lines selected'}
+			{/if}
+		</span>
+		{#if miningError}<span class="mining-error" role="alert">{miningError}</span><button type="button" on:click={saveMiningSelection}>Retry</button>{/if}
+		<button type="button" class="mining-clear" title="Clear selection (Esc)" on:click={clearMiningSelection}>Clear</button>
+	</aside>
+{/if}
+
 {#if showScrollToNewest}
-	<div class="fixed bottom-3 left-1/2 z-50 -translate-x-1/2" transition:fade={{ duration: 150 }}>
+	<div transition:fade={{ duration: 150 }}>
 		<button
 			class="flex items-center gap-1 rounded-full border border-base-content/20 bg-base-100/95 py-1.5 pl-2 pr-3 text-xs shadow-lg backdrop-blur transition-colors hover:text-primary"
 			on:click={scrollToNewest}
@@ -1654,6 +1884,7 @@
 	</div>
 {/if}
 
+</div>
 <!-- Small translate textbox positioned at bottom right -->
 <div class="fixed bottom-2 right-2 z-50">
 	<input
@@ -1699,6 +1930,7 @@
 	class="flex flex-col flex-1 flex flex-col break-all px-4 w-full h-full overflow-auto"
 	class:flex-col-reverse={$reverseLineOrder$}
 	class:hidden={!pipWindow}
+	class:selection-dragging={!!miningDrag?.mining}
 	style:font-size={`${$fontSize$}px`}
 	style:font-family={$onlineFont$ !== OnlineFont.OFF ? $onlineFont$ : undefined}
 	bind:this={pipContainer}
@@ -1709,6 +1941,10 @@
 				{line}
 				{index}
 				{pipWindow}
+				miningSelected={miningSelectedIds.has(line.id)}
+				on:miningStart={beginMiningSelection}
+				on:miningToggle={toggleMiningSelection}
+				on:miningClick={clickMiningRow}
 				isLast={pipLines.length - 1 === index}
 				audioLineId={activeAudioLineId}
 				audioIsPlaying={browserAudioPlaying}
@@ -1725,3 +1961,43 @@
 		{/each}
 	{/if}
 </div>
+<style>
+	.reader-footer {
+		position: fixed;
+		z-index: 50;
+		bottom: 18px;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		flex-direction: column-reverse;
+		align-items: center;
+		gap: 10px;
+		width: max-content;
+		max-width: calc(100vw - 24px);
+	}
+	.mining-toolbar {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		max-width: calc(100vw - 24px);
+		padding: 9px 12px;
+		border: 1px solid color-mix(in srgb, var(--color-primary) 25%, transparent);
+		border-radius: 12px;
+		background: var(--color-base-200);
+		color: var(--color-base-content);
+		box-shadow: 0 6px 28px rgb(0 0 0 / 18%);
+		font: 12px/1.4 system-ui, sans-serif;
+		writing-mode: horizontal-tb;
+	}
+	.mining-summary { white-space: nowrap; }
+	.mining-summary a { color: color-mix(in srgb, var(--color-primary) 45%, var(--color-base-content)); text-decoration: underline; text-underline-offset: 2px; }
+	.mining-toolbar button { padding: 4px 7px; border: 0; border-radius: 5px; background: transparent; color: var(--color-primary); cursor: pointer; font: inherit; }
+	.mining-toolbar button:hover { background: color-mix(in srgb, var(--color-primary) 9%, transparent); }
+	.mining-toolbar button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+	.mining-error { color: var(--color-error); }
+	:global(.selection-dragging .line-body) { user-select: none; }
+	@media (max-width: 640px) {
+		.reader-footer { bottom: 10px; }
+		.mining-toolbar { gap: 7px; flex-wrap: wrap; }
+	}
+</style>

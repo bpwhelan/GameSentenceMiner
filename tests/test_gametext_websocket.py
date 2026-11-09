@@ -598,5 +598,6 @@ def test_add_line_to_text_log_enqueues_immediately_without_running_subscribers_i
 
     assert len(observations) == 1
     assert observations[0].raw_text == "Hello, World!"
-    assert observations[0].revision_window_ms == 100
+    assert observations[0].revision_window_ms == 0
+    assert observations[0].merge_fragments is False
     assert observations[0].remove_matching_prefix is False

@@ -262,9 +262,9 @@ class _FakeClient:
         self.payloads = []
         self.deleted = []
 
-    def resolve_character_unit_id(self, language_code):
+    def resolve_character_unit_key(self, language_code):
         assert language_code == "jpn"
-        return "character-unit"
+        return "characters"
 
     def get_eligible_registration_ids(self, language_code, activity_id):
         assert language_code == "jpn"
@@ -327,7 +327,7 @@ def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkey
             "language_code": "jpn",
             "activity_id": 1,
             "amount": 3,
-            "unit_id": "character-unit",
+            "unit_key": "characters",
             "tags": ["vn", "gsm"],
             "description": "Tsukihime",
             "registration_ids": ["registration-1", "registration-2"],
@@ -336,7 +336,7 @@ def test_sync_posts_one_character_log_per_game_and_advances_frozen_cursor(monkey
             "language_code": "jpn",
             "activity_id": 1,
             "amount": 2,
-            "unit_id": "character-unit",
+            "unit_key": "characters",
             "tags": ["game", "gsm"],
             "description": "Scene B",
             "registration_ids": ["registration-1", "registration-2"],
@@ -530,21 +530,54 @@ def test_sync_reuses_and_persists_refreshed_session_cookie(monkeypatch):
     assert saved == [config]
 
 
-def test_tadoku_client_prefers_language_specific_character_unit():
+@pytest.mark.parametrize(("language_code", "expected_key"), [("jpn", "japanese-characters"), ("kor", "characters")])
+def test_tadoku_client_resolves_character_unit_key_without_ids(language_code, expected_key):
     client = TadokuClient("reader", "password")
     client._request_json = lambda *_args, **_kwargs: {
         "units": [
-            {"id": "fallback", "log_activity_id": 1, "name": "Character"},
+            {"unit_key": "characters", "log_activity_id": 1, "name": "Character", "modifier": 0.001},
             {
-                "id": "japanese",
+                "unit_key": "japanese-characters",
                 "log_activity_id": 1,
                 "name": "Character",
+                "modifier": 0.001,
                 "language_code": "jpn",
             },
+            {"unit_key": "pages", "log_activity_id": 1, "name": "Page", "modifier": 1.0},
+            {"unit_key": "listening-characters", "log_activity_id": 2, "name": "Character", "modifier": 0.001},
         ]
     }
 
-    assert client.resolve_character_unit_id("jpn") == "japanese"
+    assert client.resolve_character_unit_key(language_code) == expected_key
+
+
+def test_tadoku_client_uses_unit_key_even_when_legacy_id_is_present():
+    client = TadokuClient("reader", "password")
+    client._request_json = lambda *_args, **_kwargs: {
+        "units": [
+            {"id": "legacy-uuid", "unit_key": "characters", "log_activity_id": 1, "name": "Character"},
+        ]
+    }
+
+    assert client.resolve_character_unit_key("jpn") == "characters"
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        {"id": "legacy-uuid", "log_activity_id": 1, "name": "Character"},
+        {"unit_key": "", "log_activity_id": 1, "name": "Character"},
+        {"unit_key": "characters", "log_activity_id": 1, "name": "Character", "language_code": "kor"},
+        {"unit_key": "pages", "log_activity_id": 1, "name": "Page"},
+        {"unit_key": "characters", "log_activity_id": 2, "name": "Character"},
+    ],
+)
+def test_tadoku_client_rejects_missing_or_ineligible_character_unit_key(unit):
+    client = TadokuClient("reader", "password")
+    client._request_json = lambda *_args, **_kwargs: {"units": [unit]}
+
+    with pytest.raises(TadokuSyncError, match="no Character unit"):
+        client.resolve_character_unit_key("jpn")
 
 
 class _TadokuSession:
@@ -587,7 +620,7 @@ def test_tadoku_client_uses_deployed_internal_immersion_route():
     client = TadokuClient("reader@example.com", "password", session=session)
 
     with pytest.raises(TadokuSyncError, match="no Character unit"):
-        client.resolve_character_unit_id("jpn")
+        client.resolve_character_unit_key("jpn")
 
     method, url, kwargs = session.requests[-1]
     assert method == "GET"
@@ -621,7 +654,7 @@ def test_tadoku_client_reuses_saved_cookie_without_logging_in():
     client = TadokuClient("reader@example.com", "password", session_cookie="saved-cookie", session=session)
 
     with pytest.raises(TadokuSyncError, match="no Character unit"):
-        client.resolve_character_unit_id("jpn")
+        client.resolve_character_unit_key("jpn")
 
     assert len(session.requests) == 1
     assert session.requests[0][1].endswith("/immersion/logs/configuration-options")
@@ -733,7 +766,7 @@ def test_sync_migrates_legacy_cookie_preserving_settings_and_incremental_history
         tadoku_title_source="original",
     )
     original_settings = vars(config).copy()
-    units = {"units": [{"id": "characters", "log_activity_id": 1, "name": "Character"}]}
+    units = {"units": [{"unit_key": "characters", "log_activity_id": 1, "name": "Character", "modifier": 0.001}]}
     session = _TadokuSession(
         _tadoku_response(payload=units),
         _tadoku_response(401),
@@ -754,6 +787,8 @@ def test_sync_migrates_legacy_cookie_preserving_settings_and_incremental_history
 
     assert result["characters_sent"] == 3
     assert session.requests[4][2]["json"]["amount"] == 3
+    assert session.requests[4][2]["json"]["unit_key"] == "characters"
+    assert "unit_id" not in session.requests[4][2]["json"]
     assert vars(config) == {**original_settings, "tadoku_session_cookie": "fresh-cookie"}
     assert saved == [config]
     assert StatsExportStateTable.get_last_successful_export_at(tadoku_game_cursor_key("game-1")) == 150.0

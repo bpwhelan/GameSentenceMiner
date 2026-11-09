@@ -1,4 +1,38 @@
 {
+  "gameLauncher": {
+    "title": "游戏启动",
+    "launch": "启动游戏",
+    "working": "处理中…",
+    "options": "启动选项",
+    "help": "在可行时，GSM会记住OBS所捕获游戏的可执行文件。您也可以手动选择。启动选项按游戏保存。",
+    "executablePath": "游戏可执行文件",
+    "arguments": "游戏参数",
+    "workingDirectory": "工作文件夹",
+    "gameFolder": "游戏文件夹（默认）",
+    "launcherPath": "自定义启动器（可选）",
+    "launcherArguments": "启动器参数",
+    "launcherHelp": "通过已安装的启动器运行，如Special K的SKIF或Locale Emulator。留空则直接启动游戏。",
+    "templateHelp": "用{game}表示游戏路径，{args}表示游戏参数。默认：\"{game}\" {args}。LEProc示例：-run \"{game}\" {args}。请将{args}作为独立参数。不会展开Shell命令或环境变量。",
+    "browse": "浏览",
+    "browseField": "浏览：{field}",
+    "detect": "从运行中的游戏检测",
+    "notDetected": "无法确定此捕获对应的唯一可执行文件。请运行游戏后重试，或使用浏览。",
+    "chooseExecutable": "在下方选择游戏可执行文件，然后保存或启动。",
+    "save": "保存",
+    "cancel": "取消",
+    "saved": "启动选项已保存。",
+    "launched": "已发送启动请求。",
+    "errors": {
+      "unsupported": "游戏启动功能仅支持Windows。",
+      "invalidScene": "请先选择游戏。",
+      "missingExecutable": "请选择现有的游戏可执行文件。",
+      "missingLauncher": "请选择现有的启动器可执行文件。",
+      "invalidWorkingDirectory": "请选择现有的工作文件夹。",
+      "invalidArguments": "请检查启动参数。在启动器模板中，将{args}作为独立参数。",
+      "busy": "此游戏的启动请求正在处理中。",
+      "failed": "无法完成启动请求。{error}"
+    }
+  },
   "gamePrivileges": {
     "title": "{game} 正在以管理员身份运行",
     "description": "GSM 当前未以管理员身份运行。权限差异可能影响 OBS 捕获、文本钩取、悬浮层或快捷键。建议以管理员身份重启 GSM。",
@@ -1516,5 +1550,22 @@
     "added": "已为 {game} 排除此句。之后匹配的文本将被屏蔽。",
     "removed": "已移除 {game} 的句子排除项。",
     "excluded": "已排除"
+  },
+  "textProcessing": {
+    "processors": {
+      "languageFilter": "目标语言过滤器",
+      "languageFilterDesc": "根据目标语言的文字系统过滤捕获的文本",
+      "removeNonJapanese": "删除 Shift-JIS 之外的字符"
+    },
+    "languageFilter": {
+      "mode": "过滤强度",
+      "blocks": "1. 过滤文本块",
+      "trim": "2. 过滤文本块并清理首尾",
+      "strict": "3. 仅保留匹配字符",
+      "blocksDescription": "将一次事件中的每一行视为一个文本块。删除不含目标语言字符的文本块，保留混合语言文本块的完整内容。没有匹配字符的事件将变为空文本。",
+      "trimDescription": "过滤文本块后，删除各剩余文本块首尾的非目标语言文本。保留内部的混合文本和相邻的标点。",
+      "strictDescription": "将所有不匹配的字符替换为空字符串，包括空格、数字和标点。",
+      "targetHint": "使用设置中的目标语言。按文字系统匹配，因此无法区分使用相同字母表的语言。请放在“删除换行”之前，以保留文本块边界。"
+    }
   }
 }

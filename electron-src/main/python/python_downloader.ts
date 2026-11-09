@@ -16,13 +16,14 @@ import { installSessionManager } from '../services/install_session_state.js';
 import { mainWindow } from '../main.js';
 import { dialog } from 'electron';
 import type { InstallProgressKind, InstallStageId } from '../../shared/install_session.js';
+import { getSharedBaseDir } from '../data_dir.js';
 
 // --- Constants ---
 
 const PYTHON_VERSION = '3.13.2';
 const UV_VERSION = '0.13.4';
-const VENV_DIR = path.join(BASE_DIR, 'python_venv');
-const UV_DIR = path.join(BASE_DIR, 'uv');
+const VENV_DIR = path.join(getSharedBaseDir(), 'python_venv');
+const UV_DIR = path.join(getSharedBaseDir(), 'uv');
 
 // Bump this whenever dependencies are *removed* from the lockfile. `uv sync` runs
 // with `--inexact` (so it never prunes packages it didn't install — see

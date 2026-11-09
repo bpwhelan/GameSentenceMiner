@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class WindowId(Enum):
     ANKI_CONFIRMATION = "anki_confirmation"
     ANKI_CONFIRMATION_SPLIT = "anki_confirmation_split"
+    SESSION_REVIEW = "session_review"
     FURIGANA_FILTER = "furigana_filter"
     CONFIG_GUI = "config_gui"
     SCREENSHOT_SELECTOR = "screenshot_selector"

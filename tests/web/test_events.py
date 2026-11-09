@@ -66,6 +66,7 @@ class TestEventManagerBasic:
         assert em.get_state() == {
             "session_id": em.session_id,
             "ids": [],
+            "selected_ids": [],
             "timed_out_ids": [],
         }
 

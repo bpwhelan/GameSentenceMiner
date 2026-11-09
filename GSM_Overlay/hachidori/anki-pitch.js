@@ -71,6 +71,6 @@ export function ankiPitchGraphs(term, kana = false) {
   const reading = term.reading || term.expression;
   return term.pitches.map(group => {
     const graphs = group.pitches.map(pitch => pitchGraph(reading, pitch, kana)).filter(Boolean);
-    return graphs.length ? `<b>${escape(group.dictionary)}</b>: ${graphs.join(" ")}` : "";
+    return graphs.join(" ");
   }).filter(Boolean).join("<br>");
 }

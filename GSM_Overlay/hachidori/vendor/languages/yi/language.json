@@ -1,0 +1,156 @@
+{
+  "schema": 1,
+  "code": "yi",
+  "iso639_3": "yid",
+  "name": "Yiddish",
+  "nativeName": "ייִדיש",
+  "bcp47": "yi",
+  "scripts": ["Hebr"],
+  "direction": "rtl",
+  "classes": {
+    "letter": "[\\u05D0-\\u05EA\\u05F0-\\u05F2\\uFB1D-\\uFB28\\uFB2A-\\uFB4F]",
+    "point": "[\\u0591-\\u05BD\\u05BF\\u05C1\\u05C2\\u05C4\\u05C5\\u05C7]",
+    "word": "[{letter}{point}]",
+    "consonant": "[\\u05D1-\\u05D4\\u05D6-\\u05D8\\u05DA-\\u05E1\\u05E3-\\u05EA\\u05BC\\u05BF\\u05C1\\u05C2]",
+    "vowelEnd": "[\\u05D0\\u05D5\\u05D9\\u05E2\\u05B4\\u05B7\\u05B8]"
+  },
+  "text": {
+    "pattern": "{word}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "[\\u05F4\"]",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["„", "“"], ["“", "”"], ["«", "»"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "keepInput": false,
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "splitLigatures",
+        "name": "Write װ, ױ, ײ as two letters",
+        "variants": [[{"map": {"ײַ": "ײַ", "ײ": "יי", "װ": "וו", "ױ": "וי", "ייַ": "ײַ"}}]]
+      },
+      {
+        "id": "normalizeApostrophes",
+        "name": "Apostrophes and quotes as geresh and gershayim",
+        "variants": [[{"map": {"'": "׳", "’": "׳", "\"": "״"}}]]
+      },
+      {
+        "id": "addPoints",
+        "name": "Add vowel points to unpointed text",
+        "variants": [[{"alternatives": {
+          "א": ["אַ", "אָ"], "אַ": [], "אָ": [], "או": [], "אוו": ["אַוו", "אָוו"], "אווו": ["אַוווּ", "אָוווּ", "אַווו", "אָווו", "אוווּ"], "אי": [], "איי": ["אײַ"], "אייִ": [], "אױ": [], "אײ": [],
+          "פ": ["פּ", "פֿ"], "פּ": [], "פֿ": [],
+          "יי": ["ײַ", "ייִ"], "ייִ": [],
+          "ווו": ["וווּ"], "וווּ": [],
+          "ב": ["בֿ"], "בֿ": [], "בּ": [], "כ": ["כּ"], "כּ": [], "ת": ["תּ"], "תּ": [],
+          "ש": ["שׂ"], "שׂ": [], "שׁ": []
+        }, "limit": 512}]]
+      }
+    ],
+    "postprocessors": [
+      {
+        "id": "convertFinalLetters",
+        "name": "Convert to final letters",
+        "keepInput": false,
+        "variants": [[{"map": {"מ": "ם", "נ": "ן", "צ": "ץ", "פ": "ף", "כ": "ך"}, "at": "end"}]]
+      }
+    ],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "yi",
+    "audioLanguage": "yi",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "prep-phrase": "Prepositional phrase",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "det": "Determiner",
+        "artic": "Article",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcl": "Particle",
+        "postp": "Postposition",
+        "char": "Character",
+        "ptcpl": "Participle",
+        "contr": "Contraction",
+        "abbv": "Abbreviation"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Yiddish-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Yiddish words in YIVO spelling with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "געשריבן",
+      "practice": {
+        "text": "נעכטן האָב איך געשריבן אַ בריוו צו מײַן חבֿר.",
+        "lookup": "געשריבן"
+      },
+      "entry": {
+        "expression": "שרײַבן",
+        "reading": "שרײַבן",
+        "glossary": ["to write"],
+        "definitionTags": "v",
+        "matched": "געשריבן",
+        "trace": ["past participle"]
+      },
+      "character": null
+    }
+  }
+}

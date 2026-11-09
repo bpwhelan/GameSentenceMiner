@@ -22,6 +22,19 @@
         "run_function": "运行功能"
       },
       "tabs": {
+        "session_review": {
+          "title": "会话后检查",
+          "description": "不中断游戏即可制卡。GSM 会在游戏过程中更新卡片，并保存回放、音频、截图和台词，供游戏关闭后编辑。待检查卡片会在重启后保留。",
+          "enabled": "会话结束后检查 Anki 卡片",
+          "open_on_game_close": "游戏关闭时打开检查窗口",
+          "auto_advance": "保存后选择下一张卡片",
+          "delete_local_after_review": "检查完成后删除保存的文件",
+          "cleanup_anki_media": "从 Anki 删除已被替换的媒体",
+          "seconds_suffix": " 秒",
+          "delay_seconds": "游戏关闭后的等待时间",
+          "review_now": "立即检查待处理卡片",
+          "storage_note": "保存的回放会占用磁盘空间，直到检查完成。关闭窗口会保留未完成的卡片。保存编辑时需要打开 Anki。"
+        },
         "key_settings": {
           "title": "关键设置",
           "description": "一个简化的配置界面，用于快速设置。",
@@ -195,6 +208,18 @@
           "enabled": {
             "label": "启用:",
             "tooltip": "启用或禁用 Anki 集成。"
+          },
+          "confirmation_enabled": {
+            "label": "启用",
+            "tooltip": "尽快确认 Anki 卡片更新，或在游戏结束后统一检查。"
+          },
+          "confirmation_immediate": {
+            "label": "尽快",
+            "tooltip": "在 GSM 更新每张卡片前进行确认。"
+          },
+          "confirmation_after_session": {
+            "label": "游戏结束后",
+            "tooltip": "游玩时保存卡片，关闭游戏后再检查。跳过即时确认及其倒计时。"
           },
           "show_update_confirmation_dialog": {
             "label": "显示更新确认对话框:",
@@ -771,6 +796,20 @@
         },
         "ai": {
           "title": "AI / Translation",
+          "openai_reasoning_effort": {
+            "label": "推理级别",
+            "tooltip": "模型默认值由服务提供商选择。无表示禁用推理。较高的级别可能增加响应时间和令牌用量。此设置同时适用于主模型和备用模型；支持的级别因模型而异。",
+            "options": {
+              "default": "模型默认值",
+              "none": "无（禁用）",
+              "minimal": "最低",
+              "low": "低",
+              "medium": "中",
+              "high": "高",
+              "xhigh": "极高",
+              "max": "最高"
+            }
+          },
           "enabled": {
             "label": "添加到 Anki:",
             "tooltip": "启用或禁用将 AI 结果添加到 Anki。"

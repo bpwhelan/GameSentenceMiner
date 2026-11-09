@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "code": "ko",
+  "iso639_3": "kor",
+  "name": "Korean",
+  "nativeName": "한국어",
+  "bcp47": "ko",
+  "scripts": ["Kore"],
+  "direction": "ltr",
+  "classes": {
+    "syllable": "[\\uAC00-\\uD7A3]",
+    "jamo": "[\\u1100-\\u11FF\\u3131-\\u318E\\uA960-\\uA97F\\uD7B0-\\uD7FF]",
+    "hanja": "[\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\u{20000}-\\u{2FA1F}]",
+    "letter": "[{syllable}{jamo}]",
+    "word": "[{syllable}{jamo}{hanja}\\p{Nd}]",
+    "vowel": "[\\u314F-\\u3163]",
+    "consonant": "[\\u3131-\\u314E]"
+  },
+  "text": {
+    "pattern": "[{syllable}{jamo}{hanja}]",
+    "scanStart": "cursor",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…", "。"],
+      "quotePairs": [["“", "”"], ["‘", "’"], ["\"", "\""], ["(", ")"], ["「", "」"], ["『", "』"], ["《", "》"], ["〈", "〉"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "character",
+    "preprocessors": [
+      {
+        "id": "composeHangul",
+        "name": "Compose Hangul (NFC)",
+        "keepInput": false,
+        "variants": [[{"normalize": "NFC"}]]
+      },
+      {
+        "id": "disassembleHangul",
+        "name": "Disassemble Hangul",
+        "keepInput": false,
+        "variants": [[{"builtin": "hangul.disassemble"}]]
+      }
+    ],
+    "postprocessors": [
+      {
+        "id": "reassembleHangul",
+        "name": "Reassemble Hangul",
+        "keepInput": false,
+        "variants": [[{"builtin": "hangul.assemble"}]]
+      }
+    ],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "optional",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": "keep-all",
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "ko-KR",
+    "audioLanguage": "ko",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "num": "Numeral",
+        "det": "Determiner",
+        "particle": "Particle",
+        "counter": "Counter",
+        "intj": "Interjection",
+        "name": "Proper noun",
+        "prefix": "Prefix",
+        "suffix": "Suffix",
+        "phrase": "Phrase",
+        "proverb": "Proverb",
+        "character": "Character",
+        "syllable": "Syllable",
+        "root": "Root",
+        "affix": "Affix",
+        "interfix": "Interfix",
+        "contraction": "Contraction",
+        "conj": "Conjunction",
+        "postp": "Postposition",
+        "symbol": "Symbol",
+        "punct": "Punctuation"
+      }
+    },
+    "frequencySamples": null,
+    "recommendedDictionaries": [
+      {
+        "name": "Kaikki Korean-English (kaikki-to-yomitan)",
+        "url": "https://github.com/yomidevs/kaikki-to-yomitan",
+        "description": "Wiktionary-based Korean definitions in English, with part-of-speech tags for verbs and adjectives.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "먹었어요",
+      "practice": {
+        "text": "어제 친구와 같이 영화를 봤어요.",
+        "lookup": "봤어요"
+      },
+      "entry": {
+        "expression": "보다",
+        "reading": "보다",
+        "glossary": ["to see", "to watch", "to read"],
+        "definitionTags": "v",
+        "matched": "봤어요",
+        "trace": ["informal past indicative polite"]
+      },
+      "character": null
+    }
+  }
+}

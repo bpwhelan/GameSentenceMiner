@@ -136,9 +136,10 @@ class AuthoritativeTextRuntime:
             return True
         try:
             snapshot = self.snapshot(timeout=1.0)
-            if snapshot.records and snapshot.records[-1].state.value == "provisional":
-                self.freeze(snapshot.records[-1].line_id, timeout=1.0)
-                self.wait_projected(timeout=1.0)
+            for record in snapshot.records:
+                if record.state.value == "provisional":
+                    self.freeze(record.line_id, timeout=1.0)
+            self.wait_projected(timeout=1.0)
             self.coordinator.ref.ask(FinishStatsCommand(), timeout=1.0)
             self.wait_projected(timeout=1.0)
         except Exception:

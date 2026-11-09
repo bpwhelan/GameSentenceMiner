@@ -30,6 +30,7 @@ MODEL_FIELDS = (
     "_dialog_audio_result",
     "_dialog_translation_regenerated",
     "_replay_file_mod_time",
+    "_replay_video_duration",
     "_dialogue_line_start_cache",
 )
 WAVE_FIELDS = (
@@ -71,7 +72,6 @@ PRESENTATION = (
     "codec_info_label",
     "waveform_widget",
     "audio_button",
-    "play_original_button",
     "cut_audio_button",
     "undo_audio_cut_button",
     "reset_audio_button",
@@ -319,8 +319,9 @@ class ReviewHistory(QObject):
             dialog._replay_context = state["context"]
             for name, value in state["context_fields"].items():
                 setattr(dialog._replay_context, name, _clone(value))
-            review.gsm_state.vad_result = state["global_vad"]
-            review.gsm_state.audio_edit_context = _clone(state["global_audio_context"])
+            if not getattr(dialog._replay_context, "saved_review", False):
+                review.gsm_state.vad_result = state["global_vad"]
+                review.gsm_state.audio_edit_context = _clone(state["global_audio_context"])
             for name, editor in self.editors.items():
                 if editor.toPlainText() != state["texts"][name]:
                     with QSignalBlocker(editor):
@@ -339,7 +340,8 @@ class ReviewHistory(QObject):
             if config.anki.autoplay_audio != autoplay:
                 config.anki.autoplay_audio = autoplay
                 review.save_current_config(config)
-            review.gsm_state.disable_anki_confirmation_session = state["checks"]["disable_session_checkbox"]
+            if not getattr(dialog._replay_context, "saved_review", False):
+                review.gsm_state.disable_anki_confirmation_session = state["checks"]["disable_session_checkbox"]
             waveform = dialog.waveform_widget
             for name, value in state["wave"].items():
                 setattr(waveform, name, _clone(value))

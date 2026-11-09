@@ -22,9 +22,10 @@ async function createOffscreen(url) {
   try {
     await chrome.offscreen.createDocument({
       url,
-      reasons: ["DOM_SCRAPING", "AUDIO_PLAYBACK"],
+      // CLIPBOARD: the search page's clipboard monitor reads through it (#639).
+      reasons: ["DOM_SCRAPING", "AUDIO_PLAYBACK", "CLIPBOARD"],
       justification:
-        "Runs the local dictionary engine and pronunciation audio.",
+        "Runs the local dictionary engine and pronunciation audio, and reads the clipboard for the search page.",
     });
   } catch (error) {
     // Another extension context may have won the race; only a genuine absence
@@ -35,8 +36,16 @@ async function createOffscreen(url) {
   }
 }
 
+// Firefox has no offscreen documents: its background page, background.html,
+// holds the engine document in a frame. The page's load event follows the
+// frame's, by which time offscreen.js is listening.
+function backgroundPageLoaded() {
+  if (globalThis.document === undefined || globalThis.document.readyState === "complete") return Promise.resolve();
+  return new Promise(resolve => globalThis.addEventListener("load", resolve, { once: true }));
+}
+
 export async function ensureChromeOffscreen(url) {
-  if (!chromeOffscreenSupported()) return;
+  if (!chromeOffscreenSupported()) return backgroundPageLoaded();
   if (await offscreenExists(url)) return;
   if (creating === null) creating = createOffscreen(url);
   await creating;

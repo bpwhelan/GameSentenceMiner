@@ -9,7 +9,10 @@
   color: #4a2442; background: color-mix(in srgb, #fff7fc var(--gsm-hoshidicts-popup-opacity, 80%), transparent);
   border: 1px solid #95618c; border-radius: 8px;
   /* Meiryo's Latin letters are Verdana's, so Verdana keeps JL's look without Meiryo. */
-  font: 17px/1.5 Meiryo, Verdana, "Noto Sans CJK JP", "Noto Sans JP", sans-serif; text-align: left; white-space: normal;
+  /* A language pack may name its own font and line breaking (docs/languages.md 10.1). */
+  font: 17px/1.5 var(--hd-language-font-family, Meiryo, Verdana, "Noto Sans CJK JP", "Noto Sans JP", sans-serif);
+  text-align: left; white-space: normal;
+  word-break: var(--hd-language-word-break, normal); line-break: var(--hd-language-line-break, auto);
   /* WPF keeps adjacent full-width punctuation full width; Chrome's default halves it. */
   text-spacing-trim: space-all;
   zoom: calc(var(--gsm-hoshidicts-page-zoom, 1) * var(--gsm-hoshidicts-popup-scale, 100%));
@@ -102,6 +105,11 @@
 .gsm-hoshidicts-definitions, .jl-kanji-text { margin: 6px 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .jl-scroll[data-definition-blur="pending"] .gsm-hoshidicts-definitions,
 .jl-scroll[data-definition-blur="blurred"] .gsm-hoshidicts-definitions { filter: blur(5px); }
+/* Blurred definitions that a click reveals are a button (#598). The blur would
+   blur its focus ring too, so the entry shows it. */
+.jl-entry:has(> [data-definition-reveal]:focus-visible) { outline: 2px solid #5f3ba4; outline-offset: -2px; }
+.jl-entry > [data-definition-reveal]:focus-visible { outline: none; }
+.gsm-hoshidicts-popup [data-definition-reveal] { cursor: pointer; }
 .gsm-hoshidicts-anki-feedback { margin: 0 2px; font-size: 12px; }
 .gsm-hoshidicts-lookup-notice, .gsm-hoshidicts-lookup-failure { margin: 4px; }
 .gsm-hoshidicts-lookup-failure button { margin-left: 6px; padding: 1px 6px; background: #f2d6ec; border: 1px solid #95618c; border-radius: 3px; }
@@ -199,7 +207,8 @@
     forced-color-adjust: none;
     background: Highlight; color: HighlightText; border-color: Highlight;
   }
-  .gsm-hoshidicts-popup :is(button, input, textarea, a, summary):focus-visible { outline-color: Highlight; }
+  .gsm-hoshidicts-popup :is(button, input, textarea, a, summary):focus-visible,
+  .jl-entry:has(> [data-definition-reveal]:focus-visible) { outline-color: Highlight; }
   .jl-mora { border-color: CanvasText; }
 }
 
@@ -383,3 +392,13 @@
 .gloss-image-link[data-image-load-state="load-error"] .gloss-image-container {
   display: none;
 }
+
+/* Logical spacing and start alignment apply only in marked popups (records
+   with profiles, docs/languages.md 10.1-10.2). A popup without profiles keeps
+   the physical rules above, so a Japanese-only popup on a right-to-left page
+   lays out exactly as before. :where() keeps each rule at its base specificity. */
+.gsm-hoshidicts-popup:where([data-hd-language]) { text-align: start; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .bee-rich-content .gloss-list { padding: 0; padding-inline-start: 1.2em; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .bee-rich-content .gloss-list[data-count="1"] { padding-inline-start: 0; }
+:host([data-hoshidicts-glossary-layout="compact"]) :where(.gsm-hoshidicts-popup[data-hd-language]) :is(.gloss-list, .gloss-sc-ul[data-sc-content="glossary"]) { padding-inline-start: 0; }
+:where(.gsm-hoshidicts-popup[data-hd-language]) .bee-rich-content .gloss-link-external-icon { margin-left: 0; margin-inline-start: 4px; }

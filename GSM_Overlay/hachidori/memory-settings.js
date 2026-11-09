@@ -18,22 +18,24 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
   let latest = null;
   let inFlight = null;
   let totalInFlight = null;
+  let hostMemory = false;
 
   function renderTotal() {
+    const label = hostMemory ? "Host engine memory" : "Engine memory";
     if (latest === null) {
-      total.textContent = `Engine memory: ${UNAVAILABLE}`;
+      total.textContent = `${label}: ${UNAVAILABLE}`;
       if (indexes) indexes.textContent = "";
       return;
     }
     const count = latest.dictionaries.length;
     const subject = count === 1 ? "1 dictionary" : `${numberFormat.format(count)} dictionaries`;
-    total.textContent = `Engine memory: ${formatBytes(latest.heapBytes)} across ${subject}`;
+    total.textContent = `${label}: ${formatBytes(latest.heapBytes)} across ${subject}`;
     if (indexes && latest.hashIndexStorage) {
       const paged = latest.dictionaries.filter(item => item.hashIndexStorage === "paged").length;
       const resident = latest.dictionaries.reduce((sum, item) => sum + item.residentHashBytes, 0);
       const budget = Number.isFinite(latest.residentHashBudgetBytes) ? ` / ${formatBytes(latest.residentHashBudgetBytes)} budget` : "";
       const requested = { auto: "Automatic", paged: "Read from disk", resident: "Keep in memory" }[latest.dictionaryIndexStorage];
-      indexes.textContent = `Hash indexes: ${formatBytes(resident)} resident${budget}; ${paged} read from disk`
+      indexes.textContent = `${hostMemory ? "Host hash indexes" : "Hash indexes"}: ${formatBytes(resident)} resident${budget}; ${paged} read from disk`
         + ` (requested: ${requested}). Shared page cache: ${formatBytes(latest.pageCacheBytes)}.`;
     }
   }
@@ -46,7 +48,7 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
     // Entry and hash residency are independent; metadata remains resident.
     const disk = [entry?.paged === true ? "entries" : "", entry?.hashIndexStorage === "paged" ? "hash index" : ""].filter(Boolean);
     const detail = disk.length ? ` (${disk.join(" and ")} read from disk)` : "";
-    target.textContent = `In memory: ${share}${detail}`;
+    target.textContent = `${hostMemory ? "On host" : "In memory"}: ${share}${detail}`;
   }
 
   function renderRows() {
@@ -62,6 +64,7 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
       } catch {
         reply = null;
       }
+      hostMemory = reply?.memorySource === "host";
       latest = reply?.ok === true && Array.isArray(reply.dictionaries) && Number.isFinite(reply.heapBytes) ? reply : null;
       renderTotal();
       renderRows();
@@ -78,13 +81,14 @@ export function createMemorySettings({ document, readMemory, readExtensionTotal,
       } catch {
         reply = null;
       }
+      const label = reply?.memorySource === "host" ? "Host total" : "Extension total";
       if (reply?.ok !== true || !Number.isFinite(reply.bytes)) {
-        extensionTotal.textContent = `Extension total: ${UNAVAILABLE}`;
+        extensionTotal.textContent = `${label}: ${UNAVAILABLE}`;
         return;
       }
       // What the engine line cannot show: JavaScript, the IDBFS mirror, workers.
       const outside = Number.isFinite(reply.heapBytes) ? Math.max(0, reply.bytes - reply.heapBytes) : null;
-      extensionTotal.textContent = `Extension total: ${formatBytes(reply.bytes)}`
+      extensionTotal.textContent = `${label}: ${formatBytes(reply.bytes)}`
         + (outside === null ? "" : ` (${formatBytes(outside)} outside the engine heap)`);
     })().finally(() => { totalInFlight = null; });
     return totalInFlight;

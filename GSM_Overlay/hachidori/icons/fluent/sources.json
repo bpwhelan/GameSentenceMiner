@@ -23,6 +23,7 @@
     "reorder": "assets/Reorder/SVG/ic_fluent_reorder_20_regular.svg",
     "settings": "assets/Settings/SVG/ic_fluent_settings_20_regular.svg",
     "desktop": "assets/Desktop/SVG/ic_fluent_desktop_20_regular.svg",
-    "prohibited": "assets/Prohibited/SVG/ic_fluent_prohibited_20_regular.svg"
+    "prohibited": "assets/Prohibited/SVG/ic_fluent_prohibited_20_regular.svg",
+    "search": "assets/Search/SVG/ic_fluent_search_20_regular.svg"
   }
 }

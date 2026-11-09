@@ -22,6 +22,7 @@ import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
 import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 import type { AppUpdateStatus } from '../../shared/app_update.js';
 import { registerWindowSceneSwitcherIPC } from './window_scene_switcher.js';
+import { registerGameLauncherIPC } from './game_launcher_runtime.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -121,6 +122,7 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerTextProcessIPC();
     registerWindowsSpeechRecognitionIPC();
     registerWindowSceneSwitcherIPC();
+    registerGameLauncherIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();

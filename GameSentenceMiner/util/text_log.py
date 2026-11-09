@@ -185,6 +185,9 @@ class GameText:
             existing = self.values_dict.get(record.line_id)
             if existing is not None:
                 if record.revision >= existing.revision:
+                    if existing.text != record.text:
+                        existing.translation = ""
+                        existing.TL = ""
                     existing.text = record.text
                     existing.time = captured_at
                     existing.scene = record.scene

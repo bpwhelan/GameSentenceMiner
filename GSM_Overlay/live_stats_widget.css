@@ -37,7 +37,8 @@
 
 /* Keep the collision target stationary while it is hidden. Otherwise the
    normal hide animation shifts it upward and can make edge overlaps flicker. */
-#gsm-live-stats.gsm-live-stats-text-overlap-hidden {
+#gsm-live-stats.gsm-live-stats-text-overlap-hidden,
+#gsm-live-stats.gsm-live-stats-hover-hidden {
   transform: translateY(0);
 }
 

@@ -52,20 +52,20 @@ WS_EX_TRANSPARENT = 0x00000020
 _UWP_TARGET_CLASSES = {"Windows.UI.Core.CoreWindow", "ApplicationFrameWindow"}
 _UWP_HOST_CLASS = "ApplicationFrameWindow"
 
-# Eden and Yuzu expose their settings dialog as another top-level Qt window owned by the
+# Eden, Yuzu, and Lichii expose their settings dialog as another top-level Qt window owned by the
 # same executable as the game. It must never be selected as the OCR/window-capture target.
-_EDEN_YUZU_EXECUTABLES = {"eden.exe", "yuzu.exe"}
-_EDEN_YUZU_CONFIGURATION_TITLE_PREFIXES = ("eden configuration", "yuzu configuration")
+_SWITCH_CONFIGURATION_EXECUTABLES = {"eden.exe", "yuzu.exe", "lichii.exe"}
+_SWITCH_CONFIGURATION_TITLE_PREFIXES = ("eden configuration", "yuzu configuration", "lichii configuration")
 
 
-def _is_eden_yuzu_configuration_window(window_exe: str, window_title: str) -> bool:
-    if not any(_exe_names_match(window_exe, executable) for executable in _EDEN_YUZU_EXECUTABLES):
+def _is_switch_configuration_window(window_exe: str, window_title: str) -> bool:
+    if not any(_exe_names_match(window_exe, executable) for executable in _SWITCH_CONFIGURATION_EXECUTABLES):
         return False
 
     normalized_title = " ".join((window_title or "").split()).casefold()
     return any(
         normalized_title == prefix or normalized_title.startswith(f"{prefix} ")
-        for prefix in _EDEN_YUZU_CONFIGURATION_TITLE_PREFIXES
+        for prefix in _SWITCH_CONFIGURATION_TITLE_PREFIXES
     )
 
 
@@ -694,7 +694,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         window_exe = self._get_window_exe_name(hwnd)
         if not window_exe:
             return False
-        if _is_eden_yuzu_configuration_window(window_exe, self._get_window_title(hwnd)):
+        if _is_switch_configuration_window(window_exe, self._get_window_title(hwnd)):
             return False
         return _exe_names_match(window_exe, target_exe)
 
@@ -1172,7 +1172,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
                 window_exe = self._get_window_exe_name(hwnd)
                 if _exe_name_matches_set(window_exe, self.EXCLUDED_EXES):
                     return True
-                if _is_eden_yuzu_configuration_window(window_exe, self._get_window_title(hwnd)):
+                if _is_switch_configuration_window(window_exe, self._get_window_title(hwnd)):
                     return True
                 if _exe_names_match(window_exe, tgt_exe):
                     self.found_hwnds.append(hwnd)

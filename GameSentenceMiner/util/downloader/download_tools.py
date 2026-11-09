@@ -12,6 +12,7 @@ import zipfile
 from typing import Optional
 
 from GameSentenceMiner.obs import get_obs_path
+from GameSentenceMiner.util.data_directory import get_default_recordings_directory, get_shared_app_directory
 from GameSentenceMiner.util.communication.electron_ipc import send_install_progress
 from GameSentenceMiner.util.config.configuration import (
     get_app_directory,
@@ -525,7 +526,7 @@ def _decode_obs_ini_value(value):
 def write_replay_buffer_configs(obs_path):
     # OBS decodes \n and \r escape sequences in INI values. Use forward slashes
     # so Windows usernames beginning with "n" or "r" cannot corrupt the path.
-    unsafe_default = f"{os.path.expanduser('~')}/Videos/GSM"
+    unsafe_default = get_default_recordings_directory()
     replay_directory = unsafe_default.replace("\\", "/")
 
     def repair_default(match):
@@ -827,7 +828,7 @@ def install_ffmpeg_archive(ffmpeg_archive, ffmpeg_dir, spec):
 
 
 def download_ffmpeg_if_needed(stage_id: Optional[str] = "ffmpeg"):
-    ffmpeg_dir = os.path.join(get_app_directory(), "ffmpeg")
+    ffmpeg_dir = os.path.join(get_shared_app_directory(), "ffmpeg")
     ffmpeg_exe_path = get_ffmpeg_path()
     ffprobe_exe_path = get_ffprobe_path()
     ffmpeg_spec = get_ffmpeg_download_spec()
@@ -867,7 +868,7 @@ def download_ffmpeg_if_needed(stage_id: Optional[str] = "ffmpeg"):
 
 
 def download_ocenaudio_if_needed():
-    ocenaudio_dir = os.path.join(get_app_directory(), "ocenaudio")
+    ocenaudio_dir = os.path.join(get_shared_app_directory(), "ocenaudio")
     ocenaudio_exe_path = os.path.join(ocenaudio_dir, "ocenaudio.exe")
     if os.path.exists(ocenaudio_dir) and os.path.exists(ocenaudio_exe_path):
         logger.info(f"Ocenaudio already installed at {ocenaudio_dir}.")
@@ -889,7 +890,7 @@ def download_ocenaudio_if_needed():
         try:
             os.makedirs(ocenaudio_dir, exist_ok=True)
             with zipfile.ZipFile(ocenaudio_archive, "r") as zip_ref:
-                zip_ref.extractall(get_app_directory())
+                zip_ref.extractall(get_shared_app_directory())
             logger.success(f"Ocenaudio extracted to {ocenaudio_dir}.")
         except Exception as e:
             logger.error(f"Failed to extract Ocenaudio: {e}")

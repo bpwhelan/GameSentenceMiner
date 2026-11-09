@@ -331,6 +331,52 @@
   font-family: var(--gsm-font-mono);
   overflow-wrap: anywhere;
 }
+.home-desk .home-game-launch {
+  margin-top: 22px;
+}
+.home-desk .home-game-launch__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.home-desk .home-game-launch__actions > .ws-primary {
+  min-height: 38px;
+  padding: 8px 16px;
+  font-size: 12px;
+}
+.home-desk .home-game-launch__options {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--gsm-border-subtle);
+  border-radius: 6px;
+  background: var(--gsm-surface-1);
+}
+.home-desk .home-game-launch__options fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.home-desk .home-game-launch__options .home-section-hint {
+  margin: 0;
+}
+.home-desk .home-game-launch__custom {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gsm-border-subtle);
+}
+.home-desk .home-game-launch__error {
+  margin-top: 10px;
+  color: var(--gsm-danger-text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .home-desk .home-current-game > .home-row {
   width: fit-content;
   max-width: 100%;

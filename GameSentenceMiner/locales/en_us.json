@@ -28,6 +28,28 @@
         "no_results": "No settings match your search."
       },
       "tabs": {
+        "session_review": {
+          "title": "Review After Session",
+          "description": "Mine without interruption. GSM updates cards during play and keeps their replay, audio, screenshots, and dialogue for editing after the game closes. Pending reviews survive restarts.",
+          "enabled": "Review Anki cards after session",
+          "enabled_tooltip": "Skips immediate confirmation, including its countdown. Cards are still saved to Anki during play. Confirmation changes only the fields you edit.",
+          "open_on_game_close": "Open review when the game closes",
+          "notify_on_startup": "Notify about pending reviews on startup",
+          "notify_on_startup_tooltip": "Show a startup notification with a button to open your pending reviews.",
+          "max_future_context_lines": "Maximum future context lines",
+          "max_future_context_lines_tooltip": "Save one extra replay after this many following dialogue lines. It is used only if you add future context during review, and deleted when confirmed. 0 disables this capture.",
+          "open_on_game_close_tooltip": "Uses GSM game / capture detection. Minimizing a tracked game does not end the session. You can also open the queue manually.",
+          "auto_advance": "Select the next card after confirming",
+          "auto_advance_tooltip": "Move to the next review immediately while this card saves in the background.",
+          "delete_local_after_review": "Delete saved review files when finished",
+          "delete_local_after_review_tooltip": "Deletes this feature's replay and media copies after a successful save or removal from the queue. Unreviewed cards are never automatically deleted.",
+          "cleanup_anki_media": "Remove replaced media from Anki",
+          "cleanup_anki_media_tooltip": "Uses AnkiConnect to delete GSM media only when no note or template references it. Failed cleanup can be retried from the review window.",
+          "seconds_suffix": " seconds",
+          "delay_seconds": "Wait after the game closes",
+          "review_now": "Review pending cards now",
+          "storage_note": "Saved replays use disk space until reviewed. Closing the review window leaves unfinished cards in the queue. Anki must be open to save edits."
+        },
         "key_settings": {
           "title": "Key Settings",
           "description": "A simplified configuration interface for quick setup.",
@@ -205,6 +227,18 @@
           "enabled": {
             "label": "Enabled:",
             "tooltip": "Enable or disable Anki integration."
+          },
+          "confirmation_enabled": {
+            "label": "Enabled",
+            "tooltip": "Confirm Anki card updates as soon as possible or review them after the session."
+          },
+          "confirmation_immediate": {
+            "label": "As soon as possible",
+            "tooltip": "Confirm each card before GSM updates it."
+          },
+          "confirmation_after_session": {
+            "label": "After session",
+            "tooltip": "Save cards during play and review them after the game closes. Skips immediate confirmation and its countdown."
           },
           "show_update_confirmation_dialog": {
             "label": "Show Update Confirmation Dialog:",
@@ -876,6 +910,20 @@
           "openai_apikey": {
             "label": "OpenAI API Key:",
             "tooltip": "API key for OpenAI provider."
+          },
+          "openai_reasoning_effort": {
+            "label": "Reasoning effort",
+            "tooltip": "Model default lets the provider choose. None disables reasoning. Higher effort may increase response time and token usage. Applies to the primary and backup models; supported levels depend on the model.",
+            "options": {
+              "default": "Model default",
+              "none": "None (disabled)",
+              "minimal": "Minimal",
+              "low": "Low",
+              "medium": "Medium",
+              "high": "High",
+              "xhigh": "Extra high",
+              "max": "Maximum"
+            }
           },
           "openai_url": {
             "label": "OpenAI API URL:",

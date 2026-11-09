@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "code": "en",
+  "iso639_3": "eng",
+  "name": "English",
+  "nativeName": "English",
+  "bcp47": "en",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\u1E00-\\u1EFF\\uFB00-\\uFB06]",
+    "word": "[{letter}\\p{M}\\p{Nd}]"
+  },
+  "text": {
+    "pattern": "{letter}",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": "[\\u00AD]",
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "normalizeApostrophes",
+        "name": "Typographic apostrophes as '",
+        "variants": [[{"map": {"’": "'", "‘": "'", "ʼ": "'", "＇": "'"}}]]
+      },
+      {
+        "id": "normalizeHyphens",
+        "name": "Unicode hyphens as -",
+        "variants": [[{"map": {"‐": "-", "‑": "-"}}]]
+      },
+      {
+        "id": "removeSoftHyphens",
+        "name": "Remove soft hyphens",
+        "keepInput": false,
+        "variants": [[{"strip": "[\\u00AD]"}]]
+      },
+      {
+        "id": "removeDiacritics",
+        "name": "Remove diacritics",
+        "variants": [[{"normalize": "NFD"}, {"strip": "[\\u0300-\\u036F]"}, {"normalize": "NFC"}]]
+      },
+      {
+        "id": "expandLigatures",
+        "name": "Expand ligatures",
+        "variants": [[{"map": {"æ": "ae", "Æ": "Ae", "œ": "oe", "Œ": "Oe"}}, {"normalize": "NFKC", "within": "[\\uFB00-\\uFB06]"}]]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "archaicForms",
+      "type": "boolean",
+      "default": false,
+      "label": "Archaic verb forms",
+      "description": "Also read Early Modern English verb endings, as in thou walkest, he walketh, thou art and he hath (the King James Bible, Shakespeare). Off by default, because -est and -eth also end ordinary words.",
+      "group": "lookup",
+      "effect": {"transforms": ["archaicSecondPerson", "archaicThirdPerson"]}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "en-US",
+    "audioLanguage": "en",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "name": "Proper noun",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "det": "Determiner",
+        "intj": "Interjection",
+        "num": "Numeral",
+        "ptcpl": "Participle",
+        "ptcl": "Particle",
+        "artic": "Article",
+        "postp": "Postposition",
+        "char": "Character",
+        "vr": "Reflexive verb",
+        "vdt": "Ditransitive verb",
+        "phrase": "Phrase",
+        "prep-phrase": "Prepositional phrase",
+        "contr": "Contraction",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix"
+      }
+    },
+    "frequencySamples": {
+      "common": ["the", "of", "and", "to", "a", "in", "is", "that", "it", "was"],
+      "rare": ["ubiquitous", "ephemeral", "obsequious", "meticulous", "ostentatious", "garrulous", "lugubrious", "perfunctory", "quixotic", "recalcitrant"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "wty-en-en (Wiktionary English-English, wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "English Wiktionary definitions of English words, with the parts of speech the inflection rules filter on.",
+        "licence": "CC BY-SA 4.0 (Wiktionary content)"
+      }
+    ],
+    "sample": {
+      "warmup": "running",
+      "practice": {
+        "text": "The children were running across the playground.",
+        "lookup": "running"
+      },
+      "entry": {
+        "expression": "run",
+        "reading": "run",
+        "glossary": ["to move swiftly on foot"],
+        "definitionTags": "v",
+        "matched": "running",
+        "trace": ["-ing"]
+      },
+      "character": null
+    }
+  }
+}

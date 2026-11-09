@@ -1,5 +1,25 @@
 // File-URL access is controlled by the user in browser-owned extension details.
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { isFirefox } from "./browser-api.js";
+
+// Chrome's switch is on a page Hachidori can open, and turning it on reloads
+// Hachidori. Firefox's is in about:addons, which extensions cannot open, and
+// takes effect without a reload.
+const CHROME = {
+  browserName: "Chrome",
+  description: "enable “Allow access to file URLs” in Hachidori’s extension settings.",
+  instruction: "Turn on “Allow access to file URLs”, then return to this tab.",
+  reopen: "On the extension details page, open Extension options",
+  settingsUrl: id => `chrome://extensions/?id=${id}`,
+};
+const FIREFOX = {
+  browserName: "Firefox",
+  description: "turn on “Access local files on your computer” in Hachidori’s permissions in Firefox.",
+  instruction: "Open Firefox’s Add-ons and themes page (about:addons), choose Hachidori, open Permissions and data"
+    + " and turn on “Access local files on your computer”, then return to this tab.",
+  reopen: null,
+  settingsUrl: null,
+};
 
 export function createLocalFileAccessController({
   document,
@@ -10,13 +30,7 @@ export function createLocalFileAccessController({
   const window = document.defaultView;
   // Setup shows this section with a dismiss action; Settings shows it without.
   const surface = onDismiss ? "setup" : "Settings";
-  const COPY = {
-    browserName: "Chrome",
-    description: "enable “Allow access to file URLs” in Hachidori’s extension settings.",
-    instruction: "Turn on “Allow access to file URLs”, then return to this tab.",
-    reopen: "On the extension details page, open Extension options",
-    settingsUrl: () => `chrome://extensions/?id=${chromeApi.runtime.id}`,
-  };
+  const COPY = isFirefox(chromeApi) ? FIREFOX : CHROME;
   const { browserName } = COPY;
   const make = (tag, id, text, className = "") => {
     const node = document.createElement(tag);
@@ -30,15 +44,17 @@ export function createLocalFileAccessController({
     `To look up Japanese in HTML files opened from your computer, ${COPY.description}`);
   const instruction = make("p", "local-file-instruction", COPY.instruction);
   const returnPath = onDismiss ? ", then choose Resume setup." : " to return.";
-  const recovery = make("p", "local-file-recovery",
+  const recovery = COPY.reopen && make("p", "local-file-recovery",
     `${browserName} may close ${surface} when it reloads Hachidori. ${COPY.reopen}${returnPath}`);
   const status = make("output", "local-file-status", "");
   status.setAttribute("role", "status");
   status.tabIndex = -1;
   const actions = make("div", "local-file-actions", "", "local-file-actions");
-  const open = make("button", "local-file-open", "Open extension settings", "ghost");
-  open.type = "button";
-  actions.append(open);
+  const open = COPY.settingsUrl && make("button", "local-file-open", "Open extension settings", "ghost");
+  if (open) {
+    open.type = "button";
+    actions.append(open);
+  }
   let skip;
   if (onDismiss) {
     skip = make("button", "local-file-skip", "Not now", "ghost");
@@ -50,7 +66,8 @@ export function createLocalFileAccessController({
   container.replaceChildren(...[heading, description, actions, instruction, recovery, status].filter(Boolean));
   container.hidden = true;
 
-  let allowed = null, opened = false, error = "", dismissed = false, disposed = false;
+  // Without a button to open the switch's page, the instruction is the way there.
+  let allowed = null, opened = !open, error = "", dismissed = false, disposed = false;
   let sequence = 0, opening = false;
 
   function render() {
@@ -61,7 +78,7 @@ export function createLocalFileAccessController({
     heading.hidden = enabled;
     description.hidden = enabled;
     instruction.hidden = !opened || enabled;
-    recovery.hidden = instruction.hidden;
+    if (recovery) recovery.hidden = instruction.hidden;
     actions.hidden = hideActions;
     container.classList.toggle("is-enabled", enabled);
     const message = enabled ? "Local-file lookups enabled" : error;
@@ -89,7 +106,7 @@ export function createLocalFileAccessController({
     render();
     try {
       await chromeApi.tabs.create({
-        url: COPY.settingsUrl(),
+        url: COPY.settingsUrl(chromeApi.runtime.id),
       });
     }
     catch {
@@ -108,7 +125,7 @@ export function createLocalFileAccessController({
   function visible() {
     if (document.visibilityState === "visible") void refresh();
   }
-  open.addEventListener("click", openSettings);
+  open?.addEventListener("click", openSettings);
   skip?.addEventListener("click", dismiss);
   document.addEventListener("visibilitychange", visible);
   window.addEventListener("pageshow", visible);
@@ -118,7 +135,7 @@ export function createLocalFileAccessController({
     refresh,
     destroy() {
       disposed = true;
-      open.removeEventListener("click", openSettings);
+      open?.removeEventListener("click", openSettings);
       skip?.removeEventListener("click", dismiss);
       document.removeEventListener("visibilitychange", visible);
       window.removeEventListener("pageshow", visible);

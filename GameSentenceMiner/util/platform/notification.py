@@ -154,6 +154,13 @@ def send_note_updated(tango):
     )
 
 
+def send_pending_reviews_notification(count):
+    message = f"You have {count} Anki card{'s' if count != 1 else ''} waiting for review."
+    if _send_ipc_notification("PendingSessionReviews", message, extra={"count": count}):
+        return
+    send_notification("Anki reviews pending", message + " Open Review pending cards now in settings to continue.", 10)
+
+
 def send_screenshot_updated(tango):
     try:
         note_id = int(tango)

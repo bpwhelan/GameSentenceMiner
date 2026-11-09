@@ -36,8 +36,8 @@ function adoptUpdateSettings(value) {
   return true;
 }
 
-function setUpdateState(message, tone = "") {
-  setSectionStatus("update-state", message, tone, tone === "ready");
+function setUpdateState(message, tone = "", error = null) {
+  setSectionStatus("update-state", message, tone, tone === "ready", error);
 }
 
 function isUpdateCheckable(dictionary) {
@@ -64,6 +64,55 @@ function renderUpdateControls() {
   element("update-all").disabled = busy || availableUpdates().length === 0;
   element("update-check-now").disabled = busy;
   schedule.disabled = busy || updateSettings.revision < 0;
+  renderUpdateList(busy);
+}
+
+function renderUpdateList(busy) {
+  const entries = dictionaries.filter(entry => isUpdateCheckable(entry)
+    && ["update-available", "check-failed"].includes(entry.lastUpdateCheck?.status));
+  const list = element("update-dictionary-list");
+  const rows = new Map([...list.children].map(row => [row.dataset.dictionaryId, row]));
+  const ids = new Set(entries.map(entry => entry.id));
+  for (const [id, row] of rows) {
+    if (!ids.has(id)) row.remove();
+  }
+  const available = availableUpdates().length;
+  const failed = entries.filter(entry => entry.lastUpdateCheck.error || entry.lastUpdateCheck.status === "check-failed").length;
+  const summary = element("update-list-summary");
+  if (entries.length === 0) {
+    summary.textContent = "No available updates. Check now to check dictionaries with an update source.";
+  } else {
+    const updatesLabel = available === 1 ? "update" : "updates";
+    const failures = failed ? ` · ${failed} failed` : "";
+    summary.textContent = `${available} ${updatesLabel} available${failures}.`;
+  }
+  entries.forEach((entry, index) => {
+    let row = rows.get(entry.id);
+    if (!row) {
+      row = element("update-dictionary-template").content.firstElementChild.cloneNode(true);
+      row.dataset.dictionaryId = entry.id;
+      row.querySelector(".update-dictionary-action").addEventListener("click", () => {
+        void runManagedUpdate(row.dataset.updateType, [entry.id]);
+      });
+    }
+    // Keep existing controls in place so unrelated state/status events retain focus.
+    if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null);
+    row.querySelector(".update-dictionary-title").textContent = dictionaryLabel(entry);
+    const check = entry.lastUpdateCheck;
+    const revisions = row.querySelector(".update-dictionary-revisions");
+    const remote = check.remoteRevision ? ` → Available: ${check.remoteRevision}` : "";
+    revisions.textContent = `Installed: ${entry.revision}${remote}`;
+    renderDictionaryUpdateStatus(row, entry);
+    const action = row.querySelector(".update-dictionary-action");
+    const checking = check.status === "check-failed";
+    row.dataset.updateType = checking ? "hd_updates_check" : "hd_updates_install";
+    let label = "Update";
+    if (checking) label = "Check again";
+    else if (check.error) label = "Retry update";
+    action.textContent = label;
+    action.setAttribute("aria-label", `${action.textContent} ${dictionaryLabel(entry)}`);
+    action.disabled = busy || lastEngineStatus?.updating?.id === entry.id;
+  });
 }
 
 function refreshDictionarySchedules() {
@@ -92,7 +141,7 @@ function dictionaryUpdateStatus(entry) {
   if (check?.status === "update-available") {
     const revision = check.remoteRevision ? `: ${check.remoteRevision}` : "";
     const failure = check.error ? ` · Update failed: ${check.error}` : "";
-    return { text: `Update available${revision}${failure}`, tone: "available" };
+    return { text: `Update available${revision}${failure}`, tone: check.error ? "error" : "available" };
   }
   if (check?.status === "check-failed") {
     return { text: `Check failed: ${check.error || "unknown error"}`, tone: "error" };
@@ -119,6 +168,7 @@ function renderUpdatingRows(previousId, currentId) {
       : element("dict-list").querySelector(`.dict-row[data-dictionary-id="${CSS.escape(id)}"]`);
     if (row !== null) renderDictionaryUpdateStatus(row, entry);
   }
+  if (previousId !== currentId || currentId !== null) renderUpdateControls();
 }
 
 function bindDictionaryUpdate(row, entry) {
@@ -183,21 +233,25 @@ function renderDictionarySchedule(row, entry) {
   if (output.textContent !== text) output.textContent = text;
 }
 
-function updateOutcomeSummary(type, outcomes) {
-  const failed = outcomes.filter((outcome) => outcome.status === "check-failed" || outcome.error).length;
+function updateOutcomeSummary(type, outcomes, labels) {
+  const failedOutcomes = outcomes.filter(outcome => outcome.status === "check-failed" || outcome.error);
+  const failed = failedOutcomes.length;
+  const failures = failedOutcomes
+    .map(outcome => `${labels.get(outcome.id) || outcome.id}: ${outcome.error || "unknown error"}`);
+  const failureDetails = failures.length ? ` Failed: ${failures.join("; ")}` : "";
   if (type === "hd_updates_check") {
     const available = outcomes.filter((outcome) => outcome.status === "update-available").length;
     const dictionariesLabel = outcomes.length === 1 ? "managed dictionary" : "managed dictionaries";
     const updatesLabel = available === 1 ? "update" : "updates";
     return {
-      message: `Checked ${outcomes.length} ${dictionariesLabel} — ${available} ${updatesLabel} available, ${failed} failed.`,
+      message: `Checked ${outcomes.length} ${dictionariesLabel} — ${available} ${updatesLabel} available, ${failed} failed.${failureDetails}`,
       tone: failed === 0 ? "ready" : "error",
     };
   }
   const updated = outcomes.filter((outcome) => outcome.status === "updated").length;
   const updatesLabel = outcomes.length === 1 ? "dictionary update" : "dictionary updates";
   return {
-    message: `Finished ${outcomes.length} ${updatesLabel} — ${updated} updated, ${failed} failed.`,
+    message: `Finished ${outcomes.length} ${updatesLabel} — ${updated} updated, ${failed} failed.${failureDetails}`,
     tone: failed === 0 ? "ready" : "error",
   };
 }
@@ -207,6 +261,7 @@ async function runManagedUpdate(type, dictionaryIds = null) {
     return;
   }
   updating = true;
+  const labels = new Map(dictionaries.map(entry => [entry.id, dictionaryLabel(entry)]));
   setControlsDisabled(true);
   setUpdateState(type === "hd_updates_check" ? "Checking managed dictionaries…" : "Updating dictionaries…");
   // The engine names the package it is replacing (hd_status.updating); polls
@@ -220,10 +275,10 @@ async function runManagedUpdate(type, dictionaryIds = null) {
     }
     adoptUpdateSettings(reply.settings);
     await reloadDictionaries();
-    const summary = updateOutcomeSummary(type, reply.outcomes ?? []);
+    const summary = updateOutcomeSummary(type, reply.outcomes ?? [], labels);
     setUpdateState(summary.message, summary.tone);
   } catch (error) {
-    setUpdateState(`Dictionary updates failed: ${describeErrorOrJson(error)}`, "error");
+    setUpdateState(`Dictionary updates failed: ${describeErrorOrJson(error)}`, "error", error);
   } finally {
     updating = false;
     syncNavigationStatus("update-state");
@@ -264,7 +319,7 @@ async function flushUpdateSchedule() {
       const stored = await chrome.storage.local.get("dictionaryUpdates");
       adoptUpdateSettings(stored.dictionaryUpdates);
     } catch { /* Keep the draft even if the committed state cannot be read. */ }
-    setUpdateState(`Could not save the schedule: ${describeErrorOrJson(error)} Current schedule: ${updateSettings.schedule}. Your draft is retained.`, "error");
+    setUpdateState(`Could not save the schedule: ${describeErrorOrJson(error)} Current schedule: ${updateSettings.schedule}. Your draft is retained.`, "error", error);
   } finally {
     savingSchedule = null;
     renderUpdateControls();

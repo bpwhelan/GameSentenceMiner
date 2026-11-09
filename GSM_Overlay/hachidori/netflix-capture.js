@@ -3,8 +3,9 @@ import { encodeBase64 } from "./base64.js";
 import { GIF_MAX_FPS, GIF_MAX_WIDTH, encodeLoopingGif, selectGifFrames } from "./netflix-gif.js";
 import "./netflix-audio.js";
 
-// Experimental Netflix mining's recorder. netflix-recorder.html runs this in a
-// hidden extension frame inside the Netflix tab while the page replays one
+// Experimental Netflix mining's recorder, which YouTube mining shares.
+// netflix-recorder.html (youtube-recorder.html on YouTube) runs this in a
+// hidden extension frame inside the site's tab while the page replays one
 // subtitle line: it records the tab's audio from a chrome.tabCapture stream,
 // then cuts the line out of it by the media times the page reported and
 // encodes a mono WAV for Anki. When a field is mapped to {gif}, it also records
@@ -133,13 +134,29 @@ function createVideoFrameClock({ timeOrigin, now }) {
   };
 }
 
-// Draws a VideoFrame into a reusable canvas at most GIF_MAX_WIDTH wide and reads
-// its RGBA back, so the VideoFrame can be closed at once rather than kept in
-// memory. Returns null before the frame's size is known.
+// Where a crop (the video, on YouTube: fractions of the tab's width and height
+// and the tab's aspect ratio, which the worker checked) lies in a frame. Chrome
+// scales the tab to fit the capture's size and centres it, so a frame whose
+// shape differs from the tab's has bars along two of its edges.
+function cropRect(crop, frameWidth, frameHeight) {
+  const scale = Math.min(frameWidth / crop.aspect, frameHeight);
+  const viewWidth = scale * crop.aspect, viewHeight = scale;
+  return { x: Math.round((frameWidth - viewWidth) / 2 + crop.left * viewWidth),
+    y: Math.round((frameHeight - viewHeight) / 2 + crop.top * viewHeight),
+    width: Math.max(1, Math.round(crop.width * viewWidth)), height: Math.max(1, Math.round(crop.height * viewHeight)) };
+}
+
+// Draws a VideoFrame, or the part of it a crop keeps, into a reusable canvas
+// at most GIF_MAX_WIDTH wide and reads its RGBA back, so the VideoFrame can be
+// closed at once rather than kept in memory. Returns null before the frame's
+// size is known.
 function rasterise(current, frame, window) {
-  const width = frame.displayWidth || frame.codedWidth;
-  const height = frame.displayHeight || frame.codedHeight;
-  if (!width || !height) return null;
+  const frameWidth = frame.displayWidth || frame.codedWidth;
+  const frameHeight = frame.displayHeight || frame.codedHeight;
+  if (!frameWidth || !frameHeight) return null;
+  const source = current.crop ? cropRect(current.crop, frameWidth, frameHeight) : null;
+  const width = source ? source.width : frameWidth;
+  const height = source ? source.height : frameHeight;
   const scale = Math.min(1, GIF_MAX_WIDTH / width);
   const outWidth = Math.max(1, Math.round(width * scale));
   const outHeight = Math.max(1, Math.round(height * scale));
@@ -149,7 +166,11 @@ function rasterise(current, frame, window) {
     current.gifWidth = outWidth;
     current.gifHeight = outHeight;
   }
-  current.context.drawImage(frame, 0, 0, outWidth, outHeight);
+  if (source) {
+    current.context.drawImage(frame, source.x, source.y, width, height, 0, 0, outWidth, outHeight);
+  } else {
+    current.context.drawImage(frame, 0, 0, outWidth, outHeight);
+  }
   return current.context.getImageData(0, 0, outWidth, outHeight).data;
 }
 
@@ -194,8 +215,10 @@ function encodeGif(current, { startMs, endMs, offset }) {
   }
 }
 
+// `site` names the site in what the recorder reports (Netflix, YouTube).
 export function createNetflixRecorder(window, {
   now = () => window.performance.timeOrigin + window.performance.now(),
+  site = "Netflix",
 } = {}) {
   let session = null;
 
@@ -211,9 +234,9 @@ export function createNetflixRecorder(window, {
   // Opens this tab's stream and starts placing its samples. Chrome hands a
   // stream ID only to an extension the user invoked on the tab, and the ID is
   // used here, in the context that asked for it.
-  async function start({ targetTabId, limitMs, audio = true, gif = false }) {
+  async function start({ targetTabId, limitMs, audio = true, gif = false, crop = null }) {
     if (!Number.isSafeInteger(targetTabId) || !Number.isFinite(limitMs) || limitMs <= 0) {
-      throw new Error("The Netflix recording request is invalid.");
+      throw new Error(`The ${site} recording request is invalid.`);
     }
     if (session !== null) stop(session);
     // The audio track is opened either way: it mutes the tab for the replay
@@ -221,10 +244,16 @@ export function createNetflixRecorder(window, {
     // field needs its WAV, and video is captured only for a {gif} field.
     const current = { stream: null, reader: null, chunks: [], sampleRate: null, timer: null, waiter: null,
       clock: createAudioFrameClock({ timeOrigin: window.performance.timeOrigin, now }), audio,
-      gif, videoReader: null, frames: [], lastVideoMs: null, canvas: null, context: null, gifWidth: 0, gifHeight: 0,
+      gif, crop, videoReader: null, frames: [], lastVideoMs: null, canvas: null, context: null, gifWidth: 0,
+      gifHeight: 0,
       videoClock: createVideoFrameClock({ timeOrigin: window.performance.timeOrigin, now }) };
     session = current;
     try {
+      // Firefox has no tab capture for extensions.
+      if (typeof window.chrome.tabCapture?.getMediaStreamId !== "function") {
+        stop(current);
+        return { unavailable: "unsupported" };
+      }
       let streamId;
       try {
         streamId = await window.chrome.tabCapture.getMediaStreamId({ targetTabId });
@@ -279,7 +308,7 @@ export function createNetflixRecorder(window, {
     } finally {
       stop(current);
     }
-    if (offset === null) throw new Error("Netflix did not play the line, so nothing was recorded.");
+    if (offset === null) throw new Error(`${site} did not play the line, so nothing was recorded.`);
     const gif = encodeGif(current, { startMs, endMs, offset });
     if (!current.audio) return gif ? { gif } : {};
     const samples = clipSamples(current.chunks, { originMs: current.clock.originMs, sampleRate: current.sampleRate,
@@ -292,11 +321,12 @@ export function createNetflixRecorder(window, {
   return { start, finish, stop: () => { if (session !== null) stop(session); } };
 }
 
-// netflix-recorder.html's side of its port to the service worker: one
-// recording per frame, answered message by message.
-export function connectNetflixRecorder(window) {
-  const recorder = createNetflixRecorder(window);
-  const port = window.chrome.runtime.connect({ name: "hachidori-netflix-recorder" });
+// netflix-recorder.html's side of its port to the service worker, and
+// youtube-recorder.html's with YouTube's port and name: one recording per
+// frame, answered message by message.
+export function connectNetflixRecorder(window, { port: name = "hachidori-netflix-recorder", site = "Netflix" } = {}) {
+  const recorder = createNetflixRecorder(window, { site });
+  const port = window.chrome.runtime.connect({ name });
   const answer = (task, reply) => task.then(
     result => port.postMessage({ type: reply, ...result }),
     error => port.postMessage({ type: "error", error: error?.message || String(error) }),

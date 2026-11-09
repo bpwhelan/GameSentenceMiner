@@ -15,10 +15,10 @@ import * as net from 'node:net';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
-import { getBaseDir } from '../data_dir.js';
+import { getSharedBaseDir } from '../data_dir.js';
 import type { WineLaunchContext } from './linux_wine.js';
 
-const BASE_DIR = getBaseDir();
+const BASE_DIR = getSharedBaseDir();
 const moduleRequire = createRequire(import.meta.url);
 
 function getInstalledFridaVersion(): string {
@@ -42,6 +42,7 @@ function getInstalledFridaVersion(): string {
 const FRIDA_SERVER_VERSION = getInstalledFridaVersion();
 const SERVER_DOWNLOAD_BASE = `https://github.com/frida/frida/releases/download/${FRIDA_SERVER_VERSION}`;
 const SERVER_START_TIMEOUT_MS = 12_000;
+const UMU_SERVER_START_TIMEOUT_MS = 120_000;
 const SERVER_POLL_INTERVAL_MS = 250;
 const SERVER_DOWNLOAD_TIMEOUT_MS = 120_000;
 
@@ -182,8 +183,13 @@ function delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForServerSocket(port: number, getStartupFailure: () => Error | null): Promise<void> {
-    const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
+async function waitForServerSocket(
+    port: number,
+    getStartupFailure: () => Error | null,
+    timeoutMs: number,
+    timeoutHint = '',
+): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
     let lastError = '';
     while (Date.now() < deadline) {
         const startupFailure = getStartupFailure();
@@ -208,7 +214,7 @@ async function waitForServerSocket(port: number, getStartupFailure: () => Error 
     }
     const startupFailure = getStartupFailure();
     if (startupFailure) throw startupFailure;
-    throw new Error(`Frida server did not open ${port}${lastError ? `: ${lastError}` : '.'}`);
+    throw new Error(`Frida server did not open ${port} within ${timeoutMs / 1000}s${lastError ? `: ${lastError}` : '.'}${timeoutHint}`);
 }
 
 async function waitForTarget(device: Device, exeName: string): Promise<Process> {
@@ -256,6 +262,9 @@ export async function startWineFridaConnection(
         : path.dirname(serverPath);
     const launcherName = launch.launcherKind === 'umu' ? 'UMU' : 'Wine/Proton';
     onLog?.(`Starting Frida server (${arch}) through ${launcherName} at ${remoteAddress}.`);
+    if (launch.launcherKind === 'umu') {
+        onLog?.('UMU may need to prepare its runtime; allowing up to 120 seconds for the Frida server to start.');
+    }
 
     const serverProcess = spawn(launch.launcherPath, [serverPath, '--listen', remoteAddress], {
         cwd,
@@ -290,7 +299,14 @@ export async function startWineFridaConnection(
         // addRemoteDevice can return a Device before the endpoint is actually
         // ready. Probe TCP first so the first enumerate call performs the real
         // Frida handshake instead of permanently caching a disconnected device.
-        await waitForServerSocket(port, () => startupFailure);
+        await waitForServerSocket(
+            port,
+            () => startupFailure,
+            launch.launcherKind === 'umu' ? UMU_SERVER_START_TIMEOUT_MS : SERVER_START_TIMEOUT_MS,
+            launch.launcherKind === 'umu'
+                ? ' Check the UMU logs above. Let Lutris/UMU finish any runtime setup, then retry with the game running in the same prefix and runner.'
+                : '',
+        );
         device = await manager.addRemoteDevice(remoteAddress);
         const target = await waitForTarget(device, exeName);
         const windowsPid = Number(target.pid);

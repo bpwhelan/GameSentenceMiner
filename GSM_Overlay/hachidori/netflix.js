@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-
-let application = Promise.resolve();
+import { siteScriptSwitch } from "./site-scripts.js";
 
 // The scripts Settings → Advanced → Experimental features → Netflix mining
 // registers, top frame only because Netflix reaches /watch/ by navigating
@@ -25,23 +24,5 @@ export const NETFLIX_SCRIPTS = Object.freeze([
     world: "ISOLATED",
   }),
 ]);
-const SCRIPT_IDS = NETFLIX_SCRIPTS.map(script => script.id);
 
-async function apply(browser, enabled) {
-  const scripting = browser.scripting;
-  if (typeof scripting?.registerContentScripts !== "function") return { supported: false, registered: false };
-  const existing = new Set((await scripting.getRegisteredContentScripts({ ids: SCRIPT_IDS })).map(script => script.id));
-  if (!enabled) {
-    if (existing.size > 0) await scripting.unregisterContentScripts({ ids: [...existing] });
-    return { supported: true, registered: false };
-  }
-  const missing = NETFLIX_SCRIPTS.filter(script => !existing.has(script.id));
-  if (missing.length > 0) await scripting.registerContentScripts(missing);
-  return { supported: true, registered: true };
-}
-
-// Serialised like applyGoogleDocsFlag, so rapid toggles apply in order.
-export function applyNetflixFlag(browser, enabled) {
-  application = application.catch(() => {}).then(() => apply(browser, enabled));
-  return application;
-}
+export const applyNetflixFlag = siteScriptSwitch(NETFLIX_SCRIPTS);

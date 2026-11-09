@@ -554,6 +554,9 @@ def get_qt_app():
     if _dialog_manager is None:
         _dialog_manager = DialogManager()
         gsm_state.dialog_manager = _dialog_manager
+        from GameSentenceMiner.ui.session_review_qt import SessionReviewController
+
+        _dialog_manager.session_review_controller = SessionReviewController(_dialog_manager)
 
     return _qt_app
 

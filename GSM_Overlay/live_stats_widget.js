@@ -70,6 +70,7 @@
     tickTimer: null,
     temporarilyVisible: false,
     hiddenForTextOverlap: false,
+    pointerPosition: null,
     visible: false,
     windowAvailable: true,
   };
@@ -708,12 +709,14 @@
       root.style.setProperty("--gsm-live-stats-x", `${Math.round(clampPosition(left, margin, window.innerWidth - widgetWidth - margin))}px`);
       root.style.setProperty("--gsm-live-stats-y", `${Math.round(clampPosition(top, margin, window.innerHeight - widgetHeight - margin))}px`);
       root.style.right = "auto";
-      return;
+    } else {
+      root.style.setProperty("--gsm-live-stats-x", "auto");
+      root.style.setProperty("--gsm-live-stats-y", `${margin}px`);
+      root.style.right = `${margin}px`;
     }
 
-    root.style.setProperty("--gsm-live-stats-x", "auto");
-    root.style.setProperty("--gsm-live-stats-y", `${margin}px`);
-    root.style.right = `${margin}px`;
+    // The game window or widget layout can move beneath a stationary pointer.
+    updateVisibility();
   }
 
   function clearHideTimer() {
@@ -736,7 +739,20 @@
     const goalsActive = getVisibleGoals().length > 0;
     const enabled = statsActive || pomodoroActive || goalsActive;
     const hiddenForTextOverlap = state.settings.hideLiveStatsOnTextOverlap && state.hiddenForTextOverlap;
-    ensureRoot().classList.toggle("gsm-live-stats-text-overlap-hidden", hiddenForTextOverlap);
+    const root = ensureRoot();
+    root.classList.toggle("gsm-live-stats-text-overlap-hidden", hiddenForTextOverlap);
+    // The widget stays click-through, so use the shared viewport pointer feed
+    // instead of DOM hover targets (including Magpie's projected cursor).
+    const pointer = state.pointerPosition;
+    const rect = pointer ? root.getBoundingClientRect() : null;
+    const hiddenForPointerHover = !!(pointer && rect &&
+      pointer.x >= rect.left && pointer.x < rect.right &&
+      pointer.y >= rect.top && pointer.y < rect.bottom);
+    root.classList.toggle("gsm-live-stats-hover-hidden", hiddenForPointerHover);
+    if (hiddenForPointerHover) {
+      setVisible(false);
+      return;
+    }
     // Intake can stay paused with no new text or visible stats. Keep the warning
     // pinned; CSS collapses overlapping stats to just the compact warning.
     if (state.textIntakePaused) {
@@ -911,6 +927,7 @@
   function init() {
     ensureRoot();
     render();
+    window.dispatchEvent(new Event("gsm-overlay-hover-request"));
   }
 
   document.addEventListener("visibilitychange", () => {
@@ -938,6 +955,14 @@
 
   window.addEventListener("gsm-window-state-update", (event) => {
     handleWindowState(event.detail);
+  });
+
+  window.addEventListener("gsm-overlay-hover", (event) => {
+    const point = event.detail;
+    state.pointerPosition = point?.active && Number.isFinite(point.x) && Number.isFinite(point.y)
+      ? { x: point.x, y: point.y }
+      : null;
+    updateVisibility();
   });
 
   window.addEventListener("resize", () => {

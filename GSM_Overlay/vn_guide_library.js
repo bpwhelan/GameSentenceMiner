@@ -20,7 +20,7 @@ async function fetchGuideJson(url) {
     catch { throw new Error('VN-Guide contains an invalid JSON file.'); }
   }
   const response = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'error', credentials: 'omit', cache: 'no-store' });
-  if (!response.ok) throw new Error(`VN-Guide could not be downloaded (HTTP ${response.status}).`);
+  if (!response.ok) throw Object.assign(new Error(`VN-Guide could not be downloaded (HTTP ${response.status}).`), { status: response.status });
   const reader = response.body.getReader();
   const chunks = [];
   let bytes = 0;

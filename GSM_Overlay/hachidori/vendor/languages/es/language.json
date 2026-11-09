@@ -1,0 +1,173 @@
+{
+  "schema": 1,
+  "code": "es",
+  "iso639_3": "spa",
+  "name": "Spanish",
+  "nativeName": "Español",
+  "bcp47": "es",
+  "scripts": ["Latn"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[A-Za-z\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u024F\\uFB00-\\uFB06]",
+    "word": "[{letter}\\u0300-\\u036F0-9]",
+    "stemConsonant": "[bcdfghjklmnñpqrstvwxyzu]",
+    "imperativeEnd": "[aeiouáéíóúdnszl]",
+    "imperativeEndOs": "[aeiouáéíóúnszl]"
+  },
+  "text": {
+    "pattern": "[{letter}\\u0300-\\u036F]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "normalizeUnicode",
+        "name": "Normalize Unicode (NFKC)",
+        "variants": [[{"normalize": "NFKC"}]]
+      },
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [[{"case": "lower"}]]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [[{"case": "upperFirst"}]]
+      },
+      {
+        "id": "addMissingAccents",
+        "name": "Add a missing accent, ñ or ü",
+        "optional": true,
+        "variants": [
+          [{"map": {"a": "á"}, "at": "first"}],
+          [{"map": {"a": "á"}, "at": "last"}],
+          [{"map": {"e": "é"}, "at": "first"}],
+          [{"map": {"e": "é"}, "at": "last"}],
+          [{"map": {"i": "í"}, "at": "first"}],
+          [{"map": {"i": "í"}, "at": "last"}],
+          [{"map": {"o": "ó"}, "at": "first"}],
+          [{"map": {"o": "ó"}, "at": "last"}],
+          [{"map": {"u": "ú"}, "at": "first"}],
+          [{"map": {"u": "ú"}, "at": "last"}],
+          [{"map": {"n": "ñ"}, "at": "first"}],
+          [{"map": {"n": "ñ"}, "at": "last"}],
+          [{"map": {"gue": "güe", "gui": "güi"}, "at": "first"}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "none",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": null,
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {},
+    "displayTransforms": {}
+  },
+  "settings": [
+    {
+      "id": "missingAccents",
+      "type": "boolean",
+      "default": false,
+      "label": "Text without accents",
+      "description": "Also look words up with one accent, ñ or ü added, for informal text that leaves them out (esta → está, cancion → canción, nino → niño). Adds less likely readings and makes lookups slower.",
+      "group": "lookup",
+      "effect": {"preprocessor": "addMissingAccents"}
+    }
+  ],
+  "host": {
+    "ttsLanguage": "es-ES",
+    "audioLanguage": "es",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {"phonetic-transcriptions": ["IPA"]},
+      "partOfSpeechLabels": {
+        "v": "Verb",
+        "vt": "Transitive verb",
+        "vi": "Intransitive verb",
+        "vr": "Reflexive verb",
+        "vdt": "Ditransitive verb",
+        "n": "Noun",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "intj": "Interjection",
+        "artic": "Article",
+        "det": "Determiner",
+        "num": "Numeral",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcl": "Particle",
+        "ptcpl": "Participle",
+        "char": "Character",
+        "prep-phrase": "Prepositional phrase"
+      }
+    },
+    "frequencySamples": {
+      "common": ["de", "que", "no", "la", "el", "es", "y", "en", "lo", "un"],
+      "rare": ["murciélago", "relámpago", "zanahoria", "hormiga", "alfiler", "gaviota", "lagartija", "sarampión", "herradura", "berenjena"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Spanish-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Spanish words with English definitions from English Wiktionary, with inflected forms.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary Spanish-Spanish (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Spanish words with Spanish definitions from Spanish Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "hablando",
+      "practice": {
+        "text": "Ayer comimos en un restaurante pequeño cerca del puerto.",
+        "lookup": "comimos"
+      },
+      "entry": {
+        "expression": "comer",
+        "reading": "comer",
+        "glossary": ["to eat"],
+        "definitionTags": "v",
+        "matched": "comimos",
+        "trace": ["preterite (nosotros)"]
+      },
+      "character": null
+    }
+  }
+}

@@ -1502,6 +1502,10 @@ class GSMApplication:
                 if self.state.settings_window:
                     self.state.settings_window.reload_settings()
                 self.on_config_changed()
+            elif function == FunctionName.OPEN_SESSION_REVIEW.value:
+                from GameSentenceMiner.ui.session_review_qt import open_session_review
+
+                open_session_review()
             elif function == FunctionName.APPLY_CHANGELOG_SETTING_CHOICE.value:
                 data = cmd.get("data") if isinstance(cmd, dict) else {}
                 choice = str(data.get("choice") or "") if isinstance(data, dict) else ""
@@ -1948,8 +1952,11 @@ class GSMApplication:
 
         logger.success("GSM Loaded. Happy Mining! がんばれ！")
         logger.info("-" * 84)
+        from GameSentenceMiner import session_review
         from GameSentenceMiner.util.platform import notification
 
+        if session_review.notify_pending_on_startup():
+            return
         notification.send_notification(
             "GSM Ready",
             "GSM Loaded. Happy Mining! がんばれ！",

@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hachidori Search</title>
+    <!-- The search page itself, in search.html's sandboxed frame (#644): this
+         document has no extension APIs until search-bridge.js connects it. -->
+    <script src="search-bridge.js"></script>
+    <script src="vendor/languages/registry.js"></script>
+    <script src="reader-options.js"></script>
+    <script src="settings-theme.js"></script>
+    <link rel="stylesheet" href="icons.css" />
+    <link rel="stylesheet" href="render/reader.css" />
+    <link rel="stylesheet" href="settings.css" />
+    <link rel="stylesheet" href="search.css" />
+    <!-- The page loads the reader itself; its page styles come with the page. -->
+    <link rel="stylesheet" href="content.css" />
+  </head>
+  <body class="search-page">
+    <!-- The Anki Template (#656) and Clipboard monitor switches are
+         search.html's, over this header's end: the controls here only keep
+         their room, invisible (search.css), so they are neither in the
+         accessibility tree nor reached by Tab. -->
+    <header class="search-header">
+      <img src="icons/hachidori-48.png" width="24" height="24" alt="" />
+      <h1>Hachidori Search</h1>
+      <select class="search-template" aria-label="Anki Template" hidden></select>
+      <label class="lookup-enable">
+        <span>Clipboard monitor</span>
+        <input type="checkbox" />
+      </label>
+    </header>
+    <form class="search-form" id="search-form" role="search">
+      <textarea id="search-input" lang="ja" rows="1" autocomplete="off" autocapitalize="off" spellcheck="false"
+        aria-label="Word or text to look up" placeholder="Type or paste Japanese, then press Enter"></textarea>
+      <button type="button" class="ghost search-button" id="search-clear" aria-label="Clear the search box" title="Clear">
+        <span class="hd-icon" data-icon="dismiss" aria-hidden="true"></span>
+      </button>
+      <button type="submit" class="primary-button search-button" id="search-submit" aria-label="Search" title="Search" disabled>
+        <span class="hd-icon" data-icon="search" aria-hidden="true"></span>
+      </button>
+    </form>
+    <!-- The searched text, which the arrow keys move a cursor through once it
+         has focus (search.js, which makes it a read-only text box). In a visit
+         to an earlier line (Rubi's line
+         history), the rows around it are its neighbours' last and first rows,
+         drawn from data-text (search.css): no text of theirs can be looked up,
+         selected or read. Each block is its own paragraph, so a lookup never
+         runs on into the next. -->
+    <div class="search-lines" id="search-lines" hidden>
+      <p class="search-neighbour search-neighbour-before" id="search-before" lang="ja" aria-hidden="true" hidden></p>
+      <p class="search-query" id="search-query" lang="ja" hidden></p>
+      <p class="search-neighbour" id="search-after" lang="ja" aria-hidden="true" hidden></p>
+      <p class="search-cursor-word" id="search-cursor-word" lang="ja" aria-live="polite"></p>
+      <p class="search-line-note" id="search-where" aria-live="polite" hidden></p>
+      <p class="search-line-note search-keys" id="search-keys"></p>
+    </div>
+    <main class="search-results" id="search-results" aria-label="Results">
+      <output class="hint" id="search-status">Loading…</output>
+    </main>
+    <script type="module" src="search.js"></script>
+  </body>
+</html>

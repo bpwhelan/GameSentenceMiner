@@ -53,9 +53,10 @@ export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, c
   let runningLessRam = true;
   let settledSinceStart = false;
   let timer = null;
+  let enabled = true;
 
   function wanted() {
-    return running !== null && (desired !== running || desiredStorage !== runningStorage
+    return enabled && running !== null && (desired !== running || desiredStorage !== runningStorage
       || desiredIndexStorage !== runningIndexStorage || desiredLessRam !== runningLessRam || (desired && settledSinceStart));
   }
 
@@ -85,6 +86,11 @@ export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, c
   }
 
   return {
+    // Linked clients retain the offscreen page for audio, but release its engine.
+    setEnabled(value) {
+      enabled = value;
+      reconsider();
+    },
     // The option as stored.
     setDesired(lowMemory, dictionaryEntryStorage = "auto", dictionaryIndexStorage = "auto", useLessRamByDefault = true) {
       desired = lowMemory === true;
@@ -95,7 +101,7 @@ export function createEngineRecycler({ isIdle, restart, setTimer = setTimeout, c
     },
     // The mode the worker that is now serving requests was created with.
     setRunning(lowMemory, dictionaryEntryStorage = "auto", dictionaryIndexStorage = "auto", useLessRamByDefault = true) {
-      running = lowMemory === true;
+      running = lowMemory === null ? null : lowMemory === true;
       runningStorage = dictionaryEntryStorage;
       runningIndexStorage = dictionaryIndexStorage;
       runningLessRam = useLessRamByDefault;

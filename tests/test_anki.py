@@ -138,6 +138,18 @@ def test_add_wildcards():
     assert anki.add_wildcards("abc") == "*a*b*c*"
 
 
+@pytest.mark.parametrize("provider", ["Gemini", "OpenAI", "DeepL"])
+def test_translation_prefetch_uses_the_shared_line_translation_path(monkeypatch, provider):
+    line = SimpleNamespace(id="prefetch", text="例文", translation="Earlier result")
+    monkeypatch.setattr(anki, "get_config", lambda: SimpleNamespace(ai=SimpleNamespace(provider=provider)))
+    monkeypatch.setattr(anki, "get_all_lines", lambda: [line])
+    monkeypatch.setattr(anki, "get_current_game", lambda: "Game")
+    translate = Mock(return_value="Shared result")
+    monkeypatch.setattr(anki, "_get_ai_prompt_result", lambda: translate)
+    assert anki.prefetch_ai_translation(line.text, line) == "Shared result"
+    translate.assert_called_once_with([line], line.text, line, "Game")
+
+
 @pytest.mark.parametrize("missing", ["Word", "Sentence", "SentenceAudio", "Picture"])
 def test_new_card_with_missing_fields_offers_setup_before_mining(monkeypatch, missing):
     config = _base_config()
@@ -3302,13 +3314,14 @@ def test_skipped_unvoiced_confirmation_keeps_furigana_and_pending_translation(mo
 @pytest.mark.parametrize("show_dialog", [False, True])
 @pytest.mark.parametrize("use_existing_files", [False, True])
 @pytest.mark.parametrize("audio_enabled", [False, True])
+@pytest.mark.parametrize("skip_unvoiced", [False, True])
 def test_update_anki_card_overlay_confirmation_respects_setting(
-    monkeypatch, source, show_dialog, use_existing_files, audio_enabled
+    monkeypatch, source, show_dialog, use_existing_files, audio_enabled, skip_unvoiced
 ):
     config = _base_config()
     config.audio.enabled = audio_enabled
     config.anki.show_update_confirmation_dialog_v2 = show_dialog
-    config.anki.skip_confirmation_for_unvoiced = True
+    config.anki.skip_confirmation_for_unvoiced = skip_unvoiced
     config.anki.previous_image_field = ""
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "_determine_update_conditions", lambda _card: (False, False))
@@ -3334,9 +3347,9 @@ def test_update_anki_card_overlay_confirmation_respects_setting(
         vad_result=SimpleNamespace(success=False, voice_detected=False, model="Silero"),
     )
 
-    if source == "overlay" and show_dialog:
+    if show_dialog and not use_existing_files and not skip_unvoiced:
         assert len(shown) == 1
-        assert shown[0]["overlay_only"] is True
+        assert shown[0]["overlay_only"] is (source == "overlay")
         assert result is False  # The confirmation stub cancels the update.
         assert updates == []
     else:
@@ -3376,23 +3389,15 @@ def test_overlay_confirmation_setting_preserves_reused_media(monkeypatch, show_d
         use_existing_files=True,
     )
 
-    if show_dialog:
-        assert result is False
-        assert len(shown) == 1
-        assert shown[0]["overlay_only"]
-        assert shown[0]["reusing_audio"]
-        assert shown[0]["reusing_screenshot"]
-        assert updates == []
-    else:
-        assert result is True
-        assert shown == []
-        assert len(updates) == 1
-        assets = updates[0][3]
-        assert assets.audio_in_anki == "audio.opus"
-        assert assets.screenshot_in_anki == "shot.webp"
-        assert assets.reused_audio is True
-        assert assets.reused_screenshot is True
-        assert updates[0][6] is True  # The update still uses the existing files.
+    assert result is True
+    assert shown == []
+    assert len(updates) == 1
+    assets = updates[0][3]
+    assert assets.audio_in_anki == "audio.opus"
+    assert assets.screenshot_in_anki == "shot.webp"
+    assert assets.reused_audio is True
+    assert assets.reused_screenshot is True
+    assert updates[0][6] is True  # The update still uses the existing files.
 
 
 def test_update_anki_card_confirmation_marks_reused_media(monkeypatch):

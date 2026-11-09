@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/Jitendex/jitendex-data",
+  "commit": "10c13e08339c8ad2610e76e773ca882c7a53f202",
+  "license": "CC-BY-SA-4.0",
+  "attribution": "This package uses the kanwa character and compound readings of jitendex-data (https://github.com/Jitendex/jitendex-data), the data behind Jitendex by Stephen Kraus, under CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/",
+  "files": {
+    "kanwa/characters.json": {
+      "sha256": "6aa5838cfbca52e5297d2a967a7b41ba5d53277f9b1ae47fba70094ee368e9f3"
+    },
+    "kanwa/compounds.json": {
+      "sha256": "79ba2571f775d66dc186047584d85fffda497d728668dc4407334aeb4885a59f"
+    },
+    "kanwa-readings.json": {
+      "sha256": "27cbb6541fc312beb332b7fd377d4286a4fe94178860e25aa8c404dc9ec650bc",
+      "kanjidic": "381e51d5ff862d728f706c9dc427a6902da15e9b49b4c4a45e48c74081020729"
+    }
+  }
+}

@@ -10,6 +10,12 @@ const { GuideLibrary, fetchGuideJson } = require('../vn_guide_library');
 const manifest = { title: 'Test Game', routes: [{ id: 'one', title: 'Route One' }, { id: 'two', title: 'Route Two' }] };
 const route = ['First choice', 'Second choice'].map(simpleJp => ({ simpleJp }));
 
+test('missing remote files expose HTTP status so optional catalogues can be distinguished from other failures', async t => {
+  t.mock.method(globalThis, 'fetch', async () => ({ ok: false, status: 404 }));
+  await assert.rejects(fetchGuideJson('https://raw.githubusercontent.com/example/My-Guide/main/games.json'),
+    error => error.status === 404 && /HTTP 404/.test(error.message));
+});
+
 function fixture(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-vn-sources-'));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

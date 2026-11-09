@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 // Settings → Dictionaries → Personal dictionary: the source editor, its validation,
-// and the revision-checked loads and saves of the source.
+// and the revision-checked loads and saves of the source. The editor shows the
+// personal dictionary of the edited profile's language (docs/languages.md 15).
 
 import { describeErrorOrJson } from "./error-text.js";
 import {
+  customDictionaryDocumentFor,
   normaliseCustomDictionaryDocument,
   parseCustomDictionary,
+  personalDictionaryRules,
 } from "./custom-dictionary.js";
 import {
-  backingUp, element, send, setSectionStatus, syncNavigationStatus, WORKER_TARGET,
+  backingUp, editedProfile, element, languageName, profileFields, send, setSectionStatus, syncNavigationStatus,
+  WORKER_TARGET,
 } from "./settings.js";
 import {
   adoptDictionaryState, committing, removing, renderChangedDictionaryState, setControlsDisabled, stringValue,
@@ -26,9 +30,19 @@ let customLoading = false; // NOSONAR: shared with the other Settings modules
 let customSaving = false; // NOSONAR: shared with the other Settings modules
 let customDraftStale = false;
 let customDraftNewline = "\n";
+// The language whose document the editor holds, and a token that retires a
+// load started for another language.
+let customLanguage = "ja";
+let customLoadToken = 0;
+const JAPANESE_SOURCE_PLACEHOLDER = "蜂, はち, bee\n辞書, じしょ, dictionary\n読む, よむ, to read";
 
-function setCustomDictionaryStatus(message, tone = "", completed = false) {
-  setSectionStatus("custom-dictionary-status", message, tone, completed);
+// The pack's rule for the Reading column (docs/languages.md 15).
+function sourceRules() {
+  return personalDictionaryRules(customLanguage);
+}
+
+function setCustomDictionaryStatus(message, tone = "", completed = false, error = null) {
+  setSectionStatus("custom-dictionary-status", message, tone, completed, error);
 }
 
 function renderCustomDictionaryErrors(errors) {
@@ -78,7 +92,7 @@ function cancelCustomDictionaryValidation() {
 
 function renderCustomDictionaryValidation(source = element("custom-dictionary-source").value) {
   cancelCustomDictionaryValidation();
-  const parsed = parseCustomDictionary(source);
+  const parsed = parseCustomDictionary(source, sourceRules());
   renderCustomDictionaryErrors(parsed.errors);
   return parsed;
 }
@@ -124,6 +138,43 @@ function adoptCustomDictionaryDocument(value) {
   return true;
 }
 
+// The stored record holds every language's document; the editor adopts its
+// own language's.
+function adoptCustomDictionaryRecord(record) {
+  return adoptCustomDictionaryDocument(customDictionaryDocumentFor(record, customLanguage));
+}
+
+function renderCustomDictionaryPlaceholder() {
+  const source = element("custom-dictionary-source");
+  let placeholder = JAPANESE_SOURCE_PLACEHOLDER;
+  if (customLanguage !== "ja") placeholder = `word, ${sourceRules().readingRequired ? "reading" : ""}, definition`;
+  if (source.placeholder !== placeholder) source.placeholder = placeholder;
+}
+
+// The edited profile changed: the editor holds the new language's document,
+// loaded again when the editor was loaded. The page has made sure no draft is
+// lost (settings.js chooseEditedProfile).
+function switchCustomDictionaryLanguage() {
+  if (customLanguage === editedProfile.language) return;
+  customLanguage = editedProfile.language;
+  customLoadToken += 1;
+  cancelCustomDictionaryValidation();
+  customDocument = null;
+  customBaseDocument = null;
+  customBaseEditorText = "";
+  customDraftStale = false;
+  // A load started for the previous language is retired and started again.
+  const reload = customEditorLoaded || customLoading;
+  customEditorLoaded = false;
+  customLoading = false;
+  element("custom-dictionary-source").value = "";
+  renderCustomDictionaryErrors([]);
+  renderCustomDictionaryPlaceholder();
+  setCustomDictionaryStatus("");
+  renderCustomDictionaryControls();
+  if (reload) void loadCustomDictionarySource();
+}
+
 function adoptCustomDictionaryState(value) {
   if (value === null || value === undefined) return;
   if (adoptDictionaryState(value)) {
@@ -135,10 +186,13 @@ async function loadCustomDictionarySource() {
   if (customLoading || customSaving) return;
   cancelCustomDictionaryValidation();
   customLoading = true;
+  const token = customLoadToken;
   setCustomDictionaryStatus("Loading the saved custom dictionary source…");
   renderCustomDictionaryControls();
   try {
-    const reply = await send("hd_custom_read", {}, WORKER_TARGET);
+    const reply = await send("hd_custom_read", { ...profileFields() }, WORKER_TARGET);
+    // A language chosen meanwhile loads its own document.
+    if (token !== customLoadToken) return;
     if (!reply.ok || reply.document === undefined) {
       throw new Error(reply.error || "the custom dictionary source could not be read");
     }
@@ -148,14 +202,19 @@ async function loadCustomDictionarySource() {
       throw new Error("the custom dictionary source reply was empty");
     }
     customEditorLoaded = true;
+    renderCustomDictionaryPlaceholder();
     resetCustomDictionaryDraft(customDocument);
-    setCustomDictionaryStatus(`Loaded source revision ${customDocument.revision}.`, "ready", true);
+    const subject = customLanguage === "ja" ? "" : ` of the ${languageName(customLanguage)} personal dictionary`;
+    setCustomDictionaryStatus(`Loaded source revision ${customDocument.revision}${subject}.`, "ready", true);
   } catch (error) {
-    setCustomDictionaryStatus(`Could not load the custom dictionary source: ${describeErrorOrJson(error)}`, "error");
+    if (token !== customLoadToken) return;
+    setCustomDictionaryStatus(`Could not load the custom dictionary source: ${describeErrorOrJson(error)}`, "error", false, error);
   } finally {
-    customLoading = false;
-    syncNavigationStatus("custom-dictionary-status");
-    renderCustomDictionaryControls();
+    if (token === customLoadToken) {
+      customLoading = false;
+      syncNavigationStatus("custom-dictionary-status");
+      renderCustomDictionaryControls();
+    }
   }
 }
 
@@ -199,6 +258,7 @@ async function saveCustomDictionarySource(event) {
     const reply = await send("hd_custom_save", {
       baseDocumentRevision: pending.baseRevision,
       text: pending.source,
+      ...profileFields(),
     });
     if (reply.document !== undefined) {
       adoptCustomDictionaryDocument(reply.document);
@@ -241,7 +301,7 @@ async function saveCustomDictionarySource(event) {
       );
     }
   } catch (error) {
-    setCustomDictionaryStatus(`Could not save the custom dictionary: ${describeErrorOrJson(error)}`, "error");
+    setCustomDictionaryStatus(`Could not save the custom dictionary: ${describeErrorOrJson(error)}`, "error", false, error);
   } finally {
     customSaving = false;
     syncNavigationStatus("custom-dictionary-status");
@@ -278,14 +338,15 @@ function attachCustomDictionaryHandlers() {
 
 function handleCustomDictionarySourceChange(change) {
   try {
-    adoptCustomDictionaryDocument(change.newValue);
+    adoptCustomDictionaryRecord(change.newValue);
   } catch (error) {
-    setCustomDictionaryStatus(`Could not read the changed custom dictionary source: ${describeErrorOrJson(error)}`, "error");
+    setCustomDictionaryStatus(`Could not read the changed custom dictionary source: ${describeErrorOrJson(error)}`, "error", false, error);
   }
 }
 
 export {
-  adoptCustomDictionaryDocument, adoptCustomDictionaryState, attachCustomDictionaryHandlers,
-  customDictionaryDirty, customEditorLoaded, customLoading, customSaving, handleCustomDictionarySourceChange,
-  loadCustomDictionarySource, renderCustomDictionaryControls
+  adoptCustomDictionaryDocument, adoptCustomDictionaryRecord, adoptCustomDictionaryState,
+  attachCustomDictionaryHandlers, customDictionaryDirty, customEditorLoaded, customLoading, customSaving,
+  handleCustomDictionarySourceChange, loadCustomDictionarySource, renderCustomDictionaryControls,
+  switchCustomDictionaryLanguage
 };

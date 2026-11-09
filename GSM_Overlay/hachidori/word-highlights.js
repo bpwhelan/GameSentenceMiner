@@ -38,6 +38,9 @@
   const MAX_CHUNK_LENGTH = 128;
   const SENTENCE_END = new Set(["。", "．", "！", "？", "!", "?", "…", "‥"]);
   const CLAUSE_END = new Set(["、", "，", ",", " ", "　"]);
+  // A pack's `text.highlightBreaks` replace them for its language
+  // (docs/languages.md 8.4); the Japanese pack carries these.
+  const DEFAULT_BREAKS = Object.freeze({ sentenceEnd: SENTENCE_END, clauseEnd: CLAUSE_END });
   const MAX_BATCH_CHUNKS = 32;
   const MAX_BATCH_LENGTH = 2048;
   // The latest segmentations, by their exact text, so repeated texthooker
@@ -77,10 +80,10 @@
   // Where a sentence that has reached MAX_CHUNK_LENGTH at `index` is cut:
   // after its last clause break in the second half of that length, or at the
   // length itself, and never between the halves of a surrogate pair.
-  function longChunkEnd(text, start, index) {
+  function longChunkEnd(text, start, index, clauseEnd = CLAUSE_END) {
     let end = index + 1;
     for (let back = index; back > start + MAX_CHUNK_LENGTH / 2; back -= 1) {
-      if (CLAUSE_END.has(text[back])) {
+      if (clauseEnd.has(text[back])) {
         end = back + 1;
         break;
       }
@@ -90,15 +93,15 @@
   }
 
   // A run's sentences as { start, text }, a long one cut by longChunkEnd(). A
-  // chunk without Japanese is dropped.
-  function chunksOf(text, isJapanese) {
+  // chunk without Japanese (without text `isJapanese` accepts) is dropped.
+  function chunksOf(text, isJapanese, { sentenceEnd, clauseEnd } = DEFAULT_BREAKS) {
     const chunks = [];
     let start = 0;
     let index = 0;
     while (index < text.length) {
       let end = null;
-      if (SENTENCE_END.has(text[index])) end = index + 1;
-      else if (index + 1 - start >= MAX_CHUNK_LENGTH) end = longChunkEnd(text, start, index);
+      if (sentenceEnd.has(text[index])) end = index + 1;
+      else if (index + 1 - start >= MAX_CHUNK_LENGTH) end = longChunkEnd(text, start, index, clauseEnd);
       if (end === null) {
         index += 1;
         continue;
@@ -141,7 +144,12 @@
     return { text, pieces };
   }
 
-  function createWordHighlighter({ window, send, textBlocks, blockOf, textRuns, runEntries, isJapanese, prepare, readPalette }) {
+  // `profileOf(element)` gives the profile a lookup in a block would use
+  // (docs/languages.md 8.5) as { key, fields, isText, breaks, options }, or
+  // null for one that shows no marks. Without it every block is Japanese, read
+  // with `isJapanese`, today's breaks and the highlighter's options.
+  function createWordHighlighter({ window, send, textBlocks, blockOf, textRuns, runEntries, isJapanese, prepare, readPalette,
+    profileOf = null }) {
     const { document } = window;
     const highlights = Object.fromEntries(STATUSES.map(status => {
       const highlight = new window.Highlight();
@@ -172,21 +180,31 @@
     const segments = new Map();
     let generation = null;
     let segmenting = false;
-    // Status by headword, every one shown read at statusRevision for
-    // statusesEpoch, or later. Every change signal bumps statusEpoch, so the
-    // words shown are read again.
+    // Status by headword (and profile), every one shown read at its profile's
+    // revision for its profile's epoch, or later. Every change signal bumps
+    // statusEpoch, so the words shown are read again.
     const statuses = new Map();
     let statusEpoch = 0;
-    let statusesEpoch = -1;
-    let statusRevision = null;
-    // Unknown until the worker answers. False means the cached index has no
-    // rows for the first Anki Template, so nothing is segmented or marked.
-    let available = null;
     let statusing = false;
     // Mark as known and Ignore, by headword (word-status-overrides.js). They
     // win over the Anki status and need no request: content.js hands over the
-    // stored record whenever it changes.
+    // stored record whenever it changes, or with profiles a function that
+    // gives a profile's language's.
     let overrides = new Map();
+    const overridesOf = profile => (typeof overrides === "function" ? overrides(profile) : overrides);
+    // The one profile without `profileOf`.
+    const japanese = { key: "", fields: {}, isText: isJapanese, breaks: DEFAULT_BREAKS, options: null };
+    const profileFor = element => (profileOf === null ? japanese : profileOf(element));
+    const optionsOf = profile => profile.options ?? options;
+    // A segmentation or status is the profile's: keyed by it as well.
+    const keyOf = (profile, value) => (profile.key === "" ? value : `${profile.key}\u0000${value}`);
+    // Per profile key: whether its Anki index can answer (unknown until the
+    // worker answers; false means the cached index has no rows for the
+    // profile's first Anki Template, so nothing is segmented or marked), and
+    // which change signal and revision its statuses were last read for.
+    const availability = new Map();
+    const statusesEpochs = new Map();
+    const statusRevisions = new Map();
 
     function schedule() {
       if (scheduled || !running) return;
@@ -224,9 +242,10 @@
 
     function rebuild(block) {
       for (const run of block.runs) unpaint(run);
-      block.runs = textRuns(block.element)
-        .filter(parts => parts.some(({ node, start, end }) => isJapanese(node.data.slice(start, end))))
-        .map(parts => ({ parts, text: null, pieces: null, chunks: null, wanted: false, stale: true, painted: [] }));
+      const profile = profileFor(block.element);
+      block.runs = profile === null ? [] : textRuns(block.element)
+        .filter(parts => parts.some(({ node, start, end }) => profile.isText(node.data.slice(start, end))))
+        .map(parts => ({ parts, profile, text: null, pieces: null, chunks: null, wanted: false, stale: true, painted: [] }));
       block.dirty = false;
       block.recheck = true;
     }
@@ -234,7 +253,7 @@
     // A run's text and chunks, read the first time it is wanted.
     function build(run) {
       ({ text: run.text, pieces: run.pieces } = runOf(runEntries(run.parts)));
-      run.chunks = chunksOf(run.text, isJapanese);
+      run.chunks = chunksOf(run.text, run.profile.isText, run.profile.breaks);
     }
 
     // Runs are wanted, segmented and painted, only within a viewport of the
@@ -370,9 +389,9 @@
 
     const surfaceOf = (span, text) => text.slice(span.start, span.start + span.length);
 
-    function markable(span, text) {
+    function markable(span, text, profile) {
       return !span.functionWord && Array.isArray(span.candidates) && span.candidates.length > 0
-        && isJapanese(surfaceOf(span, text));
+        && profile.isText(surfaceOf(span, text));
     }
 
     // A kana-written word can be another candidate's reading: かわいい on the
@@ -382,36 +401,36 @@
       return span.candidates.slice(1).filter(candidate => (candidate.reading || candidate.expression) === surface);
     }
 
-    function spanHeadwords(span, text) {
-      if (!markable(span, text)) return [];
+    function spanHeadwords(span, text, profile) {
+      if (!markable(span, text, profile)) return [];
       const headwords = [span.candidates[0].expression,
         ...readingCandidates(span, text).map(candidate => candidate.expression)];
       if (alternativeApplies(span)) {
-        for (const word of span.alternative) headwords.push(...spanHeadwords(word, text));
+        for (const word of span.alternative) headwords.push(...spanHeadwords(word, text, profile));
       }
       return headwords;
     }
 
     // A headword's status: its override, else its card's.
-    const statusOf = headword => overrides.get(headword) ?? statuses.get(headword);
+    const statusOf = (headword, profile) => overridesOf(profile).get(headword) ?? statuses.get(keyOf(profile, headword));
 
     // The popup's first result decides, so a mark agrees with what a hover
     // shows; when it is unknown, a candidate the surface spells out may decide.
-    function spanStatus(span, text) {
-      const first = statusOf(span.candidates[0].expression);
+    function spanStatus(span, text, profile) {
+      const first = statusOf(span.candidates[0].expression, profile);
       if (isDecided(first)) return first;
-      return readingCandidates(span, text).map(candidate => statusOf(candidate.expression))
+      return readingCandidates(span, text).map(candidate => statusOf(candidate.expression, profile))
         .find(isDecided) ?? "unknown";
     }
 
     // Marks are { start, length, status } in the chunk's text. A phrase that
     // is unknown, made only of words that are not, is marked as those words.
-    function spanMarks(span, text) {
-      if (!markable(span, text)) return [];
-      const status = spanStatus(span, text);
+    function spanMarks(span, text, profile) {
+      if (!markable(span, text, profile)) return [];
+      const status = spanStatus(span, text, profile);
       if (status === "unknown" && alternativeApplies(span)
-          && span.alternative.every(word => !markable(word, text) || isDecided(spanStatus(word, text)))) {
-        return span.alternative.flatMap(word => spanMarks(word, text));
+          && span.alternative.every(word => !markable(word, text, profile) || isDecided(spanStatus(word, text, profile)))) {
+        return span.alternative.flatMap(word => spanMarks(word, text, profile));
       }
       return [{ start: span.start, length: span.length, status }];
     }
@@ -419,7 +438,9 @@
     function runHeadwords(run) {
       const headwords = [];
       for (const chunk of run.chunks) {
-        for (const span of segments.get(chunk.text) ?? []) headwords.push(...spanHeadwords(span, chunk.text));
+        for (const span of segments.get(keyOf(run.profile, chunk.text)) ?? []) {
+          headwords.push(...spanHeadwords(span, chunk.text, run.profile));
+        }
       }
       return headwords;
     }
@@ -427,14 +448,15 @@
     // The run's marks in its own text, or null until every chunk is segmented
     // and every status the marks need has been read.
     function runMarks(run) {
-      if (available === false) return [];
+      const { profile } = run;
+      if (availability.get(profile.key) === false) return [];
       const marks = [];
       for (const chunk of run.chunks) {
-        const spans = segments.get(chunk.text);
+        const spans = segments.get(keyOf(profile, chunk.text));
         if (spans === undefined) return null;
         for (const span of spans) {
-          if (!spanHeadwords(span, chunk.text).every(headword => statuses.has(headword))) return null;
-          for (const mark of spanMarks(span, chunk.text)) marks.push({ ...mark, start: mark.start + chunk.start });
+          if (!spanHeadwords(span, chunk.text, profile).every(headword => statuses.has(keyOf(profile, headword)))) return null;
+          for (const mark of spanMarks(span, chunk.text, profile)) marks.push({ ...mark, start: mark.start + chunk.start });
         }
       }
       return marks;
@@ -569,22 +591,26 @@
       }
     }
 
-    // The next texts to segment, in viewport order, within the batch limits.
+    // The next texts to segment, in viewport order, within the batch limits,
+    // all of one profile: the first that has any.
     function nextBatch() {
       const batch = new Set();
       let length = 0;
+      let profile = null;
       for (const run of wantedRuns()) {
+        if (availability.get(run.profile.key) !== true || (profile !== null && run.profile !== profile)) continue;
         for (const chunk of run.chunks) {
-          if (segments.has(chunk.text) || batch.has(chunk.text)) continue;
+          if (segments.has(keyOf(run.profile, chunk.text)) || batch.has(chunk.text)) continue;
+          profile = run.profile;
           batch.add(chunk.text);
           length += chunk.text.length;
-          if (batch.size >= MAX_BATCH_CHUNKS || length >= MAX_BATCH_LENGTH) return [...batch];
+          if (batch.size >= MAX_BATCH_CHUNKS || length >= MAX_BATCH_LENGTH) return { profile, texts: [...batch] };
         }
       }
-      return [...batch];
+      return { profile, texts: [...batch] };
     }
 
-    function adoptSegments(texts, reply) {
+    function adoptSegments(texts, reply, profile) {
       // A dictionary commit between two chunks leaves a batch of two
       // generations, so a changed generation discards every segmentation.
       if (generation !== null && reply.generation !== generation) {
@@ -592,8 +618,8 @@
         repaintAll();
       } else {
         for (const { id, spans } of reply.segments) {
-          segments.delete(texts[id]);
-          segments.set(texts[id], spans);
+          segments.delete(keyOf(profile, texts[id]));
+          segments.set(keyOf(profile, texts[id]), spans);
         }
         while (segments.size > SEGMENT_CACHE_ENTRIES) segments.delete(segments.keys().next().value);
       }
@@ -601,18 +627,20 @@
     }
 
     async function requestSegments() {
-      if (segmenting || retryTimer !== null || available !== true) return;
-      const texts = nextBatch();
+      if (segmenting || retryTimer !== null) return;
+      const { profile, texts } = nextBatch();
       if (texts.length === 0) return;
       const epoch = segmentEpoch;
+      const lookup = optionsOf(profile);
       segmenting = true;
       let reply;
       try {
         reply = await send("hd_segment", {
           chunks: texts.map((text, id) => ({ id, text })),
-          scanLength: options.scanLength,
-          options: { frequencyDictionary: options.frequencyDictionary, frequencyOrder: options.frequencyOrder,
-            personalDictionary: options.personalDictionaryEnabled },
+          scanLength: lookup.scanLength,
+          options: { frequencyDictionary: lookup.frequencyDictionary, frequencyOrder: lookup.frequencyOrder,
+            personalDictionary: lookup.personalDictionaryEnabled },
+          ...profile.fields,
         }, ENGINE_TARGET);
       } catch {
         if (epoch === segmentEpoch) {
@@ -624,51 +652,73 @@
       if (epoch !== segmentEpoch) return;
       segmenting = false;
       failures = 0;
-      adoptSegments(texts, reply);
+      adoptSegments(texts, reply, profile);
       schedule();
     }
 
-    // The headwords of the words shown: all of them for a refresh, else
-    // those not read yet.
-    function headwordsToAsk(refresh) {
+    // The headwords of a profile's words shown: all of them for a refresh,
+    // else those not read yet.
+    function headwordsToAsk(profile, refresh) {
       const headwords = new Set();
       for (const run of wantedRuns()) {
+        if (run.profile !== profile) continue;
         for (const headword of runHeadwords(run)) {
-          if (refresh || !statuses.has(headword)) headwords.add(headword);
+          if (refresh || !statuses.has(keyOf(profile, headword))) headwords.add(headword);
         }
       }
       return [...headwords];
     }
 
-    function adoptStatuses(asked, reply, refresh) {
+    function adoptStatuses(profile, asked, reply, refresh) {
       // Only a refresh reads every status shown, so only a refresh says which
       // revision the marks show. A read of new headwords alone can be answered
       // at a revision whose change signal is still on its way, and that signal
       // must still re-read the rest.
       if (refresh) {
-        statuses.clear();
-        statusesEpoch = statusEpoch;
-        statusRevision = reply.revision;
+        if (profile.key === "") statuses.clear();
+        else for (const key of statuses.keys()) if (key.startsWith(`${profile.key}\u0000`)) statuses.delete(key);
+        statusesEpochs.set(profile.key, statusEpoch);
+        statusRevisions.set(profile.key, reply.revision);
         repaintAll();
       }
-      available = Array.isArray(reply.statuses);
-      if (available) asked.forEach((headword, index) => statuses.set(headword, reply.statuses[index]));
+      const available = Array.isArray(reply.statuses);
+      availability.set(profile.key, available);
+      if (available) asked.forEach((headword, index) => statuses.set(keyOf(profile, headword), reply.statuses[index]));
+    }
+
+    // The profiles whose statuses are read: Japanese alone without profiles,
+    // else those of the blocks shown.
+    function shownProfiles() {
+      if (profileOf === null) return [japanese];
+      const shown = new Set();
+      for (const block of visible) {
+        if (block.runs.length > 0) shown.add(block.runs[0].profile);
+      }
+      return [...shown];
     }
 
     async function requestStatuses() {
       if (statusing || retryTimer !== null) return;
-      const refresh = statusesEpoch !== statusEpoch;
-      if (!refresh && available !== true) return;
-      const asked = headwordsToAsk(refresh);
-      // A refresh with nothing segmented yet still learns whether the index
-      // can answer, before any text is segmented.
-      if (asked.length === 0 && !refresh) return;
+      let profile = null;
+      let refresh = false;
+      let asked = [];
+      for (const candidate of shownProfiles()) {
+        refresh = statusesEpochs.get(candidate.key) !== statusEpoch;
+        if (!refresh && availability.get(candidate.key) !== true) continue;
+        asked = headwordsToAsk(candidate, refresh);
+        // A refresh with nothing segmented yet still learns whether the index
+        // can answer, before any text is segmented.
+        if (asked.length === 0 && !refresh) continue;
+        profile = candidate;
+        break;
+      }
+      if (profile === null) return;
       const token = session;
       const epoch = statusEpoch;
       statusing = true;
       let reply;
       try {
-        reply = await send("hd_anki_word_status", { request: { headwords: asked } }, ANKI_TARGET);
+        reply = await send("hd_anki_word_status", { request: { headwords: asked }, ...profile.fields }, ANKI_TARGET);
       } catch {
         if (token === session) {
           statusing = false;
@@ -680,7 +730,7 @@
       statusing = false;
       failures = 0;
       // A newer change signal makes this answer stale, and the words are asked again.
-      if (epoch === statusEpoch) adoptStatuses(asked, reply, refresh);
+      if (epoch === statusEpoch) adoptStatuses(profile, asked, reply, refresh);
       schedule();
     }
 
@@ -772,9 +822,9 @@
       generation = null;
       segmenting = false;
       statusing = false;
-      statusesEpoch = -1;
-      statusRevision = null;
-      available = null;
+      statusesEpochs.clear();
+      statusRevisions.clear();
+      availability.clear();
     }
 
     // The dictionaries changed: segment the shown text again, each run
@@ -804,7 +854,9 @@
     // nothing; null says the evidence itself changed.
     function statusChanged(revision) {
       if (!running) return;
-      if (revision !== null && revision === statusRevision && statusesEpoch === statusEpoch && available === true) return;
+      const read = shownProfiles();
+      if (revision !== null && read.length > 0 && read.every(profile => revision === statusRevisions.get(profile.key)
+          && statusesEpochs.get(profile.key) === statusEpoch && availability.get(profile.key) === true)) return;
       statusEpoch += 1;
       schedule();
     }
@@ -831,7 +883,15 @@
       schedule();
     }
 
-    return { start, stop, update, invalidate, statusChanged, refreshColors, suspend, setOverrides,
+    // The profiles changed (content.js): every block is read again with its
+    // profile, keeping its marks until the new ones are ready.
+    function reprofile() {
+      if (!running) return;
+      for (const block of blocks.values()) block.dirty = true;
+      invalidate();
+    }
+
+    return { start, stop, update, invalidate, reprofile, statusChanged, refreshColors, suspend, setOverrides,
       get running() { return running; } };
   }
 
@@ -862,28 +922,36 @@
     const owners = new Map();
     const rows = new Map();
     let enabled = false;
+    // The marks, or with profiles a function that gives those of a bound
+    // context's language (its `language`); a context's `fields` name its
+    // profile in the request (docs/languages.md 4.3, 5.4).
     let overrides = new Map();
 
     const headwordOf = item => item.result.term.expression;
+    const contextOf = owner => owners.get(owner)?.context;
+    const overridesOf = context => (typeof overrides === "function" ? overrides(context) : overrides);
 
     function sync(row) {
       const headword = headwordOf(row.item);
+      const marks = overridesOf(contextOf(row.owner));
       for (const button of row.buttons) {
         labelWordStatusButton(button, headword);
-        button.setAttribute("aria-pressed", String(overrides.get(headword) === button.dataset.wordStatus));
+        button.setAttribute("aria-pressed", String(marks.get(headword) === button.dataset.wordStatus));
       }
     }
 
-    async function change(item, status) {
+    async function change(item, status, owner) {
       const headword = headwordOf(item);
       const button = rows.get(item.actions)?.buttons.find(candidate => candidate.dataset.wordStatus === status);
+      const context = contextOf(owner ?? rows.get(item.actions)?.owner);
       if (button) {
         delete button.dataset.error;
         labelWordStatusButton(button, headword);
         button.setAttribute("aria-busy", "true");
       }
       try {
-        await send("hd_word_status_override", { headword, status: overrides.get(headword) === status ? null : status });
+        await send("hd_word_status_override", { headword,
+          status: overridesOf(context).get(headword) === status ? null : status, ...context?.fields });
       } catch (error) {
         if (button) {
           button.dataset.error = error.message;
@@ -966,7 +1034,7 @@
         const group = owners.get(owner);
         const item = group?.items[index];
         if (!enabled || !item || group.context.isCurrent?.() === false) return false;
-        void change(item, status);
+        void change(item, status, owner);
         return true;
       },
     };

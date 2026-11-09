@@ -1,4 +1,5 @@
 import base64
+import copy
 import hashlib
 import json
 import os
@@ -36,7 +37,7 @@ from GameSentenceMiner.util.config.configuration import (
     gsm_status,
     gsm_state,
     is_dev,
-    AI_DEEPL,
+    use_profile_config,
 )
 from GameSentenceMiner.util.anki_card_timing import (
     AnkiCardTimingContext,
@@ -103,11 +104,14 @@ def _animated_screenshot_codec(settings) -> str:
     return getattr(settings, "codec", ANIMATED_SCREENSHOT_CODEC_DEFAULT)
 
 
-def _should_show_confirmation_dialog(config, vad_result, use_existing_files=False, *, overlay_only=False) -> bool:
+def _should_show_confirmation_dialog(config, vad_result, use_existing_files=False) -> bool:
+    """Apply confirmation preferences equally to every text source."""
+    from GameSentenceMiner.session_review import enabled as review_after_session_enabled
+
+    if review_after_session_enabled(config):
+        return False
     if not getattr(config.anki, "show_update_confirmation_dialog_v2", True):
         return False
-    if overlay_only:
-        return True
     if use_existing_files:
         return False
     if not getattr(config.anki, "skip_confirmation_for_unvoiced", False):
@@ -1226,48 +1230,8 @@ def prefetch_ai_translation(sentence_to_translate: str, game_line: "GameLine") -
         return ""
 
     try:
-        config = get_config()
-        provider = config.ai.provider
-
-        # 1. If DeepL is used, DO NOT call LLM pipeline
-        # DeepL handling (minimal, non-invasive)
-
-        if provider == AI_DEEPL:
-            logger.error("[PREFETCH] Using DeepL path")
-
-            if game_line.translation:
-                logger.error("[PREFETCH] Cache hit, returning existing translation")
-                return game_line.translation
-
-            logger.error(f"[PREFETCH] Calling DeepL for: {sentence_to_translate[:50]}")
-
-            from GameSentenceMiner.ai.providers.deepl_client import DeepLClient
-            from GameSentenceMiner.ai.contracts import AIRequest
-
-            client = DeepLClient(
-                api_key=config.ai.deepl_api_key, logger=logger, target_lang=config.ai.deepl_target_lang
-            )
-
-            response = client.generate(
-                AIRequest(
-                    provider=AI_DEEPL,
-                    model="deepl",
-                    prompt=sentence_to_translate,
-                    temperature=0.0,
-                    top_p=1.0,
-                    max_tokens=0,
-                    game_title="",
-                    request_kind="deepl_translation",
-                    metadata=None,
-                )
-            )
-
-            logger.error(f"[PREFETCH] DeepL returned: {response.text}")
-
-            game_line.translation = response.text
-            return response.text
-
-        # LLM path (UNCHANGED)
+        # All providers share the per-line cache and pending requests with the
+        # text feed. AIService sends raw source text to DeepL.
         translation = (
             _get_ai_prompt_result()(get_all_lines(), sentence_to_translate, game_line, get_current_game()) or ""
         )
@@ -1758,9 +1722,7 @@ def update_anki_card(
             assets.screenshot_path = ""
             assets.pending_animated = False
     overlay_only = getattr(game_line, "source", None) == getattr(TextSource, "OVERLAY", "overlay")
-    show_confirmation = _should_show_confirmation_dialog(
-        config, vad_result, use_existing_files, overlay_only=overlay_only
-    )
+    show_confirmation = _should_show_confirmation_dialog(config, vad_result, use_existing_files)
     if show_confirmation and not assets.reused_screenshot:
         with time_anki_card_block(timing_context, "anki.update_anki_card.start_animated_prefetch"):
             _start_animated_screenshot_prefetch(assets, config, timing_context=timing_context)
@@ -1810,6 +1772,32 @@ def update_anki_card(
         tags = _prepare_anki_tags(game_line)
 
     # 4. (Optional) Show confirmation dialog to the user, which may alter media
+    from GameSentenceMiner import session_review
+
+    review_entry = None
+    if session_review.enabled(config) and not use_existing_files:
+        try:
+            review_entry = session_review.save_pending_review(
+                last_note,
+                assets,
+                video_path=video_path,
+                game_line=game_line,
+                selected_lines=selected_lines,
+                sentence=note["fields"].get(
+                    config.anki.sentence_field, last_note.get_field(config.anki.sentence_field)
+                ),
+                translation=translation,
+                ss_time=ss_time,
+                start_time=start_time,
+                end_time=end_time,
+                vad_result=vad_result,
+                config=config,
+                replay_context=gsm_state.current_replay_context,
+            )
+        except Exception as exc:
+            logger.exception("Could not preserve this card for session review; opening confirmation now.")
+            _notify_anki_enhancement_failure(f"Could not save this card for later review: {exc}")
+            show_confirmation = True
     use_voice = update_audio_flag or assets.audio_in_anki
     if show_confirmation:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
@@ -1941,7 +1929,7 @@ def update_anki_card(
         tags.append(extra_tag)
 
     field_grouping_decision = None
-    if bool(getattr(config.anki, "field_grouping_enabled", False)):
+    if not review_entry and bool(getattr(config.anki, "field_grouping_enabled", False)):
         with time_anki_card_block(timing_context, "anki.field_grouping.duplicate_decision"):
             field_grouping_decision = _resolve_field_grouping_decision(last_note)
 
@@ -1968,6 +1956,8 @@ def update_anki_card(
         assets.cleanup_callback = cleanup_video
 
     def add_note_to_result(assets: MediaAssets):
+        if review_entry:
+            session_review.record_initial_update(review_entry, note, assets)
         reuse_key = _build_sentence_audio_key(game_line, selected_lines)
         cache_line_id = (
             reuse_result_id if use_existing_files and reuse_result_id else (game_line.id if game_line else None)
@@ -2062,22 +2052,37 @@ def update_anki_card(
         pending_animated=bool(getattr(assets, "pending_animated", False)),
         pending_video=bool(getattr(assets, "pending_video", False)),
     )
-    submit_background_work(
-        lambda: check_and_update_note(
-            last_note,
-            note,
-            tags,
-            assets,
-            use_voice,
-            update_picture_flag,
-            use_existing_files,
-            add_note_to_result,
-            processing_word=tango,
-            failure_result_id=game_line.id if game_line and not use_existing_files else None,
-            timing_context=timing_context,
-            field_grouping_decision=field_grouping_decision,
-        )
-    )
+
+    captured_profile = copy.deepcopy(config) if review_entry else None
+
+    def background_update():
+        try:
+            with use_profile_config(captured_profile):
+                check_and_update_note(
+                    last_note,
+                    note,
+                    tags,
+                    assets,
+                    use_voice,
+                    update_picture_flag,
+                    use_existing_files,
+                    add_note_to_result,
+                    processing_word=tango,
+                    failure_result_id=game_line.id if game_line and not use_existing_files else None,
+                    timing_context=timing_context,
+                    field_grouping_decision=field_grouping_decision,
+                    deferred_review=review_entry is not None,
+                )
+        finally:
+            if review_entry:
+                session_review.release_entry(review_entry)
+
+    try:
+        submit_background_work(background_update)
+    except Exception:
+        if review_entry:
+            session_review.release_entry(review_entry)
+        raise
     return True
 
 
@@ -2594,6 +2599,7 @@ def check_and_update_note(
     failure_result_id: Optional[str] = None,
     timing_context: Optional[AnkiCardTimingContext] = None,
     field_grouping_decision: Optional[Dict[str, Any]] = None,
+    deferred_review: bool = False,
 ):
     """Update note in Anki, including uploading media files."""
     worker_start = time.perf_counter()
@@ -2680,7 +2686,10 @@ def check_and_update_note(
                 selected_note_ids.add(completed_note.noteId)
             selected_notes = list(selected_note_ids)
         with time_anki_card_block(timing_context, "anki.background.post_update_actions"):
-            _perform_post_update_actions(completed_note, selected_notes, config)
+            if not deferred_review:
+                _perform_post_update_actions(completed_note, selected_notes, config)
+            elif config.features.notify_on_update:
+                notification.send_note_updated(completed_note.noteId)
         log_anki_card_timing(
             timing_context,
             "anki.background.user_visible_complete",
@@ -3820,6 +3829,13 @@ def update_single_card(card, timing_context: AnkiCardTimingContext | None = None
         if cached_result.word != current_word:
             use_prev_audio = True
             reuse_result_id = game_line.id
+    from GameSentenceMiner.session_review import enabled as review_after_session_enabled
+
+    if review_after_session_enabled(get_config()):
+        # Every review needs its own replay and editable media, including cards
+        # mined from the same sentence. Anki may still deduplicate stored media.
+        use_prev_audio = False
+        reuse_result_id = reuse_audio_result_id = reuse_screenshot_result_id = None
     logger.info(
         f"New card using previous media: {use_prev_audio}, "
         f"reusing audio only: {bool(reuse_audio_result_id)}, "

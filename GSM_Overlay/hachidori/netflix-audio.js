@@ -404,7 +404,9 @@
       // The switch: keep the video's sound, or stop and free what was kept.
       // The video keeps playing through the graph once it has joined it.
       start() {
-        wanted = true;
+        // Without a MediaStreamTrackProcessor (Firefox) nothing can read the
+        // copy, so the video's sound is left alone.
+        wanted = typeof window.MediaStreamTrackProcessor === "function";
         attach();
       },
       stop() {

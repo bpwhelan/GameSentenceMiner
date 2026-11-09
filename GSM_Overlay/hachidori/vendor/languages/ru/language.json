@@ -1,0 +1,180 @@
+{
+  "schema": 1,
+  "code": "ru",
+  "iso639_3": "rus",
+  "name": "Russian",
+  "nativeName": "Русский",
+  "bcp47": "ru",
+  "scripts": ["Cyrl"],
+  "direction": "ltr",
+  "classes": {
+    "letter": "[\\u0410-\\u044F\\u0401\\u0451]",
+    "oldLetter": "[\\u0406\\u0456\\u0462\\u0463\\u0472-\\u0475]",
+    "word": "[{letter}{oldLetter}\\u0300-\\u036F0-9]",
+    "stem": "[\\-\\u0400-\\u04FF]",
+    "consonant": "[бвгджзклмнпрстфхцчшщ]",
+    "hardConsonant": "[бвдзлмнпрстф]",
+    "vowel": "[аеёиоуыэюя]",
+    "velar": "[гкх]",
+    "hushing": "[жчшщ]",
+    "capital": "[\\u0410-\\u042F\\u0401\\u0406\\u0462\\u0472\\u0474]"
+  },
+  "text": {
+    "pattern": "[{letter}{oldLetter}\\u0300\\u0301]",
+    "scanStart": "word",
+    "segmentation": "spaces",
+    "wordCharacters": "{word}",
+    "wordInternal": null,
+    "sentence": {
+      "terminators": [".", "!", "?", "…"],
+      "quotePairs": [["«", "»"], ["„", "“"], ["“", "”"], ["\"", "\""], ["(", ")"]]
+    },
+    "highlightBreaks": null,
+    "lineJoiner": " "
+  },
+  "lookup": {
+    "searchResolution": "word",
+    "preprocessors": [
+      {
+        "id": "decapitalize",
+        "name": "Decapitalize text",
+        "variants": [
+          [{"case": "lower"}]
+        ]
+      },
+      {
+        "id": "capitalizeFirstLetter",
+        "name": "Capitalize first letter",
+        "variants": [
+          [{"case": "upperFirst"}]
+        ]
+      },
+      {
+        "id": "removeRussianDiacritics",
+        "name": "Remove stress marks",
+        "variants": [
+          [{"normalize": "NFD"}, {"strip": "[\\u0300\\u0301]"}, {"normalize": "NFC"}]
+        ]
+      },
+      {
+        "id": "modernSpelling",
+        "name": "Pre-1918 spelling to modern spelling",
+        "variants": [
+          [{"map": {"ѣ": "е", "Ѣ": "Е", "і": "и", "І": "И", "ѳ": "ф", "Ѳ": "Ф", "ѵ": "и", "Ѵ": "И"}}, {"map": {"ъ": ""}, "at": "end"}]
+        ]
+      },
+      {
+        "id": "yoToE",
+        "name": "Read ё as е, or one е as ё",
+        "variants": [
+          [{"map": {"ё": "е", "Ё": "Е"}}],
+          [{"map": {"е": "ё"}, "at": "first"}],
+          [{"map": {"е": "\ue000"}, "at": "first"}, {"map": {"е": "ё"}, "at": "first"}, {"map": {"\ue000": "е"}}],
+          [{"map": {"е": "\ue000"}, "at": "first"}, {"map": {"е": "\ue000"}, "at": "first"}, {"map": {"е": "ё"}, "at": "first"}, {"map": {"\ue000": "е"}}],
+          [{"map": {"е": "ё"}, "at": "last"}],
+          [{"map": {"Е": "Ё"}, "at": "start"}]
+        ]
+      }
+    ],
+    "postprocessors": [],
+    "readingNormalizer": null,
+    "transforms": "transforms.json",
+    "traceSelection": "shortest",
+    "formOf": "follow",
+    "untaggedTerms": "pass",
+    "functionWords": [],
+    "variantPasses": []
+  },
+  "capabilities": {
+    "readings": "optional",
+    "ruby": null,
+    "pitchAccent": false,
+    "characterView": null,
+    "wordHighlighting": true
+  },
+  "presentation": {
+    "typography": {
+      "fontFamily": "\"Noto Sans\", system-ui, sans-serif",
+      "wordBreak": null,
+      "lineBreak": null,
+      "joinedScript": false
+    },
+    "labels": {
+      "reading": "Stress"
+    },
+    "displayTransforms": {}
+  },
+  "settings": [],
+  "host": {
+    "ttsLanguage": "ru-RU",
+    "audioLanguage": "ru",
+    "anki": {
+      "noteTypeFamilies": [],
+      "fieldAliases": {
+        "phonetic-transcriptions": ["IPA"]
+      },
+      "partOfSpeechLabels": {
+        "n": "Noun",
+        "v": "Verb",
+        "adj": "Adjective",
+        "adv": "Adverb",
+        "pron": "Pronoun",
+        "num": "Numeral",
+        "prep": "Preposition",
+        "conj": "Conjunction",
+        "ptcl": "Particle",
+        "intj": "Interjection",
+        "det": "Determiner",
+        "name": "Proper noun",
+        "phrase": "Phrase",
+        "prov": "Proverb",
+        "pref": "Prefix",
+        "suf": "Suffix",
+        "ptcpl": "Participle",
+        "impf": "Imperfective",
+        "pf": "Perfective",
+        "masc": "Masculine",
+        "fem": "Feminine",
+        "neut": "Neuter",
+        "animate": "Animate",
+        "inanim": "Inanimate",
+        "indecl": "Indeclinable",
+        "pl-only": "Plural only"
+      }
+    },
+    "frequencySamples": {
+      "common": ["и", "в", "не", "на", "я", "что", "он", "с", "как", "это"],
+      "rare": ["кочерга", "ухват", "жёрнов", "коромысло", "палисадник", "сундук", "лучина", "полынья", "валежник", "пустошь"]
+    },
+    "recommendedDictionaries": [
+      {
+        "name": "Wiktionary Russian-English (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Russian words with English definitions from English Wiktionary, with stress marks and every inflected form.",
+        "licence": "CC BY-SA 4.0"
+      },
+      {
+        "name": "Wiktionary Russian-Russian (wiktionary-to-yomitan)",
+        "url": "https://yomidevs.github.io/wiktionary-to-yomitan/download/",
+        "description": "Russian words with Russian definitions from Russian Wiktionary.",
+        "licence": "CC BY-SA 4.0"
+      }
+    ],
+    "sample": {
+      "warmup": "читала",
+      "practice": {
+        "text": "Вчера мы долго гуляли по старому городу.",
+        "lookup": "гуляли"
+      },
+      "entry": {
+        "expression": "гулять",
+        "reading": "гуля́ть",
+        "glossary": ["to walk, to stroll"],
+        "definitionTags": "v impf",
+        "matched": "гуляли",
+        "trace": ["plural past"]
+      },
+      "character": null
+    }
+  }
+}

@@ -69,7 +69,6 @@
 		showScreenshotButton$,
 		showTranslateButton$,
 		showAudioButton$,
-		showGSMCheckboxes$,
 		showMenuButton$,
 		showExpiredIcon$,
 	} from '../stores/stores';
@@ -134,7 +133,6 @@
 			showScreenshotButton$: $showScreenshotButton$,
 			showTranslateButton$: $showTranslateButton$,
 			showAudioButton$: $showAudioButton$,
-			showGSMCheckboxes$: $showGSMCheckboxes$,
 			showMenuButton$: $showMenuButton$,
 			showExpiredIcon$: $showExpiredIcon$,
 			trimAudioWithVAD$: $trimAudioWithVAD$,
@@ -215,7 +213,6 @@
 		showScreenshotButton$.next(preset.settings.showScreenshotButton$ ?? defaultSettings.showScreenshotButton$);
 		showTranslateButton$.next(preset.settings.showTranslateButton$ ?? defaultSettings.showTranslateButton$);
 		showAudioButton$.next(preset.settings.showAudioButton$ ?? defaultSettings.showAudioButton$);
-		showGSMCheckboxes$.next(preset.settings.showGSMCheckboxes$ ?? defaultSettings.showGSMCheckboxes$);
 		showMenuButton$.next(preset.settings.showMenuButton$ ?? defaultSettings.showMenuButton$);
 		showExpiredIcon$.next(preset.settings.showExpiredIcon$ ?? defaultSettings.showExpiredIcon$);
 		trimAudioWithVAD$.next(preset.settings.trimAudioWithVAD$ ?? defaultSettings.trimAudioWithVAD$);

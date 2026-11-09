@@ -101,7 +101,7 @@ describe("TextProcessingTab workspace", () => {
 
   it("shows every processor, replacement rules, and both preview fields without switching views", async () => {
     await render();
-    expect(container.querySelectorAll('[role="list"] > [role="listitem"]')).toHaveLength(13);
+    expect(container.querySelectorAll('[role="list"] > [role="listitem"]')).toHaveLength(14);
     expect(container.querySelector<HTMLInputElement>(".rule-find-input")?.value).toBe("old");
     expect(container.querySelectorAll("textarea")).toHaveLength(3);
     expect(container.querySelector('[role="tablist"]')).toBeNull();
@@ -125,6 +125,55 @@ describe("TextProcessingTab workspace", () => {
     await act(async () => follow.click());
     expect(input.value).toBe("latest game text");
     expect(follow.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("saves all three language filter modes and previews the saved pipeline", async () => {
+    await render();
+    const row = Array.from(container.querySelectorAll<HTMLElement>(".processor-item"))
+      .find((item) => item.querySelector(".processor-name")?.textContent === "Target Language Filter")!;
+    expect(row).toBeDefined();
+    await act(async () => row.querySelector<HTMLInputElement>(".processor-toggle input")!.click());
+    const select = row.querySelector<HTMLSelectElement>("#language-filter-mode")!;
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(["blocks", "trim", "strict"]);
+
+    for (const mode of ["blocks", "trim", "strict"]) {
+      await act(async () => {
+        select.value = mode;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      await act(async () => vi.advanceTimersByTimeAsync(300));
+      const saved = saveCalls().slice(-1)[0][1];
+      expect(saved.language_filter).toBe(true);
+      expect(saved.language_filter_config.mode).toBe(mode);
+      const preview = invoke.mock.calls.filter(([channel]) => channel === "textprocess.preview").slice(-1)[0][1];
+      expect(preview.config).toEqual(saved);
+    }
+    expect(row.textContent).toContain("including spaces, numbers, and punctuation");
+    await render(false);
+    await render();
+    expect(container.querySelector<HTMLSelectElement>("#language-filter-mode")?.value).toBe("strict");
+  });
+
+  it("inserts the new filter before newline removal in legacy pipelines without changing the old filter", async () => {
+    const implementation = invoke.getMockImplementation()!;
+    invoke.mockImplementation((channel: string, payload: any) => {
+      if (channel === "textprocess.load") return Promise.resolve({
+        processor_order: ["string_replacement", "remove_newlines", "remove_non_japanese"],
+        remove_non_japanese: true,
+      });
+      return implementation(channel, payload);
+    });
+    await render();
+    const preview = invoke.mock.calls.filter(([channel]) => channel === "textprocess.preview").slice(-1)[0][1];
+    expect(preview.config.processor_order.slice(0, 4)).toEqual([
+      "string_replacement", "language_filter", "remove_newlines", "remove_non_japanese",
+    ]);
+    expect(preview.config.language_filter).toBe(false);
+    expect(preview.config.language_filter_config.mode).toBe("blocks");
+    expect(preview.config.remove_non_japanese).toBe(true);
+    expect(container.textContent).toContain("Remove Non-Shift-JIS Characters");
+    expect(saveCalls()).toHaveLength(0);
   });
 
   it("automatically saves the same reordered pipeline used by the preview", async () => {

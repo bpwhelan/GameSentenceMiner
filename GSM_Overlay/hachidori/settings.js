@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-import { extensionApi as chrome } from "./browser-api.js";
+import { extensionApi as chrome, isFirefox } from "./browser-api.js";
 import "./reader-options.js";
 import { createAudioSettingsController } from "./audio-settings.js";
 import { createKeybindSettingsController } from "./keybind-settings.js";
@@ -21,13 +21,13 @@ import { createThemeStore } from "./theme-store.js";
 import { createMemorySettings } from "./memory-settings.js";
 import { downloadBlob } from "./blob-download.js";
 import { collectDebugInfo, debugInfoBlob, debugInfoFilename } from "./debug-info.js";
-import { captureDebugLog } from "./debug-log.js";
+import { captureDebugLog, captureDocumentActions, openDebugLogStore, recordUserError, setDebugLogLanguages } from "./debug-log.js";
 import { describeErrorOrJson } from "./error-text.js";
 import { createSharingSettingsController } from "./sharing-settings.js";
 import { ANKI_ADDON_FILE_NAME, fetchAnkiAddon } from "./anki-addon.js";
 import { createLocalFileAccessController } from "./local-file-access.js";
 import { createSettingsSearch } from "./settings-search.js";
-import { setStatusOutput } from "./settings-dom.js";
+import { setStatusOutput, showErrorCopy } from "./settings-dom.js";
 import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomButtonSettings } from "./custom-button-settings.js";
@@ -38,8 +38,9 @@ import { SETUP_STATE_KEY, normaliseSetupState, setupIncomplete } from "./setup-s
 import {
   attachGroupHandlers, attachLibraryHandlers, bindNameDraft, commitGroups, committing, dictionaries,
   dictionaryLabel, dictionaryState, handleDictionaryStateChange, moveListItem, pendingDictionaryCommits,
-  reloadDictionaries, removing, renderChangedDictionaryState, renderDeferredAfterBlur, setControlsDisabled,
-  setPendingManagementFocus, updateItemById,
+  reloadDictionaries, removing, renderChangedDictionaryState, renderDeferredAfterBlur, renderLibraryResetLabel,
+  renderOtherLanguageDictionaries, reprojectDictionaryState, setControlsDisabled, setPendingManagementFocus,
+  settleDictionaryCommits, storedDictionaryState, updateItemById,
 } from "./library-settings.js";
 import {
   attachImportHandlers, attachRecommendedHandlers, importing, installingRecommended,
@@ -50,15 +51,21 @@ import {
   savingSchedule, updating,
 } from "./update-settings.js";
 import {
-  adoptCustomDictionaryDocument, attachCustomDictionaryHandlers, customDictionaryDirty, customEditorLoaded,
+  adoptCustomDictionaryRecord, attachCustomDictionaryHandlers, customDictionaryDirty, customEditorLoaded,
   customLoading, customSaving, handleCustomDictionarySourceChange, loadCustomDictionarySource,
-  renderCustomDictionaryControls,
+  renderCustomDictionaryControls, switchCustomDictionaryLanguage,
 } from "./custom-dictionary-settings.js";
 import { renderLookupCountsReset, resetLookupCounts } from "./lookup-stats-settings.js";
 import {
-  attachOptionHandlers, flushOptionsUntilIdle, optionsEditRevision, pendingOptions, renderOptions,
-  renderThemeChoices, renderWordHighlightControls, savingOptions, writeOptions,
+  attachOptionHandlers, discardPendingOptions, flushOptionsUntilIdle, optionsEditRevision, pendingOptions,
+  renderOptions, renderSearchHistory, renderThemeChoices, savingOptions, settlePendingOptions, writeOptions,
 } from "./option-settings.js";
+
+// Get debug info includes this page's warnings and errors, the errors it shows
+// and what was pressed, changed and opened, from this visit and earlier ones.
+captureDocumentActions(document, captureDebugLog(window, {
+  context: "settings", store: openDebugLogStore(window.indexedDB),
+}));
 
 const TARGET = "hoshidicts-offscreen";
 const WORKER_TARGET = "hoshidicts-worker";
@@ -77,14 +84,20 @@ const OPTION_SECTIONS = {
   // Backup & restore → Automatic backups → Days kept.
   backup: "Backup & restore",
   advanced: "Advanced",
+  // A language's own settings (docs/languages.md 7.5).
+  languages: "Languages",
   // Dictionaries → Personal dictionary owns its lookup switches.
   "custom-dictionary": "Personal dictionary",
 };
 const {
   DEFAULT_OPTIONS, DEFINITION_LOOKUP_MODES, FREQUENCY_ORDERS,
-  POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, popupRenderer, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS,
+  POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, POPUP_THEME_VARIANTS, popupRenderer, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS,
+  DEFINITION_BLUR_REVEALS,
   DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES, WORD_HIGHLIGHT_STYLES, definitionBlurFrequencyDictionary,
-  activationLabel, clampOption, hasCapability, normaliseCustomButtons, normaliseKanjiSelection, normaliseOptions,
+  activationLabel, clampOption, frequencyModeOrder, hasCapability, normaliseCustomButtons, normaliseKanjiSelection,
+  normaliseOptions, JAPANESE_PROFILE_ID, OPTION_REQUIREMENTS, languageDescriptor, optionRequirementMet,
+  hasProfiles, projectOptions, profileDescriptor, LANGUAGE_SELECTION_KEY, normaliseLanguageSelection, activeProfileId,
+  languagesEnabled, profiles: recordProfiles,
 } = globalThis.HDReaderOptions;
 const STATUS_POLL_MS = 1000;
 // Slower than the boot poll: a failing poll may be failing for a while, and the
@@ -107,12 +120,16 @@ const NUMBER_FIELDS = [
   { key: "popupScalePercent", id: "opt-popup-scale", live: true },
   { key: "popupOpacityPercent", id: "opt-popup-opacity", live: true },
   { key: "automaticBackupDays", id: "opt-automatic-backup-days" },
+  { key: "searchWindowWidthPx", id: "opt-search-window-width" },
+  { key: "searchWindowHeightPx", id: "opt-search-window-height" },
+  { key: "searchHistoryLimit", id: "opt-search-history-limit" },
 ];
 const METADATA_FIELDS = [
   { key: "showLookupCounts", id: "opt-lookup-counts" },
   { key: "showFrequencyDictionaryNames", id: "opt-frequency-names" },
   { key: "compactFrequencyNumbers", id: "opt-frequency-compact" },
   { key: "averageFrequency", id: "opt-average-frequency" },
+  { key: "showFrequencyTagsWithAverage", id: "opt-average-frequency-tags" },
   { key: "showPitchAccentFurigana", id: "opt-pitch-furigana" },
   { key: "showPitchAccentColors", id: "opt-pitch-colors" },
   { key: "showPitchAccentBadge", id: "opt-pitch-badge" },
@@ -124,6 +141,7 @@ const METADATA_FIELDS = [
 ];
 const APPEARANCE_CHOICES = [
   { key: "popupTheme", id: "opt-popup-theme" },
+  { key: "popupThemeVariant", id: "opt-popup-theme-variant", values: POPUP_THEME_VARIANTS },
   { key: "popupToolbarPosition", id: "opt-popup-toolbar" },
   { key: "imageHoverPreview", id: "opt-image-hover-preview" },
   { key: "glossaryLayoutMode", id: "opt-glossary-layout" },
@@ -133,7 +151,7 @@ const APPEARANCE_CHOICES = [
   { key: "definitionBlurReveal", id: "opt-blur-reveal", values: DEFINITION_BLUR_REVEALS },
   { key: "wordHighlightStyle", id: "opt-word-highlight-style", values: WORD_HIGHLIGHT_STYLES },
 ];
-// Reading → Word highlighting (#520, experimental).
+// Reading → Word highlighting (#520).
 const WORD_HIGHLIGHT_SWITCHES = [
   { key: "wordHighlightEnabled", id: "opt-word-highlight" },
   { key: "wordHighlightUnknown", id: "opt-word-highlight-unknown" },
@@ -148,7 +166,10 @@ const themeStore = createThemeStore({ root: document.getElementById("theme-store
   options.popupTheme = slug;
   renderThemeChoices();
   writeOptions();
-} });
+}, onDesign: theme => {
+  designTheme = theme;
+  void renderPackSettings();
+}, getLanguage: () => (hasProfiles(storedOptionsRecord) ? editedProfile.language : null) });
 let savedOptions = normaliseOptions({}); // NOSONAR: shared with the other Settings modules
 let optionsRevision = -1; // NOSONAR: shared with the other Settings modules
 const OPTIONS_SAVE_DELAY_MS = 150;
@@ -159,7 +180,7 @@ const nameDrafts = createDictionaryNameDrafts({
 const recommendedInstallation = createRecommendedInstallClient({
   send: sourceIds => send("hd_setup_install", { sourceIds }, "hachidori-setup"),
   onChange: renderRecommendedInstallation,
-  onError(error) { setImportState(`Could not observe dictionary installation: ${describeErrorOrJson(error)}`, "error"); },
+  onError(error) { setImportState(`Could not observe dictionary installation: ${describeErrorOrJson(error)}`, "error", error); },
 });
 let statusTimer = null;
 let lastEngineStatus = null; // NOSONAR: shared with the other Settings modules
@@ -177,9 +198,27 @@ let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
 let customButtonController; // NOSONAR: shared with the other Settings modules
 let experimentalController;
+// Experimental switches apply in the order they were clicked: turning Multiple
+// languages off first settles the page's edits, and a click meanwhile waits.
+let experimentalToggles = Promise.resolve();
 let memoryController;
 let backingUp = false; // NOSONAR: shared with the other Settings modules
 let settingsSearch;
+// The options record as stored, and this browser's language choice
+// (docs/languages.md 4.4); the page edits one profile of the record.
+let storedOptionsRecord; // NOSONAR: shared with the other Settings modules
+let languageSelection = { revision: 0, activeProfileId: null, autoSwitch: false }; // NOSONAR: shared with the other Settings modules
+// Advanced → Languages and the sidebar's language link (profile-settings.js),
+// loaded once the page has a language registry.
+let profileSettings = null;
+let editedProfileChosen = false;
+// The catalogue entry Design's controls follow, for the pack's display
+// settings (docs/languages.md 11.3), and the module that renders a pack's
+// settings, loaded once a pack declares some (section 7.5).
+let designTheme;
+let languageSettings = null;
+// Advanced → Languages' status, in SECTION_STATUSES once the card exists.
+const LANGUAGE_STATUS = "settings-language-status";
 
 const SECTION_STATUSES = {
   "library-reset-status": { section: "dictionaries", label: "Dictionaries" },
@@ -188,10 +227,12 @@ const SECTION_STATUSES = {
   "custom-dictionary-status": { section: "custom-dictionary", label: "Personal dictionary" },
   "options-status": { section: "lookup", label: "Reading" },
   "lookup-counts-reset-status": { section: "lookup", label: "Lookup history" },
+  "search-history-status": { section: "advanced", label: "Search history" },
   "dict-group-error": { section: "dictionary-groups", label: "Groups" },
   "backup-status": { section: "backup", label: "Backup" },
   "sharing-status": { section: "sharing", label: "Sharing" },
   "debug-info-status": { section: "advanced", label: "Troubleshooting" },
+  "experimental-status": { section: "advanced", label: "Experimental features" },
 };
 let activeSection = "dictionaries"; // NOSONAR: shared with the other Settings modules
 const unseenSectionCompletions = new Set();
@@ -200,12 +241,36 @@ function element(id) {
   return document.getElementById(id);
 }
 
+// Firefox names its own add-on pages, and grants userScripts only when asked.
+function configureFirefoxUi() {
+  element("browser-shortcuts-help").textContent = "Firefox runs these on any page. Popup actions need an open popup."
+    + " Change them in Firefox's add-on shortcuts.";
+  element("browser-shortcuts-open").textContent = "Change in Firefox";
+  const renderUserScripts = async () => {
+    const granted = await chrome.permissions.contains({ permissions: ["userScripts"] }).catch(() => false);
+    element("custom-javascript-allow-row").hidden = granted;
+    element("custom-javascript-permission").textContent = granted ? "Firefox lets Hachidori run user scripts."
+      : "Firefox asks before Hachidori can run user scripts. Allow them before using this.";
+  };
+  // Firefox prompts only for a request made while it handles the click.
+  element("custom-javascript-allow").addEventListener("click", () => {
+    void chrome.permissions.request({ permissions: ["userScripts"] }).catch(() => false).then(renderUserScripts);
+  });
+  chrome.permissions.onAdded.addListener(renderUserScripts);
+  chrome.permissions.onRemoved.addListener(renderUserScripts);
+  void renderUserScripts();
+}
+
 function configureBrowserUi() {
   if (!HOST_CAPABILITIES.customJavaScript) {
     const customJavascript = element("custom-javascript");
     customJavascript.dataset.settingsUnavailable = "true";
     customJavascript.hidden = true;
   }
+  // The search page opens from the browser's shortcuts and toolbar menu,
+  // which an overlay host does not have.
+  if (!HOST_CAPABILITIES.browserShortcuts) element("search-page-settings").hidden = true;
+  if (isFirefox(chrome)) configureFirefoxUi();
 }
 
 function sectionHasPendingWork(id) {
@@ -274,16 +339,364 @@ function syncNavigationStatus(id) {
   renderNavigationStatuses();
 }
 
-function setSectionStatus(id, message, tone, completed = false) {
+// `error` is the failure an error message describes, for the debug log.
+function setSectionStatus(id, message, tone, completed = false, error = null) {
   const output = element(id);
-  setStatusOutput(output, message, tone);
+  setStatusOutput(output, message, tone, error);
   if (completed && SECTION_STATUSES[id].section !== activeSection) unseenSectionCompletions.add(id);
   syncNavigationStatus(id);
 }
 
 // Whether an experimental flag that is off hides `section`.
 function sectionGated(section) {
-  return EXPERIMENTAL_FEATURES.some(feature => feature.section === section && !options.experimental[feature.id]);
+  return EXPERIMENTAL_FEATURES.some(feature => feature.section === section && !options.experimental[feature.id])
+    || requirementGatedSection(section);
+}
+
+// ---------------------------------------------------------------------------
+// The language of the profile this page edits (docs/languages.md 5.3 and 7).
+// In the single-profile shape the edited profile is Japanese, which meets every
+// requirement and keeps every label, so nothing below changes the page.
+// ---------------------------------------------------------------------------
+
+let editedProfile = { id: JAPANESE_PROFILE_ID, language: "ja", packSettings: {} }; // NOSONAR: shared with the other Settings modules
+let renderedCapabilities = JSON.stringify(["ja", {}]);
+const languageLabelOriginals = new WeakMap();
+
+function languageName(code = editedProfile.language) {
+  const descriptor = languageDescriptor(code);
+  if (typeof descriptor?.name === "string") return descriptor.name;
+  if (code === "ja") return "Japanese";
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+// What a profile's pack calls the characters its character view shows
+// ("Kanji" for Japanese), or null without a character view.
+function characterViewName(code = editedProfile.language) {
+  const view = languageDescriptor(code)?.capabilities?.characterView;
+  if (typeof view?.name === "string" && view.name !== "") return view.name;
+  return code === "ja" ? "Kanji" : null;
+}
+
+// data-requires holds a capability name, "ankiNoteTypeFamilies" or the JSON of
+// { "scripts": [...] } (section 7.3).
+function parseRequirement(value) {
+  if (!value.startsWith("{")) return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function requirementMet(requirement) {
+  return optionRequirementMet(requirement, editedProfile.language, editedProfile.packSettings);
+}
+
+function optionAvailable(key) {
+  const requirement = OPTION_REQUIREMENTS[key];
+  return requirement === undefined || requirementMet(requirement.requires);
+}
+
+// A section the edited profile's language lacks, as Word highlighting without
+// word highlighting. It leads to the destination it is a tab of.
+function requirementGatedSection(section) {
+  const node = element(section);
+  return node?.localName === "section" && "requires" in node.dataset
+    && !requirementMet(parseRequirement(node.dataset.requires));
+}
+
+// Flat options as a profile without a requirement reads them: each setting it
+// lacks at its neutral value. The options themselves when nothing is masked.
+function maskedOptions(value) {
+  let masked = null;
+  for (const [key, { requires, neutral }] of Object.entries(OPTION_REQUIREMENTS)) {
+    if (requirementMet(requires)) continue;
+    masked ??= { ...value };
+    masked[key] = neutral;
+  }
+  return masked ?? value;
+}
+
+// Text that names the language ("Japanese text only") names the edited
+// profile's; text that names its characters ("Clicked-kanji dictionary")
+// names the pack's character view. Japanese keeps today's strings.
+function renderLanguageText(selector, from, to) {
+  for (const container of document.querySelectorAll(selector)) {
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (!languageLabelOriginals.has(node)) languageLabelOriginals.set(node, node.data);
+      const text = languageLabelOriginals.get(node).replaceAll(from, to);
+      if (node.data !== text) node.data = text;
+    }
+  }
+}
+
+// One control's requirement for the edited profile's language; true when a
+// Design control changed, which the theme filter decides with.
+function applyRequirement(node) {
+  const unmet = !requirementMet(parseRequirement(node.dataset.requires));
+  if (unmet === "requirementUnmet" in node.dataset) return false;
+  node.toggleAttribute("data-requirement-unmet", unmet);
+  if ("designSetting" in node.dataset) {
+    // The theme filter decides with the requirement (theme-store.js).
+    if (unmet) node.hidden = true;
+    return true;
+  }
+  if (node.localName === "section") applySectionRequirement(node, unmet);
+  else node.hidden = unmet;
+  return false;
+}
+
+// A gated section hides with its rail link, tab and picker option.
+function applySectionRequirement(node, unmet) {
+  const id = node.id;
+  const hidden = unmet || !sectionAvailable(id);
+  const link = document.querySelector(`.settings-nav a[href="#${id}"], .section-tabs a[href="#${id}"]`);
+  if (link) (link.closest(".nav-item") ?? link).hidden = hidden;
+  const option = element("settings-section").querySelector(`option[value="${id}"]`);
+  if (option) option.hidden = hidden;
+  node.toggleAttribute("data-settings-gated", hidden);
+}
+
+// Section 7.3: hides what the edited profile's language lacks, keeps it in
+// storage, and never touches a control while the language meets its
+// requirement, so a Japanese profile's page is today's.
+function renderLanguageCapabilities() {
+  const key = JSON.stringify([editedProfile.language, editedProfile.packSettings]);
+  if (key === renderedCapabilities) return;
+  renderedCapabilities = key;
+  let designChanged = false;
+  for (const node of document.querySelectorAll("[data-requires]")) {
+    if (applyRequirement(node)) designChanged = true;
+  }
+  const name = languageName();
+  renderLanguageText("[data-language-label]", "Japanese", name);
+  renderLanguageText("[data-character-label]", "kanji", (characterViewName() ?? "Kanji").toLowerCase());
+  if (designChanged) themeStore.invalidateDesign();
+  keybindController?.render();
+  if (resolveSection(requestedSection()) !== activeSection) showSettingsSection();
+  else renderSectionTabs();
+}
+
+// Requests made for a profile name the edited one once the records have
+// profiles (docs/languages.md 5.4); in the single-profile shape they are today's.
+function profileFields() {
+  return hasProfiles(storedOptionsRecord) ? { profileId: editedProfile.id } : {};
+}
+
+// The flat options this page shows and edits: the edited profile's, unmasked,
+// with its pack's own settings beside them (sections 5.1, 5.3 and 7.5).
+function projectEditedOptions(value) {
+  if (!hasProfiles(value)) return normaliseOptions(value);
+  return { ...projectOptions(value, editedProfile.id, { masked: false }), packSettings: { ...editedProfile.packSettings } };
+}
+
+const JAPANESE_EDITED_PROFILE = Object.freeze({ id: JAPANESE_PROFILE_ID, language: "ja", packSettings: {} });
+
+// The profile this browser looks words up in (section 4.4).
+function activeProfile() {
+  return hasProfiles(storedOptionsRecord) ? activeProfileId(storedOptionsRecord, languageSelection) : JAPANESE_PROFILE_ID;
+}
+
+function describedProfile(id) {
+  if (hasProfiles(storedOptionsRecord)) return profileDescriptor(storedOptionsRecord, id);
+  return id === JAPANESE_PROFILE_ID ? { ...JAPANESE_EDITED_PROFILE } : null;
+}
+
+// The profile this page's address names: `settings.html?profile=ar#anki` from
+// the popup's Anki button (docs/languages.md 6.3), else null.
+function addressedProfile() {
+  return new URLSearchParams(window.location.search).get("profile");
+}
+
+// The edited profile as the stored record describes it now. It starts as the
+// profile the address names, else the active profile, and changes because of
+// a storage event only when it is removed elsewhere, or when Multiple
+// languages is turned off elsewhere while it is not the active profile: the
+// page then shows the active profile, discards the drafts kept for the one it
+// left and says so (sections 5.3 and 16.3). True when it changed.
+function followEditedProfile() {
+  const enabled = languagesEnabled(storedOptionsRecord);
+  if (!editedProfileChosen) {
+    editedProfileChosen = true;
+    const initial = (enabled ? describedProfile(addressedProfile()) : null) ?? describedProfile(activeProfile())
+      ?? { ...JAPANESE_EDITED_PROFILE };
+    const changed = initial.id !== editedProfile.id;
+    editedProfile = initial;
+    return changed;
+  }
+  const current = describedProfile(editedProfile.id);
+  if (current !== null && (enabled || current.id === activeProfile())) {
+    editedProfile = current;
+    return false;
+  }
+  const left = languageName(editedProfile.language);
+  editedProfile = describedProfile(activeProfile()) ?? { ...JAPANESE_EDITED_PROFILE };
+  discardProfileDrafts();
+  const cause = current === null ? `${left} was removed` : "Multiple languages was turned off";
+  profileSettings?.announce(`${cause} in another Hachidori page, so Settings now shows ${languageName()}.`
+    + ` Unsaved changes made for ${left} were discarded.`);
+  return true;
+}
+
+// The edits a removed profile kept: option drafts, the personal dictionary
+// source, the Template name and the custom-button form.
+function discardProfileDrafts() {
+  discardPendingOptions();
+  element("opt-anki-template-name").value = "";
+  customButtonController?.reset();
+}
+
+// Shows the edited profile everywhere this page shows one.
+function renderEditedProfile() {
+  savedOptions = projectEditedOptions(storedOptionsRecord);
+  // Design's theme filter reads the edited language (docs/languages.md 11.5).
+  themeStore.invalidateDesign();
+  reprojectDictionaryState();
+  switchCustomDictionaryLanguage();
+  renderCurrentOptions();
+  ankiController?.render();
+  customButtonController?.render();
+  profileSettings?.render();
+}
+
+function listOf(items) {
+  return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
+}
+
+// The language of one of the record's profiles, by name.
+function profileLanguageName(profileId) {
+  const language = hasProfiles(storedOptionsRecord) ? profileDescriptor(storedOptionsRecord, profileId)?.language : "ja";
+  return languageName(language ?? profileId);
+}
+
+// Stored records a Settings module reads whole (docs/languages.md 4.3).
+function readStoredRecords(keys) {
+  return chrome.storage.local.get(keys);
+}
+
+// Settings shows chooses the edited profile (section 5.3). Pending option
+// edits are saved first, for the profile they were made for; the three
+// editors with explicit saves are saved or discarded by the user first.
+// Resolves with the message to show when the page stays where it is; `action`
+// names what the user is doing, for that message.
+async function chooseEditedProfile(id, action = "choosing another language") {
+  if (id === editedProfile.id) return null;
+  const drafts = [
+    customDictionaryDirty() && "the personal dictionary",
+    ankiController?.dirty() && "the Template name",
+    customButtonController?.dirty() && "the custom button",
+  ].filter(Boolean);
+  if (drafts.length > 0) {
+    return `Save or discard your changes to ${listOf(drafts)} before ${action}.`;
+  }
+  if (!await settlePendingOptions()) {
+    return `Your changes were not saved. Choose Save my changes or Use saved settings before ${action}.`;
+  }
+  await settleDictionaryCommits();
+  if (nameDrafts.hasPendingChanges()) return "Wait for the names you are editing to be saved, then try again.";
+  const next = describedProfile(id);
+  if (next === null) return "That language was removed in another Hachidori page.";
+  editedProfile = next;
+  renderEditedProfile();
+  return null;
+}
+
+function adoptLanguageSelection(value) {
+  // Adopted in commit order whatever the revision: the key can disappear and
+  // come back lower (section 4.4).
+  languageSelection = normaliseLanguageSelection(value);
+  profileSettings?.render();
+}
+
+// Use for lookups activates the edited profile in this browser (section 16.3).
+async function useEditedProfileForLookups() {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const reply = await send("hd_language_selection_write",
+      { baseRevision: languageSelection.revision, activeProfileId: editedProfile.id }, WORKER_TARGET);
+    if (reply.selection) adoptLanguageSelection(reply.selection);
+    if (reply.ok) return;
+    // A conflict means another page chose first; this click still means this language.
+    if (reply.conflict !== true) throw new Error(reply.error || "the language could not be chosen");
+  }
+  throw new Error("the language changed in another page; try again");
+}
+
+// Advanced → Languages → Switch language automatically (section 16.3).
+async function writeAutoSwitch(enabled) {
+  const reply = await send("hd_language_selection_write",
+    { baseRevision: languageSelection.revision, autoSwitch: enabled }, WORKER_TARGET);
+  if (reply.selection) adoptLanguageSelection(reply.selection);
+  if (!reply.ok) throw new Error(reply.error || "the setting could not be saved");
+}
+
+// The sidebar's language link leads to Advanced → Languages' Settings shows.
+function openLanguages() {
+  if (window.location.hash !== "#languages") window.history.pushState(null, "", "#languages");
+  showSettingsSection();
+  element("settings-language-select")?.focus();
+}
+
+// Advanced → Languages needs the language registry; a page without one is a
+// Japanese-only page (section 5).
+async function loadProfileSettings() {
+  if (profileSettings !== null || !globalThis.HDLanguages) return;
+  const { createProfileSettings } = await import("./profile-settings.js");
+  profileSettings = createProfileSettings({ document, element, send,
+    // The rail's Advanced says so when a message needs attention elsewhere,
+    // such as the edited language's removal in another page.
+    setStatus: (message, tone = "", error = null) => setSectionStatus(LANGUAGE_STATUS, message, tone, false, error),
+    openLanguages,
+    isLinked: () => sharingLinkedAddress !== null,
+    readEditedProfile: () => editedProfile,
+    readActiveProfileId: activeProfile,
+    readOptionsRecord: () => storedOptionsRecord,
+    readDictionaryState: () => storedDictionaryState,
+    readSelection: () => languageSelection,
+    readRecords: () => chrome.storage.local.get(["options", "dictionaryState", CUSTOM_DICTIONARY_SOURCE_KEY,
+      "lookupStats", "wordStatusOverrides"]),
+    languageName,
+    chooseEditedProfile,
+    useEditedProfileForLookups,
+    writeAutoSwitch,
+    settleEdits: async () => {
+      if (!await settlePendingOptions()) throw new Error("Save your changes or use the saved settings first.");
+      await settleDictionaryCommits();
+    },
+    afterProfileChange: async () => {
+      const stored = await chrome.storage.local.get(["options", LANGUAGE_SELECTION_KEY]);
+      adoptLanguageSelection(stored[LANGUAGE_SELECTION_KEY]);
+      adoptOptions(stored.options);
+      await reloadDictionaries();
+      await refreshStatus();
+    },
+  });
+  SECTION_STATUSES[LANGUAGE_STATUS] = { section: "languages", label: "Languages" };
+  profileSettings.render();
+  if (activeSection === "languages") profileSettings.refresh();
+  await renderPackSettings();
+}
+
+// A pack's own settings under Advanced → Languages (section 7.5); the Japanese
+// pack declares none, so a Japanese profile's page has neither fieldset.
+async function renderPackSettings() {
+  if (profileSettings === null) return;
+  const descriptor = hasProfiles(storedOptionsRecord) ? languageDescriptor(editedProfile.language) : null;
+  const declared = Array.isArray(descriptor?.settings) && descriptor.settings.length > 0;
+  if (!declared && languageSettings === null) return;
+  languageSettings ??= await import("./language-settings.js");
+  languageSettings.renderLanguageSettings({ document, descriptor: declared ? descriptor : null,
+    name: languageName(), values: options.packSettings ?? {},
+    presentation: designTheme?.language?.presentation === true, themeName: designTheme?.name ?? null,
+    onChange(id, value) {
+      options.packSettings = { ...options.packSettings, [id]: value };
+      writeOptions();
+    } });
 }
 
 function requestedSection() {
@@ -302,6 +715,9 @@ function sectionAvailable(id) {
 
 function resolveSection(requested) {
   if (!availableSections().some((section) => section.id === requested)) return "dictionaries";
+  // A section the edited profile's language lacks leads to the destination it
+  // is a tab of (docs/languages.md 7.3).
+  if (requirementGatedSection(requested)) return primaryNavigationSection(requested);
   // A gated section leads to the switch that reveals it.
   return sectionGated(requested) ? "advanced" : requested;
 }
@@ -335,7 +751,9 @@ function showSettingsSection(focus = false) {
   updateKeybindSettings();
   updateBackupSettings();
   updateSharingSettings();
+  void renderSearchHistory();
   if (activeSection === "advanced") refreshAdvancedMemory();
+  if (activeSection === "languages") profileSettings?.refresh();
   if (activeSection === "design") {
     customButtonController ??= createCustomButtonSettings({ document,
       readButtons: () => options.customButtons,
@@ -354,6 +772,14 @@ function showSettingsSection(focus = false) {
   else if (focus) element(activeSection).querySelector("h1").focus();
 }
 
+// The edited profile's speech language and Test word (docs/languages.md 13);
+// Japanese's are today's.
+function audioLanguage() {
+  const host = languageDescriptor(editedProfile.language)?.host;
+  return { code: editedProfile.language, name: languageName(), speech: host?.ttsLanguage ?? null,
+    warmup: host?.sample?.warmup ?? null };
+}
+
 function updateAudioSettings() {
   if (activeSection !== "audio") { audioController?.stop(); return; }
   audioController ??= createAudioSettingsController({
@@ -364,7 +790,8 @@ function updateAudioSettings() {
       localAudioSetup?.render();
       writeOptions();
     },
-    send: (type, fields) => send(type, fields, AUDIO_TARGET),
+    send: (type, fields) => send(type, { ...fields, ...profileFields() }, AUDIO_TARGET),
+    readLanguage: audioLanguage,
   });
   audioController.render();
   // Audio → Sources → Local Audio Server add-on: an added source joins the list above it.
@@ -382,8 +809,16 @@ function updateKeybindSettings() {
     editKeybinds: keybinds => { options.keybinds = keybinds; writeOptions(); },
     readAudioSources: () => options.audioSources,
     getBrowserCommands: () => chrome.commands.getAll(),
-    openBrowserShortcuts: () => chrome.tabs.create({ url: "chrome://extensions/shortcuts" }),
+    // Firefox opens its add-on shortcut manager itself; Chrome's is a page.
+    openBrowserShortcuts: () => (typeof chrome.commands.openShortcutSettings === "function"
+      ? chrome.commands.openShortcutSettings() : chrome.tabs.create({ url: "chrome://extensions/shortcuts" })),
     browserShortcutsAvailable: HOST_CAPABILITIES.browserShortcuts,
+    // Toggle option offers what the edited profile's language has (docs/languages.md 7.3),
+    // and Switch to the next language is offered once the records have profiles and
+    // Multiple languages is on (16.2, 16.3).
+    optionAvailable, languageName: () => languageName(),
+    actionAvailable: action => action !== "switchLanguage"
+      || (hasProfiles(storedOptionsRecord) && languagesEnabled(storedOptionsRecord)),
   });
   keybindController.render();
 }
@@ -393,6 +828,9 @@ function updateAnkiSettings() {
   ankiController ??= createAnkiTemplateSettingsController({ document, readAnki: () => options.anki,
     capabilities: MINING_CAPABILITIES,
     readExperimental: () => options.experimental,
+    // The edited profile's language decides which markers, note-type
+    // families and field-name suggestions Anki offers (docs/languages.md 12).
+    readProfile: () => editedProfile,
     readButtons: () => options.customButtons,
     editAnki: anki => {
       options.anki = anki;
@@ -405,7 +843,8 @@ function updateAnkiSettings() {
       if (["hd_anki_discover", "hd_anki_setup"].includes(type) && sharingLinkedAddress !== null) {
         await flushOptionsUntilIdle();
       }
-      return send(type, fields, WORKER_TARGET);
+      // Every Anki request is for the edited profile's Templates (docs/languages.md 5.4).
+      return send(type, { ...fields, ...profileFields() }, WORKER_TARGET);
     },
   });
   ankiController.render();
@@ -450,7 +889,7 @@ async function downloadDebugInfo() {
     downloadBlob(document, debugInfoBlob(report), debugInfoFilename(new Date(report.generatedAt)));
     setSectionStatus("debug-info-status", "Debug info downloaded.", "ready", true);
   } catch (error) {
-    setSectionStatus("debug-info-status", `Could not collect debug info: ${describeErrorOrJson(error)}`, "error");
+    setSectionStatus("debug-info-status", `Could not collect debug info: ${describeErrorOrJson(error)}`, "error", false, error);
   } finally {
     button.disabled = false;
   }
@@ -472,16 +911,41 @@ function updateSharingSettings() {
   sharingController.start();
 }
 
-async function toggleExperimental(id, enabled) {
-  options.experimental = { ...options.experimental, [id]: enabled };
-  // Word highlighting keeps its own switches and style, but its marks must
-  // not stay on pages behind a hidden section.
-  if (id === "wordHighlighting" && !enabled) {
-    options.wordHighlightEnabled = false;
-    renderWordHighlightControls();
+function toggleExperimental(id, enabled) {
+  experimentalToggles = experimentalToggles.then(() => applyExperimentalToggle(id, enabled));
+  return experimentalToggles;
+}
+
+async function applyExperimentalToggle(id, enabled) {
+  setSectionStatus("experimental-status", "");
+  if (options.experimental[id] === enabled) {
+    renderExperimentalSettings();
+    return;
   }
+  if (id === "multipleLanguages" && !enabled) {
+    const refused = await showLookupLanguageFirst();
+    if (refused !== null) {
+      setSectionStatus("experimental-status", refused, "error");
+      // The switch shows the stored flag again.
+      renderExperimentalSettings();
+      return;
+    }
+  }
+  options.experimental = { ...options.experimental, [id]: enabled };
   renderExperimentalSettings();
   writeOptions();
+}
+
+// Turning Multiple languages off returns lookups to Japanese (docs/languages.md
+// 16.3), so Settings first shows Japanese, saving the edits made for the
+// language it showed. Resolves with the message to show when it stays on.
+async function showLookupLanguageFirst() {
+  if (!hasProfiles(storedOptionsRecord)) return null;
+  if (describedProfile(JAPANESE_PROFILE_ID) === null) {
+    return "Japanese is not one of your languages, so lookups would have no language. Add Japanese in Advanced"
+      + " → Languages first.";
+  }
+  return chooseEditedProfile(JAPANESE_PROFILE_ID, "turning off Multiple languages");
 }
 
 function renderExperimentalSettings() {
@@ -492,7 +956,8 @@ function renderExperimentalSettings() {
   experimentalController.render(options.experimental);
   for (const feature of EXPERIMENTAL_FEATURES) {
     if (!feature.section) continue;
-    const hidden = !options.experimental[feature.id] || !sectionAvailable(feature.section);
+    const hidden = !options.experimental[feature.id] || !sectionAvailable(feature.section)
+      || requirementGatedSection(feature.section);
     // A gated section is a rail destination or one tab of one.
     const link = document.querySelector(`.settings-nav a[href="#${feature.section}"], .section-tabs a[href="#${feature.section}"]`);
     (link.closest(".nav-item") ?? link).hidden = hidden;
@@ -551,7 +1016,7 @@ function updateBackupSettings() {
     document, send,
     download: typeof chrome.downloads?.download === "function"
       ? () => send("hd_backup_download", {}, WORKER_TARGET) : null,
-    browserName: "Chrome",
+    browserName: isFirefox(chrome) ? "Firefox" : "Chrome",
     listAutomatic: () => send("hd_backup_auto_list", {}, WORKER_TARGET),
     trackPreparation: trackBackupPreparation,
     cancelPreparation(token) {
@@ -569,12 +1034,12 @@ function updateBackupSettings() {
       }
     },
     setBusy(value) { backingUp = value; setControlsDisabled(importing); },
-    status: (message, tone, completed) => setSectionStatus("backup-status", message, tone, completed),
+    status: (message, tone, completed, error) => setSectionStatus("backup-status", message, tone, completed, error),
     async refresh() {
       const stored = await chrome.storage.local.get(["options", "dictionaryUpdates", CUSTOM_DICTIONARY_SOURCE_KEY]);
       adoptOptions(stored.options);
       adoptUpdateSettings(stored.dictionaryUpdates);
-      adoptCustomDictionaryDocument(stored[CUSTOM_DICTIONARY_SOURCE_KEY]);
+      adoptCustomDictionaryRecord(stored[CUSTOM_DICTIONARY_SOURCE_KEY]);
       await reloadDictionaries();
       await refreshStatus();
     },
@@ -653,7 +1118,10 @@ function updateDesignPreview() {
   }
   if (frame.style.width !== `${options.popupWidthPx * options.popupScalePercent / 100 + 96}px`
       || frame.style.height !== `${options.popupHeightPx * options.popupScalePercent / 100 + 216}px`) resizeDesignPreview();
-  frame.contentWindow.HDDesignPreview?.update(options, dictionaryState);
+  // The preview shows what the edited profile's popups show (docs/languages.md
+  // 7.3, 11.5); the single-profile shape names no profile.
+  frame.contentWindow.HDDesignPreview?.update(maskedOptions(options), dictionaryState,
+    ...(hasProfiles(storedOptionsRecord) ? [editedProfile] : []));
 }
 
 function resizeDesignPreview() {
@@ -715,12 +1183,18 @@ async function send(type, fields = {}, target = TARGET) {
   return reply;
 }
 
-function setStatus(message, tone, failures = []) {
+function setStatus(message, tone, failures = [], error = null) {
   const status = element("engine-status");
+  const shown = status.textContent === message && status.classList.contains("is-error");
   status.textContent = message;
   status.classList.toggle("is-error", tone === "error");
   status.classList.toggle("is-ready", tone === "ready");
   renderStatusFailures(failures);
+  if (tone !== "error") showErrorCopy(status, null);
+  else if (!shown) {
+    const detail = failures.map(failure => `${failure.title}: ${failure.error}`).join("\n");
+    showErrorCopy(status, recordUserError(window, status.id, message, error, detail), element("engine-status-failures"));
+  }
 }
 
 // One entry per package the engine could not load, its title and raw load error
@@ -770,7 +1244,7 @@ async function refreshStatus() {
     // or the offscreen document can be recreated faster than background.js's
     // retries. Keep polling, or one blip freezes this line on a stale error while
     // the engine finishes booting and every lookup works.
-    setStatus(`Cannot reach the engine: ${describeErrorOrJson(error)}`, "error");
+    setStatus(`Cannot reach the engine: ${describeErrorOrJson(error)}`, "error", [], error);
     scheduleStatusPoll(STATUS_RETRY_MS);
     return;
   }
@@ -875,13 +1349,26 @@ function adoptOptions(value) {
   const revision = Number.isInteger(value?.revision) && value.revision >= 0 ? value.revision : 0;
   if (revision <= optionsRevision) return false;
   optionsRevision = revision;
-  savedOptions = normaliseOptions(value);
+  // This page's debug log redacts the profiles' languages too (docs/languages.md
+  // 8.5); records without profiles leave it as it is.
+  if (hasProfiles(value) || hasProfiles(storedOptionsRecord)) {
+    setDebugLogLanguages(recordProfiles(value).map(profile => profile.language));
+  }
+  storedOptionsRecord = value;
+  if (followEditedProfile()) {
+    renderEditedProfile();
+    return true;
+  }
+  savedOptions = projectEditedOptions(value);
   renderCurrentOptions();
+  profileSettings?.render();
   return true;
 }
 
 function handleOptionsChange(change) {
   adoptOptions(change.newValue);
+  renderLibraryResetLabel();
+  renderOtherLanguageDictionaries();
 }
 
 function renderSetupResume(value) {
@@ -904,12 +1391,20 @@ function handleStorageChange(changes, area) {
   if (changes.sharing) {
     renderSharingLink(changes.sharing.newValue);
   }
+  if (changes[LANGUAGE_SELECTION_KEY]) {
+    adoptLanguageSelection(changes[LANGUAGE_SELECTION_KEY].newValue);
+  }
   if (changes[CUSTOM_DICTIONARY_SOURCE_KEY]) {
     handleCustomDictionarySourceChange(changes[CUSTOM_DICTIONARY_SOURCE_KEY]);
   }
   if (changes.dictionaryState && !handleDictionaryStateChange(changes.dictionaryState)) {
     return;
   }
+  // Advanced → Languages counts each language's dictionaries and lists the
+  // languages held without a profile.
+  if (changes.dictionaryState) profileSettings?.render();
+  if (changes.options || changes.dictionaryState || changes[CUSTOM_DICTIONARY_SOURCE_KEY] || changes.lookupStats
+      || changes.wordStatusOverrides) profileSettings?.recordsChanged();
   if (changes.options) {
     handleOptionsChange(changes.options);
   }
@@ -926,8 +1421,6 @@ function renderMiningCapabilityHelp() {
 }
 
 async function start() {
-  // Get debug info includes this page's own recent warnings and errors.
-  captureDebugLog(window, { context: "settings" });
   configureBrowserUi();
   renderMiningCapabilityHelp();
   element("custom-buttons-settings").disabled = false;
@@ -938,7 +1431,9 @@ async function start() {
   attachSettingsNavigation();
   renderRecommendedCatalogue();
   attachHandlers();
-  const stored = await chrome.storage.local.get(["options", "dictionaryUpdates", SETUP_STATE_KEY, "sharing"]);
+  const stored = await chrome.storage.local.get(["options", "dictionaryUpdates", SETUP_STATE_KEY, "sharing",
+    LANGUAGE_SELECTION_KEY]);
+  languageSelection = normaliseLanguageSelection(stored[LANGUAGE_SELECTION_KEY]);
   adoptOptions(stored.options);
   adoptUpdateSettings(stored.dictionaryUpdates);
   renderSetupResume(stored[SETUP_STATE_KEY]);
@@ -949,18 +1444,23 @@ async function start() {
   }
   renderOptions();
   renderUpdateControls();
+  await loadProfileSettings();
   await refreshStatus();
   void recommendedInstallation.request();
 }
 
 export {
-  activationLabel, activeSection, adoptOptions, APPEARANCE_CHOICES, backingUp, clampOption,
+  activationLabel, activeSection, adoptOptions, APPEARANCE_CHOICES, backingUp, characterViewName, clampOption,
   customButtonController, DEFAULT_OPTIONS, DEFINITION_LOOKUP_MODES, definitionBlurFrequencyDictionary,
-  DESIGN_OPTION_KEYS, dictionaryGroupController, element, FREQUENCY_ORDERS, hasCapability, lastEngineStatus,
+  DESIGN_OPTION_KEYS, dictionaryGroupController, editedProfile, element, FREQUENCY_ORDERS, frequencyModeOrder,
+  hasCapability, languageName, lastEngineStatus, listOf,
   memorySettings, METADATA_FIELDS, nameDrafts, normaliseKanjiSelection, NUMBER_FIELDS, numberFormat,
-  OPTION_SECTIONS, options, OPTIONS_SAVE_DELAY_MS, optionsRevision, POPUP_RENDERER_IDS, POPUP_THEME_GROUPS,
-  popupRenderer, recommendedInstallation, refreshMemorySettings, refreshStatus, renderCurrentOptions,
-  renderEngineStatus, renderExperimentalSettings, renderLowMemoryMode, savedOptions, scheduleStatusPoll, send,
+  OPTION_SECTIONS, optionAvailable, options, OPTIONS_SAVE_DELAY_MS, optionsRevision, POPUP_RENDERER_IDS,
+  POPUP_THEME_GROUPS, popupRenderer, profileFields, profileLanguageName, readStoredRecords,
+  recommendedInstallation, refreshMemorySettings,
+  refreshStatus, renderCurrentOptions,
+  renderEngineStatus, renderExperimentalSettings, renderLanguageCapabilities, renderLowMemoryMode, renderPackSettings,
+  savedOptions, scheduleStatusPoll, send, storedOptionsRecord,
   setSectionStatus, setStatus, sharingLinkedAddress, syncNavigationStatus, TARGET, themeStore, UPDATE_TARGET,
   updateAnkiSettings, updateAudioSettings, updateDesignPreview, updateKeybindSettings,
   WORD_HIGHLIGHT_SWITCHES, WORKER_TARGET

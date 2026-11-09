@@ -46,11 +46,38 @@ function applyClassStyles(root) {
   for (const [element, cssText] of styled) element.setAttribute("style", cssText);
 }
 
+// Yomitan's anki-compact-gloss-style.js (67db60d) under Compact popup and
+// Anki, scoped to the glossary as its addGlossaryScopeToCss scopes it: a
+// structured `ul[data-sc-content="glossary"]` shares one line, its items
+// separated by a grey bar.
+const COMPACT_GLOSS_STYLES = `.yomitan-glossary ul[data-sc-content="glossary"] > li:not(:first-child)::before {
+  white-space: pre-wrap;
+  content: ' | ';
+  display: inline;
+  color: #777777;
+}
+.yomitan-glossary ul[data-sc-content="glossary"] > li {
+  display: inline;
+}
+.yomitan-glossary ul[data-sc-content="glossary"] {
+  display: inline;
+  list-style: none;
+  padding-left: 0;
+}`;
+
 const BLOCKS = new Set(["BR", "DIV", "LI", "OL", "P", "TABLE", "TBODY", "TD", "TFOOT", "TH", "THEAD", "TR", "UL"]);
 function plainText(node) {
-  if (node.nodeType === 3) return node.textContent;
-  if (node.getAttribute?.("aria-hidden") === "true") return "";
-  return [...node.childNodes].map(plainText).join("") + (BLOCKS.has(node.nodeName) ? "\n" : "");
+  const stack = [node], output = [];
+  while (stack.length) {
+    const current = stack.pop();
+    if (current === "\n") output.push(current);
+    else if (current.nodeType === 3) output.push(current.textContent);
+    else if (current.getAttribute?.("aria-hidden") !== "true") {
+      if (BLOCKS.has(current.nodeName)) stack.push("\n");
+      for (let index = current.childNodes.length - 1; index >= 0; index--) stack.push(current.childNodes[index]);
+    }
+  }
+  return output.join("");
 }
 
 function imageSize(image, value) {
@@ -69,7 +96,12 @@ function imageSize(image, value) {
   else if (image.style.height && !image.style.width) image.style.width = "auto";
 }
 
-export function createAnkiDefinitionRenderer(document, request, filenameFor, { compact = false } = {}) {
+// `language` is the language object (theme-host.js createLanguage) of the
+// profile the note is mined in, once the records have profiles; without one
+// the note is today's (docs/languages.md 4.5). `compactGlossaries` is Design →
+// Compact glossaries → Compact popup and Anki; `compact` is Smaller Anki cards.
+export function createAnkiDefinitionRenderer(document, request, filenameFor,
+  { compact = false, compactGlossaries = false, language = null } = {}) {
   const inert = document.implementation.createHTMLDocument("");
   const groups = new Map();
   for (const glossary of request.term.glossaries) {
@@ -80,6 +112,33 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor, { c
   const dictionaryAlias = dictionary => Object.hasOwn(request.dictionaryAliases, dictionary)
     ? request.dictionaryAliases[dictionary] : dictionary;
   const escape = text => { const span = inert.createElement("span"); span.textContent = text; return span.innerHTML; };
+
+  // docs/languages.md 12: each dictionary's direction, as the mining request
+  // carries it beside its display name, else by 10.2's rule over its glosses.
+  const directions = new Map();
+  function directionOf(dictionary) {
+    if (!directions.has(dictionary)) {
+      const carried = request.dictionaryDirections && Object.hasOwn(request.dictionaryDirections, dictionary)
+        ? request.dictionaryDirections[dictionary] : null;
+      directions.set(dictionary, carried === "rtl" || carried === "ltr" ? carried : language.dictionaryDirection(dictionary, request));
+    }
+    return directions.get(dictionary);
+  }
+  // The right-to-left rules cover every root of a note mined in a right-to-left
+  // profile, and elsewhere a root that holds a right-to-left dictionary.
+  const followsRtlRules = names => language !== null
+    && (language.direction === "rtl" || names.some(name => directionOf(name) === "rtl"));
+  // A name with a right-to-left character sits alone in a dir="auto" element.
+  function appendName(parent, name, rtlRules) {
+    if (!rtlRules || !globalThis.HDGlossary.hasRtlText(name)) {
+      parent.append(name);
+      return;
+    }
+    const isolated = inert.createElement("span");
+    isolated.dir = "auto";
+    isolated.textContent = name;
+    parent.append(isolated);
+  }
 
   function appendImage(doc, parent, value, { dictionary, path }, pending) {
     const image = doc.createElement("img");
@@ -93,14 +152,27 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor, { c
     parent.append(image);
   }
 
-  function content(glossary, pending) {
+  // With a language, glossary text takes 10.3's language, labelled where it
+  // differs from the dictionary's target language, which the body carries.
+  // Under the right-to-left rules each block of the other direction keeps its
+  // own, a row's text that sits in the body itself included (10.2).
+  function content(glossary, pending, rtlRules = false) {
     const body = inert.createElement("div");
     body.className = "gsm-hoshidicts-glossary-content";
     body.dataset.hoshidictsDictionary = glossary.dictionary;
+    const tag = language?.dictionaryLanguage(glossary.dictionary) ?? null;
+    if (tag) body.lang = tag;
     globalThis.HDGlossary.appendTextOnlyGlossary(inert, body, glossary.glossary, {
-      dictionary: glossary.dictionary, layout: "anki",
+      dictionary: glossary.dictionary, layout: "anki", compactGlossaries, ...(language === null ? {} : { language }),
       appendImage: pending ? (...args) => appendImage(...args, pending) : () => {},
     });
+    const direction = rtlRules ? directionOf(glossary.dictionary) : null;
+    if (direction === "rtl" || (direction !== null && globalThis.HDGlossary.hasRtlText(glossary.glossary))) {
+      const row = inert.createElement("div");
+      row.append(body);
+      globalThis.HDGlossary.markBlockDirections(row, direction, { listPadding: "40px" });
+      body.remove();
+    }
     return body;
   }
 
@@ -129,20 +201,24 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor, { c
     return lines.join("<br>");
   }
 
-  function entry(glossary, brief, noDictionary, pending) {
+  function entry(glossary, brief, noDictionary, pending, rtlRules) {
     const wrapper = inert.createElement("div");
     // Yomitan's glossary-single: one comma-separated label per tag, the
     // definition tags in their tag-bank order.
     const { definitionTagList, parseTagList } = globalThis.HDGlossary;
-    const labels = brief ? [] : [...definitionTagList(glossary).map(tag => tag.name), ...parseTagList(glossary.termTags),
-      noDictionary ? "" : dictionaryAlias(glossary.dictionary)].filter(Boolean);
-    if (labels.length) {
+    const tags = brief ? [] : [...definitionTagList(glossary).map(tag => tag.name), ...parseTagList(glossary.termTags)]
+      .filter(Boolean);
+    const name = brief || noDictionary ? "" : dictionaryAlias(glossary.dictionary);
+    if (tags.length || name) {
       const meta = inert.createElement("i");
       meta.className = "yomitan-glossary-meta";
-      meta.textContent = `(${labels.join(", ")})`;
+      meta.textContent = `(${[...tags, ...(name ? [""] : [])].join(", ")}`;
+      if (name) appendName(meta, name, rtlRules);
+      meta.append(")");
+      meta.normalize();
       wrapper.append(meta, " ");
     }
-    wrapper.append(replaceNewlines(content(glossary, pending)));
+    wrapper.append(replaceNewlines(content(glossary, pending, rtlRules)));
     return wrapper;
   }
 
@@ -160,15 +236,35 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor, { c
     for (const style of applied) style.textContent = style.textContent.replace(/<\/style/giu, value => String.raw`<\/${value.slice(2)}`);
   }
 
-  function appendDetails(root) {
+  function appendDetails(root, rtlRules) {
     const details = [];
     if (request.term.rules) details.push(`Rules: ${escape(request.term.rules)}`);
     if (request.trace.length) details.push(`Deinflection: ${request.trace.map(step => escape(step.name)).join(" &gt; ")}`);
     if (!details.length) return;
     const small = inert.createElement("small");
     small.className = "yomitan-glossary-details";
+    // The footer is English.
+    if (rtlRules) small.dir = "ltr";
     small.innerHTML = details.join("<br>");
     root.append(small);
+  }
+
+  // The field's root and list. Under the right-to-left rules the root takes
+  // its dictionaries' direction, ltr included, so a right-to-left card cannot
+  // turn English glosses around. Dictionaries of both directions keep each
+  // item's own, and the list pads both sides so every number stays inside
+  // the field.
+  function glossaryRoot(names) {
+    const rtlRules = followsRtlRules(names);
+    const rootDirections = rtlRules ? new Set(names.map(directionOf)) : null;
+    const mixed = rootDirections?.size > 1;
+    const root = inert.createElement("div");
+    root.className = "yomitan-glossary";
+    root.style.cssText = `text-align: ${rtlRules ? "start" : "left"}; contain: layout paint style; isolation: isolate;`;
+    if (rtlRules) root.dir = mixed ? language.direction : [...rootDirections][0];
+    const list = inert.createElement("ol");
+    if (mixed) list.style.paddingInline = "40px";
+    return { root, list, rtlRules, mixed };
   }
 
   return async ({ dictionary, firstOnly = false, brief = false, noDictionary = false, plain = false }) => {
@@ -177,27 +273,30 @@ export function createAnkiDefinitionRenderer(document, request, filenameFor, { c
     if (!selected.length) return "";
     if (plain) return plainDefinition(selected, noDictionary);
     const pending = [];
-    const root = inert.createElement("div");
-    root.className = "yomitan-glossary";
-    root.style.cssText = "text-align: left; contain: layout paint style; isolation: isolate;";
-    const list = inert.createElement("ol");
+    const { root, list, rtlRules, mixed } = glossaryRoot(selected.map(([name]) => name));
     // One item per term-bank row, as Yomitan's {glossary} template emits: note
     // types page by li[data-dictionary] and pad any nested list (#359).
     for (const [name, glossaries] of selected) {
       for (const glossary of glossaries) {
         const page = inert.createElement("li");
         page.dataset.dictionary = name;
-        page.append(entry(glossary, brief, noDictionary, pending));
+        if (mixed) page.dir = directionOf(name);
+        page.append(entry(glossary, brief, noDictionary, pending, rtlRules));
         list.append(page);
       }
     }
     root.append(list);
     appendStyles(root, selected);
+    if (compactGlossaries) {
+      const style = inert.createElement("style");
+      style.textContent = COMPACT_GLOSS_STYLES;
+      root.append(style);
+    }
     // Yomitan's {glossary} has no footer; {part-of-speech} and {conjugation}
     // carry this information, so compact fields leave it out (#399).
-    if (!brief && !compact) appendDetails(root);
+    if (!brief && !compact) appendDetails(root, rtlRules);
     await Promise.all(pending);
-    if (compact) return compactAnkiGlossary(document, root);
+    if (compact) return compactAnkiGlossary(document, root, { textAlign: rtlRules ? "start" : "left" });
     applyClassStyles(list);
     return root.outerHTML;
   };

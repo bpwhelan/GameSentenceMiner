@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QCheckBox,
+    QRadioButton,
     QComboBox,
     QPushButton,
     QFileDialog,
@@ -635,6 +636,9 @@ class ConfigWindow(QWidget):
             elif isinstance(widget, QCheckBox):
                 widget.stateChanged.connect(self._on_autosave_trigger)
                 connected = True
+            elif isinstance(widget, QRadioButton):
+                widget.toggled.connect(self._on_autosave_trigger)
+                connected = True
             elif isinstance(widget, QComboBox):
                 widget.currentTextChanged.connect(self._on_autosave_trigger)
                 connected = True
@@ -966,6 +970,13 @@ class ConfigWindow(QWidget):
                     open_anki_in_browser=self.editor.profile.features.open_anki_in_browser,
                     browser_query=self.browser_query_edit.text(),
                     generate_longplay=self.generate_longplay_check.isChecked(),
+                    review_after_session=replace(
+                        self.editor.profile.features.review_after_session,
+                        enabled=(
+                            self.show_update_confirmation_dialog_check.isChecked()
+                            and self.anki_confirmation_after_session_radio.isChecked()
+                        ),
+                    ),
                 ),
                 screenshot=Screenshot(
                     enabled=self.screenshot_enabled_check.isChecked(),
@@ -1100,6 +1111,7 @@ class ConfigWindow(QWidget):
                     open_ai_model=self.open_ai_model_edit.text(),
                     open_ai_backup_model=self.open_ai_backup_model_edit.text(),
                     open_ai_url=self.open_ai_url_edit.text(),
+                    open_ai_reasoning_effort=self.open_ai_reasoning_effort_combo.currentData() or "",
                     gsm_cloud_api_url=self.gsm_cloud_api_url_edit.text(),
                     gsm_cloud_auth_url=self.gsm_cloud_auth_url_edit.text(),
                     gsm_cloud_client_id=self.gsm_cloud_client_id_edit.text(),
@@ -1535,6 +1547,8 @@ class ConfigWindow(QWidget):
         # Anki
         self.anki_enabled_check = QCheckBox()
         self.show_update_confirmation_dialog_check = QCheckBox()
+        self.anki_confirmation_immediate_radio = QRadioButton()
+        self.anki_confirmation_after_session_radio = QRadioButton()
         self.anki_skip_confirmation_for_unvoiced_check = QCheckBox()
         self.auto_accept_timer_enabled_check = QCheckBox()
         self.auto_accept_timer_edit = QLineEdit()
@@ -1749,6 +1763,7 @@ class ConfigWindow(QWidget):
         self.open_ai_model_edit = QLineEdit()
         self.open_ai_backup_model_edit = QLineEdit()
         self.open_ai_api_key_edit = QLineEdit()
+        self.open_ai_reasoning_effort_combo = QComboBox()
         self.gsm_cloud_model_list = QListWidget()
         self.gsm_cloud_model_list.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.gsm_cloud_model_list.setMinimumHeight(80)
@@ -3185,7 +3200,12 @@ class ConfigWindow(QWidget):
 
         # Anki
         self.anki_enabled_check.setChecked(s.anki.enabled)
-        self.show_update_confirmation_dialog_check.setChecked(s.anki.show_update_confirmation_dialog_v2)
+        self.show_update_confirmation_dialog_check.setChecked(
+            s.anki.show_update_confirmation_dialog_v2 or s.features.review_after_session.enabled
+        )
+        self.anki_confirmation_after_session_radio.setChecked(s.features.review_after_session.enabled)
+        self.anki_confirmation_immediate_radio.setChecked(not s.features.review_after_session.enabled)
+        self._update_confirmation_settings_visibility()
         self.anki_skip_confirmation_for_unvoiced_check.setChecked(s.anki.skip_confirmation_for_unvoiced)
         auto_accept_timer_enabled = s.anki.auto_accept_timer > 0
         self.auto_accept_timer_enabled_check.setChecked(auto_accept_timer_enabled)
@@ -3491,6 +3511,9 @@ class ConfigWindow(QWidget):
         self._set_text_value(self.open_ai_model_edit, s.ai.open_ai_model)
         self._set_text_value(self.open_ai_backup_model_edit, s.ai.open_ai_backup_model)
         self._set_text_value(self.open_ai_api_key_edit, s.ai.open_ai_api_key)
+        self.open_ai_reasoning_effort_combo.setCurrentIndex(
+            max(0, self.open_ai_reasoning_effort_combo.findData(s.ai.open_ai_reasoning_effort))
+        )
         self._set_text_value(self.gsm_cloud_api_url_edit, s.ai.gsm_cloud_api_url)
         self._set_text_value(self.gsm_cloud_auth_url_edit, s.ai.gsm_cloud_auth_url)
         self._set_text_value(self.gsm_cloud_client_id_edit, s.ai.gsm_cloud_client_id)
@@ -3696,6 +3719,14 @@ class ConfigWindow(QWidget):
         self._update_discord_settings_visibility()
 
     # --- Misc Helper Methods ---
+    def _update_confirmation_settings_visibility(self, *_args):
+        enabled = self.show_update_confirmation_dialog_check.isChecked()
+        after_session = self.anki_confirmation_after_session_radio.isChecked()
+        self.anki_confirmation_timing_widget.setEnabled(enabled)
+        self.anki_confirmation_session_settings.setVisible(enabled and after_session)
+        self.anki_confirmation_immediate_settings.setVisible(enabled and not after_session)
+        self.anki_confirmation_audio_settings.setVisible(enabled)
+
     def _update_window_title(self):
         title_template = self.i18n.get("app", {}).get("title_with_profile", "GameSentenceMiner Config - {profile_name}")
         self.setWindowTitle(title_template.format(profile_name=self.settings.name))
@@ -3909,8 +3940,13 @@ class ConfigWindow(QWidget):
         if reply == QMessageBox.StandardButton.Yes:
             categories = category if isinstance(category, (list, tuple, set)) else [category]
             for category_name in categories:
-                default_category_config = getattr(self.default_settings, category_name)
-                setattr(self.settings, category_name, copy.deepcopy(default_category_config))
+                target = self.settings
+                defaults = self.default_settings
+                *parents, field = category_name.split(".")
+                for parent in parents:
+                    target = getattr(target, parent)
+                    defaults = getattr(defaults, parent)
+                setattr(target, field, copy.deepcopy(getattr(defaults, field)))
             self._load_settings_to_ui_safely()
             self.save_settings(force_backup=True, immediate_reload=True)
 

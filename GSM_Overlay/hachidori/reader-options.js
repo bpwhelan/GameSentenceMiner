@@ -29,18 +29,18 @@
   // under `options.experimental`; `section` names the Settings card the flag
   // reveals.
   const EXPERIMENTAL_FEATURES = [
-    { id: "themeStore", label: "Theme Store",
-      description: "Try Default, Nazeka, Plain and JL popup layouts in Design." },
     { id: "googleDocs", label: "Google Docs",
       description: "Look up words in Google Docs. Asks Google Docs to expose its text to Hachidori, which Google may change or remove without notice; the sentence is the hovered run of text." },
-    { id: "smallerAnkiCards", label: "Smaller Anki cards",
-      description: "Write compact definitions to new Anki notes: dictionary stylesheets, classes and wrappers are left out, keeping the text, line breaks, lists, tables, furigana and images. Notes already in Anki are not changed." },
     { id: "netflixMining", label: "Netflix mining",
       description: "Add the Netflix subtitle line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, and use the whole line as the sentence. Hovering a subtitle pauses the video until the pointer leaves the subtitle and the popup. Reads Netflix's subtitle files (adapted from Subadub), which Netflix may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload Netflix after turning this on. Protected video can make the audio silent or the GIF black." },
     { id: "netflixPreviewScreenshots", label: "Netflix preview screenshots",
       description: "Use Netflix's timeline preview image for {screenshot} when the video comes out black. Preview images have lower resolution and show a nearby moment, not necessarily the exact frame. Does not record or replay the video. Other pages keep normal screenshots. Netflix may change or remove these previews." },
-    { id: "wordHighlighting", label: "Word highlighting", section: "word-highlighting",
-      description: "Mark the Japanese words on every page by their Anki status: unknown, learning or known, or as you set them with Mark as known and Ignore in the popup. Your dictionaries split the page into words on this computer, and the status comes from Hachidori's copy of your Anki index, so opening a page never contacts Anki." },
+    { id: "youtubeMining", label: "YouTube mining",
+      description: "Add the YouTube caption line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, use the whole line as the sentence, and take {screenshot} from the video itself. Hovering a caption pauses the video until the pointer leaves the caption and the popup. Reads the caption track YouTube's player shows, typed or auto-generated, which YouTube may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload YouTube after turning this on. Works on watch pages, not on Shorts, embedded videos or live streams." },
+    // docs/languages.md 16.3. Off, lookups use the Japanese profile and nothing
+    // switches language; the profiles and this browser's choice are kept.
+    { id: "multipleLanguages", label: "Multiple languages", section: "languages",
+      description: "Read other languages besides Japanese, such as English, Korean, Spanish or Arabic, each with its own dictionaries, settings, Anki Templates and pronunciation sources. Adds Languages under Advanced, where you add a language and choose the one lookups use; with two or more, the toolbar switches between them. Turning this off returns lookups to Japanese and keeps the languages you added, with their settings and dictionaries, for the next time you turn it on." },
   ];
   const DEFAULT_EXPERIMENTAL = Object.fromEntries(EXPERIMENTAL_FEATURES.map(feature => [feature.id, false]));
   // yomitan-gsm hotkey actions that map onto existing Hachidori behaviour, in
@@ -56,7 +56,9 @@
     { id: "nextEntryDifferentDictionary", label: "Go to next dictionary" },
     { id: "previousEntryDifferentDictionary", label: "Go to previous dictionary" },
     { id: "historyBackward", label: "Navigate backward in history" },
-    { id: "addNote", label: "Add note" },
+    { id: "historyForward", label: "Navigate forward in history" },
+    // On the search page, Enter adds the word under the searched text's cursor.
+    { id: "addNote", label: "Add note", scopes: ["popup", "search"] },
     { id: "viewNotes", label: "View notes" },
     { id: "playAudio", label: "Play audio" },
     { id: "playAudioFromSource", label: "Play audio from source", argument: "audioSource" },
@@ -70,11 +72,23 @@
     { id: "toggleWordHighlights", label: "Toggle word highlights", scopes: ["web"] },
     { id: "markWordKnown", label: "Mark word as known" },
     { id: "ignoreWord", label: "Ignore word" },
+    // Makes the next language this browser's active profile (docs/languages.md
+    // 16.2). Not Yomitan's profileNext, which Hachidori drops.
+    { id: "switchLanguage", label: "Switch to the next language", scopes: ["web"] },
+    // The search page's (docs/search-history.md): in its box, the lines of its
+    // history, as a shell's Up and Down; in the searched text, Rubi's cursor.
+    { id: "searchPreviousLine", label: "Previous line in the search history", scopes: ["search"] },
+    { id: "searchNextLine", label: "Next line in the search history", scopes: ["search"] },
+    { id: "searchPreviousWord", label: "Previous word in the searched text", scopes: ["search"] },
+    { id: "searchNextWord", label: "Next word in the searched text", scopes: ["search"] },
+    { id: "searchRowUp", label: "Row above, or the earlier line", scopes: ["search"] },
+    { id: "searchRowDown", label: "Row below, or the later line", scopes: ["search"] },
   ].map(action => ({ scopes: ["popup"], ...action }));
   const KEYBIND_ARGUMENT_DEFAULTS = { count: "1", audioSource: "", option: "" };
   // Yomitan's popup scope, adapted: Hachidori's hover popup never takes focus,
-  // so it means "while a popup is open or opening". Web is anywhere on the page.
-  const KEYBIND_SCOPES = ["popup", "web"];
+  // so it means "while a popup is open or opening". Search is the search page,
+  // as Yomitan's; web is anywhere on the page.
+  const KEYBIND_SCOPES = ["popup", "search", "web"];
   const KEYBIND_MODIFIERS = ["meta", "ctrl", "alt", "shift"];
   // Pressing only these codes records or matches a keybind with a null key.
   const KEYBIND_MODIFIER_CODES = new Set(["AltLeft", "AltRight", "ControlLeft", "ControlRight",
@@ -90,6 +104,8 @@
   }
   // Yomitan's default hotkeys without the actions Hachidori has no feature for,
   // then the one-entry moves Yomitan's popup gives Alt+wheel outside its hotkeys.
+  const keybind = scopes => ([action, argument, key, modifiers]) =>
+    ({ action, argument, key, modifiers, scopes, enabled: true });
   const DEFAULT_KEYBINDS = [
     ["close", "", "Escape", []],
     ["previousEntry", "3", "PageUp", ["alt"]],
@@ -99,12 +115,25 @@
     ["previousEntry", "1", "ArrowUp", ["alt"]],
     ["nextEntry", "1", "ArrowDown", ["alt"]],
     ["historyBackward", "", "KeyB", ["alt"]],
+    ["historyForward", "", "KeyF", ["alt"]],
     ["addNote", "", "KeyE", ["alt"]],
     ["playAudio", "", "KeyP", ["alt"]],
     ["viewNotes", "", "KeyV", ["alt"]],
     ["previousEntry", "1", "WheelUp", ["alt"]],
     ["nextEntry", "1", "WheelDown", ["alt"]],
-  ].map(([action, argument, key, modifiers]) => ({ action, argument, key, modifiers, scopes: ["popup"], enabled: true }));
+  ].map(keybind(["popup"]));
+  // The search page's keys (docs/search-history.md): Rubi's arrows and Enter.
+  // Each acts only where it applies (the box, or the searched text with focus),
+  // so an arrow is free for its usual work everywhere else.
+  const SEARCH_KEYBINDS = [
+    ["searchPreviousLine", "", "ArrowUp", []],
+    ["searchNextLine", "", "ArrowDown", []],
+    ["searchPreviousWord", "", "ArrowLeft", []],
+    ["searchNextWord", "", "ArrowRight", []],
+    ["searchRowUp", "", "ArrowUp", []],
+    ["searchRowDown", "", "ArrowDown", []],
+    ["addNote", "", "Enter", []],
+  ].map(keybind(["search"]));
   const DEFAULT_OPTIONS = {
     scanLength: 16,
     maxResults: 32,
@@ -126,8 +155,15 @@
     // Yomitan's scanning.hidePopupOnCursorExit and hidePopupOnCursorExitDelay.
     hidePopupOnCursorExit: false,
     hidePopupOnCursorExitDelayMs: 160,
+    // Reading → Results: also show words that only frequency and pitch
+    // dictionaries have, without definitions (#620).
+    showMetadataOnlyResults: false,
     popupNestingMaxDepth: 10,
     popupTheme: "default",
+    // Design → Colours for a theme whose catalogue entry lists colour variants
+    // (Crystal's Grey, Beige and Retro blue). "auto" leaves the choice to the
+    // theme, which follows the system's light or dark mode.
+    popupThemeVariant: "auto",
     popupToolbarPosition: "auto",
     customPopupCss: "",
     customPopupJavascript: "",
@@ -136,6 +172,7 @@
     audioSources: [{ id: "default-tts", type: "text-to-speech-reading", enabled: true, url: "", voice: "" }],
     audioAutoplay: false,
     anki: DEFAULT_ANKI,
+    smallerAnkiCards: false,
     experimental: DEFAULT_EXPERIMENTAL,
     popupWidthPx: 560,
     popupHeightPx: 420,
@@ -145,7 +182,8 @@
     showPopupAudioButton: true,
     popupColumns: 1,
     // Yomitan's general.glossaryLayoutMode: "compact" puts a definition's
-    // glosses on one line, separated by " | ". Popup CSS only.
+    // glosses on one line, separated by " | ", in the popup (CSS only);
+    // "compact-popup-anki" does that in Anki glossary fields as well.
     glossaryLayoutMode: "default",
     showLookupCounts: true,
     // Only the lookup-count condition; stored as `definitionBlurEnabled` before #401.
@@ -159,7 +197,7 @@
     definitionBlurThreshold: 5,
     definitionBlurReveal: "timed",
     definitionBlurDelayMs: 5000,
-    // Reading → Word highlighting (#520, experimental): marks the page's words
+    // Reading → Word highlighting (#520): marks the page's words
     // by their Anki status. Its switches and style stay while it is off.
     wordHighlightEnabled: false,
     wordHighlightUnknown: true,
@@ -176,6 +214,9 @@
     // inline glyphs (em-sized or at most 32px square), "all" previews every image.
     imageHoverPreview: "large",
     averageFrequency: false,
+    // With averages on, Yomitan hides each dictionary's frequency tag; this
+    // keeps them shown after the averages instead.
+    showFrequencyTagsWithAverage: false,
     showFrequencyDictionaryNames: false,
     compactFrequencyNumbers: false,
     showPitchAccentFurigana: true,
@@ -204,12 +245,28 @@
     lowMemoryMode: false,
     dictionaryEntryStorage: "auto",
     dictionaryIndexStorage: "auto",
-    keybinds: DEFAULT_KEYBINDS,
+    // Reading → Search page (#610): the toolbar menu's Search button, beside
+    // Settings, which opens the search page. On, as its owner asked.
+    showToolbarSearchButton: true,
+    // Reading → Search page (#656): a click on a word of the search page's
+    // query or results looks it up, off as Yomitan's
+    // scanning.enablePopupSearch is; and the size of the popup window its
+    // shortcut opens, Yomitan's popupWindow width and height.
+    searchClickLookup: false,
+    searchWindowWidthPx: 600,
+    searchWindowHeightPx: 640,
+    // Advanced → Search history (docs/search-history.md), off until switched
+    // on: keep each line the search page searches, up to this many, oldest
+    // first out, and move through them with the search page's keys.
+    searchHistoryEnabled: false,
+    searchHistoryLimit: 10000,
+    keybinds: [...DEFAULT_KEYBINDS, ...SEARCH_KEYBINDS],
   };
-  // Word highlighting's switches stay with its experimental Settings section;
-  // a page shows or hides its marks with Toggle word highlights instead.
-  const UNTOGGLED_OPTIONS = new Set(["lowMemoryMode", "useLessRamByDefault", "wordHighlightEnabled", "wordHighlightUnknown",
-    "wordHighlightLearning", "wordHighlightKnown", "wordHighlightIgnored"]);
+  // Word highlighting's switches stay with its Reading Settings section;
+  // a page shows or hides its marks with Toggle word highlights instead. The
+  // toolbar's Search button and the search history are not reader behaviours.
+  const UNTOGGLED_OPTIONS = new Set(["lowMemoryMode", "useLessRamByDefault", "smallerAnkiCards", "wordHighlightEnabled", "wordHighlightUnknown",
+    "wordHighlightLearning", "wordHighlightKnown", "wordHighlightIgnored", "showToolbarSearchButton", "searchHistoryEnabled"]);
   const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS)
     .filter(key => typeof DEFAULT_OPTIONS[key] === "boolean" && !UNTOGGLED_OPTIONS.has(key));
   const NUMBER_RANGES = {
@@ -232,14 +289,22 @@
     // One snapshot per day, each a complete saved-state payload with lookup
     // statistics rows: the cap bounds how many copies the profile stores.
     automaticBackupDays: [1, 30],
+    // Chrome fits a larger window to the screen. Firefox does not: it opens a
+    // window asked to be larger than 16,384 pixels at 16,384, and one asked to
+    // be 2^31 - 1 pixels wide at its 95-pixel minimum.
+    searchWindowWidthPx: [200, 16384],
+    searchWindowHeightPx: [200, 16384],
+    // Lines the search history keeps (docs/search-history.md): as many as the user sets.
+    searchHistoryLimit: [1, Number.MAX_SAFE_INTEGER],
   };
   // GSM PR #549 blurs at or above the threshold; Below is the issue #9 adaptation.
   const DEFINITION_BLUR_DIRECTIONS = ["atLeast", "below"];
-  const DEFINITION_BLUR_REVEALS = ["timed", "hover"];
+  // After a delay (hover reveals too), on hover only, or on click only (#598).
+  const DEFINITION_BLUR_REVEALS = ["timed", "hover", "click"];
   const DEFINITION_BLUR_FREQUENCY_ORDERS = ["auto", "ascending", "descending"];
   const IMAGE_HOVER_PREVIEWS = ["off", "large", "all"];
-  // Yomitan's stored values, so its "compact-popup-anki" can follow without a migration.
-  const GLOSSARY_LAYOUT_MODES = ["default", "compact"];
+  // Yomitan's stored values.
+  const GLOSSARY_LAYOUT_MODES = ["default", "compact", "compact-popup-anki"];
   const PITCH_ACCENT_FURIGANA_STYLES = ["contour", "overline"];
   // How a word highlight marks its word: a line under it, its text, or its background.
   const WORD_HIGHLIGHT_STYLES = ["underline", "color", "background"];
@@ -257,13 +322,16 @@
       : id.replace(/(^|-)([a-z])/gu, (_, separator, letter) => `${separator ? " " : ""}${letter.toUpperCase()}`),
   })) }));
   const POPUP_THEME_IDS = new Set(POPUP_THEME_GROUPS.flatMap(group => group.themes.map(theme => theme.id)));
-  const POPUP_RENDERER_IDS = ["nazeka", "plain", "jl", "bee"];
+  const POPUP_RENDERER_IDS = ["nazeka", "plain", "jl", "bee", "crystal"];
+  // Every colour variant a bundled theme's catalogue entry may list, after "auto".
+  const POPUP_THEME_VARIANTS = ["auto", "grey", "beige", "blue"];
   for (const id of POPUP_RENDERER_IDS) POPUP_THEME_IDS.add(id);
   const popupRenderer = theme => POPUP_RENDERER_IDS.includes(theme) ? theme : "default";
   const DESIGN_OPTION_KEYS = [
-    "popupTheme", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "customButtons", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "popupColumns",
+    "popupTheme", "popupThemeVariant", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "customButtons", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "popupColumns",
     "glossaryLayoutMode", "showCompactDefinitionSummary", "compactDefinitionSummaryCount", "compactDefinitionSummaryDictionary",
-    "kanjiClickDictionary", "popupImageSource", "imageHoverPreview", "averageFrequency", "showFrequencyDictionaryNames",
+    "kanjiClickDictionary", "popupImageSource", "imageHoverPreview", "averageFrequency", "showFrequencyTagsWithAverage",
+    "showFrequencyDictionaryNames",
     "compactFrequencyNumbers", "showPitchAccentFurigana", "pitchAccentFuriganaDictionary", "pitchAccentFuriganaStyle",
     "showPitchAccentBadge", "showPitchAccentDictionaryNames", "showPitchAccentText", "showPitchAccentPosition", "showPitchAccentGraph",
     "showPitchAccentColors", "hidePopupGrammarTags",
@@ -596,9 +664,18 @@
   }
 
   // An empty blur dictionary means "Same as sorting": the Reading → Frequency
-  // sorting dictionary, which may itself be Automatic (no single dictionary).
+  // sorting dictionary, which may itself be None (no sort dictionary).
   function definitionBlurFrequencyDictionary(options) {
     return options.definitionBlurFrequencyDictionary || options.frequencyDictionary;
+  }
+
+  // The direction a dictionary's own mode implies: only a declared
+  // "occurrence-based" list counts up. A dictionary without frequencyMode is
+  // read as ranks, as Yomitan's rank aggregates read it
+  // (yomidevs/yomitan@d3c54c1 ext/js/data/anki-note-data-creator.js:184):
+  // CC100, BCCWJ and most other Japanese lists are ranks that predate the field.
+  function frequencyModeOrder(frequencyMode) {
+    return frequencyMode === "occurrence-based" ? "descending" : "ascending";
   }
 
   // Shared by the reader and the Design preview. Native numeric frequency
@@ -618,7 +695,7 @@
       .filter(value => typeof value === "number" && Number.isFinite(value) && value > 0);
     if (values.length === 0) return unavailable;
     const order = options.definitionBlurFrequencyOrder === "auto"
-      ? (source.frequencyMode === "rank-based" ? "ascending" : "descending")
+      ? frequencyModeOrder(source.frequencyMode)
       : options.definitionBlurFrequencyOrder;
     const value = order === "ascending" ? Math.min(...values) : Math.max(...values);
     return {
@@ -648,6 +725,7 @@
     lookupMode: new Set(LOOKUP_MODES),
     definitionLookupMode: new Set(DEFINITION_LOOKUP_MODES),
     popupTheme: POPUP_THEME_IDS,
+    popupThemeVariant: new Set(POPUP_THEME_VARIANTS),
     popupToolbarPosition: POPUP_TOOLBAR_POSITIONS,
     frequencyOrder: new Set(FREQUENCY_ORDERS),
     definitionBlurFrequencyOrder: new Set(DEFINITION_BLUR_FREQUENCY_ORDERS),
@@ -691,6 +769,40 @@
     if (kind === "kanji") return dictionary.kanjiCount > 0;
     if (dictionary.termCount > 0) return true;
     return dictionary.frequencyCount === 0 && dictionary.pitchCount === 0 && dictionary.kanjiCount === 0;
+  }
+
+  const KANJI_SELECTION_KINDS = new Set(["term", "kanji"]);
+
+  // Keep a disabled source selected so re-enabling it restores the same route.
+  // Removed groups, dictionaries or capabilities reset the clicked-kanji choice.
+  function normaliseKanjiClickSelection(value, dictionaries, groups) {
+    const selection = typeof value === "string" ? { title: value, kind: "" } : value;
+    if (selection?.kind === "tabGroup") {
+      return groups.some((group) => group.id === selection.id) ? value : "";
+    }
+    if (!selection?.title) return value;
+    const selected = dictionaries.find((entry) => entry.title === selection.title);
+    let kind = selection.kind;
+    if (!KANJI_SELECTION_KINDS.has(kind)) {
+      kind = selected && hasCapability(selected, "kanji") ? "kanji" : "term";
+    }
+    if (!selected || !hasCapability(selected, kind)) return "";
+    return KANJI_SELECTION_KINDS.has(selection.kind) ? value : { title: selection.title, kind };
+  }
+
+  // Storage commits and backup preparation prune against the same library.
+  function normaliseDictionarySelections(value, dictionaries, groups = []) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const options = { ...value };
+    const selectedFrequency = dictionaries.find((entry) => entry.title === options.frequencyDictionary);
+    if (options.frequencyDictionary
+        && (!selectedFrequency || selectedFrequency.enabled === false || !hasCapability(selectedFrequency, "freq"))) {
+      options.frequencyDictionary = "";
+    }
+    if (Object.hasOwn(options, "kanjiClickDictionary")) {
+      options.kanjiClickDictionary = normaliseKanjiClickSelection(options.kanjiClickDictionary, dictionaries, groups);
+    }
+    return options;
   }
 
   // A dictionary's clicked-kanji capability: native kanji entries when it has
@@ -769,9 +881,14 @@
     return {};
   }
 
-  function projectOptions(value, strict) {
+  function projectOptionKeys(value, strict) {
     const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const result = { ...legacyActivationOptions(source, strict), ...legacyBlurCountOption(source, strict) };
+    // Keep the existing mining choice when the experiment becomes an Anki
+    // option. An explicit new option takes precedence over the old flag.
+    if (!Object.hasOwn(source, "smallerAnkiCards") && typeof source.experimental?.smallerAnkiCards === "boolean") {
+      result.smallerAnkiCards = source.experimental.smallerAnkiCards;
+    }
     for (const key of OPTION_KEYS) {
       if (!Object.hasOwn(source, key)) continue;
       const raw = source[key];
@@ -803,19 +920,25 @@
     return typeof raw === typeof DEFAULT_OPTIONS[key] && raw === normalized;
   }
 
+  // A record with profiles reads, for code that predates them, as its Japanese
+  // profile flattened with the global keys (docs/languages.md 5.1).
   function projectStoredOptions(value) {
-    return projectOptions(value, false);
+    return projectOptionKeys(hasProfiles(value) ? flatProfileRecord(value, JAPANESE_PROFILE_ID) : value, false);
   }
 
   function validateOptionsPatch(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       throw new Error("the options write request carried no object");
     }
-    return projectOptions(value, true);
+    return projectOptionKeys(value, true);
   }
 
   function normaliseOptions(value) {
-    const options = { ...DEFAULT_OPTIONS, ...projectStoredOptions(value) };
+    return normaliseFlatOptions(hasProfiles(value) ? flatProfileRecord(value, JAPANESE_PROFILE_ID) : value);
+  }
+
+  function normaliseFlatOptions(value) {
+    const options = { ...DEFAULT_OPTIONS, ...projectOptionKeys(value, false) };
     const source = value && typeof value === "object" ? value : {};
     options.anki = normaliseAnki(options.anki);
     if (Object.hasOwn(source, "customButtons")) {
@@ -825,6 +948,13 @@
     }
     options.customLinks = customLinksFromButtons(options.customButtons);
     options.experimental = { ...options.experimental };
+    // A keybind list saved before the search page had keys has no search row:
+    // it gains the search page's defaults, so its Up recalls a line whatever was
+    // saved. Settings saves them with the next keybind edit. A list with any
+    // search row is the user's own.
+    if (!options.keybinds.some(bind => bind.scopes.includes("search"))) {
+      options.keybinds = [...options.keybinds, ...SEARCH_KEYBINDS];
+    }
     return options;
   }
 
@@ -845,11 +975,434 @@
     return normaliseOptions(value);
   }
 
+  // ---------------------------------------------------------------------------
+  // The profile layer (docs/languages.md, sections 4 and 5). A record without
+  // `profiles` is the single-profile shape: today's record, read as one
+  // Japanese profile through today's code path. Once the records have profiles,
+  // global keys stay at the top level of `options`, profile keys live only in
+  // `profiles[].settings`, and `anki` is split: `url` and `apiKey` at the top,
+  // `templates` in the profile.
+  // ---------------------------------------------------------------------------
+
+  const JAPANESE_PROFILE_ID = "ja";
+  const JAPANESE_LANGUAGE = "ja";
+  // Section 5.2: requests that name no profile mean the Japanese data, and a
+  // request naming a profile that does not exist is refused.
+  const PROFILE_MESSAGES = Object.freeze({
+    noJapaneseProfile: "This Hachidori has no Japanese profile. Add Japanese in its Settings, or update the linked browser.",
+    profileRemoved: "This language was removed in another Hachidori page.",
+  });
+  // Appendix A of the design: the keys that describe the reader's hands,
+  // screen and machine rather than a language. Every other option key except
+  // `anki` belongs to the profile.
+  const GLOBAL_OPTION_KEYS = Object.freeze([
+    "hoverEnabled", "lookupMode", "activationKey", "definitionLookupMode", "scanDelayMs", "definitionScanDelayMs",
+    "popupHideDelayMs", "hidePopupOnCursorExit", "hidePopupOnCursorExitDelayMs", "popupNestingMaxDepth",
+    "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "smallerAnkiCards", "experimental",
+    "popupWidthPx", "popupHeightPx", "popupScalePercent", "sourceHighlightEnabled", "automaticBackupDays",
+    "useLessRamByDefault", "lowMemoryMode", "dictionaryEntryStorage", "dictionaryIndexStorage",
+    "showToolbarSearchButton", "searchClickLookup", "searchWindowWidthPx", "searchWindowHeightPx", "keybinds",
+    "searchHistoryEnabled", "searchHistoryLimit",
+  ]);
+  const GLOBAL_KEYS = new Set(GLOBAL_OPTION_KEYS);
+  const PROFILE_OPTION_KEYS = Object.freeze(OPTION_KEYS.filter(key => !GLOBAL_KEYS.has(key) && key !== "anki"));
+  const PROFILE_KEYS = new Set(PROFILE_OPTION_KEYS);
+  // Retired keys migrate into the scope of the key they became.
+  const GLOBAL_RETIRED_KEYS = ["modifier", "hoverDelayMs"];
+  const LANGUAGE_CODE = /^[a-z]{2,3}$/u;
+  // `Hani` in a requirement matches every script code that includes Han.
+  const HAN_SCRIPTS = new Set(["Hani", "Hans", "Hant", "Hanb", "Jpan", "Kore"]);
+
+  // Section 7.3: each option key that needs something of the language, and the
+  // value that makes it behave as off for a profile that lacks it.
+  const OPTION_REQUIREMENTS = Object.freeze({
+    showPitchAccentFurigana: { requires: "pitchAccent", neutral: false },
+    pitchAccentFuriganaDictionary: { requires: "pitchAccent", neutral: "" },
+    pitchAccentFuriganaStyle: { requires: "pitchAccent", neutral: "contour" },
+    showPitchAccentBadge: { requires: "pitchAccent", neutral: false },
+    showPitchAccentDictionaryNames: { requires: "pitchAccent", neutral: false },
+    showPitchAccentText: { requires: "pitchAccent", neutral: false },
+    showPitchAccentPosition: { requires: "pitchAccent", neutral: false },
+    showPitchAccentGraph: { requires: "pitchAccent", neutral: false },
+    showPitchAccentColors: { requires: "pitchAccent", neutral: false },
+    kanjiClickDictionary: { requires: "characterView", neutral: "" },
+    wordHighlightEnabled: { requires: "wordHighlighting", neutral: false },
+    wordHighlightUnknown: { requires: "wordHighlighting", neutral: true },
+    wordHighlightLearning: { requires: "wordHighlighting", neutral: true },
+    wordHighlightKnown: { requires: "wordHighlighting", neutral: false },
+    wordHighlightIgnored: { requires: "wordHighlighting", neutral: false },
+    wordHighlightStyle: { requires: "wordHighlighting", neutral: "underline" },
+  });
+
+  function plainObject(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+
+  function hasProfiles(storedOptions) {
+    return Array.isArray(plainObject(storedOptions)?.profiles);
+  }
+
+  function storedRevision(storedOptions) {
+    const revision = plainObject(storedOptions)?.revision;
+    return Number.isInteger(revision) && revision >= 0 ? revision : 0;
+  }
+
+  function pick(source, keys) {
+    return Object.fromEntries(keys.filter(key => Object.hasOwn(source, key)).map(key => [key, source[key]]));
+  }
+
+  // The top-level `anki` of a record with profiles: the connection only.
+  function ankiConnection(value) {
+    const source = plainObject(value);
+    if (source === null) return null;
+    return {
+      ...(Object.hasOwn(source, "url") ? { url: normaliseAnkiConnectUrl(source.url) ?? "" } : {}),
+      apiKey: typeof source.apiKey === "string" ? source.apiKey : DEFAULT_ANKI.apiKey,
+    };
+  }
+
+  // A profile's own `anki`: its Templates only.
+  function ankiTemplates(value) {
+    const source = plainObject(value);
+    return source === null ? null : { templates: normaliseAnki({ templates: source.templates }).templates };
+  }
+
+  // A stored profile with anything malformed dropped; null when it has no
+  // usable id or language. Its settings are the sparse profile keys it holds.
+  function normaliseProfile(value) {
+    const source = plainObject(value);
+    if (source === null || !validIdentifier(source.id)
+        || typeof source.language !== "string" || !LANGUAGE_CODE.test(source.language)) return null;
+    const settings = plainObject(source.settings) ?? {};
+    const projected = projectOptionKeys(pick(settings, [...PROFILE_OPTION_KEYS, "definitionBlurEnabled"]), false);
+    const anki = ankiTemplates(settings.anki);
+    return {
+      id: source.id,
+      language: source.language,
+      settings: { ...pick(projected, PROFILE_OPTION_KEYS), ...(anki === null ? {} : { anki }) },
+      packSettings: { ...plainObject(source.packSettings) },
+    };
+  }
+
+  function storedProfiles(storedOptions) {
+    const ids = new Set();
+    return storedOptions.profiles.flatMap(value => {
+      const profile = normaliseProfile(value);
+      if (profile === null || ids.has(profile.id)) return [];
+      ids.add(profile.id);
+      return [profile];
+    });
+  }
+
+  // A flat record's own profile keys, as a profile's settings.
+  function profileSettingsOf(flat) {
+    const anki = flat.anki === undefined ? null : { templates: normaliseAnki(flat.anki).templates };
+    return { ...pick(flat, PROFILE_OPTION_KEYS), ...(anki === null ? {} : { anki }) };
+  }
+
+  /**
+   * The profile list. A record without `profiles` is one Japanese profile
+   * holding the record's own profile keys.
+   * @returns {{id: string, language: string, settings: object, packSettings: object}[]}
+   */
+  function profiles(storedOptions) {
+    if (!hasProfiles(storedOptions)) {
+      return [{ id: JAPANESE_PROFILE_ID, language: JAPANESE_LANGUAGE,
+        settings: profileSettingsOf(projectOptionKeys(storedOptions, false)), packSettings: {} }];
+    }
+    return storedProfiles(storedOptions);
+  }
+
+  function findProfile(storedOptions, profileId) {
+    return profiles(storedOptions).find(profile => profile.id === profileId) ?? null;
+  }
+
+  // The flat record a profile reads as: the global keys from the top level,
+  // the profile keys from the profile (none without one), `anki` joined.
+  function flatProfileRecord(storedOptions, profileId) {
+    const source = plainObject(storedOptions);
+    const profile = findProfile(storedOptions, profileId);
+    const flat = pick(source, [...GLOBAL_OPTION_KEYS, ...GLOBAL_RETIRED_KEYS]);
+    if (profile !== null) {
+      const { anki: profileAnki, ...settings } = profile.settings;
+      Object.assign(flat, settings);
+      const connection = ankiConnection(source.anki);
+      if (connection !== null || profileAnki !== undefined) {
+        flat.anki = { ...connection, ...(profileAnki === undefined ? {} : { templates: profileAnki.templates }) };
+      }
+    } else {
+      const connection = ankiConnection(source.anki);
+      if (connection !== null) flat.anki = connection;
+    }
+    return flat;
+  }
+
+  function registry() {
+    const languages = globalThis.HDLanguages;
+    return languages && typeof languages.get === "function" ? languages : null;
+  }
+
+  // A language's descriptor from the registry; null outside a build that has
+  // its pack, and in contexts that load no registry.
+  function languageDescriptor(language) {
+    return registry()?.get(language) ?? null;
+  }
+
+  function validPackSettingValue(setting, value) {
+    if (setting?.type === "boolean") return typeof value === "boolean";
+    if (setting?.type === "enum") return Array.isArray(setting.values) && setting.values.some(entry => entry?.id === value);
+    if (setting?.type === "number") {
+      return typeof value === "number" && Number.isFinite(value)
+        && (typeof setting.min !== "number" || value >= setting.min)
+        && (typeof setting.max !== "number" || value <= setting.max);
+    }
+    return false;
+  }
+
+  // A pack setting's value for a profile: the stored one when the pack
+  // declares the setting and the value is valid for it, otherwise its default.
+  function packSettingValue(descriptor, packSettings, id) {
+    const setting = (Array.isArray(descriptor?.settings) ? descriptor.settings : []).find(entry => entry?.id === id);
+    if (!setting) return undefined;
+    const value = plainObject(packSettings)?.[id];
+    return validPackSettingValue(setting, value) ? value : setting.default;
+  }
+
+  // Whether a language has a capability: optional ones only while a pack
+  // setting with that capability effect turns them on.
+  function languageCapability(descriptor, name, packSettings = {}) {
+    const value = descriptor?.capabilities?.[name];
+    if (name === "readings") return value === "required" || value === "optional";
+    if (value === undefined || value === null || value === false) return false;
+    if (plainObject(value)?.optional === true) {
+      const setting = (Array.isArray(descriptor.settings) ? descriptor.settings : [])
+        .find(entry => entry?.effect?.capability === name);
+      return setting !== undefined && packSettingValue(descriptor, packSettings, setting.id) === true;
+    }
+    return true;
+  }
+
+  // Section 7.3: a capability name, {scripts: [...]} or "ankiNoteTypeFamilies".
+  // Japanese meets every requirement, also where no registry is loaded; a
+  // language this context has no descriptor for meets none.
+  function optionRequirementMet(requirement, language, packSettings = {}) {
+    const descriptor = languageDescriptor(language);
+    if (descriptor === null) return language === JAPANESE_LANGUAGE;
+    if (requirement === "ankiNoteTypeFamilies") {
+      const families = descriptor.host?.anki?.noteTypeFamilies;
+      return Array.isArray(families) && families.length > 0;
+    }
+    if (Array.isArray(plainObject(requirement)?.scripts)) {
+      const scripts = Array.isArray(descriptor.scripts) ? descriptor.scripts : [];
+      return requirement.scripts.some(wanted => scripts.some(script => script === wanted
+        || (wanted === "Hani" && HAN_SCRIPTS.has(script))));
+    }
+    return typeof requirement === "string" && languageCapability(descriptor, requirement, packSettings);
+  }
+
+  function maskOptions(options, language, packSettings) {
+    for (const [key, { requires, neutral }] of Object.entries(OPTION_REQUIREMENTS)) {
+      if (!optionRequirementMet(requires, language, packSettings)) options[key] = neutral;
+    }
+    return options;
+  }
+
+  /**
+   * Flat options for one profile, shaped exactly like normaliseOptions' result:
+   * global keys from the top level, profile keys from the profile, then
+   * capability masking (section 7.3) unless `masked` is false. A profile the
+   * record lacks reads as the global keys over the defaults.
+   */
+  function projectOptions(storedOptions, profileId = JAPANESE_PROFILE_ID, { masked = true } = {}) {
+    if (!hasProfiles(storedOptions)) {
+      if (profileId === JAPANESE_PROFILE_ID) return normaliseFlatOptions(storedOptions);
+      const options = normaliseFlatOptions(pick(plainObject(storedOptions) ?? {}, [...GLOBAL_OPTION_KEYS, ...GLOBAL_RETIRED_KEYS]));
+      return masked ? maskOptions(options, null, {}) : options;
+    }
+    const profile = findProfile(storedOptions, profileId);
+    const options = normaliseFlatOptions(flatProfileRecord(storedOptions, profileId));
+    return masked ? maskOptions(options, profile?.language ?? null, profile?.packSettings ?? {}) : options;
+  }
+
+  // `{ id, language, packSettings }`, or null when the record has no such profile.
+  function profileDescriptor(storedOptions, profileId) {
+    const profile = findProfile(storedOptions, profileId);
+    return profile === null ? null : { id: profile.id, language: profile.language, packSettings: { ...profile.packSettings } };
+  }
+
+  // The top level of a record with profiles, normalised: sparse global keys
+  // and the Anki connection.
+  function storedGlobals(storedOptions) {
+    const source = plainObject(storedOptions) ?? {};
+    const globals = pick(projectOptionKeys(pick(source, [...GLOBAL_OPTION_KEYS, ...GLOBAL_RETIRED_KEYS]), false),
+      GLOBAL_OPTION_KEYS);
+    const connection = ankiConnection(source.anki);
+    return connection === null ? globals : { ...globals, anki: connection };
+  }
+
+  function patchHoldsProfileKeys(patch) {
+    return Object.keys(patch).some(key => key === "anki" || PROFILE_KEYS.has(key));
+  }
+
+  /**
+   * The one options writer (section 5.2): applies a validated flat patch to the
+   * stored, unmasked record, keeping its revision; callers move the revision.
+   * Global keys go to the top level, profile keys to the named profile, `anki`
+   * split. For a single-profile record it is exactly what today's writers do:
+   * the stored projection, its revision, then the patch.
+   */
+  function applyOptionsPatch(storedOptions, patch, profileId = JAPANESE_PROFILE_ID) {
+    const revision = storedRevision(storedOptions);
+    const flatPatch = plainObject(patch) ?? {};
+    if (!hasProfiles(storedOptions)) {
+      if (profileId !== JAPANESE_PROFILE_ID && patchHoldsProfileKeys(flatPatch)) {
+        throw new Error("the options write names a profile that does not exist");
+      }
+      return { ...projectOptionKeys(storedOptions, false), revision, ...flatPatch };
+    }
+    const list = storedProfiles(storedOptions);
+    const index = list.findIndex(profile => profile.id === profileId);
+    if (index < 0 && patchHoldsProfileKeys(flatPatch)) {
+      throw new Error("the options write names a profile that does not exist");
+    }
+    const top = storedGlobals(storedOptions);
+    const settings = index < 0 ? null : { ...list[index].settings };
+    for (const [key, value] of Object.entries(flatPatch)) {
+      if (key === "anki") {
+        top.anki = ankiConnection(value);
+        settings.anki = ankiTemplates(value);
+      } else if (GLOBAL_KEYS.has(key)) {
+        top[key] = value;
+      } else if (PROFILE_KEYS.has(key)) {
+        settings[key] = value;
+      }
+    }
+    return { revision, ...top,
+      profiles: list.map((profile, position) => position === index ? { ...profile, settings } : profile) };
+  }
+
+  // A patch of pack settings by id (section 7.5): ids the language's pack
+  // declares must carry valid values, ids the patch omits keep theirs, and a
+  // value for an id this build's pack does not declare is kept as sent.
+  function applyPackSettingsPatch(storedOptions, packPatch, profileId) {
+    const patch = plainObject(packPatch);
+    if (patch === null) throw new Error("the pack settings write carried no object");
+    if (Object.keys(patch).length === 0) return storedOptions;
+    if (!hasProfiles(storedOptions)) throw new Error("This language has no settings of its own.");
+    const list = storedProfiles(storedOptions);
+    const index = list.findIndex(profile => profile.id === profileId);
+    if (index < 0) throw new Error("the options write names a profile that does not exist");
+    const descriptor = languageDescriptor(list[index].language);
+    for (const [id, value] of Object.entries(patch)) {
+      const setting = (Array.isArray(descriptor?.settings) ? descriptor.settings : []).find(entry => entry?.id === id);
+      if (setting !== undefined && !validPackSettingValue(setting, value)) {
+        throw new Error(`the pack setting ${JSON.stringify(id)} carried an invalid value`);
+      }
+    }
+    const profilesList = list.map((profile, position) => position === index
+      ? { ...profile, packSettings: { ...profile.packSettings, ...patch } } : profile);
+    return { ...applyOptionsPatch(storedOptions, {}, profileId), profiles: profilesList };
+  }
+
+  // dictionaryState schema 2 (section 4.2): `dictionaries` lists every package
+  // once, without `enabled`; `profiles[id]` holds each profile's ordered list
+  // of `{ id, enabled }` and its groups.
+  const DICTIONARY_STATE_PROFILES_SCHEMA = 2;
+
+  function hasDictionaryProfiles(storedState) {
+    const state = plainObject(storedState);
+    return state?.schemaVersion === DICTIONARY_STATE_PROFILES_SCHEMA && plainObject(state.profiles) !== null;
+  }
+
+  // A package row with `enabled` where today's rows carry it: after `path`.
+  function packageWithEnabled(row, enabled) {
+    const result = {};
+    let placed = false;
+    for (const [key, value] of Object.entries(row)) {
+      if (key === "enabled") continue;
+      result[key] = value;
+      if (key === "path") {
+        result.enabled = enabled;
+        placed = true;
+      }
+    }
+    if (!placed) result.enabled = enabled;
+    return result;
+  }
+
+  /**
+   * The schema-1 view of one profile: its packages in its order with its
+   * `enabled` flags, and its groups. A single-profile state is the Japanese
+   * profile's view as stored; null when the state has no such profile.
+   */
+  function projectDictionaryState(storedState, profileId = JAPANESE_PROFILE_ID) {
+    if (storedState === null || storedState === undefined) return null;
+    if (!hasDictionaryProfiles(storedState)) return profileId === JAPANESE_PROFILE_ID ? storedState : null;
+    const profile = plainObject(storedState.profiles[profileId]);
+    if (profile === null) return null;
+    const packages = new Map((Array.isArray(storedState.dictionaries) ? storedState.dictionaries : [])
+      .filter(row => plainObject(row) !== null).map(row => [row.id, row]));
+    const dictionaries = (Array.isArray(profile.dictionaries) ? profile.dictionaries : []).flatMap(entry => {
+      const row = packages.get(entry?.id);
+      return row === undefined ? [] : [packageWithEnabled(row, entry.enabled !== false)];
+    });
+    return {
+      schemaVersion: 1,
+      revision: storedState.revision,
+      dictionaries,
+      groups: Array.isArray(profile.groups) ? profile.groups : [],
+    };
+  }
+
+  /**
+   * Every package once, in installation order, with `enabled` meaning
+   * "enabled in any profile": what the engine loads, what managed updates and
+   * the installer see. A single-profile state's own list.
+   */
+  function allPackages(storedState) {
+    if (storedState === null || storedState === undefined) return [];
+    const rows = Array.isArray(storedState.dictionaries) ? storedState.dictionaries : [];
+    if (!hasDictionaryProfiles(storedState)) return rows;
+    const enabled = new Set(Object.values(storedState.profiles).flatMap(profile =>
+      (Array.isArray(profile?.dictionaries) ? profile.dictionaries : [])
+        .filter(entry => entry?.enabled !== false).map(entry => entry?.id)));
+    return rows.filter(row => plainObject(row) !== null).map(row => packageWithEnabled(row, enabled.has(row.id)));
+  }
+
+  // The installation-local active profile and automatic switching (section
+  // 4.4). The key exists only once the records have profiles; an absent key
+  // reads as revision 0 with no choice.
+  const LANGUAGE_SELECTION_KEY = "languageSelection";
+
+  function normaliseLanguageSelection(value) {
+    const source = plainObject(value) ?? {};
+    return {
+      revision: storedRevision(source),
+      activeProfileId: validIdentifier(source.activeProfileId) ? source.activeProfileId : null,
+      autoSwitch: source.autoSwitch === true,
+    };
+  }
+
+  // Advanced → Experimental features → Multiple languages (section 16.3).
+  function languagesEnabled(storedOptions) {
+    return normaliseExperimental(plainObject(storedOptions)?.experimental).multipleLanguages === true;
+  }
+
+  // The profile this installation looks words up in: the selection's when it
+  // names an existing profile and Multiple languages is on, otherwise the
+  // Japanese profile, or the first profile when there is none.
+  function activeProfileId(storedOptions, selection) {
+    const list = profiles(storedOptions);
+    const chosen = languagesEnabled(storedOptions) ? normaliseLanguageSelection(selection).activeProfileId : null;
+    if (list.some(profile => profile.id === chosen)) return chosen;
+    return list.find(profile => profile.id === JAPANESE_PROFILE_ID)?.id ?? list[0]?.id ?? JAPANESE_PROFILE_ID;
+  }
+
   globalThis.HDReaderOptions = {
     ANKI_FIELDS, ANKI_DUPLICATE_SCOPES, ANKI_DUPLICATE_BEHAVIORS, ANKI_OVERWRITE_MODES,
     ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_ANKI_TEMPLATE, STABLE_ID_MAX_LENGTH,
     DEFAULT_OPTIONS, RETIRED_OPTION_KEYS, NUMBER_RANGES, LOOKUP_MODES, DEFINITION_LOOKUP_MODES, ACTIVATION_BUTTONS, ACTIVATION_KEYS, FREQUENCY_ORDERS,
-    POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, popupRenderer, DESIGN_OPTION_KEYS,
+    POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, POPUP_THEME_VARIANTS, popupRenderer, DESIGN_OPTION_KEYS,
     KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
     keybindModifiers, keybindWheelKey,
     AUDIO_SOURCE_TYPES, AUDIO_SOURCE_LABELS,
@@ -857,11 +1410,16 @@
     activationLabel, clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,
     normaliseAnkiConnectUrl, normaliseAnki,
     normaliseCustomButtons, normaliseExperimental, ankiTemplateConfig,
-    definitionBlurFrequencyDictionary, definitionBlurFrequencyEvidence, definitionBlurQualifies,
+    definitionBlurFrequencyDictionary, definitionBlurFrequencyEvidence, definitionBlurQualifies, frequencyModeOrder,
     DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS, IMAGE_HOVER_PREVIEWS,
     GLOSSARY_LAYOUT_MODES, PITCH_ACCENT_FURIGANA_STYLES, WORD_HIGHLIGHT_STYLES,
-    projectStoredOptions, projectContentOptions, validateOptionsPatch,
+    projectStoredOptions, projectContentOptions, validateOptionsPatch, normaliseDictionarySelections,
     resolvePopupImageSources,
     hasCapability, resolveKanjiDictionary,
+    JAPANESE_PROFILE_ID, GLOBAL_OPTION_KEYS, PROFILE_OPTION_KEYS, OPTION_REQUIREMENTS, PROFILE_MESSAGES,
+    hasProfiles, profiles, projectOptions, profileDescriptor, applyOptionsPatch, applyPackSettingsPatch,
+    hasDictionaryProfiles, projectDictionaryState, allPackages, packageWithEnabled,
+    languageDescriptor, optionRequirementMet, packSettingValue,
+    LANGUAGE_SELECTION_KEY, normaliseLanguageSelection, activeProfileId, languagesEnabled,
   };
 }());

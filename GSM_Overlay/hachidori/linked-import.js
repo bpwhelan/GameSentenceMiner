@@ -15,9 +15,6 @@ import { dictionaryImportMatches, dictionaryImportTarget } from "./dictionary-im
 export const UPLOAD_CHUNK_BYTES = 1024 * 1024;
 // An upload with no chunk for this long is abandoned.
 export const UPLOAD_IDLE_MS = 2 * 60 * 1000;
-// The engine refuses an import while another dictionary change runs; the
-// upload then stays open so the sender can commit it again.
-export const ENGINE_BUSY_CODE = "engine-mutating";
 
 const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
 
@@ -71,7 +68,7 @@ export function createUploadHost({
     return session;
   }
 
-  function begin({ fileName, size, replace }, owner) {
+  function begin({ fileName, size, replace, profileId }, owner) {
     if (fileName === "" || fileName === "." || fileName === ".." || /[/\\\0]/u.test(fileName)) {
       throw new Error("The dictionary upload has no usable file name.");
     }
@@ -80,7 +77,7 @@ export function createUploadHost({
     }
     if (size <= 0) throw new Error(`${fileName} is empty.`);
     const token = randomToken();
-    const session = { owner, fileName, size, replace, received: 0, busy: false, timer: null };
+    const session = { owner, fileName, size, replace, profileId, received: 0, busy: false, timer: null };
     sessions.set(token, session);
     arm(token, session);
     return { token, chunkBytes };
@@ -124,22 +121,16 @@ export function createUploadHost({
       throw new Error(`The dictionary upload ended after ${session.received} of ${session.size} bytes. Import it again.`);
     }
     // From here the import belongs to the engine; a disconnect cannot cancel it.
+    // The engine waits out any change already running, so the bytes are
+    // needed only until it answers.
     sessions.delete(token);
     clearTimer(session.timer);
-    let reply;
     try {
-      reply = await importUpload(token, { fileName: session.fileName, replace: session.replace });
-    } catch (error) {
-      void Promise.resolve(store.discard(token)).catch(() => {});
-      throw error;
-    }
-    if (reply?.errorCode === ENGINE_BUSY_CODE) {
-      sessions.set(token, session);
-      arm(token, session);
-    } else {
+      return await importUpload(token, { fileName: session.fileName, replace: session.replace,
+        ...(session.profileId === undefined ? {} : { profileId: session.profileId }) });
+    } finally {
       void Promise.resolve(store.discard(token)).catch(() => {});
     }
-    return reply;
   }
 
   return {
@@ -160,14 +151,17 @@ export function createUploadHost({
 
 // The sending side, for Settings on a linked browser or any app with a Blob.
 // `send(type, fields)` answers like chrome.runtime.sendMessage; the commit
-// reply is the host's import reply, report included.
-export async function uploadDictionary({ blob, fileName, replace, send }) {
+// reply is the host's import reply, report included. `profileId` names the
+// profile the dictionary joins (docs/languages.md 5.2); without one it joins
+// the host's Japanese profile.
+export async function uploadDictionary({ blob, fileName, replace, send, profileId }) {
   const checked = async (type, fields) => {
     const reply = await send(type, fields);
     if (!reply?.ok) throw new Error(reply?.error || "The linked Hachidori refused the dictionary upload.");
     return reply;
   };
-  const { token, chunkBytes } = await checked("hd_import_begin", { fileName, size: blob.size, replace });
+  const { token, chunkBytes } = await checked("hd_import_begin", { fileName, size: blob.size, replace,
+    ...(profileId === undefined ? {} : { profileId }) });
   if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0) throw new Error("The linked Hachidori sent an invalid upload chunk size.");
   try {
     for (let offset = 0; offset < blob.size; offset += chunkBytes) {

@@ -5,6 +5,26 @@ from GameSentenceMiner.util.config.configuration import (
 )
 
 
+def test_enabling_after_session_review_preserves_profile_preferences_and_other_profiles():
+    active = ProfileConfig()
+    active.anki.show_update_confirmation_dialog_v2 = False
+    active.features.review_after_session.max_future_context_lines = 8
+    active.features.review_after_session.cleanup_anki_media = False
+    other = ProfileConfig()
+    config = Config(current_profile="active", configs={"active": active, "other": other})
+    other_before = other.to_dict()
+    before = active.to_dict()
+
+    assert apply_changelog_setting_choice(config, "review-after-session:enable") is True
+
+    expected = before
+    expected["features"]["review_after_session"]["enabled"] = True
+    assert config.get_config().to_dict() == expected
+    assert config.configs["other"].to_dict() == other_before
+    restored = Config.from_dict(config.to_dict())
+    assert restored.get_config().features.review_after_session == active.features.review_after_session
+
+
 def test_enabling_overlay_presence_invalidation_turns_on_its_required_check():
     profile = ProfileConfig()
     config = Config(configs={"Default": profile})
