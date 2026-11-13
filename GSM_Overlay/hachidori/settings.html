@@ -47,6 +47,7 @@
             <option value="sharing">Sharing</option>
             <option value="backup">Backup &amp; restore</option>
             <option value="advanced">Advanced</option>
+            <option value="user-scripts">User scripts</option>
             <option value="languages">Languages</option>
           </select>
         </label>
@@ -123,6 +124,7 @@
         </nav>
         <nav class="section-tabs" id="advanced-navigation" aria-label="Advanced sections" hidden>
           <a href="#advanced" data-label="Advanced">Advanced</a>
+          <a href="#user-scripts" data-label="User scripts">User scripts</a>
           <a href="#languages" data-label="Languages">Languages</a>
         </nav>
         <section
@@ -549,6 +551,11 @@
               <span data-language-label>Japanese text only</span>
               <input type="checkbox" id="opt-japanese-only" />
             </label>
+            <label class="lookup-enable">
+              <span>Look up words in Google Docs</span>
+              <input type="checkbox" id="opt-google-docs" aria-describedby="google-docs-help" />
+            </label>
+            <p class="field-hint" id="google-docs-help">Asks Google Docs to expose its text to Hachidori, which Google may change or remove without notice. The sentence is the hovered run of text. Reload an open document after changing this.</p>
             <div class="fields">
               <label class="field">
                 <span class="field-label">Scan length</span>
@@ -784,16 +791,28 @@
           <div class="card-head">
             <h1 id="word-highlighting-heading" tabindex="-1"
               data-search-keywords="Anki status unknown learning known mature ignored ignore marks underline colour Migaku">Word highlighting</h1>
-            <p class="hint" data-language-label>Mark the Japanese words on every page by their status in Anki.</p>
+            <p class="hint" data-language-label>Mark the Japanese words on every page using Anki and your known words.</p>
           </div>
           <div class="options-feedback-slot"></div>
           <fieldset class="lookup-group">
             <legend>Highlighting</legend>
             <label class="lookup-enable">
-              <span>Highlight words by Anki status</span>
+              <span>Highlight words by status</span>
               <input type="checkbox" id="opt-word-highlight" aria-describedby="word-highlight-help" />
             </label>
-            <p class="field-hint" id="word-highlight-help">A word takes the status of the card for the first result its popup shows, so 食べなかった is marked by a card for 食べる. Your dictionaries split each page into words in this browser, and the status comes from the Anki index Hachidori keeps for the first Template in <a href="#anki">Anki settings</a>, which needs an {expression} field: opening a page never contacts Anki. Particles and other function words are left unmarked, as is text in text boxes. Mark as known and Ignore in the popup set a word's status yourself, over its Anki status and without adding anything to Anki; in <a href="#keybinds">Keybinds</a> they are Mark word as known and Ignore word. To show or hide the marks on one page, bind Toggle word highlights.</p>
+            <p class="field-hint" id="word-highlight-help">A word takes the status of the card for the first result its popup shows, so 食べなかった is marked by a card for 食べる. Your dictionaries split each page into words in this browser. Status uses all decks, independently of the duplicate scope in <a href="#anki">Anki settings</a>: the first Template's note type and supported Kiku, Lapis and Senren note types, with a plain {expression} field. Other custom note types are not detected automatically. The index refreshes every 30 minutes while highlighting is enabled; opening a page never contacts Anki. Particles and other function words are left unmarked, as is text in text boxes. Mark as known and Ignore in the popup set a word's status yourself, over its Anki status and without adding anything to Anki; in <a href="#keybinds">Keybinds</a> they are Mark word as known and Ignore word. To show or hide the marks on one page, bind Toggle word highlights.</p>
+          </fieldset>
+          <fieldset class="lookup-group">
+            <legend id="known-words-heading" data-search-keywords="paste import list vocabulary">Known words</legend>
+            <div class="setting-block">
+              <p class="field-hint" id="known-words-help" data-language-label>Paste one dictionary-form Japanese word per line. Adds to your existing known words; blank lines and duplicates are ignored. Works without Anki.</p>
+              <textarea id="known-words-input" rows="5" spellcheck="false" autocapitalize="off"
+                aria-labelledby="known-words-heading" aria-describedby="known-words-help" placeholder="One word per line"></textarea>
+              <div class="options-actions">
+                <button type="button" class="primary-button" id="known-words-add" disabled>Mark as known</button>
+                <output class="custom-dictionary-status" id="known-words-status" aria-live="polite"></output>
+              </div>
+            </div>
           </fieldset>
           <fieldset class="lookup-group">
             <legend>Statuses</legend>
@@ -811,7 +830,7 @@
               <span>Mark known words</span>
               <input type="checkbox" id="opt-word-highlight-known" aria-describedby="word-highlight-known-help" />
             </label>
-            <p class="field-hint" id="word-highlight-known-help">A mature card, reviewed at an interval of 21 days or more, or a word marked as known in the popup. A dotted line, green in most themes.</p>
+            <p class="field-hint" id="word-highlight-known-help">A mature card, reviewed at an interval of 21 days or more, or a word marked as known here or in the popup. A dotted line, green in most themes.</p>
             <label class="lookup-enable">
               <span>Mark ignored words</span>
               <input type="checkbox" id="opt-word-highlight-ignored" aria-describedby="word-highlight-ignored-help" />
@@ -1112,20 +1131,7 @@
                   <button id="reset-custom-css" type="button" class="ghost">Reset custom CSS</button>
                 </div>
                 <p class="field-hint">Invalid rules are ignored by the browser. Styles using URLs can request external resources.</p>
-                <div id="custom-javascript">
-                  <label class="field-label" for="opt-custom-popup-javascript">Custom JavaScript</label>
-                  <p class="field-hint" id="custom-javascript-warning">Do not paste Javascript here you do not understand, it is a security risk.</p>
-                  <p class="field-hint" id="custom-javascript-permission">Enable user scripts for Hachidori on Chrome's Extensions page before using this.</p>
-                  <div class="setting-row" id="custom-javascript-allow-row" hidden>
-                    <button id="custom-javascript-allow" type="button" class="ghost">Allow user scripts</button>
-                  </div>
-                  <textarea id="opt-custom-popup-javascript" rows="8" spellcheck="false" autocapitalize="off"
-                    aria-describedby="custom-javascript-warning custom-javascript-count"></textarea>
-                  <div class="custom-css-footer">
-                    <span id="custom-javascript-count" class="field-hint">0 characters</span>
-                    <button id="reset-custom-javascript" type="button" class="ghost">Reset custom JavaScript</button>
-                  </div>
-                </div>
+                <p class="field-hint" id="custom-javascript-moved">Custom JavaScript is in <a href="#user-scripts">Advanced → User scripts</a>, where each script can be switched off, replaced or deleted on its own.</p>
               </details>
               <div class="lookup-group">
                 <div class="setting-row">
@@ -1235,6 +1241,28 @@
               <input id="opt-smaller-anki-cards" type="checkbox" aria-describedby="smaller-anki-cards-help">
             </label>
             <p id="smaller-anki-cards-help" class="field-hint">Remove dictionary styling and keep the text, line breaks, lists, tables, furigana and images. Links become plain text. Applies to every Template when adding or updating notes.</p>
+          </fieldset>
+          <fieldset class="lookup-group" id="video-mining-settings">
+            <legend data-search-keywords="youtube netflix captions subtitles sentence audio gif">Video mining</legend>
+            <label class="lookup-enable">
+              <span>YouTube mining</span>
+              <input type="checkbox" id="opt-youtube-mining" aria-describedby="youtube-mining-help" />
+            </label>
+            <p class="field-hint" id="youtube-mining-help">Add the YouTube caption line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, use the whole line as the sentence, and take {screenshot} from the video itself. Hovering a caption pauses the video until the pointer leaves the caption and the popup. Reads the caption track YouTube's player shows, typed or auto-generated, which YouTube may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload YouTube after changing this. Works on watch pages, not on Shorts, embedded videos or live streams.</p>
+            <p class="field-hint">The media settings below are shared by YouTube mining and by Netflix mining and Crunchyroll mining (Advanced → Experimental features).</p>
+            <label class="field"><span class="field-label">Sentence audio format</span>
+              <select id="opt-video-audio-format"><option value="mp3">MP3 (all Anki clients)</option><option value="opus">Opus (Ogg; desktop Anki and AnkiDroid)</option></select>
+            </label>
+            <label class="field"><span class="field-label">Audio bitrate (kbit/s)</span>
+              <input id="opt-video-audio-bitrate" type="number" min="32" max="128" step="1">
+            </label>
+            <label class="field"><span class="field-label">Animated screenshot format</span>
+              <select id="opt-video-image-format"><option value="gif">GIF</option><option value="webp">WebP (smaller; includes AnkiMobile)</option><option value="avif">AVIF (requires AV1 encoding and an AVIF-capable Anki client)</option></select>
+            </label>
+            <label class="field"><span class="field-label">Animation quality (1–100)</span>
+              <input id="opt-video-image-quality" type="number" min="1" max="100" step="1" aria-describedby="video-image-quality-help">
+              <span class="field-hint" id="video-image-quality-help">Higher is clearer and larger. Applies to WebP and AVIF; GIF keeps its 256-colour palette. Encoding support depends on the browser. A failed animation keeps the screenshot and reports why.</span>
+            </label>
           </fieldset>
           <fieldset class="lookup-group anki-panel anki-card anki-template-manager" id="anki-template-manager">
             <legend>Templates</legend>
@@ -1526,12 +1554,95 @@
           <fieldset class="lookup-group" id="debug-info-settings">
             <legend data-search-keywords="debug diagnostics bug report troubleshooting support logs version">Troubleshooting</legend>
             <div class="setting-row">
-              <p class="field-hint" id="debug-info-help">Downloads a JSON file to attach to a bug report: the Hachidori version and install, browser and system, engine status and memory use, installed dictionaries, Anki and sharing status, every setting, what Hachidori stores in this browser, and its debug log. The log keeps warnings, errors and failed requests from this and earlier sessions, the errors Hachidori showed you and, by name only, the buttons and settings you used before them. Your AnkiConnect API key and other credentials are removed, Japanese text in the log is replaced with [ja], and your personal dictionary entries, lookup history and Anki notes are left out.</p>
+              <p class="field-hint" id="debug-info-help">Downloads a JSON file to attach to a bug report: the Hachidori version and install, browser and system including AV1 encoding support, engine status and memory use, installed dictionaries, Anki and sharing status, MCP support, every setting, language profiles and their effective settings, themes, Custom CSS, userscript source and registration, what Hachidori stores in this browser, and its debug log. The log keeps warnings, errors and failed requests from this and earlier sessions, the errors Hachidori showed you and, by name only, the buttons and settings you used before them. Your AnkiConnect API key and other credentials are removed, Japanese and other non-Latin study text in the log is replaced with language markers, and your personal dictionary entries, known and ignored words, lookup history and Anki notes are left out.</p>
               <div class="options-actions">
                 <button type="button" class="ghost" id="debug-info-download" aria-describedby="debug-info-help">Get debug info</button>
                 <output class="custom-dictionary-status" id="debug-info-status" aria-live="polite"></output>
               </div>
             </div>
+          </fieldset>
+        </section>
+
+        <section
+          class="card"
+          id="user-scripts"
+          aria-labelledby="user-scripts-heading"
+          data-settings-group="Advanced"
+          data-settings-name="User scripts"
+          hidden
+        >
+          <div class="card-head">
+            <h1 id="user-scripts-heading" tabindex="-1" data-search-keywords="userscripts custom javascript css code scripts packages script store community install update catalogue">User scripts</h1>
+            <p class="hint">Packages of JavaScript and CSS that change the popup and the search page. Write your own, or install one that people share in the Script Store below.</p>
+          </div>
+          <div class="options-feedback-slot"></div>
+          <fieldset class="lookup-group" id="user-script-permission">
+            <p class="field-hint" id="custom-javascript-permission">Chrome runs a script's JavaScript once Allow User Scripts is on in Hachidori's details (on Chrome 137 and earlier, Developer mode on the Extensions page). Turn it on there and come back; CSS needs nothing.</p>
+            <div class="setting-row" id="custom-javascript-allow-row" hidden>
+              <button id="custom-javascript-allow" type="button" class="ghost">Allow user scripts</button>
+            </div>
+          </fieldset>
+          <fieldset class="lookup-group" id="user-script-settings">
+            <legend>Your scripts</legend>
+            <p class="section-note">Scripts run top to bottom, on the pages you open or reload and on the search page. Their CSS comes after Hachidori's and the dictionaries' styles and before Design → Custom CSS. A script that fails does not stop the others.</p>
+            <ol id="user-script-list" class="user-script-list"></ol>
+            <p id="user-script-empty" class="field-hint">No scripts yet. Add your own, or install one from the Script Store below.</p>
+            <div class="setting-row">
+              <div class="options-actions">
+                <button id="user-script-add" type="button" class="primary-button">Add script</button>
+                <label class="file-button ghost"><span>Import files</span><input id="user-script-import" type="file" accept=".js,.css,text/javascript,text/css" multiple aria-describedby="user-script-import-help"></label>
+              </div>
+              <p class="field-hint" id="user-script-import-help">A .js file, a .css file or one of each opens as a new script.</p>
+              <output class="custom-dictionary-status" id="user-script-status" aria-live="polite"></output>
+            </div>
+            <form id="user-script-form" class="user-script-form" novalidate hidden aria-labelledby="user-script-form-heading">
+              <h2 id="user-script-form-heading">New script</h2>
+              <p class="field-hint" id="user-script-store-note" hidden>This script came from the Script Store. Saving a change makes it yours, and the Script Store no longer updates it.</p>
+              <label class="field">
+                <span class="field-label">Name</span>
+                <input id="user-script-name" type="text" autocomplete="off" spellcheck="false" />
+              </label>
+              <p class="field-hint" id="user-script-keys">In the JavaScript and CSS boxes, Tab indents. To leave a box with the keyboard, press Esc and then Tab. <a href="https://github.com/bee-san/hachidori/blob/main/docs/user-scripts.md" target="_blank" rel="noopener noreferrer">What a script can use</a></p>
+              <div class="user-script-part">
+                <div class="user-script-part-head">
+                  <label class="field-label" for="user-script-javascript">JavaScript</label>
+                  <label class="file-button ghost"><span>Load .js file</span><input id="user-script-javascript-file" type="file" accept=".js,text/javascript"></label>
+                </div>
+                <p class="field-hint user-script-warning" id="custom-javascript-warning">Do not paste Javascript here you do not understand, it is a security risk.</p>
+                <textarea id="user-script-javascript" rows="10" spellcheck="false" autocapitalize="off"
+                  aria-describedby="custom-javascript-warning user-script-keys user-script-javascript-count user-script-javascript-problems"
+                  placeholder="window.addEventListener(&quot;hachidori-popup-shown&quot;, () =&gt; {&#10;  const popup = document.querySelector(&quot;hachidori-host&quot;).shadowRoot;&#10;});"></textarea>
+                <span id="user-script-javascript-count" class="field-hint">0 characters</span>
+                <span id="user-script-javascript-problems" class="field-hint user-script-problems"></span>
+              </div>
+              <div class="user-script-part">
+                <div class="user-script-part-head">
+                  <label class="field-label" for="user-script-css">CSS</label>
+                  <label class="file-button ghost"><span>Load .css file</span><input id="user-script-css-file" type="file" accept=".css,text/css"></label>
+                </div>
+                <textarea id="user-script-css" rows="6" spellcheck="false" autocapitalize="off"
+                  aria-describedby="user-script-keys user-script-css-count user-script-css-problems" placeholder=".gloss-image {&#10;  border-radius: 8px;&#10;}"></textarea>
+                <span id="user-script-css-count" class="field-hint">0 characters</span>
+                <span id="user-script-css-problems" class="field-hint user-script-problems"></span>
+              </div>
+              <output id="user-script-error" class="custom-dictionary-status is-error" aria-live="polite"></output>
+              <div class="options-actions">
+                <button id="user-script-submit" type="submit" class="primary-button">Add script</button>
+                <button id="user-script-cancel" type="button" class="ghost">Cancel</button>
+              </div>
+            </form>
+          </fieldset>
+          <fieldset class="lookup-group" id="script-store-settings">
+            <legend>Script Store</legend>
+            <div class="setting-row">
+              <p class="field-hint" id="script-store-help">Scripts that people share in <a href="https://github.com/bee-san/hachidori-scripts" target="_blank" rel="noopener noreferrer">bee-san/hachidori-scripts</a>, where Bee reviews each one before it is listed. Hachidori asks GitHub for the list only when you check.</p>
+              <div class="options-actions">
+                <button type="button" class="ghost" id="script-store-check" aria-describedby="script-store-help">Check for scripts</button>
+                <output class="custom-dictionary-status" id="script-store-status" aria-live="polite"></output>
+              </div>
+            </div>
+            <ul id="script-store-list" class="script-store-list"></ul>
+            <p class="field-hint"><a href="https://github.com/bee-san/hachidori-scripts/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">Share a script in the Script Store</a></p>
           </fieldset>
         </section>
 

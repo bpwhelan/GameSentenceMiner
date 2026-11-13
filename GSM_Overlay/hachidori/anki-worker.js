@@ -20,7 +20,7 @@ async function releaseCapturedMedia({ writeResources, invoke }) {
 const SENTENCE_FURIGANA_MARKERS = new Set(["sentence-furigana", "sentence-furigana-plain"]);
 // The switch a recorded line's media need: Netflix mining's unless the YouTube
 // service (background-video.js) names YouTube mining's.
-const NETFLIX_MINING = { flag: "netflixMining", label: "Netflix mining" };
+const NETFLIX_MINING = { enabled: options => options.experimental.netflixMining === true, label: "Netflix mining" };
 
 // Media the reader captures for one mining action. Each kind is held under its
 // own token until the note is written, then stored inside the queued write.
@@ -302,10 +302,11 @@ export function createAnkiWorkerService({
         // Compact popup and Anki between a preflight and Add refuses the stale Add.
         compactGlossary: options.smallerAnkiCards === true,
         compactGlossaries: options.glossaryLayoutMode === "compact-popup-anki",
-        // Likewise for the experimental Netflix and YouTube mining switches,
+        // Likewise for the Netflix and YouTube mining switches,
         // which decide whether a request from the site gets its sentence audio.
         netflixMining: options.experimental.netflixMining === true,
-        youtubeMining: options.experimental.youtubeMining === true,
+        youtubeMining: options.youtubeMining === true,
+        crunchyrollMining: options.experimental.crunchyrollMining === true,
         // And for the profile's language, which decides how the note is written.
         ...(profile === null ? {} : { profile }),
       };
@@ -387,50 +388,58 @@ export function createAnkiWorkerService({
     // Capture retries can complete out of order. Only the latest request may
     // publish its bytes, even if a newer picture has already been consumed.
     if (screenshotRequestToken !== token) throw new Error("A newer capture replaced this screenshot request.");
-    const prefix = "data:image/jpeg;base64,";
-    const data = typeof dataUrl === "string" && dataUrl.startsWith(prefix)
-      ? dataUrl.slice(prefix.length) : "";
+    const format = typeof dataUrl === "string" ? /^data:image\/(jpeg|avif);base64,/u.exec(dataUrl) : null;
+    const data = format ? dataUrl.slice(format[0].length) : "";
     const byteLength = decodedBase64Length(data);
     if (byteLength === null || byteLength > MAX_LINKED_SCREENSHOT_BYTES) {
       throw new Error("This page produced no screenshot or exceeded the 6 MiB screenshot limit.");
     }
-    pendingMedia.screenshot = { token, filename: `hachidori-screenshot-${crypto.randomUUID()}.jpg`, data };
+    const extension = format[1] === "avif" ? "avif" : "jpg";
+    pendingMedia.screenshot = { token, filename: `hachidori-screenshot-${crypto.randomUUID()}.${extension}`, data };
     return { token: pendingMedia.screenshot.token, filename: pendingMedia.screenshot.filename };
   }
 
-  // Experimental Netflix and YouTube mining: the WAV of the subtitle line the
-  // reader just had replayed and recorded. Like the screenshot it is held here
-  // and stored only inside the note's write. `feature` is the site's switch.
+  // Netflix and YouTube mining: the MP3 of the subtitle line the
+  // reader just cut or had recorded (sentence-audio.js). Like the screenshot it
+  // is held here and stored only inside the note's write. `feature` is the
+  // site's switch. In base64 an MP3 frame's sync, eleven set bits, is a "/"
+  // and then "+" or "/".
   async function sentenceAudio(data, key, feature = NETFLIX_MINING) {
     const { profileId, templateId } = profileTemplateTarget(key);
     const options = await readOptions(profileId);
-    if (options.experimental[feature.flag] !== true) throw new Error(`${feature.label} is turned off in Settings.`);
+    if (!feature.enabled(options)) throw new Error(`${feature.label} is turned off in Settings.`);
     if (globalThis.HDReaderOptions.ankiTemplateConfig(options.anki, templateId) === null) {
       throw new Error("The selected Anki Template is no longer available.");
     }
-    if (decodedBase64Length(data) === null || !data.startsWith("UklG")) {
-      throw new Error("The recording produced no WAV audio.");
+    const valid = decodedBase64Length(data) !== null;
+    const opus = valid && data.startsWith("T2dnUw") && atob(data.slice(0, 88)).includes("OpusHead");
+    if (!valid || (!opus && !/^\/[+/]/u.test(data))) {
+      throw new Error("The recording produced no MP3 or Opus audio.");
     }
-    const held = { token: crypto.randomUUID(), filename: `hachidori-sentence-audio-${crypto.randomUUID()}.wav`, data };
+    const held = { token: crypto.randomUUID(), filename: `hachidori-sentence-audio-${crypto.randomUUID()}.${opus ? "opus" : "mp3"}`, data };
     pendingMedia["sentence-audio"] = held;
     return { token: held.token, filename: held.filename };
   }
 
-  // Experimental Netflix and YouTube mining: the animated GIF of the subtitle
+  // Netflix and YouTube mining: the animated GIF of the subtitle
   // line the reader just had replayed and recorded. Held here and stored only
-  // inside the note's write, exactly like the screenshot and the WAV.
+  // inside the note's write, exactly like the screenshot and the sentence audio.
   async function gifImage(data, key, feature = NETFLIX_MINING) {
     const { profileId, templateId } = profileTemplateTarget(key);
     const options = await readOptions(profileId);
-    if (options.experimental[feature.flag] !== true) throw new Error(`${feature.label} is turned off in Settings.`);
+    if (!feature.enabled(options)) throw new Error(`${feature.label} is turned off in Settings.`);
     if (globalThis.HDReaderOptions.ankiTemplateConfig(options.anki, templateId) === null) {
       throw new Error("The selected Anki Template is no longer available.");
     }
-    // GIF87a/GIF89a both base64-encode to the "R0lG" prefix.
-    if (decodedBase64Length(data) === null || !data.startsWith("R0lG")) {
-      throw new Error("The recording produced no GIF image.");
+    const header = decodedBase64Length(data) === null ? "" : atob(data.slice(0, 44));
+    let format;
+    if (header.startsWith("GIF8")) format = "gif";
+    else if (header.startsWith("RIFF") && header.slice(8, 12) === "WEBP") format = "webp";
+    else if (header.slice(4, 8) === "ftyp" && ["avif", "avis"].includes(header.slice(8, 12))) format = "avif";
+    if (!format) {
+      throw new Error("The recording produced no GIF, WebP or AVIF image.");
     }
-    const held = { token: crypto.randomUUID(), filename: `hachidori-gif-${crypto.randomUUID()}.gif`, data };
+    const held = { token: crypto.randomUUID(), filename: `hachidori-gif-${crypto.randomUUID()}.${format}`, data };
     pendingMedia.gif = held;
     return { token: held.token, filename: held.filename };
   }

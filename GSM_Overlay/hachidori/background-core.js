@@ -40,6 +40,8 @@ const UPDATE_TARGET = "hachidori-updates";
 const AUDIO_TARGET = "hachidori-audio";
 const SETUP_TARGET = "hachidori-setup";
 const PAGE_ZOOM_TARGET = "hachidori-page-zoom";
+// An overlay reader's request for its page's user scripts (custom-javascript.js).
+const PAGE_USER_SCRIPTS_TARGET = "hachidori-page-user-scripts";
 // The search page's clipboard monitor (#639), as search-clipboard.js names it.
 const CLIPBOARD_TARGET = "hachidori-clipboard";
 const BACKUP_LIFECYCLE_PORT = "hachidori-backup-settings";
@@ -664,8 +666,8 @@ export {
   ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_OPTIONS, ankiTemplateConfig, normaliseOptions, projectStoredOptions,
   validateOptionsPatch, normaliseExternalUrl, pruneGroupMemberships, WORD_STATUS_OVERRIDES_KEY,
   normaliseWordStatusOverrides, withWordStatusOverride, OFFSCREEN_DOCUMENT, TARGET, UPDATE_TARGET, AUDIO_TARGET,
-  SETUP_TARGET, PAGE_ZOOM_TARGET, BACKUP_LIFECYCLE_PORT, WORKER_TARGET, DICTIONARY_STATE_KEY, OPTIONS_KEY,
-  CLIPBOARD_TARGET, searchPageSender,
+  SETUP_TARGET, PAGE_ZOOM_TARGET, PAGE_USER_SCRIPTS_TARGET, BACKUP_LIFECYCLE_PORT, WORKER_TARGET, DICTIONARY_STATE_KEY,
+  OPTIONS_KEY, CLIPBOARD_TARGET, searchPageSender,
   UPDATE_SETTINGS_KEY, engineSender, ankiSettingsSender, writeLocalState, sleep, ensureOffscreen, relay,
   readDictionaryStorage, normaliseDictionarySelections, assertDictionaryState, assertOrdinaryCustomTransition,
   assertCustomDictionaryCasRequest, dictionaryCommit, optionsRevision, removeLegacyDictionaryRows, startupSender,

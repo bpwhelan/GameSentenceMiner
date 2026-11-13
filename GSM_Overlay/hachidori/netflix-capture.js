@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { encodeBase64 } from "./base64.js";
-import { GIF_MAX_FPS, GIF_MAX_WIDTH, encodeLoopingGif, selectGifFrames } from "./netflix-gif.js";
+import { GIF_MAX_FPS, GIF_MAX_WIDTH, selectGifFrames } from "./netflix-gif.js";
+import { encodeVideoImage } from "./video-image.js";
 import "./netflix-audio.js";
+import { sentenceAudioBase64 } from "./sentence-audio.js";
 
 // Experimental Netflix mining's recorder, which YouTube mining shares.
 // netflix-recorder.html (youtube-recorder.html on YouTube) runs this in a
 // hidden extension frame inside the site's tab while the page replays one
 // subtitle line: it records the tab's audio from a chrome.tabCapture stream,
 // then cuts the line out of it by the media times the page reported and
-// encodes a mono WAV for Anki. When a field is mapped to {gif}, it also records
-// the stream's video track and encodes a looping GIF of the line. Only the WAV
-// and the GIF leave the frame. The page's own line audio (netflix-audio.js)
-// records sentence audio without it where it can; this frame then records
-// only the GIF.
+// encodes its sentence audio for Anki (sentence-audio.js). When a field is
+// mapped to {gif}, it also records the stream's video track and encodes a
+// looping GIF of the line. Only the sentence audio and the GIF leave the
+// frame. The page's own line audio (netflix-audio.js) records sentence audio
+// without it where it can; this frame then records only the GIF.
 //
 // The frame, not the offscreen document, opens the stream: a tab stream ID is
 // usable only in the process of the context that asked for it, and the
 // offscreen document is cross-origin isolated for the threaded engine, so it
 // runs in another process than the service worker. Chrome mutes a tab while it
 // is captured, so the replay can be silent.
-const { PAD_MS, clockDomain, encodeMonoWav, isSilent, monoSamples } = globalThis.HDNetflixAudio;
+const { PAD_MS, clockDomain, isSilent, monoSamples } = globalThis.HDNetflixAudio;
 
 // The audio kept before and after the cue.
 export const SENTENCE_PAD_MS = PAD_MS;
@@ -202,17 +204,26 @@ function readVideo(current, window) {
 // The looping GIF of the line, from the frames kept while it played, in the
 // cue's own window. A GIF the encoder cannot make is simply absent: the note
 // falls back to the screenshot, like any other capture failure.
-function encodeGif(current, { startMs, endMs, offset }) {
+async function encodeGif(current, { startMs, endMs, offset }, window) {
   if (!current.gif || current.frames.length === 0 || current.gifWidth === 0) return undefined;
   const placed = current.frames.map(frame => ({ data: frame.data, mediaMs: frame.wallMs - offset }));
   const entries = selectGifFrames(placed, { startMs, endMs });
   if (entries.length === 0) return undefined;
-  try {
-    return encodeBase64(encodeLoopingGif(entries.map(entry => ({ data: entry.frame.data, delayMs: entry.delayMs })),
-      current.gifWidth, current.gifHeight));
-  } catch {
-    return undefined;
+  const frames = entries.map(entry => ({ data: entry.frame.data, delayMs: entry.delayMs }));
+  if ((current.encoding?.videoImageFormat ?? "gif") === "gif") {
+    return encodeBase64(await encodeVideoImage(frames, current.gifWidth, current.gifHeight));
   }
+  // Native AV1 and WebP encoding run off the recorder's main thread.
+  const worker = new window.Worker(new URL("video-image-worker.js", import.meta.url), { type: "module" });
+  try {
+    const bytes = await new Promise((resolve, reject) => {
+      worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error)) : resolve(data.bytes);
+      worker.onerror = event => reject(new Error(event.message));
+      worker.postMessage({ entries: frames, width: current.gifWidth, height: current.gifHeight, options: current.encoding },
+        frames.map(frame => frame.data.buffer));
+    });
+    return encodeBase64(bytes);
+  } finally { worker.terminate(); }
 }
 
 // `site` names the site in what the recorder reports (Netflix, YouTube).
@@ -234,17 +245,17 @@ export function createNetflixRecorder(window, {
   // Opens this tab's stream and starts placing its samples. Chrome hands a
   // stream ID only to an extension the user invoked on the tab, and the ID is
   // used here, in the context that asked for it.
-  async function start({ targetTabId, limitMs, audio = true, gif = false, crop = null }) {
+  async function start({ targetTabId, limitMs, audio = true, gif = false, crop = null, encoding }) {
     if (!Number.isSafeInteger(targetTabId) || !Number.isFinite(limitMs) || limitMs <= 0) {
       throw new Error(`The ${site} recording request is invalid.`);
     }
     if (session !== null) stop(session);
     // The audio track is opened either way: it mutes the tab for the replay
     // and tells finish when the capture has caught up. Only a {sentence-audio}
-    // field needs its WAV, and video is captured only for a {gif} field.
+    // field needs its sound, and video is captured only for a {gif} field.
     const current = { stream: null, reader: null, chunks: [], sampleRate: null, timer: null, waiter: null,
       clock: createAudioFrameClock({ timeOrigin: window.performance.timeOrigin, now }), audio,
-      gif, crop, videoReader: null, frames: [], lastVideoMs: null, canvas: null, context: null, gifWidth: 0,
+      gif, crop, encoding, videoReader: null, frames: [], lastVideoMs: null, canvas: null, context: null, gifWidth: 0,
       gifHeight: 0,
       videoClock: createVideoFrameClock({ timeOrigin: window.performance.timeOrigin, now }) };
     session = current;
@@ -309,13 +320,17 @@ export function createNetflixRecorder(window, {
       stop(current);
     }
     if (offset === null) throw new Error(`${site} did not play the line, so nothing was recorded.`);
-    const gif = encodeGif(current, { startMs, endMs, offset });
-    if (!current.audio) return gif ? { gif } : {};
+    let image = {};
+    try {
+      const gif = await encodeGif(current, { startMs, endMs, offset }, window);
+      if (gif) image = { gif };
+    } catch (error) { image = { imageError: error.message }; }
+    if (!current.audio) return image;
     const samples = clipSamples(current.chunks, { originMs: current.clock.originMs, sampleRate: current.sampleRate,
       startMs: startMs - SENTENCE_PAD_MS + offset, endMs: endMs + SENTENCE_PAD_MS + offset });
     if (samples === null) throw new Error("No audio was recorded while the line played.");
-    if (isSilent(samples)) return { silent: true, ...(gif ? { gif } : {}) };
-    return { silent: false, data: encodeBase64(encodeMonoWav(samples, current.sampleRate)), ...(gif ? { gif } : {}) };
+    if (isSilent(samples)) return { silent: true, ...image };
+    return { silent: false, data: await sentenceAudioBase64(samples, current.sampleRate, current.encoding), ...image };
   }
 
   return { start, finish, stop: () => { if (session !== null) stop(session); } };

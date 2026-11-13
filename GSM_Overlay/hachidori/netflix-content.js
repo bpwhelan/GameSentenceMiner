@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Experimental Netflix and YouTube mining, the reader's side: the video-site
-// layer both sites share. netflix.js registers this classic script after
+// Netflix and YouTube mining, the reader's side: the video-site layer both
+// sites share. netflix.js registers this classic script after
 // netflix-subtitles.js and netflix-audio.js in the content scripts' world on
 // https://www.netflix.com/* (top frame, document_start) while Settings →
 // Advanced → Experimental features → Netflix mining is on, and youtube.js
@@ -44,6 +44,8 @@
     formats: new Set(["webvtt", "ttml"]),
     // Netflix reaches /watch/<id> by navigating inside one document.
     watched: location => WATCH_PATH.exec(location.pathname)?.[1] ?? null,
+    // The title and episode the player shows, for a note's miscInfo.
+    title: '[data-uia="video-title"], .video-title',
     video: document => document.querySelector(".watch-video video") ?? document.querySelector("video"),
     // The subtitle layer, and a subtitle box in it.
     subtitle: ".player-timedtext",
@@ -55,6 +57,15 @@
     // of the player's text, so any lookup pauses the video.
     drag: true,
     pauseOnLookup: true,
+    // A picture of the line, its screenshot or its GIF, is of the video alone:
+    // what Netflix draws over the video is hidden while it is taken, and it is
+    // cropped to the picture. These are Netflix's own class names for its
+    // subtitles, controls, skip and next-episode buttons and paused-title
+    // overlay; Netflix may change them.
+    overVideo: [".player-timedtext", ".watch-video--bottom-controls-container", ".watch-video--back-container",
+      ".watch-video--flag-container", ".watch-video--skip-content", ".SeamlessControls--container",
+      ".evidence-overlay"].join(", "),
+    cropToVideo: true,
   });
 
   function createVideoSite(window, site, subtitles = window.HDNetflixSubtitles, lineAudioApi = window.HDNetflixAudio) {
@@ -69,6 +80,7 @@
     // The video the page says its player plays, for a site whose address does
     // not say (YouTube, whose miniplayer plays on other pages).
     let reported = null;
+    let videoInfo = "";
     // Hover pause, which content.js turns on with the switch. `held` while
     // the pause this reader asked for, or kept through a recording, is in
     // force; `restoring` from a replay's answer until the page's seek back has
@@ -81,11 +93,19 @@
     let recordings = 0;
     // What the viewer hears, kept while content.js has the switch on.
     let lineAudio = null;
+    // Set once the line audio keeps a line as exact zeros: the video's sound
+    // does not reach Web Audio, as on Netflix in Edge on Windows, where tab
+    // capture still records it. The page's lines are recorded with tab capture
+    // from then on.
+    let copySilent = false;
     const range = document.createRange();
     let dragStyle = null;
     let subtitleOffset = { x: 0, y: 0 };
     let subtitleDrag = null;
     let subtitleClick = false;
+    // What the site draws over its video, hidden while pictures of it are taken.
+    let overVideoStyle = null;
+    let overVideoHidden = 0;
     // The reading language whose subtitle tracks the page posts (docs/languages.md 8.5).
     let subtitleLanguage = "ja";
 
@@ -145,6 +165,12 @@
       restoring = !pending.playOn;
     }
 
+    function reportVideo(message) {
+      reported = typeof message.movieId === "string" && site.movieId.test(message.movieId) ? message.movieId : null;
+      videoInfo = reported === null ? "" : [message.title, message.author]
+        .filter(value => typeof value === "string" && value.trim()).map(value => value.trim()).join(" - ");
+    }
+
     // Everything the page posts is checked before it is used: any script on
     // the page can dispatch these events.
     function accept(detail) {
@@ -157,7 +183,7 @@
       if (!message || typeof message !== "object") return;
       // A page that says which video its player plays (YouTube).
       if (site.reportsVideo && message.kind === "video") {
-        reported = typeof message.movieId === "string" && site.movieId.test(message.movieId) ? message.movieId : null;
+        reportVideo(message);
       }
       sync();
       if (message.kind === "replay") {
@@ -214,8 +240,21 @@
       if (!subtitle || site.adShowing?.(document) === true) return null;
       if (!site.pauseOnLookup && !hovering) pauseIfPlaying();
       const container = element.closest(site.line) ?? subtitle;
+      let miscInfo = videoInfo;
+      if (site.title) {
+        const title = document.querySelector(site.title);
+        const parts = [];
+        if (title) {
+          const walker = document.createTreeWalker(title, SHOW_TEXT);
+          for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+            const part = node.textContent.trim();
+            if (part) parts.push(part);
+          }
+        }
+        miscInfo = parts.join(" - ");
+      }
       return { movieId: sync(), mediaTimeMs: mediaTimeMs(), lineText: visibleText(container),
-        hoveredText: visibleText(element) };
+        hoveredText: visibleText(element), ...(miscInfo ? { miscInfo } : {}) };
     }
 
     // The language of the track whose line `element` is, where the page names
@@ -272,12 +311,13 @@
     // whole cue; nested lookups keep their own sentence and inherit only the cue.
     function miningFields(observation, sentence = null) {
       if (!observation) return {};
+      const metadata = observation.miscInfo ? { miscInfo: observation.miscInfo } : {};
       const resolved = resolve(observation);
-      if (!resolved.cue) return { [site.field]: { unavailable: resolved.reason } };
+      if (!resolved.cue) return { [site.field]: { unavailable: resolved.reason }, ...metadata };
       const { movieId, startMs, endMs, text } = resolved.cue;
       // A candidate of a language pack joins the cue's lines with its joiner.
       const whole = sentence ? subtitles.cueSentence(text, sentence.sentence, sentence.matchOffset, sentence.lineJoiner) : null;
-      return { [site.field]: { cue: { movieId, startMs, endMs } }, ...whole };
+      return { [site.field]: { cue: { movieId, startMs, endMs } }, ...whole, ...metadata };
     }
 
     // Has the page play the cue's line at 1×: from just before it, or with
@@ -314,25 +354,69 @@
       return frame;
     }
 
-    // Where the video is in the viewport, as fractions of it, with the
-    // viewport's aspect ratio, so a GIF of a page with more than its player
-    // keeps only the video (YouTube).
+    // Where the video's picture is in the viewport, as fractions of it, with
+    // the viewport's aspect ratio, so a picture of a page with more than its
+    // player keeps only the video (YouTube), and one of a player whose shape
+    // is not the video's loses the bars beside it (Netflix). A video shows its
+    // picture whole and centred in its box unless the page has it fill or
+    // cover the box, and one with no picture yet has only its box.
     function videoCrop() {
-      const rect = mainVideo()?.getBoundingClientRect();
+      const video = mainVideo();
+      const box = video?.getBoundingClientRect();
       const { innerWidth: width, innerHeight: height } = window;
-      if (!rect || width <= 0 || height <= 0) return null;
-      const left = Math.max(0, rect.left / width);
-      const top = Math.max(0, rect.top / height);
-      const right = Math.min(1, rect.right / width);
-      const bottom = Math.min(1, rect.bottom / height);
+      if (!box || width <= 0 || height <= 0) return null;
+      let picture = box;
+      if (video.videoWidth > 0 && video.videoHeight > 0 && window.getComputedStyle(video).objectFit === "contain") {
+        const scale = Math.min(box.width / video.videoWidth, box.height / video.videoHeight);
+        const shownWidth = video.videoWidth * scale;
+        const shownHeight = video.videoHeight * scale;
+        const pictureLeft = box.left + (box.width - shownWidth) / 2;
+        const pictureTop = box.top + (box.height - shownHeight) / 2;
+        picture = { left: pictureLeft, top: pictureTop, right: pictureLeft + shownWidth, bottom: pictureTop + shownHeight };
+      }
+      const left = Math.max(0, picture.left / width);
+      const top = Math.max(0, picture.top / height);
+      const right = Math.min(1, picture.right / width);
+      const bottom = Math.min(1, picture.bottom / height);
       return right > left && bottom > top ? { left, top, width: right - left, height: bottom - top, aspect: width / height } : null;
+    }
+
+    // While a picture of the video is taken, a screenshot or a GIF's replay,
+    // what the site draws over the video (`overVideo`) is hidden, at once
+    // rather than by its own fade, so it has gone before the capture. Counted
+    // like the reader's own concealment, so one picture cannot show it again
+    // while another is being taken.
+    async function hideOverVideo(during) {
+      if (!site.overVideo) return during();
+      if (overVideoHidden === 0) {
+        overVideoStyle = document.createElement("style");
+        overVideoStyle.textContent = `${site.overVideo} { opacity: 0 !important; transition: none !important; }`;
+        document.documentElement.append(overVideoStyle);
+      }
+      overVideoHidden += 1;
+      try {
+        return await during();
+      } finally {
+        overVideoHidden -= 1;
+        if (overVideoHidden === 0) {
+          overVideoStyle.remove();
+          overVideoStyle = null;
+        }
+      }
+    }
+
+    // A screenshot for a note from the site's subtitles: `capture` asks the
+    // worker for it, cropped to where the video's picture is, while what the
+    // site draws over the video is hidden.
+    function screenshot(capture) {
+      return hideOverVideo(() => capture(videoCrop()));
     }
 
     // Records the cue's line with tab capture: a recorder frame opens the tab's
     // stream, the page replays the line, then the frame cuts the clip (with
-    // audio unset, no WAV; with gif set, a looping GIF of the line) and the
-    // worker holds its files for the note. Resolves with { audio, gif } for
-    // the fields, or with why there is none.
+    // audio unset, no sentence audio; with gif set, a looping GIF of the line)
+    // and the worker holds its files for the note. Resolves with { audio, gif }
+    // for the fields, or with why there is none.
     async function recordTab(cue, { send, templateId, audio, gif }) {
       const frame = recorderFrame();
       try {
@@ -384,30 +468,42 @@
     }
 
     // A clip of the line for its {sentence-audio} field: held by the worker,
-    // or why there is none.
-    async function holdLine(clip, { send, templateId }) {
+    // or why there is none. Its MP3 encoder (sentence-audio.js) loads with the
+    // first line the page adds.
+    async function holdLine(clip, { send, templateId, encoding }) {
       if (clip === null) return { unavailable: "unheard" };
-      if (lineAudioApi.isSilent(clip.samples)) return { unavailable: "silent" };
-      const held = await send(site.requests.lineAudio, { data: lineAudioApi.wavBase64(clip), templateId });
+      const { sentenceAudioBase64 } = await import(window.chrome.runtime.getURL("sentence-audio.js"));
+      const data = await sentenceAudioBase64(clip.samples, clip.sampleRate, encoding);
+      const held = await send(site.requests.lineAudio, { data, templateId });
       return typeof held.unavailable === "string" ? { unavailable: held.unavailable }
         : { token: held.token, filename: held.filename };
+    }
+
+    // A tab recording of the cue's line with Hachidori's overlays concealed;
+    // a GIF's replay also hides what the site draws over its video.
+    function captureTab(cue, { conceal, ...recording }) {
+      const concealed = () => conceal(() => recordTab(cue, recording));
+      return recording.gif ? hideOverVideo(concealed) : concealed();
     }
 
     // Records the cue's line for the fields that map it: `audio` for
     // {sentence-audio}, `gif` for {gif}. Sentence audio comes from what the
     // viewer heard, played on or replayed if need be, while the line audio
     // keeps the video's sound; tab capture records a GIF, and the audio too
-    // otherwise. `conceal` hides Hachidori's overlays around tab capture only.
+    // otherwise or once the line audio has kept a line as exact zeros.
+    // `conceal` hides Hachidori's overlays around tab capture only.
     // Resolves with { audio, gif } for the fields, or with why there is none.
-    async function record(cue, { send, templateId, audio = true, gif = false, conceal = during => during() }) {
+    async function record(cue, { send, templateId, audio = true, gif = false, encoding, conceal = during => during() }) {
       recordings += 1;
       try {
-        if (!audio || lineAudio?.ready() !== true) return await conceal(() => recordTab(cue, { send, templateId, audio, gif }));
+        if (!audio || copySilent || lineAudio?.ready() !== true) {
+          return await captureTab(cue, { send, templateId, audio, gif, conceal });
+        }
         let clip = await heardLine(cue);
         const result = {};
         if (gif) {
           try {
-            const recorded = await conceal(() => recordTab(cue, { send, templateId, audio: false, gif }));
+            const recorded = await captureTab(cue, { send, templateId, audio: false, gif, conceal });
             result.gif = typeof recorded.unavailable === "string" ? { unavailable: recorded.unavailable } : recorded.gif;
           } catch (error) {
             // The GIF and the sentence audio are recorded apart, so a failed
@@ -419,7 +515,13 @@
         }
         try {
           clip ??= await playLine(cue);
-          result.audio = await holdLine(clip, { send, templateId });
+          if (clip !== null && lineAudioApi.isSilent(clip.samples)) {
+            copySilent = true;
+            const recorded = await captureTab(cue, { send, templateId, audio: true, gif: false, conceal });
+            result.audio = typeof recorded.unavailable === "string" ? { unavailable: recorded.unavailable } : recorded.audio;
+          } else {
+            result.audio = await holdLine(clip, { send, templateId, encoding });
+          }
         } catch (error) {
           result.audio = { unavailable: error.code ?? error.message };
         }
@@ -614,8 +716,8 @@
     // case it said so before this reader listened.
     if (site.reportsVideo) command({ type: "state" });
 
-    return { observe, resolve, miningFields, record, setHoverPause, setLineAudio, setSubtitleDragging, setSubtitleLanguage,
-      captionLanguage };
+    return { observe, resolve, miningFields, record, screenshot, setHoverPause, setLineAudio, setSubtitleDragging,
+      setSubtitleLanguage, captionLanguage };
   }
 
   const createNetflix = (window, subtitles, lineAudioApi) => createVideoSite(window, NETFLIX, subtitles, lineAudioApi);

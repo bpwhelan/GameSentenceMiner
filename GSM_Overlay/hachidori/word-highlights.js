@@ -192,6 +192,10 @@
     // gives a profile's language's.
     let overrides = new Map();
     const overridesOf = profile => (typeof overrides === "function" ? overrides(profile) : overrides);
+    // A manual list can supply known words without Anki. Wait for the initial
+    // index probe so an available index never briefly paints its cards unknown.
+    const canHighlight = profile => availability.get(profile.key) === true
+      || (availability.get(profile.key) === false && overridesOf(profile).size > 0);
     // The one profile without `profileOf`.
     const japanese = { key: "", fields: {}, isText: isJapanese, breaks: DEFAULT_BREAKS, options: null };
     const profileFor = element => (profileOf === null ? japanese : profileOf(element));
@@ -412,7 +416,8 @@
     }
 
     // A headword's status: its override, else its card's.
-    const statusOf = (headword, profile) => overridesOf(profile).get(headword) ?? statuses.get(keyOf(profile, headword));
+    const statusOf = (headword, profile) => overridesOf(profile).get(headword)
+      ?? (availability.get(profile.key) === true ? statuses.get(keyOf(profile, headword)) : "unknown");
 
     // The popup's first result decides, so a mark agrees with what a hover
     // shows; when it is unknown, a candidate the surface spells out may decide.
@@ -449,13 +454,14 @@
     // and every status the marks need has been read.
     function runMarks(run) {
       const { profile } = run;
-      if (availability.get(profile.key) === false) return [];
+      if (!canHighlight(profile)) return [];
       const marks = [];
       for (const chunk of run.chunks) {
         const spans = segments.get(keyOf(profile, chunk.text));
         if (spans === undefined) return null;
         for (const span of spans) {
-          if (!spanHeadwords(span, chunk.text, profile).every(headword => statuses.has(keyOf(profile, headword)))) return null;
+          if (availability.get(profile.key) === true
+              && !spanHeadwords(span, chunk.text, profile).every(headword => statuses.has(keyOf(profile, headword)))) return null;
           for (const mark of spanMarks(span, chunk.text, profile)) marks.push({ ...mark, start: mark.start + chunk.start });
         }
       }
@@ -598,7 +604,7 @@
       let length = 0;
       let profile = null;
       for (const run of wantedRuns()) {
-        if (availability.get(run.profile.key) !== true || (profile !== null && run.profile !== profile)) continue;
+        if (!canHighlight(run.profile) || (profile !== null && run.profile !== profile)) continue;
         for (const chunk of run.chunks) {
           if (segments.has(keyOf(run.profile, chunk.text)) || batch.has(chunk.text)) continue;
           profile = run.profile;

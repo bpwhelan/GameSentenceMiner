@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Experimental YouTube mining, the reader's side. youtube.js registers this
-// classic script after the video-site layer it uses (netflix-subtitles.js,
-// netflix-audio.js and netflix-content.js) in the content scripts' world on
-// https://www.youtube.com/* (top frame, document_start) while Settings →
-// Advanced → Experimental features → YouTube mining is on. It says where
+// YouTube mining, the reader's side. youtube.js registers this classic script
+// after the video-site layer it uses (netflix-subtitles.js, netflix-audio.js
+// and netflix-content.js) in the content scripts' world on
+// https://www.youtube.com/* (top frame, document_start) while Settings → Anki
+// → Video mining → YouTube mining is on. It says where
 // YouTube keeps its player, video and captions; the page script,
 // netflix-page.js, posts the caption files the player loads and which video it
 // plays.

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hachidori",
   "short_name": "Hachidori",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "description": "Study Japanese and other languages: look up words on any page and build Anki cards, optionally capturing on-screen context.",
   "minimum_chrome_version": "128",
   "icons": {
@@ -191,6 +191,27 @@
       ],
       "matches": [
         "https://www.youtube.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "crunchyroll-recorder.html"
+      ],
+      "matches": [
+        "https://www.crunchyroll.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "sentence-audio.js",
+        "base64.js",
+        "vendor/lamejs.js",
+        "vendor/mediabunny/mediabunny.js"
+      ],
+      "matches": [
+        "https://www.netflix.com/*",
+        "https://www.youtube.com/*",
+        "https://www.crunchyroll.com/*"
       ]
     }
   ],

@@ -13,10 +13,11 @@ import { lookupAnkiIndex, lookupAnkiIndexMany } from "./anki-index.js";
 import { ANKI_INDEX_KEY, createAnkiDuplicateIndex } from "./anki-index-cache.js";
 import { assertBackupSnapshot, assertRestoredProfileRecords, backupRevisions } from "./backup-state.js";
 import { AUTOMATIC_BACKUPS_KEY, automaticBackupStore, validAutomaticBackups } from "./backup-automatic.js";
+import { createMcpHost } from "./mcp-host.js";
 import { API_REQUESTS } from "./api-host.js";
 import { SHARING_LOCAL_STATE_KEY } from "./sharing-client.js";
 import {
-  LINKED_ANKI_CAPABILITY, LINKED_IMPORT_TARGET, allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest,
+  MCP_TARGET, LINKED_ANKI_CAPABILITY, LINKED_IMPORT_TARGET, allowLinkedAnkiDiscoveryRequest, allowLinkedAnkiRequest,
   allowLinkedAnkiSetupRequest, allowLinkedImportRequest, forwardableRequest,
 } from "./sharing-protocol.js";
 import {
@@ -559,6 +560,14 @@ const WORKER_HANDLERS = {
     const next = withLanguageWordStatusOverride(stored, language, message.headword, message.status);
     if (next !== stored) await writeLocalState({ [WORD_STATUS_OVERRIDES_KEY]: next });
     return { revision: normaliseWordStatusOverrides(next).revision };
+  },
+  // The textbox uses the same serialized, language-specific record as the popup.
+  async hd_known_words_add(message) {
+    const language = message.profileId === undefined ? JAPANESE_PROFILE_ID : await requestLanguage(message);
+    const stored = (await chrome.storage.local.get(WORD_STATUS_OVERRIDES_KEY))[WORD_STATUS_OVERRIDES_KEY];
+    const { record, added } = globalThis.HDWordStatusOverrides.withKnownWords(stored, language, message.text);
+    if (record !== stored) await writeLocalState({ [WORD_STATUS_OVERRIDES_KEY]: record });
+    return { revision: normaliseWordStatusOverrides(record).revision, added };
   },
   async hd_backup_download(message, sender) {
     if (sender.id !== chrome.runtime.id || sender.url?.split(/[?#]/u)[0] !== chrome.runtime.getURL("settings.html")) {
@@ -1255,6 +1264,19 @@ function assertOwnStateWrite(sender) {
   }
 }
 
+let mcpHost;
+function getMcpHost() {
+  mcpHost ??= createMcpHost({
+    read: () => chrome.storage.local.get([OPTIONS_KEY, DICTIONARY_STATE_KEY, LANGUAGE_SELECTION_KEY]),
+    writeOptions: message => WORKER_HANDLERS.hd_options_write(message),
+    writeSelection: message => WORKER_HANDLERS.hd_language_selection_write(message),
+    userScripts: () => chrome.userScripts.getScripts(),
+    themes: async () => (await fetch(chrome.runtime.getURL("vendor/themes/index.json"))).json(),
+    version: chrome.runtime.getManifest().version,
+  });
+  return mcpHost;
+}
+
 async function dispatchSharedRequest(message, clientId, capabilities = []) {
   const sender = {
     id: chrome.runtime.id,
@@ -1268,6 +1290,9 @@ async function dispatchSharedRequest(message, clientId, capabilities = []) {
   };
   try {
     switch (message.target) {
+      case MCP_TARGET:
+        ordinary();
+        return workerReply(message, await serialiseStorage(() => getMcpHost()(message)));
       case TARGET:
         if (API_REQUESTS.has(message.type)) return await getApiHost()(message);
         ordinary();

@@ -147,7 +147,7 @@ function kanjiFields(character, entry, markers, where) {
     "stroke-count": () => escapeAnkiHtml(stat("strokes")),
     frequencies: () => escapeAnkiHtml(stat("freq")),
   };
-  return Object.fromEntries(markers.map(marker => [marker, Object.hasOwn(table, marker) ? table[marker]() : ""]));
+  return Object.fromEntries(markers.map(marker => [marker, Object.hasOwn(table, marker.toLowerCase()) ? table[marker.toLowerCase()]() : ""]));
 }
 
 // Yomitan's AnkiCardFormat for one Anki Template. A Template has no add-button
@@ -262,7 +262,7 @@ export function createApiHost({ engine, render, readDictionaries, readAudioSourc
     const seenMedia = new Set();
     for (const result of maxEntries > 0 ? results.slice(0, maxEntries) : results) {
       const request = termRequest(result, context);
-      const sound = markers.includes("audio") && includeMedia ? await termAudio(profileId, profile, result) : null; // NOSONAR: results render one at a time, in order
+      const sound = markers.some(marker => marker.toLowerCase() === "audio") && includeMedia ? await termAudio(profileId, profile, result) : null; // NOSONAR: results render one at a time, in order
       if (sound) audioMedia.push(sound.media);
       const built = await render({ type: "hd_anki_fields", request, templates, audio: sound?.audio ?? "", dictionaryPaths, // NOSONAR: results render one at a time, in order
         compactGlossary, compactGlossaries, ...(profile === null ? {} : { profile }) });
@@ -378,7 +378,7 @@ export function createApiHost({ engine, render, readDictionaries, readAudioSourc
 
     async hd_api_anki_fields(message, profileId) {
       const text = requireText(message.text, "text");
-      const markers = requireStrings(message.markers, "markers").map(marker => marker.toLowerCase());
+      const markers = requireStrings(message.markers, "markers");
       const maxEntries = Number.isSafeInteger(message.maxEntries) && message.maxEntries > 0 ? message.maxEntries : 0;
       const includeMedia = message.includeMedia === true;
       if (message.entryType === "kanji") return ankiKanjiFields(profileId, text, markers, maxEntries);
