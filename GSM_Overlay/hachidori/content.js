@@ -24,6 +24,7 @@
 
   const TARGET = "hoshidicts-offscreen";
   const PAGE_ZOOM_TARGET = "hachidori-page-zoom";
+  const PAGE_USER_SCRIPTS_TARGET = "hachidori-page-user-scripts";
   const WORKER_TARGET = "hoshidicts-worker";
   const READER_TARGET = "hachidori-reader";
   // The worker's word-status change signal for reading tabs (#520).
@@ -32,7 +33,7 @@
   const HOST_TAG = "hachidori-host";
   const POPUP_SHOWN_EVENT = "hachidori-popup-shown";
   const POPUP_HIDDEN_EVENT = "hachidori-popup-hidden";
-  // Asks Custom JavaScript's bridge (custom-javascript-bridge.js) to attach the
+  // Asks the user scripts' bridge (custom-javascript-bridge.js) to attach the
   // popup's closed root from the user-script world.
   const POPUP_ROOT_EVENT = "hachidori-popup-root";
   const EXTENSION_PROTOCOL = (() => {
@@ -115,7 +116,7 @@
   ) {
     return;
   }
-  // The search page's own document, where search.js runs Custom JavaScript (#644).
+  // The search page's own document, where search.js runs user scripts (#644).
   const SEARCH_FRAME = location.protocol === EXTENSION_PROTOCOL
     && location.href === chrome.runtime.getURL("search-frame.html");
 
@@ -617,6 +618,11 @@
       if (!Object.hasOwn(advertised, "linkButtons") && Object.hasOwn(advertised, "customLinks")) {
         hostCapabilities.linkButtons = advertised.customLinks;
       }
+      // Without a user-script world, the worker runs this page's user scripts in it.
+      if (hostCapabilities.pageWorldUserScripts) {
+        sendRequest("hd_user_scripts_run", {}, PAGE_USER_SCRIPTS_TARGET)
+          .catch(error => console.warn("hachidori: could not run user scripts on this page:", error));
+      }
       const next = applyHostCapabilities(options);
       const customButtonsChanged = JSON.stringify(next.customButtons) !== JSON.stringify(options.customButtons);
       const miningChanged = customButtonsChanged;
@@ -729,9 +735,9 @@
     return profile ? { profile, sentenceRules: profile.text.sentenceRules, lineJoiner: profile.text.lineJoiner } : {};
   }
 
-  // Google Docs paints text to <canvas>. While Settings → Advanced →
-  // Experimental features → Google Docs is on, background.js has Docs draw its
-  // SVG annotation layer as well (google-docs-flag.js): one <rect aria-label>
+  // Google Docs paints text to <canvas>. While Settings → Reading → Scanning →
+  // Look up words in Google Docs is on, background.js has Docs draw its SVG
+  // annotation layer as well (google-docs-flag.js): one <rect aria-label>
   // per run of text, with the run's position, transform and font, but still no
   // text node. The reader lays an invisible SVG <text> imposter over the hovered
   // rect and scans that, as Yomitan's google-docs-util does.
@@ -743,29 +749,38 @@
   let docsImposter = null;
 
   function docsEnabled() {
-    return GOOGLE_DOCS_HOST && options.experimental.googleDocs === true;
+    return GOOGLE_DOCS_HOST && options.googleDocs === true;
   }
 
-  // Experimental Features → Netflix mining and YouTube mining: background.js
-  // registers each site's reader (netflix-content.js, youtube-content.js) on
-  // the site while its flag is on; the switch also gates a page that loaded it
-  // before the switch went off. `api` is the site's reader, `recorder` the Anki
+  // Advanced → Experimental features → Netflix mining and Anki → Video mining →
+  // YouTube mining: background.js registers each site's reader
+  // (netflix-content.js, youtube-content.js) on the site while its switch
+  // (`enabled`) is on; the switch also gates a page that loaded it before the
+  // switch went off. `api` is the site's reader, `recorder` the Anki
   // controller's option that records its lines (anki-content.js), `lines` its
   // subtitle boxes (as its reader's description names them), and on Netflix
   // the subtitle tracks are the reading language's (8.5).
   const VIDEO_SITES = {
-    "www.netflix.com": { flag: "netflixMining", api: () => globalThis.HDNetflix, target: "hachidori-netflix",
+    "www.netflix.com": { enabled: options => options.experimental.netflixMining === true,
+      api: () => globalThis.HDNetflix, target: "hachidori-netflix",
       load: "hd_netflix_load", recorder: "recordNetflixLine", subtitleLanguage: true,
       lines: ".player-timedtext .player-timedtext-text-container", controlBar: null },
-    "www.youtube.com": { flag: "youtubeMining", api: () => globalThis.HDYouTube, target: "hachidori-youtube",
+    "www.youtube.com": { enabled: options => options.youtubeMining === true,
+      api: () => globalThis.HDYouTube, target: "hachidori-youtube",
       load: "hd_youtube_load", recorder: "recordYouTubeLine", subtitleLanguage: false,
       lines: "#movie_player .ytp-caption-window-container .caption-window",
       controlBar: "#movie_player .ytp-chrome-bottom" },
+    // Advanced → Experimental features → Crunchyroll mining, for the subtitles a
+    // user script shows and posts (crunchyroll-content.js).
+    "www.crunchyroll.com": { enabled: options => options.experimental.crunchyrollMining === true,
+      api: () => globalThis.HDCrunchyroll, target: "hachidori-crunchyroll",
+      load: "hd_crunchyroll_load", recorder: "recordCrunchyrollLine", subtitleLanguage: false,
+      lines: "[data-hachidori-subtitles] [data-hachidori-subtitle-line]", controlBar: null },
   };
   const VIDEO_SITE = Object.hasOwn(VIDEO_SITES, location.hostname) ? VIDEO_SITES[location.hostname] : null;
   const NETFLIX_HOST = location.hostname === "www.netflix.com";
   function videoMiningEnabled() {
-    return VIDEO_SITE !== null && options.experimental[VIDEO_SITE.flag] === true
+    return VIDEO_SITE !== null && VIDEO_SITE.enabled(options)
       && typeof VIDEO_SITE.api()?.miningFields === "function";
   }
 
@@ -803,7 +818,7 @@
   let videoSiteLoad = null;
   function loadVideoSite() {
     if (videoSiteLoad !== null || disposed || VIDEO_SITE === null || window !== window.top
-        || options.experimental[VIDEO_SITE.flag] !== true) return;
+        || !VIDEO_SITE.enabled(options)) return;
     videoSiteLoad = sendRequest(VIDEO_SITE.load, {}, VIDEO_SITE.target)
       .then(syncVideoSite, () => { videoSiteLoad = null; });
   }
@@ -1571,6 +1586,7 @@
     document.removeEventListener("mousedown", onMouseDown, true);
     document.removeEventListener("mouseup", onMouseUp, true);
     document.removeEventListener("auxclick", onAuxClick, true);
+    document.removeEventListener("contextmenu", onAuxClick, true);
     document.removeEventListener("selectionchange", onSelectionChange);
     document.removeEventListener("fullscreenchange", onFullscreenChange);
     document.removeEventListener("focusin", onPageFocusIn, true);
@@ -2336,17 +2352,18 @@
   }
 
   // Dark Reader traverses open roots and rewrites their styles, so the popup's
-  // root is always closed. While Custom JavaScript is saved, its bridge
-  // attaches that root from the user-script world and returns it through
-  // host.shadowRoot to the saved scripts alone; it sees the request only once
-  // the host is in the page. Where user scripts do not run (Chrome's switch is
-  // off, a frame, an extension page) the reader attaches the root itself. The
-  // search page's frame runs the saved script in the reader's own world
-  // instead (#644), and nothing but the extension reaches its pages, so there
-  // the root is open.
+  // root is always closed. While a switched-on user script has JavaScript, the
+  // bridge attaches that root from the user-script world and returns it
+  // through host.shadowRoot to the user scripts alone; it sees the request
+  // only once the host is in the page. Where user scripts do not run (Chrome's
+  // switch is off, a frame, an extension page) the reader attaches the root
+  // itself. The search page's frame runs the user scripts in the reader's own
+  // world instead (#644), and nothing but the extension reaches its pages, so
+  // there the root is open. So it is in an overlay host, which runs them in
+  // the page's own world and has no chrome.dom to take a root back from it.
   function attachPopupRoot() {
-    if (options.customPopupJavascript) {
-      if (SEARCH_FRAME) return host.attachShadow({ mode: "open" });
+    if (globalThis.HDReaderOptions.javaScriptUserScripts(options.userScripts).length > 0) {
+      if (SEARCH_FRAME || hostCapabilities.pageWorldUserScripts) return host.attachShadow({ mode: "open" });
       host.dispatchEvent(new CustomEvent(POPUP_ROOT_EVENT));
       const root = globalThis.chrome.dom?.openOrClosedShadowRoot(host) ?? host.openOrClosedShadowRoot;
       if (root) return root;
@@ -2379,7 +2396,7 @@
     appearance = globalThis.HDPopup.createPopupAppearance(host);
     appearance.update(options);
     customStyle = globalThis.HDPopup.createCustomPopupStyle(shadow);
-    customStyle.update(options.customPopupCss);
+    customStyle.update(globalThis.HDReaderOptions.userPopupStyles(options));
     themeHost.attach(shadow);
 
     highlighter = globalThis.HDPopup.createSourceHighlighter(
@@ -2405,9 +2422,13 @@
       },
       onChange: owner => positionPopup(owner),
       conceal: concealReader,
-      // The site's reader records a line through its page (netflix-content.js).
-      ...(VIDEO_SITE === null ? {} : { [VIDEO_SITE.recorder]: (cue, templateId, options) => VIDEO_SITE.api().record(cue, {
-        send: (type, fields) => sendRequest(type, fields, VIDEO_SITE.target), templateId, ...options }) }),
+      // The site's reader records a line through its page, and frames the
+      // screenshot of a note from its subtitles (netflix-content.js).
+      ...(VIDEO_SITE === null ? {} : { [VIDEO_SITE.recorder]: (cue, templateId, media) => VIDEO_SITE.api().record(cue, {
+        send: (type, fields) => sendRequest(type, fields, VIDEO_SITE.target), templateId, ...media,
+        encoding: { videoAudioFormat: options.videoAudioFormat, videoAudioBitrate: options.videoAudioBitrate,
+          videoImageFormat: options.videoImageFormat, videoImageQuality: options.videoImageQuality } }),
+      videoScreenshot: capture => VIDEO_SITE.api()?.screenshot?.(capture) ?? capture(null) }),
       // A Template that names no deck opens Settings → Anki on the profile in
       // effect (docs/languages.md 6.3); an overlay's host opens Settings itself.
       openSettings: overlayMode ? null : () => {
@@ -2498,7 +2519,7 @@
       if (child) positionPopup(child);
     }, { capture: true, passive: true });
     popup.addEventListener("wheel", (event) => onPopupWheelKeybind(event, level), { capture: true, passive: false });
-    popup.addEventListener("wheel", onPopupWheel, { passive: false });
+    popup.addEventListener("wheel", (event) => onPopupWheel(event, level), { passive: false });
     popup.addEventListener("mouseenter", () => onPopupEnter(level));
     popup.addEventListener("mouseleave", (event) => onPopupLeave(event, level));
     // Yomitan dismisses a nested popup when its parent is pressed. A primary
@@ -3278,7 +3299,7 @@
   // The popup's wheel belongs to the popup. Readers such as ttu turn pages from
   // wheel events on their body, and a pane that cannot scroll further (or has
   // nothing to scroll) would otherwise chain the gesture into the page.
-  function onPopupWheel(event) {
+  function onPopupWheel(event, level) {
     event.stopPropagation();
     if (event.defaultPrevented || event.ctrlKey) return;
     const popup = event.currentTarget;
@@ -3286,6 +3307,12 @@
       if (canScrollBy(node, event.deltaX, event.deltaY)) return;
     }
     event.preventDefault();
+    // The pinned header is outside the definition pane's scroll ancestors.
+    const scroll = level.view.scrollElement;
+    let unit = 1;
+    if (event.deltaMode === 1) unit = 16;
+    else if (event.deltaMode === 2) unit = scroll.clientHeight;
+    scroll.scrollTop += event.deltaY * unit;
   }
 
   function canScrollBy(element, deltaX, deltaY) {
@@ -4586,11 +4613,11 @@
     finishSelectionDrag({ dismissClick: true });
   }
 
-  // A middle click on a word the scan press looked up opens no new tab.
+  // A scan click on a word opens no new tab or context menu.
   function onAuxClick(event) {
     if (scanPress?.button !== event.button) return;
     if (scanPress.cancelClick) event.preventDefault();
-    scanPress = null;
+    if (event.type !== "contextmenu") scanPress = null;
   }
 
   function onPageFocusIn() {
@@ -5230,7 +5257,7 @@
     // After the appearance, so a changed theme's palette is on the host.
     syncWordHighlights();
     if (sizeChanged) for (const level of levels) level.view?.hideImagePreview();
-    const cssChanged = customStyle?.update(options.customPopupCss);
+    const cssChanged = customStyle?.update(globalThis.HDReaderOptions.userPopupStyles(options));
     if (highlightChanged) {
       for (const level of levels) level.view?.setSourceHighlightEnabled(options.sourceHighlightEnabled);
     }
@@ -5346,6 +5373,7 @@
     document.addEventListener("mousedown", onMouseDown, { capture: true });
     document.addEventListener("mouseup", onMouseUp, { capture: true });
     document.addEventListener("auxclick", onAuxClick, { capture: true });
+    document.addEventListener("contextmenu", onAuxClick, { capture: true });
     document.addEventListener("selectionchange", onSelectionChange);
     document.addEventListener("fullscreenchange", onFullscreenChange);
     document.addEventListener("focusin", onPageFocusIn, observe);

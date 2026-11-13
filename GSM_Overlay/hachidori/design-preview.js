@@ -423,7 +423,7 @@
       view.setSourceHighlightEnabled(nextOptions.sourceHighlightEnabled);
     }
     appearance.update(nextOptions);
-    const cssChanged = customStyle.update(nextOptions.customPopupCss);
+    const cssChanged = customStyle.update(HDReaderOptions.userPopupStyles(nextOptions));
     const countsChanged = !state || options.showLookupCounts !== nextOptions.showLookupCounts;
     const blurChanged = !state || DEFINITION_BLUR_KEYS.some(key => options[key] !== nextOptions[key]);
     options = { ...nextOptions };

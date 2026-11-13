@@ -1010,7 +1010,7 @@ input[type="checkbox"] {
  * the drawing differs. Selections and one-off choices stay checkboxes.
  */
 .lookup-enable > input[type="checkbox"],
-input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled) {
   --switch-knob: var(--border-strong);
   appearance: none;
   width: 36px;
@@ -1022,40 +1022,40 @@ input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
   cursor: pointer;
 }
 .lookup-enable > input[type="checkbox"]:checked,
-input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):checked {
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled):checked {
   --switch-knob: var(--accent-contrast);
   border-color: var(--accent-fill);
   background-color: var(--accent-fill);
   background-position: calc(100% - 1px) 50%;
 }
 .lookup-enable > input[type="checkbox"]:disabled,
-input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):disabled {
+input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled):disabled {
   cursor: default;
   opacity: 0.55;
 }
 @media (prefers-reduced-motion: no-preference) {
   .lookup-enable > input[type="checkbox"],
-  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled) {
     transition: background-position 120ms ease, background-color 120ms ease;
   }
 }
 /* Windows contrast themes: system colours, the knob's position still says which. */
 @media (forced-colors: active) {
   .lookup-enable > input[type="checkbox"],
-  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input) {
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled) {
     forced-color-adjust: none;
     --switch-knob: CanvasText;
     border-color: CanvasText;
     background-color: Canvas;
   }
   .lookup-enable > input[type="checkbox"]:checked,
-  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):checked {
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled):checked {
     --switch-knob: HighlightText;
     border-color: Highlight;
     background-color: Highlight;
   }
   .lookup-enable > input[type="checkbox"]:disabled,
-  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input):disabled {
+  input:is(.dict-enabled, .audio-enabled, .keybind-enabled-input, .user-script-enabled):disabled {
     --switch-knob: GrayText;
     border-color: GrayText;
     background-color: Canvas;
@@ -1503,7 +1503,9 @@ textarea {
  */
 .design-controls .lookup-group,
 #keybind-settings,
-#audio-sources {
+#audio-sources,
+#user-script-settings,
+#script-store-settings {
   container-type: inline-size;
 }
 .lookup-group:has(> legend) {
@@ -2485,6 +2487,129 @@ textarea {
 .custom-button-actions { display: flex; gap: 6px; }
 .custom-button-form { display: grid; gap: 8px; }
 .custom-button-form input[type="text"] { width: 100%; }
+
+/* Advanced → User scripts: a switch, the package and its actions on a row; an
+   off row is tinted across the card, as a library row is, and its name dims. */
+.user-script-list { margin: 0; padding: 0; list-style: none; }
+.user-script-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 14px;
+  margin-inline: -16px;
+  padding: var(--row-padding) 16px;
+  border-top: 1px solid var(--border);
+}
+.user-script-row.is-off { background: var(--surface-sunken); }
+.user-script-row.is-off .user-script-name { color: var(--text-dim); }
+.user-script-row[aria-current="true"] { box-shadow: inset 3px 0 var(--accent-fill); }
+.user-script-text { display: grid; gap: 3px; min-width: 0; }
+.user-script-name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.user-script-summary { color: var(--text-dim); font-size: var(--font-caption); overflow-wrap: anywhere; }
+.user-script-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
+/* A row's buttons draw their border only when pointed at or focused, so a list
+   of rows reads as rows rather than as a grid of boxes. */
+.user-script-actions button.ghost:not(:hover, :focus-visible),
+.user-script-actions button.ghost:disabled {
+  border-color: transparent;
+  background: transparent;
+}
+.user-script-confirm {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-surface);
+  background: var(--surface);
+}
+.user-script-confirm p { flex: 1 1 260px; min-width: 0; margin: 0; }
+.user-script-form {
+  display: grid;
+  gap: 14px;
+  margin-bottom: var(--row-padding);
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  background: var(--surface-sunken);
+}
+.user-script-form h2 { font-size: var(--font-body); font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.user-script-form input[type="text"] { width: 100%; }
+.user-script-part { display: grid; gap: 6px; }
+.user-script-part-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.user-script-part textarea {
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--font-small);
+  line-height: 1.6;
+  tab-size: 2;
+}
+/* The code editor (code-editor.js) that replaces each textarea: at least as
+   tall as its textarea's rows, growing with the code to most of the window,
+   scrolling inside after that, and resizable. */
+.user-script-part .code-editor {
+  min-height: calc(10 * 1.6em + 22px);
+  max-height: 75vh;
+  overflow: hidden;
+  resize: vertical;
+}
+.user-script-part .code-editor[data-language="css"] { min-height: calc(6 * 1.6em + 22px); }
+.user-script-part .code-editor .cm-scroller { min-height: 0; }
+.user-script-problems { color: var(--error); }
+.user-script-problems:empty { display: none; }
+/* A file chooser drawn as a ghost button, for choices beside a primary one. */
+.file-button.ghost {
+  border-color: var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: var(--weight-body);
+  padding: 0 10px;
+}
+.file-button.ghost:hover {
+  border-color: var(--accent);
+  background: var(--surface-sunken);
+  filter: none;
+}
+@container (max-width: 560px) {
+  .user-script-row { grid-template-columns: auto minmax(0, 1fr); }
+  .user-script-actions { grid-column: 2; justify-content: flex-start; }
+}
+/* Advanced → User scripts → Script Store: a package's name, description and
+   details beside Install, Update or Installed. */
+.script-store-list { margin: 0; padding: 0; list-style: none; }
+.script-store-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px 18px;
+  padding: var(--row-padding) 0;
+  border-top: 1px solid var(--border);
+}
+.script-store-text { display: grid; gap: 3px; min-width: 0; }
+.script-store-name { font-weight: var(--weight-medium); overflow-wrap: anywhere; }
+.script-store-description { max-width: 66ch; margin: 0; overflow-wrap: anywhere; }
+.script-store-details { color: var(--text-dim); font-size: var(--font-caption); overflow-wrap: anywhere; }
+.script-store-installed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--control-height);
+  color: var(--ok);
+  font-weight: var(--weight-medium);
+}
+.script-store-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+/* View code: the package's JavaScript and CSS under its row, read-only. */
+.script-store-code { grid-column: 1 / -1; display: grid; gap: 6px; }
+.script-store-code .code-editor { max-height: 50vh; }
+.script-store-code .code-editor .cm-scroller { min-height: 0; }
+@container (max-width: 560px) {
+  .script-store-row { grid-template-columns: minmax(0, 1fr); }
+  /* View code, Install, Update and Installed keep their own width under the text. */
+  .script-store-actions { justify-content: flex-start; }
+}
 
 .keybind-list {
   margin: 0;

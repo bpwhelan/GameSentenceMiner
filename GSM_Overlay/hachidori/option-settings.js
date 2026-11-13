@@ -18,7 +18,7 @@ import {
   renderCurrentOptions, renderExperimentalSettings, renderLanguageCapabilities, renderLowMemoryMode, renderPackSettings,
   savedOptions, send, setSectionStatus,
   syncNavigationStatus, themeStore, updateAnkiSettings, updateAudioSettings, updateDesignPreview,
-  updateKeybindSettings, WORD_HIGHLIGHT_SWITCHES, WORKER_TARGET,
+  scriptStoreController, updateKeybindSettings, userScriptController, WORD_HIGHLIGHT_SWITCHES, WORKER_TARGET,
 } from "./settings.js";
 import { dictionaries, dictionaryLabel, dictionaryState } from "./library-settings.js";
 import {
@@ -238,6 +238,35 @@ function renderWordHighlightControls() {
   for (const { key, id } of WORD_HIGHLIGHT_SWITCHES) element(id).checked = options[key];
   const style = element("opt-word-highlight-style");
   if (style !== document.activeElement) style.value = options.wordHighlightStyle;
+}
+
+async function addKnownWords() {
+  const input = element("known-words-input");
+  const button = element("known-words-add");
+  if (input.disabled || !input.value.trim()) return;
+  const fields = profileFields();
+  const language = languageName();
+  input.disabled = button.disabled = true;
+  setSectionStatus("known-words-status", "Marking words as known…", "working");
+  try {
+    const reply = await send("hd_known_words_add", { text: input.value, ...fields }, WORKER_TARGET);
+    if (!reply.ok) throw new Error(reply.error || "the words could not be saved");
+    // A profile removed elsewhere discards its draft; keep its late reply out
+    // of the language the page now shows.
+    if (language !== languageName()) return;
+    input.value = "";
+    const noun = reply.added === 1 ? "word" : "words";
+    const message = reply.added === 0 ? "All pasted words are already known."
+      : `${numberFormat.format(reply.added)} ${noun} marked as known.`;
+    setSectionStatus("known-words-status", message, "ready", true);
+  } catch (error) {
+    if (language === languageName()) {
+      setSectionStatus("known-words-status", `Could not save known words: ${describeErrorOrJson(error)}`, "error", false, error);
+    }
+  } finally {
+    input.disabled = false;
+    button.disabled = !input.value.trim();
+  }
 }
 
 function renderMetadataControls() {
@@ -467,14 +496,6 @@ function renderCustomCss(force = false) {
   element("custom-css-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
 }
 
-function renderCustomJavascript(force = false) {
-  const editor = element("opt-custom-popup-javascript");
-  if ((force || editor !== document.activeElement) && editor.value !== options.customPopupJavascript) {
-    editor.value = options.customPopupJavascript;
-  }
-  element("custom-javascript-count").textContent = `${numberFormat.format(editor.value.length)} characters`;
-}
-
 // Yomitan's "Scan modifier key" lists No key first. Its empty value is never
 // stored: it means lookupMode "hover" and keeps the remembered activationKey.
 // No key leaves the keep-open switch on for the next key, as a re-render would.
@@ -521,6 +542,7 @@ function renderOptions() {
   }
   element("opt-hover-enabled").checked = options.hoverEnabled;
   element("opt-japanese-only").checked = options.onlyScanJapaneseText;
+  element("opt-google-docs").checked = options.googleDocs;
   renderPersonalDictionaryControls();
   element("opt-no-result-notice").checked = options.showNoResultNotice;
   element("opt-metadata-only-results").checked = options.showMetadataOnlyResults;
@@ -533,10 +555,14 @@ function renderOptions() {
   void renderSearchHistory();
   element("opt-audio-autoplay").checked = options.audioAutoplay;
   element("opt-smaller-anki-cards").checked = options.smallerAnkiCards;
+  element("opt-youtube-mining").checked = options.youtubeMining;
+  element("opt-video-audio-format").value = options.videoAudioFormat;
+  element("opt-video-image-format").value = options.videoImageFormat;
   renderThemeChoices();
   renderCustomCss();
-  renderCustomJavascript();
   customButtonController?.render();
+  userScriptController?.render();
+  scriptStoreController?.render();
   const toolbar = element("opt-popup-toolbar");
   if (toolbar !== document.activeElement) toolbar.value = options.popupToolbarPosition;
   const imageHoverPreview = element("opt-image-hover-preview");
@@ -583,6 +609,11 @@ function attachOptionHandlers() {
     });
   }
   attachDefinitionBlurHandlers();
+  element("known-words-input").addEventListener("input", event => {
+    element("known-words-add").disabled = !event.target.value.trim();
+    setSectionStatus("known-words-status", "");
+  });
+  element("known-words-add").addEventListener("click", () => { void addKnownWords(); });
   element("opt-source-highlight").addEventListener("change", (event) => {
     options.sourceHighlightEnabled = event.target.checked;
     writeOptions();
@@ -608,7 +639,6 @@ function attachOptionHandlers() {
     for (const key of DESIGN_OPTION_KEYS) options[key] = DEFAULT_OPTIONS[key];
     customButtonController?.reset();
     renderCustomCss(true);
-    renderCustomJavascript(true);
     renderOptions();
     writeOptions();
   });
@@ -622,17 +652,6 @@ function attachOptionHandlers() {
   element("reset-custom-css").addEventListener("click", () => {
     options.customPopupCss = DEFAULT_OPTIONS.customPopupCss;
     renderCustomCss(true);
-    writeOptions();
-  });
-  element("opt-custom-popup-javascript").addEventListener("input", event => {
-    optionsEditRevision ??= Math.max(0, optionsRevision);
-    options.customPopupJavascript = event.target.value;
-    renderCustomJavascript();
-    writeOptions();
-  });
-  element("reset-custom-javascript").addEventListener("click", () => {
-    options.customPopupJavascript = DEFAULT_OPTIONS.customPopupJavascript;
-    renderCustomJavascript(true);
     writeOptions();
   });
   for (const field of METADATA_FIELDS) {
@@ -650,6 +669,10 @@ function attachOptionHandlers() {
     options.onlyScanJapaneseText = event.target.checked;
     writeOptions();
   });
+  element("opt-google-docs").addEventListener("change", (event) => {
+    options.googleDocs = event.target.checked;
+    writeOptions();
+  });
   for (const { key, id } of WORD_HIGHLIGHT_SWITCHES) {
     element(id).addEventListener("change", (event) => {
       options[key] = event.target.checked;
@@ -660,6 +683,16 @@ function attachOptionHandlers() {
     options.smallerAnkiCards = event.target.checked;
     writeOptions();
   });
+  element("opt-youtube-mining").addEventListener("change", (event) => {
+    options.youtubeMining = event.target.checked;
+    writeOptions();
+  });
+  for (const [id, key] of [["opt-video-audio-format", "videoAudioFormat"], ["opt-video-image-format", "videoImageFormat"]]) {
+    element(id).addEventListener("change", event => {
+      options[key] = event.target.value;
+      writeOptions();
+    });
+  }
   element("opt-personal-dictionary").addEventListener("change", (event) => {
     options.personalDictionaryEnabled = event.target.checked;
     renderPersonalDictionaryControls();
@@ -788,7 +821,6 @@ function attachOptionHandlers() {
     section.addEventListener("focusout", (event) => {
       optionsEditRevision = null;
       if (event.target.id === "opt-custom-popup-css") renderCustomCss(true);
-      if (event.target.id === "opt-custom-popup-javascript") renderCustomJavascript(true);
       if (event.target.id === "opt-frequency-dictionary") renderFrequencyChoices();
       if (event.target.id === "opt-blur-frequency-dictionary") renderDefinitionBlurFrequencyChoices();
       if (event.target.id === "opt-image-source") renderPopupImageSources();
@@ -819,7 +851,6 @@ function attachOptionHandlers() {
     optionsSaveFailed = false;
     renderCurrentOptions();
     renderCustomCss(true);
-    renderCustomJavascript(true);
     setOptionsStatus("Using saved settings.");
   });
 }

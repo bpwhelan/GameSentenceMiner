@@ -7,7 +7,7 @@ import { SHARING_KEY, createSharingHost } from "./sharing-host.js";
 import { createApiHost } from "./api-host.js";
 import { NOT_REACHABLE, SHARING_LOCAL_STATE_KEY, createSharingClient } from "./sharing-client.js";
 import {
-  API_CAPABILITY, API_CLIENT_ORIGIN, FORWARDED_REQUESTS, LANGUAGE_PROFILES_CAPABILITY, LANGUAGE_PROFILES_OPT_IN,
+  MCP_CAPABILITY, API_CAPABILITY, API_CLIENT_ORIGIN, FORWARDED_REQUESTS, LANGUAGE_PROFILES_CAPABILITY, LANGUAGE_PROFILES_OPT_IN,
   LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED, SHARING_CAPABILITIES, LINKED_IMPORT_CAPABILITY, LINKED_IMPORT_UNSUPPORTED,
   browserName, mutatingForwardedRequest, parseLinkAddress, sharingPort,
 } from "./sharing-protocol.js";
@@ -66,7 +66,7 @@ async function readSharedState() {
 // replies and broadcast; these hooks then return at once.
 // ---------------------------------------------------------------------------
 
-const SHARING_HOST_CAPABILITIES = [...SHARING_CAPABILITIES, API_CAPABILITY, LINKED_IMPORT_CAPABILITY];
+const SHARING_HOST_CAPABILITIES = [...SHARING_CAPABILITIES, API_CAPABILITY, LINKED_IMPORT_CAPABILITY, MCP_CAPABILITY];
 // Whether the records have profiles, as the last read or storage event gave
 // them; the projections below run only while they do.
 let hostProfiles = false;

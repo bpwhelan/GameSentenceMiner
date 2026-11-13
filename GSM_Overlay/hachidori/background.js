@@ -4,8 +4,8 @@
 // worker start about 2 ms later (Chrome 152).
 import {
   DEFAULT_OPTIONS, normaliseOptions, validateOptionsPatch, OFFSCREEN_DOCUMENT, TARGET, UPDATE_TARGET, AUDIO_TARGET,
-  SETUP_TARGET, PAGE_ZOOM_TARGET, BACKUP_LIFECYCLE_PORT, WORKER_TARGET, DICTIONARY_STATE_KEY, OPTIONS_KEY,
-  CLIPBOARD_TARGET, searchPageSender,
+  SETUP_TARGET, PAGE_ZOOM_TARGET, PAGE_USER_SCRIPTS_TARGET, BACKUP_LIFECYCLE_PORT, WORKER_TARGET, DICTIONARY_STATE_KEY,
+  OPTIONS_KEY, CLIPBOARD_TARGET, searchPageSender,
   ankiSettingsSender, writeLocalState, ensureOffscreen, relay, readDictionaryStorage, optionsRevision, readerPageSender,
   serialiseStorage, workerReply, failureReply, requestProfileId, updateLookupProfiles,
 } from "./background-core.js";
@@ -26,6 +26,7 @@ import {
 } from "./background-sharing.js";
 import { netflixMining } from "./background-netflix.js";
 import { youtubeMining } from "./background-youtube.js";
+import { crunchyrollMining } from "./background-crunchyroll.js";
 import { extensionApi as chrome } from "./browser-api.js";
 import { captureDebugLog, openDebugLogStore } from "./debug-log.js";
 import { describeErrorOrJson } from "./error-text.js";
@@ -39,17 +40,19 @@ import "./external-links.js";
 import "./dictionary-group-state.js";
 import "./word-status-overrides.js";
 import { sameJsonValue } from "./json-value.js";
-import { OVERLAY_MODE } from "./overlay-mode.js";
+import { HOST_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import {
   FIRST_INSTALL_OPTIONS, OVERLAY_MODE_OPTIONS, SETUP_STATE_KEY, STARTUP_PAGE, initialSetupState, overlayAnkiOptions,
   withOverlayLookupDefault,
 } from "./setup-state.js";
-import { applyCustomJavaScript } from "./custom-javascript.js";
+import { applyCustomJavaScript, runPageUserScripts } from "./custom-javascript.js";
 import { applyGoogleDocsFlag } from "./google-docs.js";
 import { applyLanguageScripts } from "./language-scripts.js";
 import { applyNetflixFlag } from "./netflix.js";
 import { applyYouTubeFlag } from "./youtube.js";
+import { applyCrunchyrollFlag } from "./crunchyroll.js";
 import { openSearchPage } from "./search-window.js";
+import { BUILD_VERSION } from "./build-version.js";
 
 /*
  * Service worker for Hachidori.
@@ -71,6 +74,30 @@ import { openSearchPage } from "./search-window.js";
 // failed replies, kept across its restarts in the extension's debug log ring
 // (debug-log.js).
 captureDebugLog(globalThis, { context: "service-worker", store: openDebugLogStore(globalThis.indexedDB) });
+
+// An unpacked copy whose files are replaced in place can keep running the
+// previous release's scripts after a browser restart: Chrome reports the new
+// manifest and pages load the new files, but it re-registers the worker only
+// when the extension reloads (#706). Reload once per version, so a host that
+// cannot refresh its worker keeps working instead of reloading forever.
+const STALE_WORKER_RELOAD_KEY = "staleWorkerReload";
+if (BUILD_VERSION !== chrome.runtime.getManifest().version) {
+  reloadStaleWorker().catch((error) => { // NOSONAR -- top-level await prevents this MV3 worker from activating.
+    console.error("hachidori: could not reload the out-of-date service worker:", describeErrorOrJson(error));
+  });
+}
+
+async function reloadStaleWorker() {
+  const version = chrome.runtime.getManifest().version;
+  const stored = await chrome.storage.local.get(STALE_WORKER_RELOAD_KEY);
+  if (stored[STALE_WORKER_RELOAD_KEY] === version) {
+    console.error(`hachidori: the service worker runs ${BUILD_VERSION}'s scripts, not ${version}'s;`
+      + " reload Hachidori in chrome://extensions");
+    return;
+  }
+  await writeLocalState({ [STALE_WORKER_RELOAD_KEY]: version });
+  chrome.runtime.reload();
+}
 
 // The overlay host (Electron 43) exposes chrome.alarms, and create()/get()
 // even record the alarm, but onAlarm never dispatches to the worker; a host
@@ -175,10 +202,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes[OPTIONS_KEY]) return;
   void reconcileAnkiIndex();
-  void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).customPopupJavascript);
-  void applyGoogleDocsFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.googleDocs);
+  void applyCustomJavaScript(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).userScripts);
+  void applyGoogleDocsFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).googleDocs);
   void applyNetflixFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.netflixMining);
-  void applyYouTubeFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.youtubeMining);
+  void applyYouTubeFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).youtubeMining);
+  void applyCrunchyrollFlag(chrome, normaliseOptions(changes[OPTIONS_KEY].newValue).experimental.crunchyrollMining);
   void applyLanguageScripts(chrome, globalThis.HDReaderOptions.hasProfiles(changes[OPTIONS_KEY].newValue));
   const { lowMemoryMode, dictionaryEntryStorage, dictionaryIndexStorage, useLessRamByDefault } = normaliseOptions(changes[OPTIONS_KEY].newValue);
   const previous = normaliseOptions(changes[OPTIONS_KEY].oldValue);
@@ -215,7 +243,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // recorder frame connects on its own port, which the site's service accepts
 // only from this extension's recorder page for that site while its switch is
 // on, and its reader's requests go to its own target.
-const VIDEO_SITES = [netflixMining, youtubeMining];
+const VIDEO_SITES = [netflixMining, youtubeMining, crunchyrollMining];
 
 chrome.runtime.onConnect.addListener(port => {
   VIDEO_SITES.find(site => site.recorderPort === port.name)?.connectRecorder(port);
@@ -279,6 +307,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   chrome.tabs.getZoom(tabId).then((zoomFactor) => sendResponse(workerReply(message, { zoomFactor })),
     (error) => sendResponse(failureReply(message, error)));
+  return true;
+});
+
+// An overlay's reader asks for its page's user scripts as it starts there.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target !== PAGE_USER_SCRIPTS_TARGET) return false;
+  const tabId = sender.tab?.id;
+  if (!HOST_CAPABILITIES.pageWorldUserScripts || sender.id !== chrome.runtime.id
+    || message.type !== "hd_user_scripts_run" || !Number.isInteger(tabId)) {
+    sendResponse(failureReply(message, new Error("Unknown user scripts request.")));
+    return false;
+  }
+  chrome.storage.local.get(OPTIONS_KEY)
+    .then(stored => runPageUserScripts(chrome, { tabId, documentIds: [sender.documentId] },
+      normaliseOptions(stored[OPTIONS_KEY]).userScripts))
+    .then(result => sendResponse(workerReply(message, result)), (error) => sendResponse(failureReply(message, error)));
   return true;
 });
 
@@ -618,10 +662,11 @@ void chrome.storage.local.get(OPTIONS_KEY).then(stored => {
   // The toolbar badge names the active language once the records have profiles.
   if (globalThis.HDReaderOptions.hasProfiles(stored[OPTIONS_KEY])) void syncLanguageBadge(chrome);
   const options = normaliseOptions(stored[OPTIONS_KEY]);
-  void applyCustomJavaScript(chrome, options.customPopupJavascript);
-  void applyGoogleDocsFlag(chrome, options.experimental.googleDocs);
+  void applyCustomJavaScript(chrome, options.userScripts);
+  void applyGoogleDocsFlag(chrome, options.googleDocs);
   void applyNetflixFlag(chrome, options.experimental.netflixMining);
-  void applyYouTubeFlag(chrome, options.experimental.youtubeMining);
+  void applyYouTubeFlag(chrome, options.youtubeMining);
+  void applyCrunchyrollFlag(chrome, options.experimental.crunchyrollMining);
   void applyLanguageScripts(chrome, globalThis.HDReaderOptions.hasProfiles(stored[OPTIONS_KEY]));
 });
 // Firefox grants userScripts only when Settings asks for it, so the saved code
@@ -629,7 +674,7 @@ void chrome.storage.local.get(OPTIONS_KEY).then(stored => {
 chrome.permissions?.onAdded.addListener(({ permissions = [] }) => {
   if (!permissions.includes("userScripts")) return;
   void chrome.storage.local.get(OPTIONS_KEY)
-    .then(stored => applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).customPopupJavascript));
+    .then(stored => applyCustomJavaScript(chrome, normaliseOptions(stored[OPTIONS_KEY]).userScripts));
 });
 
 if (OVERLAY_MODE) {

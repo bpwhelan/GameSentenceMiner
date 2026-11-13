@@ -6,7 +6,7 @@ const CORE_MARKERS = ["expression", "reading", "character", "onyomi", "kunyomi",
   "definition", "glossary", "glossary-brief", "glossary-no-dictionary", "glossary-plain", "glossary-plain-no-dictionary",
   "glossary-first", "glossary-first-brief", "glossary-first-no-dictionary", "main-definition", "jpmn-primary-definition",
   "conjugation", "part-of-speech", "phonetic-transcriptions", "tags", "popup-selection-text", "search-query", "document-title",
-  "url", "url-plain",
+  "url", "url-plain", "miscInfo",
   "sentence", "sentence-furigana", "sentence-furigana-plain", "cloze-prefix", "cloze-body", "cloze-suffix",
   "frequency", "frequencies", "frequency-harmonic-rank", "frequency-harmonic-occurrence", "frequency-average-rank",
   "frequency-average-occurrence", "pitch", "pitch-position", "pitch-accent-positions", "pitch-categories",
@@ -42,6 +42,7 @@ const MARKER_DESCRIPTIONS = {
   "popup-selection-text": "Text selected inside the lookup popup",
   "search-query": "Text used for the lookup",
   "document-title": "Title of the source page",
+  miscInfo: "Video title and YouTube channel, or Netflix title and episode; otherwise the source page title",
   url: "Link to the source page",
   "url-plain": "Address of the source page as plain text",
   sentence: "Source sentence with the matched text emphasized",
@@ -65,8 +66,8 @@ const MARKER_DESCRIPTIONS = {
   "pitch-accent-graphs-jj": "Japanese pitch accent SVG graphs with kana labels (Jidoujisho style)",
   audio: "Selected pronunciation audio",
   screenshot: "Screenshot of the source page",
-  "sentence-audio": "Netflix or YouTube subtitle line's audio (experimental)",
-  gif: "Netflix or YouTube subtitle line's animated GIF, otherwise the page screenshot (experimental)",
+  "sentence-audio": "Netflix, YouTube or Crunchyroll subtitle line's audio",
+  gif: "Netflix, YouTube or Crunchyroll subtitle line's animation in the selected format, otherwise the page screenshot",
 };
 const DYNAMIC_MARKER_OPTIONS = [
   ["single-glossary-DICTIONARY", "Definitions from one dictionary; replace DICTIONARY with its marker name"],
@@ -90,17 +91,11 @@ export const ANKI_MARKER_REQUIREMENTS = Object.freeze({
     .map(marker => [marker, "pitchAccent"])),
   ...Object.fromEntries(["character", "onyomi", "kunyomi", "stroke-count"].map(marker => [marker, "characterView"])),
 });
-// Markers of experimental features, by the flags that list them in Settings:
-// a marker is listed while any of its flags is on. They stay valid with the
-// flags off, so a saved template still renders.
-const VIDEO_MINING_FLAGS = Object.freeze(["netflixMining", "youtubeMining"]);
-const EXPERIMENTAL_MARKERS = new Map([["sentence-audio", VIDEO_MINING_FLAGS], ["gif", VIDEO_MINING_FLAGS]]);
 export const ANKI_TEMPLATE_MARKER_OPTIONS = Object.freeze([
   ...CORE_MARKERS.map(marker => Object.freeze({
     marker,
     value: `{${marker}}`,
     description: MARKER_DESCRIPTIONS[marker],
-    ...(EXPERIMENTAL_MARKERS.has(marker) ? { experimental: EXPERIMENTAL_MARKERS.get(marker) } : {}),
   })),
   ...[...MARKER_ALIASES].map(([marker, canonical]) => Object.freeze({
     marker,
@@ -113,7 +108,7 @@ export const ANKI_TEMPLATE_MARKER_OPTIONS = Object.freeze([
     description,
   })),
 ]);
-const MARKERS = new Set([...CORE_MARKERS, ...MARKER_ALIASES.keys()]);
+const MARKERS = new Set([...CORE_MARKERS.map(marker => marker.toLowerCase()), ...MARKER_ALIASES.keys()]);
 const DYNAMIC_PREFIXES = ["single-glossary-", "single-frequency-"];
 const MARKER_PATTERN = /\{([^{}]+)\}/gu;
 const BREAK_PATTERN = /<br\s*\/?>/giu;

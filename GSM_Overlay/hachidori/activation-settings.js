@@ -7,9 +7,8 @@
 // activation name rather than an event.code chord. A recorded input selects its
 // entry and goes through the picker's own change handler.
 
-// The presses the reader cannot scan with: the primary press selects text and
-// dismisses popups, and the secondary press opens the browser's menu.
-const REFUSED_BUTTONS = new Map([[0, "The left mouse button"], [2, "The right mouse button"]]);
+// The primary press selects text and dismisses popups.
+const REFUSED_BUTTONS = new Map([[0, "The left mouse button"]]);
 
 // A captured input acts only as the recorder's.
 function consume(event) {
@@ -41,6 +40,9 @@ export function createActivationSettings({ document, report }) {
       }
       select.append(new window.Option("No key", ""), buttons, keys);
     }
+    if (activationKey && ![...select.options].some(option => option.value === activationKey)) {
+      select.lastElementChild.append(new window.Option(activationKey, activationKey));
+    }
     if (select !== document.activeElement) select.value = activationKey;
   }
 
@@ -52,6 +54,7 @@ export function createActivationSettings({ document, report }) {
 
   function record(key) {
     arm(false);
+    render(key);
     select.value = key;
     select.dispatchEvent(new window.Event("change", { bubbles: true }));
   }

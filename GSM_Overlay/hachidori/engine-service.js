@@ -330,6 +330,18 @@ function withoutPersonalDictionary(reply, message) {
   return { ...reply, results };
 }
 
+// Bee's rich kanji cards intentionally use term banks (including term-meta
+// character ranks) instead of Yomitan's flat native-kanji surface. Those
+// character ranks belong to the explicit clicked-kanji route, not word ranks
+// or their averages (#724). Canonical titles are unchanged by display aliases.
+function withoutKanjiWordFrequencies(reply) {
+  for (const { term } of reply.results) {
+    const index = term.frequencies.findIndex(group => group.dictionary === "Bee's Ultimate Kanji Dictionary");
+    if (index !== -1) term.frequencies.splice(index, 1);
+  }
+  return reply;
+}
+
 // Each glossary gets `tags`, its definitionTags as Yomitan's Translator expands
 // them from the dictionary's tag bank at 67db60d (_expandTagGroups, _createTag,
 // _mergeSimilarTags, _groupTags): a name is looked up by its part before ":",
@@ -2913,9 +2925,10 @@ function writeFileBytes(module, path, data) {
   }
 }
 
-// The stream is collected and written once; the importer maps the whole file
-// into the heap anyway, so holding the bytes in JavaScript until the stream ends
-// does not change the largest archive that can be imported.
+// The stream is collected and written once. WasmFS staging holds the whole
+// archive in the heap anyway (MEMFS keeps it; an OPFS write maps it), so holding
+// the bytes in JavaScript until the stream ends does not change the largest
+// archive that can be imported there.
 function concatenateParts(parts, byteLength) {
   if (parts.length === 1) {
     return parts[0];
@@ -3362,7 +3375,7 @@ async function runImportTransaction(
   resetEngine();
 
   // The archive is scratch: staging it in MEMFS instead of OPFS saves the
-  // proxied write, read-back mapping, and unlink (about 50 ms of hdw_import for
+  // proxied write, proxied reads, and unlink (about 50 ms of hdw_import for
   // Jitendex) and writes nothing to disk that the importer does not keep. The
   // heap holds one extra copy of the archive for the duration of the import.
   let report;
@@ -4232,7 +4245,8 @@ const HANDLERS = {
       lookupArguments(message),
     );
     throwIfEngineFailed("hdw_lookup");
-    const reply = withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message));
+    const reply = withDefinitionTags(withoutPersonalDictionary(
+      withoutKanjiWordFrequencies(termLookupReply(json, "hdw_lookup")), message));
     return kanaRuby(message) ? withFurigana(reply) : reply;
   },
 

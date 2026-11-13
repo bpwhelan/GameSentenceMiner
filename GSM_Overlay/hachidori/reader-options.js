@@ -29,14 +29,12 @@
   // under `options.experimental`; `section` names the Settings card the flag
   // reveals.
   const EXPERIMENTAL_FEATURES = [
-    { id: "googleDocs", label: "Google Docs",
-      description: "Look up words in Google Docs. Asks Google Docs to expose its text to Hachidori, which Google may change or remove without notice; the sentence is the hovered run of text." },
     { id: "netflixMining", label: "Netflix mining",
-      description: "Add the Netflix subtitle line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, and use the whole line as the sentence. Hovering a subtitle pauses the video until the pointer leaves the subtitle and the popup. Reads Netflix's subtitle files (adapted from Subadub), which Netflix may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload Netflix after turning this on. Protected video can make the audio silent or the GIF black." },
-    { id: "netflixPreviewScreenshots", label: "Netflix preview screenshots",
-      description: "Use Netflix's timeline preview image for {screenshot} when the video comes out black. Preview images have lower resolution and show a nearby moment, not necessarily the exact frame. Does not record or replay the video. Other pages keep normal screenshots. Netflix may change or remove these previews." },
-    { id: "youtubeMining", label: "YouTube mining",
-      description: "Add the YouTube caption line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, use the whole line as the sentence, and take {screenshot} from the video itself. Hovering a caption pauses the video until the pointer leaves the caption and the popup. Reads the caption track YouTube's player shows, typed or auto-generated, which YouTube may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload YouTube after turning this on. Works on watch pages, not on Shorts, embedded videos or live streams." },
+      description: "Add the Netflix subtitle line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, and use the whole line as the sentence. Hovering a subtitle pauses the video until the pointer leaves the subtitle and the popup. Reads Netflix's subtitle files (adapted from Subadub), which Netflix may change without notice. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. {screenshot} of a subtitle line is the video alone; where the video comes out black, it is Netflix's timeline preview image instead, which has lower resolution and can show a nearby moment rather than the exact frame. Reload Netflix after turning this on. Protected video can make the audio silent or the GIF black." },
+    { id: "crunchyrollMining", label: "Crunchyroll mining",
+      description: "Add the Crunchyroll subtitle line's audio to Anki notes with {sentence-audio} and a looping GIF of it with {gif}, and use the whole line as the sentence. Hovering a subtitle pauses the video until the pointer leaves the subtitle and the popup. Crunchyroll has no Japanese subtitles for Hachidori to read, so install Jimaku Player from the Script Store in Advanced → User scripts: it loads Japanese subtitles from jimaku.cc over the video and gives Hachidori their timing. The video's sound plays through Hachidori, which keeps the last 30 seconds in memory to cut the line from; a line you have not heard all of plays on or replays once. Reload Crunchyroll after turning this on. Protected video can make the audio silent or the GIF black." },
+    { id: "avifScreenshots", label: "AVIF screenshots",
+      description: "Save uncropped local Anki screenshots as smaller AVIF images when the browser supports encoding them. Encoding can take longer." },
     // docs/languages.md 16.3. Off, lookups use the Japanese profile and nothing
     // switches language; the profiles and this browser's choice are kept.
     { id: "multipleLanguages", label: "Multiple languages", section: "languages",
@@ -139,6 +137,8 @@
     maxResults: 32,
     hoverEnabled: true,
     onlyScanJapaneseText: true,
+    // Reading → Scanning: has Google Docs expose its text (google-docs.js).
+    googleDocs: true,
     // Reading → Personal dictionary: highlight lookups, the pencil and personal
     // entries in results. Off never touches the managed package or its source.
     personalDictionaryEnabled: true,
@@ -166,13 +166,22 @@
     popupThemeVariant: "auto",
     popupToolbarPosition: "auto",
     customPopupCss: "",
-    customPopupJavascript: "",
+    // Advanced → User scripts: packages of JavaScript and CSS, in the order
+    // they run (docs/user-scripts.md). Design → Custom JavaScript became the
+    // first of them.
+    userScripts: [],
     customLinks: [],
     customButtons: [],
     audioSources: [{ id: "default-tts", type: "text-to-speech-reading", enabled: true, url: "", voice: "" }],
     audioAutoplay: false,
     anki: DEFAULT_ANKI,
     smallerAnkiCards: false,
+    // Anki → Video mining: YouTube caption lines' audio, GIF and video frame.
+    youtubeMining: true,
+    videoAudioFormat: "mp3",
+    videoAudioBitrate: 64,
+    videoImageFormat: "gif",
+    videoImageQuality: 70,
     experimental: DEFAULT_EXPERIMENTAL,
     popupWidthPx: 560,
     popupHeightPx: 420,
@@ -264,12 +273,16 @@
   };
   // Word highlighting's switches stay with its Reading Settings section;
   // a page shows or hides its marks with Toggle word highlights instead. The
-  // toolbar's Search button and the search history are not reader behaviours.
+  // toolbar's Search button and the search history are not reader behaviours,
+  // and Google Docs and YouTube mining register scripts on their sites.
   const UNTOGGLED_OPTIONS = new Set(["lowMemoryMode", "useLessRamByDefault", "smallerAnkiCards", "wordHighlightEnabled", "wordHighlightUnknown",
-    "wordHighlightLearning", "wordHighlightKnown", "wordHighlightIgnored", "showToolbarSearchButton", "searchHistoryEnabled"]);
+    "wordHighlightLearning", "wordHighlightKnown", "wordHighlightIgnored", "showToolbarSearchButton", "searchHistoryEnabled", "googleDocs",
+    "youtubeMining"]);
   const KEYBIND_TOGGLE_OPTIONS = Object.keys(DEFAULT_OPTIONS)
     .filter(key => typeof DEFAULT_OPTIONS[key] === "boolean" && !UNTOGGLED_OPTIONS.has(key));
   const NUMBER_RANGES = {
+    videoAudioBitrate: [32, 128],
+    videoImageQuality: [1, 100],
     scanLength: [1, 64],
     maxResults: [1, 256],
     scanDelayMs: [0, 5000],
@@ -328,7 +341,7 @@
   for (const id of POPUP_RENDERER_IDS) POPUP_THEME_IDS.add(id);
   const popupRenderer = theme => POPUP_RENDERER_IDS.includes(theme) ? theme : "default";
   const DESIGN_OPTION_KEYS = [
-    "popupTheme", "popupThemeVariant", "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "customLinks", "customButtons", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "popupColumns",
+    "popupTheme", "popupThemeVariant", "popupToolbarPosition", "customPopupCss", "customLinks", "customButtons", "popupWidthPx", "popupHeightPx", "popupScalePercent", "popupOpacityPercent", "sourceHighlightEnabled", "popupColumns",
     "glossaryLayoutMode", "showCompactDefinitionSummary", "compactDefinitionSummaryCount", "compactDefinitionSummaryDictionary",
     "kanjiClickDictionary", "popupImageSource", "imageHoverPreview", "averageFrequency", "showFrequencyTagsWithAverage",
     "showFrequencyDictionaryNames",
@@ -347,6 +360,7 @@
   // `mouse2` is the middle button; the stored names are descriptive instead.
   // `name` is the Settings choice and `label` reads in a sentence.
   const ACTIVATION_BUTTONS = new Map([
+    ["MouseRight", { button: 2, flag: 2, name: "Right mouse button", label: "the right mouse button" }],
     ["MouseMiddle", { button: 1, flag: 4, name: "Middle mouse button", label: "the middle mouse button" }],
     ["MouseBack", { button: 3, flag: 8, name: "Back mouse button (mouse 4)", label: "the Back mouse button" }],
     ["MouseForward", { button: 4, flag: 16, name: "Forward mouse button (mouse 5)", label: "the Forward mouse button" }],
@@ -459,6 +473,43 @@
       ids.add(button.id);
       return [normalized];
     });
+  }
+
+  // An installed Script Store package's slug and version, which Update compares
+  // with the catalogue's; null for the user's own.
+  function normaliseScriptStoreSource(value) {
+    if (!value || typeof value !== "object" || typeof value.slug !== "string" || !value.slug
+        || typeof value.version !== "string" || !value.version) return null;
+    return { slug: value.slug, version: value.version };
+  }
+
+  // A package is switched on or off as a whole; either of its parts may be empty.
+  function normaliseUserScripts(value) {
+    if (!Array.isArray(value)) return [];
+    const ids = new Set();
+    return value.flatMap(script => {
+      if (!script || !validIdentifier(script.id) || ids.has(script.id)
+          || typeof script.name !== "string" || !script.name.trim() || /[\u0000-\u001f\u007f]/u.test(script.name)
+          || typeof script.enabled !== "boolean" || typeof script.javascript !== "string"
+          || typeof script.css !== "string") return [];
+      ids.add(script.id);
+      const normalized = { id: script.id, name: script.name, enabled: script.enabled, javascript: script.javascript, css: script.css };
+      const store = normaliseScriptStoreSource(script.store);
+      return [store === null ? normalized : { ...normalized, store }];
+    });
+  }
+
+  // The switched-on packages with JavaScript: what the worker registers as
+  // user scripts, and what the reader opens its popup root for.
+  function javaScriptUserScripts(scripts) {
+    return scripts.filter(script => script.enabled && script.javascript.trim() !== "");
+  }
+
+  // The popup's own stylesheets, after Hachidori's and the dictionaries': each
+  // switched-on package's CSS in list order, then Design → Custom CSS, which
+  // stays the last word.
+  function userPopupStyles(options) {
+    return [...options.userScripts.filter(script => script.enabled).map(script => script.css), options.customPopupCss];
   }
 
   function customLinksFromButtons(buttons) {
@@ -624,7 +675,7 @@
 
   function normaliseActivationKey(value, fallback = DEFAULT_OPTIONS.activationKey) {
     if (value === " ") return "Space";
-    return typeof value === "string" ? ACTIVATION_NAMES.get(value.toLowerCase()) ?? fallback : fallback;
+    return typeof value === "string" && value ? ACTIVATION_NAMES.get(value.toLowerCase()) ?? value : fallback;
   }
 
   // The activation input as it reads in "Hold … to scan": a key by its name.
@@ -720,6 +771,8 @@
 
   // Enumerated options fall back to their default outside the listed values.
   const ENUMERATED_OPTIONS = {
+    videoAudioFormat: new Set(["mp3", "opus"]),
+    videoImageFormat: new Set(["gif", "webp", "avif"]),
     dictionaryEntryStorage: new Set(["auto", "paged", "resident"]),
     dictionaryIndexStorage: new Set(["auto", "paged", "resident"]),
     lookupMode: new Set(LOOKUP_MODES),
@@ -752,6 +805,7 @@
       case "audioSources": return normaliseAudioSources(value);
       case "customLinks": return normaliseCustomLinks(value);
       case "customButtons": return normaliseCustomButtons(value);
+      case "userScripts": return normaliseUserScripts(value);
       case "keybinds": return normaliseKeybinds(value);
       case "anki": return normaliseAnki(value);
       case "experimental": return normaliseExperimental(value);
@@ -867,10 +921,10 @@
     return (group?.dictionaryIds || []).filter(id => titles.has(id)).map(id => titles.get(id));
   }
 
-  // Keys an older stored record or backup may still carry. `modifier` and
-  // `definitionBlurEnabled` migrate; `hoverDelayMs` was never adjustable and is
-  // dropped rather than read as `scanDelayMs`.
-  const RETIRED_OPTION_KEYS = ["modifier", "definitionBlurEnabled", "hoverDelayMs"];
+  // Keys an older stored record or backup may still carry. `modifier`,
+  // `definitionBlurEnabled` and `customPopupJavascript` migrate; `hoverDelayMs`
+  // was never adjustable and is dropped rather than read as `scanDelayMs`.
+  const RETIRED_OPTION_KEYS = ["modifier", "definitionBlurEnabled", "hoverDelayMs", "customPopupJavascript"];
 
   // `definitionBlurEnabled` was renamed; the new key wins when both are present.
   function legacyBlurCountOption(source, strict) {
@@ -881,9 +935,20 @@
     return {};
   }
 
+  // Design → Custom JavaScript became Advanced → User scripts' first package.
+  // Only stored records and backups migrate, so a write from a linked browser
+  // that still has Custom JavaScript cannot replace the packages.
+  function legacyUserScriptsOption(source, strict) {
+    const code = source.customPopupJavascript;
+    if (strict || Object.hasOwn(source, "userScripts") || typeof code !== "string" || code.trim() === "") return {};
+    return { userScripts: [{ id: "custom-javascript", name: "Custom JavaScript", enabled: true, javascript: code, css: "" }] };
+  }
+
   function projectOptionKeys(value, strict) {
     const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    const result = { ...legacyActivationOptions(source, strict), ...legacyBlurCountOption(source, strict) };
+    const result = {
+      ...legacyActivationOptions(source, strict), ...legacyBlurCountOption(source, strict), ...legacyUserScriptsOption(source, strict),
+    };
     // Keep the existing mining choice when the experiment becomes an Anki
     // option. An explicit new option takes precedence over the old flag.
     if (!Object.hasOwn(source, "smallerAnkiCards") && typeof source.experimental?.smallerAnkiCards === "boolean") {
@@ -915,6 +980,11 @@
     if (key === "keybinds") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((bind, index) => raw[index] && typeof raw[index] === "object" && JSON.stringify(bind)
         === JSON.stringify(Object.fromEntries(Object.keys(bind).map(field => [field, raw[index][field]]))));
+    // A package is valid as written: no field dropped, a Script Store source included.
+    if (key === "userScripts") return Array.isArray(raw) && raw.length === normalized.length
+      && normalized.every((script, index) => raw[index] && typeof raw[index] === "object"
+        && Object.keys(raw[index]).length === Object.keys(script).length
+        && JSON.stringify(script) === JSON.stringify(Object.fromEntries(Object.keys(script).map(field => [field, raw[index][field]]))));
     if (key === "audioSources" || key === "customLinks" || key === "customButtons") return Array.isArray(raw) && raw.length === normalized.length
       && normalized.every((source, index) => Object.entries(source).every(([field, value]) => raw[index][field] === value));
     return typeof raw === typeof DEFAULT_OPTIONS[key] && raw === normalized;
@@ -996,9 +1066,10 @@
   // screen and machine rather than a language. Every other option key except
   // `anki` belongs to the profile.
   const GLOBAL_OPTION_KEYS = Object.freeze([
-    "hoverEnabled", "lookupMode", "activationKey", "definitionLookupMode", "scanDelayMs", "definitionScanDelayMs",
+    "hoverEnabled", "googleDocs", "lookupMode", "activationKey", "definitionLookupMode", "scanDelayMs", "definitionScanDelayMs",
     "popupHideDelayMs", "hidePopupOnCursorExit", "hidePopupOnCursorExitDelayMs", "popupNestingMaxDepth",
-    "popupToolbarPosition", "customPopupCss", "customPopupJavascript", "smallerAnkiCards", "experimental",
+    "popupToolbarPosition", "customPopupCss", "userScripts", "smallerAnkiCards", "youtubeMining", "experimental",
+    "videoAudioFormat", "videoAudioBitrate", "videoImageFormat", "videoImageQuality",
     "popupWidthPx", "popupHeightPx", "popupScalePercent", "sourceHighlightEnabled", "automaticBackupDays",
     "useLessRamByDefault", "lowMemoryMode", "dictionaryEntryStorage", "dictionaryIndexStorage",
     "showToolbarSearchButton", "searchClickLookup", "searchWindowWidthPx", "searchWindowHeightPx", "keybinds",
@@ -1008,7 +1079,7 @@
   const PROFILE_OPTION_KEYS = Object.freeze(OPTION_KEYS.filter(key => !GLOBAL_KEYS.has(key) && key !== "anki"));
   const PROFILE_KEYS = new Set(PROFILE_OPTION_KEYS);
   // Retired keys migrate into the scope of the key they became.
-  const GLOBAL_RETIRED_KEYS = ["modifier", "hoverDelayMs"];
+  const GLOBAL_RETIRED_KEYS = ["modifier", "hoverDelayMs", "customPopupJavascript"];
   const LANGUAGE_CODE = /^[a-z]{2,3}$/u;
   // `Hani` in a requirement matches every script code that includes Han.
   const HAN_SCRIPTS = new Set(["Hani", "Hans", "Hant", "Hanb", "Jpan", "Kore"]);
@@ -1401,7 +1472,7 @@
   globalThis.HDReaderOptions = {
     ANKI_FIELDS, ANKI_DUPLICATE_SCOPES, ANKI_DUPLICATE_BEHAVIORS, ANKI_OVERWRITE_MODES,
     ANKI_TEMPLATE_CONFIG_KEYS, DEFAULT_ANKI_TEMPLATE, STABLE_ID_MAX_LENGTH,
-    DEFAULT_OPTIONS, RETIRED_OPTION_KEYS, NUMBER_RANGES, LOOKUP_MODES, DEFINITION_LOOKUP_MODES, ACTIVATION_BUTTONS, ACTIVATION_KEYS, FREQUENCY_ORDERS,
+    DEFAULT_OPTIONS, RETIRED_OPTION_KEYS, NUMBER_RANGES, ENUMERATED_OPTIONS, LOOKUP_MODES, DEFINITION_LOOKUP_MODES, ACTIVATION_BUTTONS, ACTIVATION_KEYS, FREQUENCY_ORDERS,
     POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, POPUP_THEME_VARIANTS, popupRenderer, DESIGN_OPTION_KEYS,
     KEYBIND_ACTIONS, KEYBIND_ARGUMENT_DEFAULTS, KEYBIND_SCOPES, KEYBIND_MODIFIERS, KEYBIND_MODIFIER_CODES, KEYBIND_TOGGLE_OPTIONS,
     keybindModifiers, keybindWheelKey,
@@ -1409,7 +1480,7 @@
     EXPERIMENTAL_FEATURES,
     activationLabel, clampOption, normaliseActivationKey, normaliseKanjiSelection, normaliseOptions,
     normaliseAnkiConnectUrl, normaliseAnki,
-    normaliseCustomButtons, normaliseExperimental, ankiTemplateConfig,
+    normaliseCustomButtons, normaliseUserScripts, javaScriptUserScripts, userPopupStyles, normaliseExperimental, ankiTemplateConfig,
     definitionBlurFrequencyDictionary, definitionBlurFrequencyEvidence, definitionBlurQualifies, frequencyModeOrder,
     DEFINITION_BLUR_DIRECTIONS, DEFINITION_BLUR_REVEALS, DEFINITION_BLUR_FREQUENCY_ORDERS, IMAGE_HOVER_PREVIEWS,
     GLOSSARY_LAYOUT_MODES, PITCH_ACCENT_FURIGANA_STYLES, WORD_HIGHLIGHT_STYLES,
