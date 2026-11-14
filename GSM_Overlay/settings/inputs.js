@@ -1329,7 +1329,7 @@ function getConnectedGamepads() {
   }
   // Chromium cannot distinguish XInput from DirectInput reliably. On
   // Windows, require the server so a disabled listener stays disabled.
-  if (process.platform === "win32" || !navigator.getGamepads) return [];
+  if ((window.gsmEnv?.platform || globalThis.process?.platform) === "win32" || !navigator.getGamepads) return [];
   const gamepads = navigator.getGamepads();
   return Array.from(gamepads).filter((g) => g !== null && !isGamepadDeviceBlacklisted(g.id));
 }

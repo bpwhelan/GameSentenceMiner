@@ -21,7 +21,8 @@ TOKEN = "tok"
 class MiniBroker:
     """Just enough of the Electron broker to test the client end-to-end."""
 
-    def __init__(self):
+    def __init__(self, welcome=True):
+        self.welcome = welcome
         self._loop = None
         self._ws = None
         self._server = None
@@ -52,7 +53,7 @@ class MiniBroker:
                 msg = json.loads(raw)
                 with self._lock:
                     self.frames.append(msg)
-                if msg.get("kind") == "hello":
+                if msg.get("kind") == "hello" and self.welcome:
                     await ws.send(json.dumps(self._frame(msg["src"], "bus.welcome", "ack")))
                 elif msg.get("kind") == "request" and msg.get("topic") == "echo":
                     reply = self._frame(msg["src"], "echo", "response", data=msg.get("data"))
@@ -190,3 +191,41 @@ def test_concurrent_preview_request_keeps_text_events_responsive(broker, client)
         release.set()
     response = broker.wait_for(lambda frame: frame.get("corr") == "capture")
     assert response["data"] == "frame"
+
+
+def test_does_not_report_connected_before_welcome():
+    broker = MiniBroker(welcome=False)
+    broker.start()
+    client = bc.BusClient(client_id="tester", port=broker.port, token=TOKEN)
+    try:
+        client.start()
+        broker.wait_for(lambda frame: frame.get("kind") == "hello")
+        assert not client.wait_connected(0.1)
+    finally:
+        client.stop()
+        broker.stop()
+
+
+def test_request_fails_immediately_when_disconnected():
+    client = bc.BusClient(client_id="tester", port=1, token=TOKEN)
+    with pytest.raises(ConnectionError, match="not connected"):
+        asyncio.run(client.request_async("main", "echo", timeout=30))
+
+
+def test_disconnect_rejects_pending_request_without_waiting_for_timeout(broker, client):
+    errors = []
+
+    def request():
+        try:
+            client.request("main", "unanswered", timeout=30)
+        except ConnectionError as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=request)
+    worker.start()
+    broker.wait_for(lambda frame: frame.get("topic") == "unanswered")
+    asyncio.run_coroutine_threadsafe(broker._ws.close(), broker._loop).result(timeout=2)
+    worker.join(timeout=2)
+    assert not worker.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], ConnectionError)

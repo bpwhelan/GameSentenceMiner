@@ -118,7 +118,7 @@ def test_process_and_write_results_does_not_apply_menu_filter_on_second_pass(mon
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -147,7 +147,6 @@ def test_process_and_write_results_does_not_apply_menu_filter_on_second_pass(mon
     # caller now passes for automatic OCR.
     orig_text, text, payload = run_module.process_and_write_results(
         Image.new("RGB", (400, 300), color=0),
-        None,
         None,
         None,
         None,
@@ -529,7 +528,7 @@ def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monk
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -560,7 +559,6 @@ def test_process_and_write_results_skips_black_hole_before_exclusive_filter(monk
         "callback",
         None,
         None,
-        None,
     )
 
     assert (orig_text, text) == ("", "")
@@ -588,7 +586,7 @@ def test_process_and_write_results_does_not_apply_black_hole_on_second_pass(monk
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -614,7 +612,6 @@ def test_process_and_write_results_does_not_apply_black_hole_on_second_pass(monk
 
     orig_text, text, payload = run_module.process_and_write_results(
         Image.new("RGB", (400, 300), color=0),
-        None,
         None,
         None,
         None,
@@ -679,7 +676,7 @@ def test_process_and_write_results_checks_unfiltered_english_lines_for_black_hol
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -708,7 +705,6 @@ def test_process_and_write_results_checks_unfiltered_english_lines_for_black_hol
     orig_text, text = run_module.process_and_write_results(
         Image.new("RGB", (400, 300), color=0),
         "callback",
-        None,
         None,
         None,
     )
@@ -814,7 +810,7 @@ def test_process_and_write_results_skips_detector_black_hole_before_exclusive_fi
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -843,7 +839,6 @@ def test_process_and_write_results_skips_detector_black_hole_before_exclusive_fi
     orig_text, text = run_module.process_and_write_results(
         Image.new("RGB", (400, 300), color=0),
         "callback",
-        None,
         None,
         None,
     )
@@ -905,7 +900,7 @@ def test_process_and_write_results_applies_detector_menu_filter_only_on_first_pa
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,
@@ -932,7 +927,6 @@ def test_process_and_write_results_applies_detector_menu_filter_only_on_first_pa
     orig_text, text = run_module.process_and_write_results(
         Image.new("RGB", (300, 100), color=0),
         "callback",
-        None,
         None,
         None,
         engine=engine,

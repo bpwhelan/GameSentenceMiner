@@ -136,6 +136,7 @@ describe('performDataMove', () => {
         fs.writeFileSync(path.join(oldDir, 'gsm.db'), 'db', 'utf-8');
         fs.writeFileSync(path.join(oldDir, 'gsm.db-wal'), 'wal', 'utf-8');
         fs.writeFileSync(path.join(oldDir, 'shared_config.json'), '{"port":1}', 'utf-8');
+        fs.writeFileSync(path.join(oldDir, 'obs-service.json'), '{"autoUpdateOBS":false,"windowSceneSwitcher":{"schemaVersion":1,"collections":[]}}', 'utf-8');
         fs.writeFileSync(path.join(oldDir, 'config', 'text_replacements.json'), '[]', 'utf-8');
         fs.writeFileSync(path.join(oldDir, 'ocr_config', 'game.json'), '{}', 'utf-8');
         fs.writeFileSync(path.join(oldDir, 'logs', 'app.log'), 'log', 'utf-8');
@@ -160,6 +161,7 @@ describe('performDataMove', () => {
         expect(fs.readFileSync(path.join(newDir, 'gsm.db'), 'utf-8')).toBe('db');
         expect(fs.readFileSync(path.join(newDir, 'gsm.db-wal'), 'utf-8')).toBe('wal');
         expect(fs.readFileSync(path.join(newDir, 'shared_config.json'), 'utf-8')).toBe('{"port":1}');
+        expect(fs.readFileSync(path.join(newDir, 'obs-service.json'), 'utf-8')).toBe(fs.readFileSync(path.join(oldDir, 'obs-service.json'), 'utf-8'));
         expect(fs.readFileSync(path.join(newDir, 'config', 'text_replacements.json'), 'utf-8')).toBe('[]');
         expect(fs.readFileSync(path.join(newDir, 'ocr_config', 'game.json'), 'utf-8')).toBe('{}');
 

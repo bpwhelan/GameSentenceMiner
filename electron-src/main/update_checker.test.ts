@@ -1,100 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const mocks = vi.hoisted(() => ({
-    isDev: false,
-    readFileSync: vi.fn(),
-    execFileSync: vi.fn(),
-    fetch: vi.fn(),
-}));
-
-vi.mock('node:fs', () => ({ readFileSync: mocks.readFileSync }));
-vi.mock('child_process', () => ({ execFileSync: mocks.execFileSync }));
-vi.mock('electron-log', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-vi.mock('./store.js', () => ({ getPythonPath: () => 'managed-python' }));
-vi.mock('./services/python_ops.js', () => ({ getProjectPath: () => '/gsm-project' }));
-vi.mock('./util.js', () => ({ get isDev() { return mocks.isDev; } }));
-
-import { checkForUpdates } from './update_checker.js';
-
-describe('backend update source selection', () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mocks.isDev = false;
-        mocks.readFileSync.mockReturnValue('[project]\nversion = "2026.10.0"\n');
-        mocks.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({
-                releases: {
-                    '2026.10.0': [{ yanked: false }],
-                    '2026.10.0.post1': [{ yanked: false }],
-                },
-            }),
-        });
-        vi.stubGlobal('fetch', mocks.fetch);
-    });
-
-    afterEach(() => vi.unstubAllGlobals());
-
-    it('uses one PyPI request and reuses the installed version supplied by startup', async () => {
-        mocks.fetch.mockResolvedValue({
-            ok: true,
-            json: async () => ({ releases: { '2026.10.0': [{ yanked: false }] } }),
-        });
-
-        await expect(checkForUpdates(false, '2026.10.0')).resolves.toEqual({
-            updateAvailable: false,
-            latestVersion: '2026.10.0',
-        });
-        expect(mocks.fetch).toHaveBeenCalledOnce();
-        expect(mocks.execFileSync).not.toHaveBeenCalled();
-    });
-
-    it('reuses the local backend on repeated launches even when PyPI has a post release', async () => {
-        mocks.isDev = true;
-
-        for (let launch = 0; launch < 2; launch++) {
-            await expect(checkForUpdates(false, '2026.10.0')).resolves.toEqual({
-                updateAvailable: false,
-                latestVersion: '2026.10.0',
-            });
-        }
-
-        expect(mocks.fetch).not.toHaveBeenCalled();
-        expect(mocks.execFileSync).not.toHaveBeenCalled();
-    });
-
-    it.each([null, '2026.9.4'])('still installs a missing or incompatible local backend (%s)', async (installed) => {
-        mocks.isDev = true;
-
-        await expect(checkForUpdates(false, installed)).resolves.toEqual({
-            updateAvailable: true,
-            latestVersion: '2026.10.0',
-        });
-        expect(mocks.fetch).not.toHaveBeenCalled();
-    });
-
-    it('still allows an explicit local backend repair', async () => {
-        mocks.isDev = true;
-
-        await expect(checkForUpdates(true, '2026.10.0')).resolves.toEqual({
-            updateAvailable: true,
-            latestVersion: '2026.10.0',
-        });
-        expect(mocks.fetch).not.toHaveBeenCalled();
-    });
-
-    it('keeps compatible PyPI hotfix updates enabled for packaged releases', async () => {
-        await expect(checkForUpdates(false, '2026.10.0')).resolves.toEqual({
-            updateAvailable: true,
-            latestVersion: '2026.10.0.post1',
-        });
-        expect(mocks.fetch).toHaveBeenCalledOnce();
-    });
-
-    it('does not reinstall a packaged hotfix that is already current', async () => {
-        await expect(checkForUpdates(false, '2026.10.0.post1')).resolves.toEqual({
-            updateAvailable: false,
-            latestVersion: '2026.10.0.post1',
-        });
-    });
+import {beforeEach,expect,it,vi} from 'vitest';
+const native=vi.hoisted(()=>({pythonCall:vi.fn(),pythonSync:vi.fn()}));
+vi.mock('./runtime/native_python_install.js',()=>native);
+vi.mock('./store.js',()=>({getPythonPath:()=> 'managed-python'}));
+import {checkForUpdates} from './update_checker.js';
+beforeEach(()=>vi.resetAllMocks());
+it('asks Rust to choose compatible backend updates and reuses a supplied installed version',async()=>{
+    native.pythonCall.mockResolvedValue({currentVersion:'2026.11.0',latestVersion:'2026.11.0.post1',updateAvailable:true});
+    expect(await checkForUpdates(false,'2026.11.0')).toEqual({latestVersion:'2026.11.0.post1',updateAvailable:true});
+    expect(native.pythonCall).toHaveBeenCalledExactlyOnceWith('updateCheck',{pythonPath:'managed-python',force:false,knownInstalledVersion:'2026.11.0'});
+});
+it('distinguishes an unknown installed version from a known missing package',async()=>{
+    native.pythonCall.mockResolvedValue({latestVersion:'2026.11.0',updateAvailable:true});
+    await checkForUpdates();await checkForUpdates(true,null);
+    expect(native.pythonCall.mock.calls).toEqual([
+        ['updateCheck',{pythonPath:'managed-python',force:false}],
+        ['updateCheck',{pythonPath:'managed-python',force:true,knownInstalledVersion:null}],
+    ]);
+});
+it('propagates native failures so the update screen retains an actionable error',async()=>{
+    native.pythonCall.mockRejectedValue(Error('Invalid bundled project'));
+    await expect(checkForUpdates()).rejects.toThrow('Invalid bundled project');
 });

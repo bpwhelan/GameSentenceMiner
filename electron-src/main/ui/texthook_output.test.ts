@@ -1,12 +1,16 @@
-import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     spawn: vi.fn(),
+    request: vi.fn(), sync: vi.fn(), events: vi.fn(),
     sendTextHookLine: vi.fn(),
     send: vi.fn(),
 }));
 
+vi.mock('./native_texthook.js', () => ({ nativeTextHook: mocks.request, nativeTextHookSync: mocks.sync, configureNativeTextHookEvents: mocks.events }));
+vi.mock('../runtime/native_hook_updates.js', () => ({nativeHookUpdates: {notifyIdle: vi.fn()}, reserveHookAttachment: () => 'lease', releaseHookAttachment: vi.fn()}));
+vi.mock('../runtime/native_settings.js', () => ({ settingsSync: () => null }));
+vi.mock('../services/game_privileges.js', () => ({ gamePrivilegeMonitor: { setTarget: vi.fn(), check: vi.fn() } }));
 vi.mock('child_process', () => ({ spawn: mocks.spawn, execFile: vi.fn(), exec: vi.fn() }));
 vi.mock('node:fs', () => ({ existsSync: (filename: string) => filename.endsWith('.exe') }));
 vi.mock('electron', () => ({ BrowserWindow: class {}, ipcMain: { handle: vi.fn() } }));
@@ -49,231 +53,52 @@ vi.mock('../engine_hooks/session.js', () => ({
 }));
 vi.mock('../engine_hooks/support.js', () => ({}));
 
-type CliEngine = 'luna' | 'textractor';
-type TextHookModule = typeof import('./texthook.js');
-
-function createProcess() {
-    return Object.assign(new EventEmitter(), {
-        pid: 1234,
-        killed: false,
-        stdout: new EventEmitter(),
-        stderr: new EventEmitter(),
-        stdin: {
-            write: vi.fn((_data: Buffer, callback: (error: Error | null) => void) => callback(null)),
-        },
-        kill: vi.fn(),
+// Parsing, buffering and engine lifetime contracts now live in gsm-texthook's
+// Rust tests. These cover the remaining application-service boundary.
+describe('native CLI text hook coordination', () => {
+    beforeEach(() => {
+        vi.resetModules(); vi.clearAllMocks();
+        mocks.sync.mockReturnValue({ running: false });
+        mocks.request.mockResolvedValue({ success: true, pid: 4567, arch: 'x64' });
     });
-}
-
-function hookLine(engine: CliEngine, hookId: string, text: string): string {
-    const context = engine === 'luna'
-        ? `#${hookId}|0:ABCD:F0AB70:921:0:TextMeshPro:HS@0`
-        : `${hookId}:ABCD:F0AB70:921:0:TextOutW:HS@0`;
-    return `[${context}] ${text}\r\n`;
-}
-
-describe('selected CLI hook output', () => {
-    let hook: TextHookModule;
-    let proc: ReturnType<typeof createProcess>;
-    let engine: CliEngine;
-    const subtitle = '加拨赈灾粮饷的事该赶紧筹备了';
-
-    function emitText(text: string, hookId = '43', repeats = 1): void {
-        proc.stdout.emit('data', Buffer.from(hookLine(engine, hookId, text).repeat(repeats), 'utf16le'));
-    }
-
-    function outputTexts(): string[] {
-        return mocks.sendTextHookLine.mock.calls.map(([payload]) => payload.text);
-    }
-
-    async function start(selectedEngine: CliEngine = 'luna', flushDelayMs = 0): Promise<void> {
-        engine = selectedEngine;
-        proc = createProcess();
-        mocks.spawn.mockReturnValue(proc);
-        expect(await hook.startHookSession({
-            engine,
-            exeName: 'sstx2.exe',
-            sceneId: 'scene-1',
-            pidOverride: 4567,
-            archOverride: 'x64',
-            flushDelayMs,
-        })).toMatchObject({ success: true });
-        emitText('candidate');
-        expect(await hook.selectHook('43')).toBe(true);
+    it.each(['luna', 'textractor'] as const)('starts %s through Rust without spawning a Node child', async (engine) => {
+        const hook = await import('./texthook.js');
+        expect(await hook.startHookSession({ engine, exeName: 'game.exe', sceneId: 'scene-1', pidOverride: 4567, archOverride: 'x64', flushDelayMs: 125, copyToClipboard: true })).toMatchObject({ success: true });
+        expect(mocks.request).toHaveBeenCalledWith('start', expect.objectContaining({ engine, pid: 4567, attachPid: 4567, flushDelayMs: 125, copyToClipboard: true, maxBufferSize: 3000, cliPaths: expect.objectContaining({ x86: expect.any(String), x64: expect.any(String) }) }));
+        expect(mocks.spawn).not.toHaveBeenCalled();
+        hook.stopHookSession();
+        expect(mocks.sync).toHaveBeenCalledWith('stop');
+    });
+    it('forwards native output unchanged and delivers previews without parsing them', async () => {
+        const hook = await import('./texthook.js');
+        await hook.startHookSession({ exeName: 'game.exe', sceneId: 's', pidOverride: 4567, archOverride: 'x64' });
+        const onEvent = mocks.events.mock.calls[0][0];
+        const output = { text: '日本語🦀', hookId: '43', engine: 'luna', capturedAt: 42, mergeFragments: false, revisionWindowMs: 0 };
+        onEvent('texthook.output', output);
+        expect(mocks.sendTextHookLine).toHaveBeenCalledExactlyOnceWith(output, expect.any(Function));
+        expect(mocks.send).not.toHaveBeenCalledWith('texthook.processed', expect.anything());
+        const processed = { text: '日本語', originalText: output.text, hookId: '43', ts: 42 };
+        const onProcessed = mocks.sendTextHookLine.mock.calls[0][1];
+        onProcessed(processed);
+        expect(mocks.send).toHaveBeenCalledWith('texthook.processed', processed);
         mocks.send.mockClear();
-    }
-
-    beforeEach(async () => {
-        vi.useFakeTimers();
-        vi.resetModules();
-        vi.clearAllMocks();
-        hook = await import('./texthook.js');
-    });
-
-    afterEach(() => {
-        hook?.stopHookSession();
-        vi.clearAllTimers();
-        vi.useRealTimers();
-    });
-
-    it.each(['luna', 'textractor'] as const)('aggregates %s fragments before backend delivery', async (selectedEngine) => {
-        await start(selectedEngine, 100);
-        const capturedAt = Date.now();
-        emitText('first fragment');
-        await vi.advanceTimersByTimeAsync(50);
-        emitText('second fragment');
-        expect(outputTexts()).toEqual([]);
-        await vi.advanceTimersByTimeAsync(99);
-        expect(outputTexts()).toEqual([]);
-        await vi.advanceTimersByTimeAsync(1);
-        expect(outputTexts()).toEqual(['first fragment\nsecond fragment']);
-        expect(mocks.sendTextHookLine.mock.calls[0][0]).toMatchObject({ capturedAt, mergeFragments: false, revisionWindowMs: 0 });
-    });
-
-    it('keeps only the latest cumulative hook text within one buffer', async () => {
-        await start('luna', 100);
-        emitText('你');
-        emitText('你好');
-        emitText('你好！');
-        await vi.advanceTimersByTimeAsync(100);
-        expect(outputTexts()).toEqual(['你好！']);
-    });
-
-    it('flushes a pending line once when the hook stops', async () => {
-        await start('luna', 100);
-        emitText(subtitle);
         hook.stopHookSession();
-        expect(outputTexts()).toEqual([subtitle]);
-        await vi.advanceTimersByTimeAsync(100);
-        expect(outputTexts()).toEqual([subtitle]);
+        onProcessed(processed);
+        expect(mocks.send).not.toHaveBeenCalledWith('texthook.processed', expect.anything());
+        onEvent('texthook.hooks', { hooks: [{ id: '43' }], selectedHookId: '43' });
+        expect(mocks.send).toHaveBeenCalledWith('texthook.hooks', { hooks: [{ id: '43' }], selectedHookId: '43' });
     });
-
-    it.each(['luna', 'textractor'] as const)('drops a burst of 1,000 identical %s events before forwarding', async (selectedEngine) => {
-        await start(selectedEngine);
-
-        emitText(subtitle, '43', 1_000);
-
-        expect(outputTexts()).toEqual([subtitle]);
-        expect(mocks.send.mock.calls.filter(([channel]) => channel === 'texthook.text')).toHaveLength(1);
+    it('reports a native start failure without a JavaScript engine fallback', async () => {
+        mocks.request.mockRejectedValue(new Error('Target process has exited'));
+        const hook = await import('./texthook.js');
+        expect(await hook.startHookSession({ exeName: 'game.exe', sceneId: 's', pidOverride: 4567, archOverride: 'x64' })).toEqual({ success: false, error: 'Target process has exited' });
+        expect(mocks.spawn).not.toHaveBeenCalled();
     });
-
-    it('keeps suppressing redraws across stdout chunks and long pauses', async () => {
-        await start();
-        emitText(subtitle);
-        vi.setSystemTime(Date.now() + 60_000);
-        emitText(subtitle, '43', 1_000);
-
-        expect(outputTexts()).toEqual([subtitle]);
-    });
-
-    it('forwards changed text immediately and allows a previous line after another line', async () => {
-        await start();
-        emitText(subtitle, '43', 500);
-        emitText('下一句', '43', 500);
-        emitText(subtitle, '43', 500);
-
-        expect(outputTexts()).toEqual([subtitle, '下一句', subtitle]);
-    });
-
-    it('preserves progressive text and repetition inside a single payload', async () => {
-        await start();
-        for (const text of ['你', '你好', '你好！', '哈哈哈哈']) emitText(text, '43', 20);
-
-        expect(outputTexts()).toEqual(['你', '你好', '你好！', '哈哈哈哈']);
-    });
-
-    it('does not let output from unselected hooks reset duplicate suppression', async () => {
-        await start();
-        emitText(subtitle);
-        emitText('other hook', '44', 500);
-        emitText(subtitle, '43', 500);
-
-        expect(outputTexts()).toEqual([subtitle]);
-    });
-
-    it('forwards the first line again when another hook is selected or reselected', async () => {
-        await start();
-        emitText(subtitle);
-        emitText(subtitle, '44');
-        expect(await hook.selectHook('44')).toBe(true);
-        emitText(subtitle, '44', 500);
-        expect(await hook.selectHook('43')).toBe(true);
-        emitText(subtitle, '43', 500);
-        expect(await hook.selectHook('43')).toBe(true);
-        emitText(subtitle, '43', 500);
-
-        expect(outputTexts()).toEqual([subtitle, subtitle, subtitle, subtitle]);
-    });
-
-    it('does not carry duplicate state into a new session', async () => {
-        await start();
-        emitText(subtitle, '43', 500);
+    it('cancels a pending start before native attachment', async () => {
+        const hook = await import('./texthook.js');
+        const start = hook.startHookSession({ exeName: 'game.exe', sceneId: 's', pidOverride: 4567, archOverride: 'x64' });
         hook.stopHookSession();
-        await start();
-        emitText(subtitle, '43', 500);
-
-        expect(outputTexts()).toEqual([subtitle, subtitle]);
-    });
-
-    it('filters duplicates after erasing hook noise without accepting blocked text', async () => {
-        await start();
-        emitText(subtitle);
-        emitText(`${subtitle}%D$vl123;`, '43', 500);
-        emitText('「text」'.repeat(11));
-        emitText(subtitle);
-
-        expect(outputTexts()).toEqual([subtitle]);
-    });
-
-    it('keeps debounced previews from accumulating repeated copies of the selected line', async () => {
-        await start('luna', 100);
-        await vi.advanceTimersByTimeAsync(100);
-        emitText(subtitle, '43', 1_000);
-        await vi.advanceTimersByTimeAsync(100);
-
-        const previews = mocks.send.mock.calls.filter(([channel]) => channel === 'texthook.hooks');
-        const entry = previews.at(-1)![1].hooks.find((item: { id: string }) => item.id === '43');
-        expect(entry.preview).toBe(subtitle);
-        expect(entry.samples).toEqual(['candidate', subtitle]);
-    });
-
-    it.each([
-        'Selected hook: 3\r\nNow showing text only from 1 selected hook(s).\r\n',
-        'Selected hook: 3Now showing text only from 1 selected hook(s).\r\n',
-        'Selected hook #4 (Handle: 3)Now showing text only from selected hook.\r\n',
-    ])('keeps selection acknowledgements out of previews and the text feed: %s', async (status) => {
-        await start('luna', 100);
-        await vi.advanceTimersByTimeAsync(100);
-        const text = '小さな村の手前の原。';
-        const stream = Buffer.from(hookLine(engine, '43', text) + status, 'utf16le');
-
-        // Exercise partial UTF-16 units and status lines arriving across chunks.
-        for (let offset = 0; offset < stream.length; offset += 7) {
-            proc.stdout.emit('data', stream.subarray(offset, offset + 7));
-        }
-        await vi.advanceTimersByTimeAsync(100);
-
-        expect(outputTexts()).toEqual([text]);
-        const renderedTexts = mocks.send.mock.calls
-            .filter(([channel]) => channel === 'texthook.text')
-            .map(([, payload]) => payload.text);
-        expect(renderedTexts).toEqual([text]);
-        const previews = mocks.send.mock.calls.filter(([channel]) => channel === 'texthook.hooks');
-        const entry = previews.at(-1)![1].hooks.find((item: { id: string }) => item.id === '43');
-        expect(entry.preview).toBe(text);
-        expect(entry.samples).toEqual(['candidate', text]);
-    });
-
-    it.each(['luna', 'textractor'] as const)('ends %s multiline continuation at selection status', async (selectedEngine) => {
-        await start(selectedEngine);
-        emitText('first line\nsecond line');
-        proc.stdout.emit('data', Buffer.from(
-            'Selected hook: 43\r\nNow showing text only from 1 selected hook(s).\r\n' +
-            'unframed engine output\r\n',
-            'utf16le',
-        ));
-        emitText('next line\nlast line');
-
-        expect(outputTexts()).toEqual(['first line', 'second line', 'next line', 'last line']);
+        expect(await start).toMatchObject({ success: false, error: 'Text hook start was cancelled.' });
+        expect(mocks.request).not.toHaveBeenCalledWith('start', expect.anything());
     });
 });

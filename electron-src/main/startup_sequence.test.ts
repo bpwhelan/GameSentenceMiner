@@ -17,10 +17,9 @@ function loadStartup() {
         startBus: vi.fn(async () => {}),
         wireBackendBus: vi.fn(), setLaunchBlockedCheck: vi.fn(), initializeAgentControl: vi.fn(),
         isQuitting: false, isPythonLaunchBlockedByUpdate: () => false,
-        process: { argv: ['electron', 'gsm', '--game', '123', '--ocr'] },
+        process: { argv: ['electron', 'gsm', '--game', '123', '--ocr'], env: {} },
         launchSteamGameID: vi.fn(async () => {}), startOCR: vi.fn(async () => {}),
         getRunOverlayOnStartup: () => true, runOverlayWithSource: vi.fn(async () => true),
-        getRunWindowTransparencyToolOnStartup: () => false,
     });
     vm.runInContext(ts.transpile(functions, { target: ts.ScriptTarget.ES2022 }), context);
     return context;

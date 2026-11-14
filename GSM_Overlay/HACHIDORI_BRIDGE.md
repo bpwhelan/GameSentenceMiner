@@ -1,6 +1,6 @@
 # Dictionary navigation and the Hachidori bridge
 
-Hachidori uses the same `GamepadHandler` as Yomitan. Controller/keyboard bindings, OS input, character and token navigation, virtual cursor movement, repeats, and lookup targeting are shared. The configured dictionary reader selects a small popup adapter. Tokenization remains a separate service choice (Sudachi, MeCab, Jiten, JPDB, or Yomitan); Hachidori does not provide a tokenizer.
+Hachidori uses the same `GamepadHandler` as Yomitan. Controller/keyboard bindings, OS input, character and token navigation, virtual cursor movement, repeats, and lookup targeting are shared. The configured dictionary reader selects a small popup adapter. Tokenization remains a separate service choice (Sudachi, Jiten, JPDB, or Yomitan); Hachidori does not provide a tokenizer.
 
 ## Choosing the dictionary
 

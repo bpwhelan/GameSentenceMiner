@@ -2,7 +2,7 @@
 Tests for the tokenization feature.
 
 Covers:
-- tokenize_line() core logic with mocked MeCab
+- tokenize_line() core logic with mocked Sudachi
 - Table classes (WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable)
 - Backfill cron (run_tokenize_backfill)
 - Orphan cleanup
@@ -21,11 +21,7 @@ from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from GameSentenceMiner.mecab.basic_types import (
-    MecabParsedToken,
-    PartOfSpeech,
-    Inflection,
-)
+from GameSentenceMiner.sudachi.types import SudachiToken, PartOfSpeech
 from GameSentenceMiner.util.database.anki_tables import (
     AnkiCardsTable,
     AnkiNotesTable,
@@ -74,14 +70,15 @@ from GameSentenceMiner.util.cron.tokenize_lines import (
 # ---------------------------------------------------------------------------
 
 
-def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> MecabParsedToken:
-    """Shorthand to build a MecabParsedToken with default inflection."""
-    return MecabParsedToken(
+def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> SudachiToken:
+    """Shorthand to build a SudachiToken with character offsets."""
+    return SudachiToken(
         word=word,
         headword=headword,
         katakana_reading=reading,
         part_of_speech=pos,
-        inflection_type=Inflection.unknown,
+        start=0,
+        end=len(word),
     )
 
 
@@ -147,19 +144,19 @@ def _insert_line(line_id: str, text: str, timestamp: float | None = None):
     return line
 
 
-def _make_mock_mecab(monkeypatch, token_map: dict):
+def _make_mock_sudachi(monkeypatch, token_map: dict):
     """
     Mock the shared tokenizer so that translate(text) returns tokens from token_map.
-    token_map: {text: [MecabParsedToken, ...]}
+    token_map: {text: [SudachiToken, ...]}
     Patches at the module level so the deferred import inside tokenize_line picks it up.
     """
     import GameSentenceMiner.tokenizer as tokenizer_mod
 
-    mock_mecab = MagicMock()
-    mock_mecab.translate = MagicMock(side_effect=lambda text: token_map.get(text, []))
+    mock_sudachi = MagicMock()
+    mock_sudachi.translate = MagicMock(side_effect=lambda text: token_map.get(text, []))
 
-    monkeypatch.setattr(tokenizer_mod, "tokenizer", mock_mecab)
-    return mock_mecab
+    monkeypatch.setattr(tokenizer_mod, "tokenizer", mock_sudachi)
+    return mock_sudachi
 
 
 def _extract_progress_milestones(info_mock: MagicMock) -> list[int]:
@@ -378,7 +375,7 @@ class TestTokenizeLine:
             _tok("だ", "だ", None, PartOfSpeech.bound_auxiliary),
             _tok("。", "。", None, PartOfSpeech.symbol),
         ]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_1", text)
         result = tokenize_line("tok_1", text)
@@ -400,10 +397,24 @@ class TestTokenizeLine:
         row = gsm_db.fetchone("SELECT tokenized FROM game_lines WHERE id = ?", ("tok_1",))
         assert row[0] == 1
 
+    def test_completed_history_is_not_reanalyzed_after_migration(self, monkeypatch):
+        text = "old history"
+        backend = _make_mock_sudachi(monkeypatch, {text: [_tok(text, text, "old reading", PartOfSpeech.noun)]})
+        _insert_line("migration-history", text)
+        assert tokenize_line("migration-history", text)
+        before = gsm_db.fetchall("SELECT * FROM words")
+        occurrences = gsm_db.fetchall("SELECT * FROM word_occurrences")
+        backend.translate.reset_mock()
+        backend.translate.side_effect = RuntimeError("New dictionary must not run for old records")
+        assert tokenize_line("migration-history", text)
+        backend.translate.assert_not_called()
+        assert gsm_db.fetchall("SELECT * FROM words") == before
+        assert gsm_db.fetchall("SELECT * FROM word_occurrences") == occurrences
+
     def test_idempotent(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_2", text)
         tokenize_line("tok_2", text)
@@ -423,7 +434,7 @@ class TestTokenizeLine:
             _tok("。", "。", None, PartOfSpeech.symbol),
             _tok("！", "！", None, PartOfSpeech.symbol),
         ]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_3", text)
         tokenize_line("tok_3", text)
@@ -435,7 +446,7 @@ class TestTokenizeLine:
     def test_skips_other_pos(self, monkeypatch):
         text = "ァ"
         tokens = [_tok("ァ", "ァ", None, PartOfSpeech.other)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_4", text)
         tokenize_line("tok_4", text)
@@ -456,7 +467,7 @@ class TestTokenizeLine:
             _tok("お", "お", None, PartOfSpeech.prefix),
             _tok("この", "この", None, PartOfSpeech.adnominal_adjective),
         ]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_5", text)
         tokenize_line("tok_5", text)
@@ -480,7 +491,7 @@ class TestTokenizeLine:
     def test_no_kanji_line(self, monkeypatch):
         text = "おはようございます"
         tokens = [_tok("おはよう", "おはよう", None, PartOfSpeech.interjection)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_8", text)
         tokenize_line("tok_8", text)
@@ -494,7 +505,7 @@ class TestTokenizeLine:
             _tok("test", "", None, PartOfSpeech.noun),
             _tok("test2", "   ", None, PartOfSpeech.noun),
         ]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_9", text)
         tokenize_line("tok_9", text)
@@ -502,12 +513,12 @@ class TestTokenizeLine:
         word_count = gsm_db.fetchone("SELECT COUNT(*) FROM word_occurrences WHERE line_id = ?", ("tok_9",))[0]
         assert word_count == 0
 
-    def test_mecab_failure(self, monkeypatch):
-        mock_mecab = MagicMock()
-        mock_mecab.translate = MagicMock(side_effect=RuntimeError("MeCab crashed"))
+    def test_sudachi_failure(self, monkeypatch):
+        mock_sudachi = MagicMock()
+        mock_sudachi.translate = MagicMock(side_effect=RuntimeError("Sudachi setup required"))
         monkeypatch.setattr(
             "GameSentenceMiner.tokenizer.tokenizer",
-            mock_mecab,
+            mock_sudachi,
         )
 
         _insert_line("tok_10", "テスト")
@@ -522,7 +533,7 @@ class TestTokenizeLine:
         text2 = "食べない"
         tokens1 = [_tok("食べた", "食べる", "タベタ", PartOfSpeech.verb)]
         tokens2 = [_tok("食べない", "食べる", "タベナイ", PartOfSpeech.verb)]
-        _make_mock_mecab(monkeypatch, {text1: tokens1, text2: tokens2})
+        _make_mock_sudachi(monkeypatch, {text1: tokens1, text2: tokens2})
 
         _insert_line("tok_11a", text1)
         _insert_line("tok_11b", text2)
@@ -541,7 +552,7 @@ class TestTokenizeLine:
     def test_same_kanji_multiple_times_in_line(self, monkeypatch):
         text = "漢字漢字"
         tokens = [_tok("漢字", "漢字", "カンジ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("tok_12", text)
         tokenize_line("tok_12", text)
@@ -574,7 +585,7 @@ class TestRunTokenizeBackfill:
     def test_processes_all_lines(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -602,7 +613,7 @@ class TestRunTokenizeBackfill:
     def test_skips_already_tokenized(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -640,7 +651,7 @@ class TestRunTokenizeBackfill:
     def test_throttle_mode(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -669,7 +680,7 @@ class TestRunTokenizeBackfill:
     def test_no_throttle_when_disabled(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -693,7 +704,7 @@ class TestRunTokenizeBackfill:
     def test_progress_logs_10_percent_milestones_without_duplicates(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -720,7 +731,7 @@ class TestRunTokenizeBackfill:
     def test_progress_small_backlog_logs_only_completion_milestone(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -842,7 +853,7 @@ class TestOrphanCleanup:
     def test_cleanup_removes_orphans(self, monkeypatch):
         text = "テスト漢字"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("oc_1", text)
         tokenize_line("oc_1", text)
@@ -879,7 +890,7 @@ class TestOrphanCleanup:
     def test_cleanup_no_orphans(self, monkeypatch):
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("oc_2", text)
         tokenize_line("oc_2", text)
@@ -890,7 +901,7 @@ class TestOrphanCleanup:
     def test_cleanup_preserves_shared_words_and_kanji(self, monkeypatch):
         text = "共有漢"
         tokens = [_tok("共有", "共有", "キョウユウ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("oc_3a", text)
         _insert_line("oc_3b", text)
@@ -913,7 +924,7 @@ class TestOrphanCleanup:
     def test_cleanup_recomputes_first_seen_after_original_line_is_deleted(self, monkeypatch):
         text = "再会"
         tokens = [_tok("再会", "再会", "サイカイ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         first_timestamp = 1700000000.0
         second_timestamp = 1700100000.0
@@ -937,7 +948,7 @@ class TestOrphanCleanup:
     def test_cleanup_clears_first_seen_when_only_anki_link_preserves_word(self, monkeypatch):
         text = "既知語"
         tokens = [_tok("既知語", "既知語", "キチゴ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         timestamp = 1700000000.0
         _insert_line("oc_fs_3", text, timestamp=timestamp)
@@ -1018,7 +1029,7 @@ class TestTriggerCleanup:
     def test_trigger_cleans_on_delete(self, monkeypatch):
         text = "漢字テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("trig_1", text)
         tokenize_line("trig_1", text)
@@ -1041,7 +1052,7 @@ class TestTriggerCleanup:
     def test_trigger_preserves_other_lines(self, monkeypatch):
         text = "共有テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("trig_2a", text)
         _insert_line("trig_2b", text)
@@ -1690,7 +1701,7 @@ class TestTokenizeLineFirstSeen:
     def test_tokenize_line_sets_first_seen_for_new_words(self, monkeypatch):
         text = "犬"
         tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         timestamp = 1700000000.0
         _insert_line("fs_1", text, timestamp=timestamp)
@@ -1704,7 +1715,7 @@ class TestTokenizeLineFirstSeen:
     def test_tokenize_line_preserves_existing_first_seen(self, monkeypatch):
         text = "犬"
         tokens = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         first_timestamp = 1700000000.0
         second_timestamp = 1700100000.0
@@ -1744,7 +1755,7 @@ class TestTokenizeLineLastSeen:
             _tok("だ", "だ", None, PartOfSpeech.bound_auxiliary),
             _tok("。", "。", None, PartOfSpeech.symbol),  # filtered out
         ]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         ts = 1700000000.0
         _insert_line("ls_1", text, timestamp=ts)
@@ -1760,7 +1771,7 @@ class TestTokenizeLineLastSeen:
         """Tokenizing without line_timestamp should not set last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("ls_2", text)
         tokenize_line("ls_2", text)  # no line_timestamp
@@ -1773,7 +1784,7 @@ class TestTokenizeLineLastSeen:
         """A second line with a newer timestamp should update last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         _insert_line("ls_3a", text, timestamp=1700000000.0)
         tokenize_line("ls_3a", text, line_timestamp=1700000000.0)
@@ -1790,7 +1801,7 @@ class TestTokenizeLineLastSeen:
         """An older line timestamp should NOT overwrite a newer last_seen."""
         text = "テスト"
         tokens = [_tok("テスト", "テスト", "テスト", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         # Tokenize with newer timestamp first
         _insert_line("ls_4a", text, timestamp=1700099999.0)
@@ -1807,7 +1818,7 @@ class TestTokenizeLineLastSeen:
         """Backfill processing multiple lines should leave last_seen = max(timestamps)."""
         text = "食べる"
         tokens = [_tok("食べる", "食べる", "タベル", PartOfSpeech.verb)]
-        _make_mock_mecab(monkeypatch, {text: tokens})
+        _make_mock_sudachi(monkeypatch, {text: tokens})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",
@@ -1835,7 +1846,7 @@ class TestTokenizeLineLastSeen:
         text_b = "猫"
         tokens_a = [_tok("犬", "犬", "イヌ", PartOfSpeech.noun)]
         tokens_b = [_tok("猫", "猫", "ネコ", PartOfSpeech.noun)]
-        _make_mock_mecab(monkeypatch, {text_a: tokens_a, text_b: tokens_b})
+        _make_mock_sudachi(monkeypatch, {text_a: tokens_a, text_b: tokens_b})
 
         monkeypatch.setattr(
             "GameSentenceMiner.util.cron.tokenize_lines.is_tokenization_enabled",

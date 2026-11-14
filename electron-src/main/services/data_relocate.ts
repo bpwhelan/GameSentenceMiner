@@ -22,6 +22,7 @@ const RELOCATED_DATA_PATHS = [
     'gsm.db-shm',
     'gsm.db-wal',
     'multi-mine-window-config.json',
+    'obs-service.json',
     'obs-studio/config',
     'ocr_config',
     'plugins.py',

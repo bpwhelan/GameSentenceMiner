@@ -7,6 +7,7 @@ export function WorkspaceIcon({ name }: { name: string }) {
       "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Zm-2-5h4l1 3 3 1 3 3v4l-3 1-1 3-3 3h-4l-1-3-3-1-3-3v-4l3-1 1-3 3-3Z",
     general: "M4 4h16v12H4V4Zm4 16h8M12 16v4",
     layout: "M4 4h16v16H4V4Zm5 0v16M9 10h11",
+    notifications: "M9 18h6m-3-15a6 6 0 0 1 6 6v4l2 3H4l2-3V9a6 6 0 0 1 6-6Zm-2 16a2 2 0 0 0 4 0",
     updates: "M20 7v5h-5M4 17v-5h5m-4-4a8 8 0 0 1 13-3l2 2M4 17l2 2a8 8 0 0 0 13-3",
     backups: "M4 6h16v14H4V6Zm2-3h12M9 10h6M12 10v6m-3-3 3 3 3-3",
     storage: "M3 6h7l2 2h9v12H3V6Z",

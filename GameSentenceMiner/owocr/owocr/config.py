@@ -20,7 +20,6 @@ _DEFAULT_CONFIG = {
     "engine_color": "cyan",
     "delay_secs": 0.5,
     "websocket_port": 7331,
-    "notifications": False,
     "combo_pause": "",
     "combo_engine_switch": "",
     "screen_capture_area": "",
@@ -97,13 +96,6 @@ parser.add_argument(
     action="store_true",
     default=argparse.SUPPRESS,
     help="Delete image files after processing when reading from a directory.",
-)
-parser.add_argument(
-    "-n",
-    "--notifications",
-    action="store_true",
-    default=argparse.SUPPRESS,
-    help="Show an operating system notification with the detected text. Will be ignored when reading with screen capture, unless screen_capture_combo is set.",
 )
 parser.add_argument(
     "-a",

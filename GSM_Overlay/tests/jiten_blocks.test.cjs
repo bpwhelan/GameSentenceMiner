@@ -5,6 +5,7 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const { detectTextBlocks } = require('../block_detection');
 const { JitenParseCache } = require('../jiten_cache');
+const { between } = require('./helpers/overlay-startup.cjs');
 
 const highlighterSource = fs.readFileSync(path.join(__dirname, '../jiten_highlight.js'), 'utf8');
 const readerSource = fs.readFileSync(path.join(__dirname, '../jiten.reader/js/ajb.js'), 'utf8');
@@ -50,6 +51,8 @@ function setup(t, lines) {
     window.readParagraphs = node => new ParagraphReader(node).read()
       .map(fragments => fragments.map(fragment => fragment.node.data).join(''));`);
   window.eval(highlighterSource);
+  const renderer = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+  window.eval(between(renderer, '  function isOverlayLineVertical(', '  function buildOverlayLineRenderUnits('));
   lines.forEach((line, lineIndex) => {
     const block = document.createElement('p');
     block.className = 'text-block-container';
@@ -185,6 +188,29 @@ test('highlight offsets include whitespace and supplementary characters', async 
   await complete();
   assert.deepEqual(highlights(), [['20px', '0px', '10px', '20px']]);
   assert.deepEqual(Array.from(api.getNavigationTokens(), token => [token.start, token.end]), [[0, 2], [4, 5]]);
+});
+
+test('vertical highlights use the source line orientation even for a single glyph, then reset pooled boxes', async t => {
+  for (const orientation of [true, undefined]) {
+    const source = { text: '猫日本', words: [{ text: '猫日本', bounding_rect: {
+      x1: 0.1, y1: 0.1, x3: 0.12, y3: 0.4,
+    } }] };
+    if (orientation !== undefined) source.isVertical = orientation;
+    const { api, document, tick, paragraphs, complete, highlights, parses } = setup(t, [source]);
+    for (const [index, box] of [...document.querySelectorAll('.text-box')].entries()) {
+      box.getBoundingClientRect = () => ({
+        left: 100, right: 130, width: 30, top: 100 + index * 20, bottom: 120 + index * 20, height: 20,
+      });
+    }
+    api.requestParse([source]); tick(0);
+    paragraphs()[0].innerHTML = '<span class="jiten-word new">猫</span><span class="jiten-word young">日本</span>';
+    await complete();
+    assert.deepEqual(highlights(), [['100px', '100px', '30px', '20px'], ['100px', '120px', '30px', '40px']]);
+    assert.ok([...document.querySelectorAll('.gsm-jiten-hl')].every(el => el.classList.contains('gsm-jiten-hl--vertical')));
+    api.requestParse([{ ...source, isVertical: false }]);
+    assert.equal(parses(), 1, 'orientation changes reuse the parsed text');
+    assert.ok([...document.querySelectorAll('.gsm-jiten-hl')].every(el => !el.classList.contains('gsm-jiten-hl--vertical')));
+  }
 });
 
 test('navigation exposes i+1 markers independently of learning state and visibility', async t => {

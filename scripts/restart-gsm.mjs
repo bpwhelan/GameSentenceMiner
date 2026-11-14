@@ -88,8 +88,8 @@ function buildApp() {
         // npm's own executable avoids shell quoting entirely when invoked by npm run.
         const npmCli = process.env.npm_execpath;
         const child = npmCli
-            ? spawn(process.execPath, [npmCli, 'run', 'build'], { cwd: repoRoot, stdio: 'inherit', windowsHide: true })
-            : spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], {
+            ? spawn(process.execPath, [npmCli, 'run', 'build:tauri'], { cwd: repoRoot, stdio: 'inherit', windowsHide: true })
+            : spawn(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build:tauri'], {
                 cwd: repoRoot, stdio: 'inherit', windowsHide: true, shell: process.platform === 'win32',
             });
         child.once('error', reject);

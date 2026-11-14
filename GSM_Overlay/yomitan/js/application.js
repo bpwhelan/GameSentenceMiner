@@ -192,7 +192,11 @@ export class Application extends EventDispatcher {
      */
     static async main(waitForDom, mainFunction) {
         const supportsServiceWorker = 'serviceWorker' in navigator; // Basically, all browsers except Firefox. But it's possible Firefox will support it in the future, so we check in this fashion to be future-proof.
-        const inExtensionContext = window.location.protocol === new URL(import.meta.url).protocol; // This code runs both in content script as well as in the iframe, so we need to differentiate the situation
+        const moduleUrl = new URL(import.meta.url);
+        // Desktop webviews host each reader on its own origin. Protocol alone
+        // also matches the app page on WebView2 and incorrectly starts workers
+        // in a content script. Compare the host as well, including custom schemes.
+        const inExtensionContext = window.location.protocol === moduleUrl.protocol && window.location.host === moduleUrl.host;
         /** @type {MessagePort | null} */
         // If this is Firefox, we don't have a service worker and can't postMessage,
         // so we temporarily create a SharedWorker in order to establish a MessageChannel

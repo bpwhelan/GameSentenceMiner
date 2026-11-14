@@ -1,5 +1,7 @@
+import builtins
 import json
 import os
+import sys
 from concurrent.futures import Future
 from datetime import timedelta
 from pathlib import Path
@@ -164,3 +166,139 @@ def test_expired_or_missing_extra_replay_keeps_original_review_usable(saved_revi
     assert reloaded.future_clip is None
     assert reloaded.context.mined_line.next is None
     assert Path(reloaded.context.video_path).is_file()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows ACL inheritance")
+def test_future_context_inherits_review_queue_permissions(saved_review, monkeypatch):
+    import ntsecuritycon
+    import win32security
+
+    entry, config, replay, *_ = saved_review
+    root = entry.folder.parent
+    sid = win32security.CreateWellKnownSid(win32security.WinBuiltinUsersSid, None)
+    security = win32security.GetNamedSecurityInfo(
+        str(root), win32security.SE_FILE_OBJECT, win32security.DACL_SECURITY_INFORMATION
+    )
+    acl = security.GetSecurityDescriptorDacl()
+    acl.AddAccessAllowedAceEx(
+        win32security.ACL_REVISION,
+        win32security.CONTAINER_INHERIT_ACE | win32security.OBJECT_INHERIT_ACE,
+        ntsecuritycon.FILE_GENERIC_READ,
+        sid,
+    )
+    win32security.SetNamedSecurityInfo(
+        str(root), win32security.SE_FILE_OBJECT, win32security.DACL_SECURITY_INFORMATION, None, None, acl, None
+    )
+
+    save_future(entry, config, replay, monkeypatch)
+
+    for path in (entry.folder / "future", entry.folder / "future" / "manifest.json"):
+        security = win32security.GetNamedSecurityInfo(
+            str(path), win32security.SE_FILE_OBJECT, win32security.DACL_SECURITY_INFORMATION
+        )
+        acl = security.GetSecurityDescriptorDacl()
+        assert any(
+            (ace := acl.GetAce(index))[2] == sid and ace[0][1] & win32security.INHERITED_ACE
+            for index in range(acl.GetAceCount())
+        ), f"{path} did not inherit access from the review queue"
+
+
+@pytest.mark.parametrize(
+    ("blocked_file", "block_stat"),
+    [("manifest.json", True), ("manifest.json", False), ("replay.mkv", True), ("replay.mkv", False)],
+)
+def test_inaccessible_future_context_does_not_block_original_review(
+    saved_review, monkeypatch, blocked_file, block_stat
+):
+    entry, config, replay, *_ = saved_review
+    save_future(entry, config, replay, monkeypatch)
+    blocked = entry.folder / "future" / blocked_file
+    stat = Path.stat
+    open_file = builtins.open
+
+    def denied_stat(path, *args, **kwargs):
+        if block_stat and path == blocked:
+            raise PermissionError(13, "Access is denied", str(path))
+        return stat(path, *args, **kwargs)
+
+    def denied_open(file, *args, **kwargs):
+        if isinstance(file, (str, Path)) and Path(file) == blocked:
+            raise PermissionError(13, "Access is denied", str(file))
+        return open_file(file, *args, **kwargs)
+
+    with monkeypatch.context() as restricted:
+        restricted.setattr(Path, "stat", denied_stat)
+        restricted.setattr(builtins, "open", denied_open)
+        prepared = session_review.load_review(entry)
+        assert prepared.future_clip is None
+        assert prepared.future_context_access_denied
+        assert Path(prepared.context.video_path).is_file()
+        assert prepared.context.mined_line.text == "Sentence"
+        assert [item.id for item in session_review.list_pending_reviews(config)] == [entry.id]
+
+    restored = session_review.load_review(entry)
+    assert not restored.future_context_access_denied
+    assert restored.future_clip is not None
+    assert restored.context.mined_line.next.text == "Future 1"
+
+
+def test_finishing_review_preserves_files_when_extra_context_cannot_be_removed(saved_review, monkeypatch):
+    entry, config, replay, *_ = saved_review
+    save_future(entry, config, replay, monkeypatch)
+    future = entry.folder / "future"
+    original_video = Path(session_review.load_review(entry).context.video_path)
+    config.features.review_after_session.delete_local_after_review = True
+    rmtree = session_review.shutil.rmtree
+
+    def denied_rmtree(path, *args, **kwargs):
+        if Path(path) == future:
+            raise PermissionError(13, "Access is denied", str(path))
+        return rmtree(path, *args, **kwargs)
+
+    with monkeypatch.context() as restricted:
+        restricted.setattr(session_review.shutil, "rmtree", denied_rmtree)
+        session_review.finish_review(entry, config.features.review_after_session)
+
+    assert original_video.is_file()
+    assert (future / "manifest.json").is_file()
+    assert json.loads((entry.folder / "review.json").read_text(encoding="utf-8"))["status"] == "reviewed"
+    assert not session_review.list_pending_reviews(config)
+
+    assert session_review.retry_media_cleanup() == 0
+    assert not entry.folder.exists()
+
+
+def test_failed_future_copy_removes_staging_and_keeps_original_review(saved_review, monkeypatch):
+    entry, config, replay, *_ = saved_review
+    module = context_module()
+
+    def fail_link(*args, **kwargs):
+        raise OSError("Cannot link")
+
+    def fail_copy(*args, **kwargs):
+        raise OSError("Cannot copy")
+
+    monkeypatch.setattr(module.os, "link", fail_link)
+    monkeypatch.setattr(module.shutil, "copy2", fail_copy)
+    with pytest.raises(OSError, match="Cannot copy"):
+        save_future(entry, config, replay, monkeypatch)
+
+    assert not list(entry.folder.parent.glob("future-*"))
+    assert not (entry.folder / "future").exists()
+    assert session_review.load_review(entry).context.mined_line.text == "Sentence"
+
+
+def test_future_copy_does_not_restore_a_review_finished_during_capture(saved_review, monkeypatch):
+    entry, config, replay, *_ = saved_review
+    config.features.review_after_session.delete_local_after_review = True
+    module = context_module()
+
+    def finish_during_copy(source, destination):
+        session_review.finish_review(entry, config.features.review_after_session)
+        Path(destination).write_bytes(b"future replay")
+
+    monkeypatch.setattr(module.os, "link", finish_during_copy)
+    save_future(entry, config, replay, monkeypatch)
+
+    assert not entry.folder.exists()
+    assert not list(entry.folder.parent.glob("future-*"))

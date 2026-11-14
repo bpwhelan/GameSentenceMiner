@@ -316,7 +316,7 @@ test('paused Jiten furigana is not requested and an in-flight response is discar
   let resolveRequest;
   let calls = 0;
   const context = vm.createContext({
-    intakePauseGeneration: 0, textIntakePaused: true,
+    intakePauseGeneration: 0, textIntakePaused: true, furiganaDictionaryGeneration: 0,
     lastJitenHighlightLines: null, lastJitenHighlightMeta: null, lastJitenHighlightLineBlocks: null,
     jitenHighlightingEnabled: false, showFurigana: true, overlayRenderGeneration: 1,
     ReadingOverlay: null, readingLanguage: 'ja',

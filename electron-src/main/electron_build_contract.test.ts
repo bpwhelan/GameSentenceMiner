@@ -1,101 +1,49 @@
 import * as fs from 'node:fs';
-import * as path from 'node:path';
+import {describe, expect, it} from 'vitest';
 
-import { validateConfiguration } from 'app-builder-lib/out/util/config/config.js';
-import { describe, expect, it } from 'vitest';
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+const bundle = JSON.parse(fs.readFileSync('src-tauri/tauri.bundle.conf.json', 'utf8'));
 
-describe('Electron build configuration', () => {
-    it('starts normal and watched development sessions through the branded launcher', () => {
-        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-        expect(packageJson.scripts.start).toBe('npm run build && node scripts/electron-start.cjs');
-        expect(fs.readFileSync('scripts/electron-dev-once.cjs', 'utf8')).toContain("require('./electron-start.cjs')");
-        expect(fs.readFileSync('scripts/run-update-chaos.cjs', 'utf8')).toContain("require('./electron-start.cjs')");
+describe('native desktop distribution contract', () => {
+    it('uses the native launcher for normal and watched development', () => {
+        expect(packageJson.scripts.start).toContain('scripts/start-tauri.mjs');
+        expect(packageJson.scripts.dev).toContain('dev:desktop');
+        expect(packageJson.scripts['dev:desktop']).toContain('scripts/build-native-dev.mjs');
+        expect(packageJson.scripts['dev:desktop']).not.toContain('electron');
     });
 
-    it('compiles and packages shared modules used by the main process', () => {
-        const repoRoot = process.cwd();
-        const electronTsconfig = JSON.parse(
-            fs.readFileSync(path.join(repoRoot, 'tsconfig.electron.json'), 'utf8'),
-        ) as { exclude?: string[]; include?: string[] };
-        const packageJson = JSON.parse(
-            fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-        ) as { build?: { files?: string[] }; main?: string };
-
-        expect(packageJson.main).toBe('dist/main/bootstrap.js');
-        expect(electronTsconfig.include).toContain('electron-src/shared/**/*');
-        expect(electronTsconfig.exclude).toEqual(
-            expect.arrayContaining(['electron-src/main/**/*.test.ts', 'electron-src/main/test/**/*']),
-        );
-        expect(packageJson.build?.files).toContain('dist/shared/**/*');
-        expect(packageJson.build?.files).toContain('!dist/renderer/legacy/changelog/**/*');
+    it('keeps Electron outside production dependencies and bundles one owned service tree', () => {
+        for (const name of ['electron', 'electron-log', 'electron-store', 'electron-updater', 'electron-builder']) {
+            expect(packageJson.dependencies[name]).toBeUndefined();
+        }
+        expect(bundle.bundle.resources).toEqual({'../build/native-desktop/app/': 'app/'});
+        const compiler = JSON.parse(fs.readFileSync('tsconfig.electron.json', 'utf8'));
+        expect(compiler.include).toContain('electron-src/shared/**/*');
+        expect(compiler.exclude).toContain('electron-src/main/**/*.test.ts');
     });
 
-    it('packages staged overlay resources so the nested app shares the outer Electron runtime', () => {
-        const repoRoot = process.cwd();
-        const packageJson = JSON.parse(
-            fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-        ) as {
-            build?: { extraFiles?: Array<{ from?: string; filter?: string[]; to?: string }> };
-            scripts?: Record<string, string>;
-        };
-
-        const overlayCopy = packageJson.build?.extraFiles?.find(
-            (entry) => entry.from === 'build/overlay',
-        );
-
-        expect(packageJson.scripts?.['stage:overlay']).toBe('node scripts/stage-overlay-build.mjs');
-        expect(packageJson.scripts?.['verify:overlay-package']).toBe('node scripts/verify-overlay-package.mjs');
-        expect(packageJson.scripts?.['app:dist']).toContain('npm run stage:overlay');
-        expect(overlayCopy).toBeDefined();
-        expect(overlayCopy?.to).toBe('resources/GSM_Overlay');
-        expect(overlayCopy?.filter).toEqual(['**/*']);
+    it('preserves installation identity and requires version-bound signed updates', () => {
+        expect(config.identifier).toBe('com.beangate.gamesentenceminer');
+        expect(config.plugins.updater.requireSignedVersion).toBe(true);
+        const publicKey = Buffer.from(config.plugins.updater.pubkey, 'base64').toString('utf8');
+        expect(publicKey).toMatch(/^untrusted comment: minisign public key/);
+        expect(bundle.bundle.windows.nsis.installerHooks).toBe('windows-installer.nsh');
     });
 
-    it('uses an electron-builder configuration accepted by the installed schema', async () => {
-        const repoRoot = process.cwd();
-        const packageJson = JSON.parse(
-            fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-        ) as { build?: Parameters<typeof validateConfiguration>[0]; scripts?: Record<string, string> };
-
-        expect(packageJson.build).toBeDefined();
-        await validateConfiguration(packageJson.build!, {
-            isEnabled: false,
-            add: () => undefined,
-        });
-    });
-
-    it('keeps release upload explicit instead of relying on CI auto-publish', () => {
-        const repoRoot = process.cwd();
-        const packageJson = JSON.parse(
-            fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-        ) as { scripts?: Record<string, string> };
-
-        expect(packageJson.scripts?.['app:dist']).toContain('--publish=never');
-        expect(packageJson.scripts?.['app:deploy']).toContain('--publish=always');
+    it('keeps local packaging separate from coordinated publication', () => {
+        expect(packageJson.scripts['app:dist']).toContain('build-native-desktop.mjs');
+        expect(packageJson.scripts['app:deploy']).toBeUndefined();
+        const release = fs.readFileSync('.github/workflows/native_desktop.yml', 'utf8');
+        for (const platform of ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64']) expect(release).toContain(platform);
+        expect(release).toContain('needs: [version, build]');
+        expect(release).toContain('scripts/merge-native-updates.mjs');
+        expect(release).toContain('scripts/sign-native-assets.mjs');
     });
 
     it('lets CMake select the installed Visual Studio generator for Windows speech helpers', () => {
-        const repoRoot = process.cwd();
-        const buildScript = fs.readFileSync(
-            path.join(repoRoot, 'scripts', 'build-windows-speech-helper.mjs'),
-            'utf8',
-        );
-
-        expect(buildScript).not.toContain('Visual Studio 17 2022');
-        expect(buildScript).not.toContain("'-A', 'x64'");
-    });
-
-    it('recreates signed Windows update metadata with the installed Electron Builder library', () => {
-        const repoRoot = process.cwd();
-        const workflow = fs.readFileSync(
-            path.join(repoRoot, '.github', 'workflows', 'release_exe.yml'),
-            'utf8',
-        );
-
-        expect(workflow).toContain(
-            "require('app-builder-lib/out/targets/blockmap/blockmap')",
-        );
-        expect(workflow).toContain("buildBlockMap(input, 'gzip', output)");
-        expect(workflow).not.toContain("require('app-builder-bin')");
+        const source = fs.readFileSync('scripts/build-windows-speech-helper.mjs', 'utf8');
+        expect(source).not.toContain('Visual Studio 17 2022');
+        expect(source).not.toContain("'-A', 'x64'");
     });
 });

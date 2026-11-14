@@ -22,20 +22,6 @@ def test_open_pending_reviews_command_routes_to_qt(monkeypatch):
     assert opened == [True]
 
 
-def test_startup_announces_pending_reviews_after_readiness(monkeypatch):
-    from GameSentenceMiner import session_review
-    from GameSentenceMiner.util.platform import notification
-
-    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
-    calls = []
-    app._wait_for_startup_ready = lambda: calls.append("ready")
-    monkeypatch.setattr(gsm_module.gsm_state, "keep_running", True)
-    monkeypatch.setattr(session_review, "notify_pending_on_startup", lambda: calls.append("reviews") or True)
-    monkeypatch.setattr(notification, "send_notification", lambda *args: calls.append("generic notification"))
-    app._announce_startup_ready()
-    assert calls == ["ready", "reviews"]
-
-
 def test_main_skips_run_when_existing_instance_detected(monkeypatch):
     calls = []
 

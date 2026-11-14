@@ -1,5 +1,22 @@
 import { Notification, shell } from 'electron';
 import { getIconPath } from './main.js';
+import {
+    NOTIFICATION_EVENT_IDS, normalizeNotificationPreferences, resolveNotificationDelivery,
+    type NotificationPreferences, type NotificationSound,
+} from '../shared/notifications.js';
+
+interface NotificationDeliveryDependencies {
+    getPreferences: () => NotificationPreferences;
+    playSound: (sound: NotificationSound, volume: number) => Promise<void>;
+}
+const delivery: NotificationDeliveryDependencies = {
+    getPreferences: () => normalizeNotificationPreferences(null),
+    playSound: async () => {},
+};
+
+export function configureNotificationDelivery(dependencies: Partial<NotificationDeliveryDependencies>): void {
+    Object.assign(delivery, dependencies);
+}
 
 // Utility logger (replace with your own logger if needed)
 const logger = {
@@ -9,7 +26,7 @@ const logger = {
 
 export enum NotificationType {
     AnkiCardUpdated = 'Anki Card Updated',
-    AnkiEnhancementFailed = 'Anki Enhancement Failed',
+    AnkiEnhancementFailed = 'Card error',
     AnkiCardOpened = 'Anki Card Opened',
     AnkiBrowserOpened = 'Anki Browser Opened',
     ScreenshotSaved = 'Screenshot Saved',
@@ -21,6 +38,8 @@ export enum NotificationType {
     GSMStillRunning = 'GSM Still Running',
     GSMTextIntakePaused = 'GSM Text Intake Paused',
     GSMTextIntakeResumed = 'GSM Text Intake Resumed',
+    OCRPaused = 'OCR paused',
+    OCRResumed = 'OCR resumed',
     PendingSessionReviews = 'Anki reviews pending',
 }
 
@@ -32,11 +51,20 @@ function sendNotification(
     onClick?: () => void,
     actions: Array<{ text: string; onAction: () => void }> = [],
 ) {
+    const event = NOTIFICATION_EVENT_IDS.find((key) => NotificationType[key] === type);
+    if (event) {
+        const preferences = delivery.getPreferences();
+        const { banner, sound } = resolveNotificationDelivery(event, preferences);
+        if (sound) {
+            void delivery.playSound(sound, preferences.volume).catch((error) => logger.error('Notification sound failed:', error));
+        }
+        if (!banner) return;
+    }
     const notif = new Notification({
         icon: getIconPath(),
         title: type,
         body: message,
-        silent: false,
+        silent: Boolean(event),
         actions: process.platform === 'win32' || process.platform === 'darwin'
             ? actions.map(({ text }) => ({ type: 'button' as const, text }))
             : undefined,
@@ -148,22 +176,22 @@ async function invokeAnki(data: any): Promise<any> {
 
 // Take in a message.data and parse the json
 export function sendNotificationFromPython(data: any, openPendingReviews?: () => void) {
-    const { type, message, noteId } = data;
+    const { type, message, noteId, path } = data;
     switch (NotificationType[type as keyof typeof NotificationType]) {
         case NotificationType.AnkiCardUpdated:
-            sendNoteUpdated(message, noteId);
+            sendNoteUpdated(message, noteId, message);
             break;
         case NotificationType.AnkiEnhancementFailed:
             sendAnkiEnhancementFailed(message);
             break;
         case NotificationType.ScreenshotSaved:
-            sendScreenshotSaved(message);
+            sendScreenshotSaved(path, message);
             break;
         case NotificationType.AudioGenerated:
-            sendAudioGeneratedNotification(message);
+            sendAudioGeneratedNotification(path, message);
             break;
         case NotificationType.CheckOBS:
-            sendCheckObsNotification(message);
+            sendNotification(NotificationType.CheckOBS, message, 5000);
             break;
         case NotificationType.Error:
             sendErrorNotification(message);
@@ -186,25 +214,25 @@ export function sendNotificationFromPython(data: any, openPendingReviews?: () =>
         case NotificationType.GSMTextIntakeResumed:
             sendTextIntakeResumedNotification(message);
             break;
+        case NotificationType.OCRPaused:
+        case NotificationType.OCRResumed:
+            sendNotification(NotificationType[type as keyof typeof NotificationType], message);
+            break;
         default:
             console.warn(`Unknown notification type: ${type}`);
     }
 }
 
 // Notification helpers
-export function sendNoteUpdated(noteID: number | string, noteId?: number) {
-    const parsed = noteId ?? (typeof noteID === 'number' ? noteID : parseInt(String(noteID)));
-    const openCard = () => {
-        if (parsed && !Number.isNaN(parsed)) {
-            openAnkiCard(parsed);
-        }
-    };
+export function sendNoteUpdated(noteID: number | string, noteId?: number, message?: string) {
+    const parsed = Number(noteId ?? noteID);
+    const openCard = Number.isSafeInteger(parsed) && parsed > 0 ? () => { void openAnkiCard(parsed); } : undefined;
     sendNotification(
         NotificationType.AnkiCardUpdated,
-        `Audio and/or Screenshot added to note: ${parsed}`,
+        message || `Audio and/or Screenshot added to note: ${noteID}`,
         5000,
         openCard,
-        parsed && !Number.isNaN(parsed) ? [{ text: 'Open Card', onAction: openCard }] : [],
+        openCard ? [{ text: 'Open Card', onAction: openCard }] : [],
     );
 }
 
@@ -227,18 +255,18 @@ export function sendAnkiEnhancementFailed(message: string) {
     );
 }
 
-export function sendScreenshotSaved(path: string) {
-    sendNotification(NotificationType.ScreenshotSaved, `Screenshot saved to: ${path}`, 5000, () =>
-        shell.openPath(path)
+export function sendScreenshotSaved(path?: string, message?: string) {
+    sendNotification(NotificationType.ScreenshotSaved, message || `Screenshot saved to: ${path}`, 5000, path ? () =>
+        shell.openPath(path) : undefined
     );
 }
 
-export function sendAudioGeneratedNotification(audioPath: string) {
+export function sendAudioGeneratedNotification(audioPath?: string, message?: string) {
     sendNotification(
         NotificationType.AudioGenerated,
-        `Audio trimmed and placed at ${audioPath}`,
+        message || `Audio trimmed and placed at ${audioPath}`,
         5000,
-        () => shell.openPath(audioPath)
+        audioPath ? () => shell.openPath(audioPath) : undefined
     );
 }
 

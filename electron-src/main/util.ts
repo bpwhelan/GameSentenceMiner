@@ -5,12 +5,13 @@ import path from "path";
 import {promisify} from "util";
 import {execFile, spawn, execSync} from "child_process";
 import { app, type WebPreferences } from "electron";
-import {__dirname} from "./main.js";
+import { fileURLToPath } from 'node:url';
 import { getBaseDir } from "./data_dir.js";
 import { buildWindowsAdminRelaunchCommand } from './windows_command_line.js';
 import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 
 export type SupportedPlatform = 'linux' | 'darwin' | 'win32';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const isMac = process.platform === 'darwin';
 export const cpuModel = os.cpus()[0]?.model || null;
 export const isArmMac: boolean = isMac && !!cpuModel && /Apple M\d/i.test(cpuModel);
@@ -55,7 +56,7 @@ export function isMacOS(): boolean {
 }
 
 export function isWindows10OrHigher(): boolean {
-    return isWindows() && parseInt(process.getSystemVersion().split('.')[0]) >= 10;
+    return isWindows() && parseInt(os.release().split('.')[0]) >= 10;
 }
 
 /**
@@ -185,10 +186,12 @@ export function getOverlayPath(): string {
 }
 
 export function getOverlayResourcesPath(): string {
+    if (process.env.GSM_NATIVE_SERVICE) return path.join(getResourcesDir(), 'GSM_Overlay');
     return path.join(getOverlayPath(), 'resources');
 }
 
 export function getOverlayAppAsarPath(): string {
+    if (process.env.GSM_NATIVE_SERVICE) return getOverlayResourcesPath();
     return path.join(getOverlayResourcesPath(), 'app.asar');
 }
 

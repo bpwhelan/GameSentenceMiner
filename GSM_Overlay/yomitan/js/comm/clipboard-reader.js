@@ -64,6 +64,7 @@ export class ClipboardReader {
      * @throws {Error} Error if not supported.
      */
     async getText(useRichText) {
+        if (globalThis.gsmEnv?.shell === 'tauri') return await globalThis.clipboard.readText();
         /*
         Notes:
             document.execCommand('paste') sometimes doesn't work on Firefox.
@@ -114,6 +115,7 @@ export class ClipboardReader {
      * @throws {Error} Error if not supported.
      */
     async getImage() {
+        if (globalThis.gsmEnv?.shell === 'tauri') return await globalThis.clipboard.readImage().catch(() => null);
         // See browser-specific notes in getText
         if (
             this._isFirefox() &&

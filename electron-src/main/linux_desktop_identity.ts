@@ -108,7 +108,7 @@ export function resolveLinuxDesktopIdentity(
     );
     const executableNames = [
         env.APPIMAGE,
-        options.executablePath ?? process.execPath,
+        options.executablePath ?? env.GSM_NATIVE_EXECUTABLE ?? process.execPath,
         options.argv0 ?? process.argv[0],
     ]
         .map(normalizeDesktopName)

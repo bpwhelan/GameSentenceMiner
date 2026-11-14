@@ -7,6 +7,7 @@ const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 const { execFileSync } = require('node:child_process');
 const { rendererFixtureSource, renderCases, line, overlayRoot, readRenderer } = require('./helpers/overlay-render.cjs');
+const { between } = require('./helpers/overlay-startup.cjs');
 
 const reference = execFileSync('git', ['rev-parse', process.argv[2] || 'HEAD'], { cwd: overlayRoot, encoding: 'utf8' }).trim();
 const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-overlay-render-'));
@@ -187,6 +188,108 @@ app.whenReady().then(async () => {
     }
   }
   console.log(`Character margins: ${lookupChecks} fixed-start, extended-end and neighbor points scan the correct word, including vertical text, offsets and Magpie scaling.`);
+
+  // Verify production reading geometry and Jiten CSS in Chromium. jsdom cannot
+  // resolve vertical writing modes, logical borders or transformed bounds.
+  const readingWindow = windows[1];
+  await readingWindow.webContents.debugger.sendCommand('Emulation.setDeviceMetricsOverride', {
+    width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false,
+  });
+  for (const name of ['furigana_utils.js', 'reading_overlay_utils.js', 'jiten_highlight.js']) {
+    await readingWindow.webContents.executeJavaScript(fs.readFileSync(path.join(overlayRoot, name), 'utf8'));
+  }
+  const html = readRenderer();
+  await readingWindow.webContents.executeJavaScript(`(() => {
+    const FuriganaUtils = window.GSMFuriganaUtils, ReadingOverlay = window.GSMReadingOverlay;
+    const readingLanguage = 'japanese', pinyinToneColorsEnabled = false;
+    let offsetX = 0, offsetY = 0, magpie = null;
+    const mapPercentToMagpie = (x, y) => window.GSMMagpie.mapPercentToMagpie(x, y, magpie, null);
+    ${between(html, '  function isOverlayLineVertical(', '  function buildOverlayLineRenderUnits(')}
+    ${between(html, '  function roundFuriganaSignatureValue(', '  function getFuriganaBackendCacheSignature(')}
+    ${between(html, '  function buildLineCharacterBoxes(', '  async function renderFuriganaForFrame(')}
+    ${between(html, "  const JITEN_GSM_STYLE_ID =", '  function pushJitenWordStyleConfigToHighlighter(')}
+    window.isOverlayLineVertical = isOverlayLineVertical;
+    window.renderReadingFixture = async (source, segments, options, config) => {
+      offsetX = options.offsetX || 0; offsetY = options.offsetY || 0; magpie = options.magpie || null;
+      document.querySelectorAll('.furigana-box').forEach(node => node.remove());
+      const style = document.getElementById(JITEN_GSM_STYLE_ID) || document.createElement('style');
+      style.id = JITEN_GSM_STYLE_ID;
+      style.textContent = config ? generateGsmJitenWordStyleCSS(config) : '';
+      document.head.appendChild(style);
+      const boxes = createFuriganaBoxesForLine(source, segments);
+      document.body.append(...boxes);
+      const api = window.GsmJitenHighlight;
+      api.clearJitenHighlighting();
+      api.setStyleConfig(config);
+      api.setLocalParser(async () => ({ tokens: [[
+        { start: 0, end: 2, knownState: [0], headword: '日本' },
+        { start: 2, end: 3, knownState: [0], headword: '猫' },
+      ]] }));
+      await new Promise(resolve => {
+        const unsubscribe = api.subscribeNavigationTokens(() => { unsubscribe(); resolve(); });
+        api.requestParse([source]);
+      });
+      return {
+        readings: boxes.map(box => {
+          const reading = box.firstChild, range = document.createRange();
+          const glyphs = Array.from(reading.textContent, (_, i) => {
+            range.setStart(reading.firstChild, i); range.setEnd(reading.firstChild, i + 1);
+            return range.getBoundingClientRect().toJSON();
+          });
+          return { rect: box.getBoundingClientRect().toJSON(), mode: getComputedStyle(reading).writingMode, glyphs };
+        }),
+        highlights: [...document.querySelectorAll('.gsm-jiten-hl')].filter(el => el.style.display !== 'none').map(el => {
+          const css = getComputedStyle(el);
+          return { left: parseFloat(css.borderLeftWidth), bottom: parseFloat(css.borderBottomWidth),
+            mode: css.writingMode, transform: css.transform };
+        }),
+      };
+    };
+  })()`);
+  let readingChecks = 0;
+  for (const vertical of [false, true]) {
+    for (const perCharacter of [false, true]) {
+      for (const explicit of [false, true]) {
+        const source = line('日本猫', 0.2, 0.2, vertical ? 0.025 : 0.25, vertical ? 0.3 : 0.05, vertical, perCharacter);
+        if (explicit) source.isVertical = vertical;
+        const segments = [{ text: source.text, start: 0, end: 3, annotations: [
+          { start: 0, end: 2, reading: 'にほん' }, { start: 2, end: 3, reading: 'ねこ' },
+        ] }];
+        for (const effect of [null, { type: 'underline', colour: '#123456', thickness: 5 }, { type: 'text-colour', colour: '#123456' }]) {
+          const options = { offsetX: 1, offsetY: -1 };
+          await readingWindow.webContents.executeJavaScript(`(() => {
+            const layers = [...document.querySelectorAll('#jiten-parse-container, #jiten-highlight-layer')];
+            resetFixture();
+            document.body.append(...layers);
+          })()`);
+          await run(readingWindow, { data: [source] }, options);
+          const config = effect ? { states: { new: { effects: [effect] } } } : null;
+          const result = await readingWindow.webContents.executeJavaScript(`renderReadingFixture(${JSON.stringify(source)}, ${JSON.stringify(segments)}, ${JSON.stringify(options)}, ${JSON.stringify(config)})`);
+          assert.equal(result.readings.length, 2, JSON.stringify({ vertical, perCharacter, explicit, effect, result }));
+          assert.equal(result.highlights.length, 2, JSON.stringify({ vertical, perCharacter, explicit, effect, result }));
+          for (const reading of result.readings) {
+            assert.equal(reading.mode, vertical ? 'vertical-rl' : 'horizontal-tb');
+            const first = reading.glyphs[0], last = reading.glyphs.at(-1);
+            if (vertical) {
+              assert.ok(Math.abs(reading.rect.left - ((0.225 + 0.01) * 1920 + 2)) < 1, 'readings sit to the right of the OCR column');
+              assert.ok(last.top > first.top && Math.abs(first.left - last.left) < 1, 'reading glyphs stack downwards');
+              assert.ok(first.top >= reading.rect.top - 1 && last.bottom <= reading.rect.bottom + 1, 'reading stays centered within its base glyphs');
+            } else {
+              assert.ok(reading.rect.bottom <= (0.2 - 0.01) * 1080, 'readings remain above horizontal text');
+              assert.ok(last.left > first.left && Math.abs(first.top - last.top) < 1);
+            }
+          }
+          for (const highlight of result.highlights) {
+            assert.ok(vertical ? highlight.left > 0 && highlight.bottom === 0 : highlight.bottom > 0 && highlight.left === 0,
+              'Jiten borders follow the line orientation for tokens of any length');
+            assert.equal(highlight.transform, vertical ? 'matrix(1, 0, 0, 1, -3, 0)' : 'matrix(1, 0, 0, 1, 0, 3)');
+          }
+          readingChecks++;
+        }
+      }
+    }
+  }
+  console.log(`Reading overlays: ${readingChecks} Chromium checks cover vertical furigana, left-side Jiten borders, Reader styling, inferred orientation and horizontal layout.`);
   for (const window of windows) window.destroy();
   clearTimeout(timeout);
   app.quit();

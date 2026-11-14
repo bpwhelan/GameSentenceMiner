@@ -30,7 +30,7 @@ function resolve(locale: string, key: string): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let node: any = locales[locale] ?? locales.en;
   for (const part of parts) {
-    if (node == null || typeof node !== "object") return key;
+    if (node == null || typeof node !== "object") return locale === "en" ? key : resolve("en", key);
     node = node[part];
   }
   if (typeof node === "string") return node;

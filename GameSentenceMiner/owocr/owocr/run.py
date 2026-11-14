@@ -1,3 +1,4 @@
+from GameSentenceMiner.util.communication import desktop_events
 import os
 import sys
 import ctypes
@@ -67,7 +68,6 @@ _MSS_MODULE = _UNINITIALIZED
 _WEBSOCKETS_MODULE = _UNINITIALIZED
 _CV2_MODULE = _UNINITIALIZED
 _PSUTIL_MODULE = _UNINITIALIZED
-_DESKTOP_NOTIFIER_SYNC = _UNINITIALIZED
 
 win32gui = None
 win32api = None
@@ -108,11 +108,6 @@ SCScreenshotManager = None
 SCShareableContent = None
 SCStreamConfiguration = None
 SCCaptureResolutionBest = None
-
-
-class _NullNotifier:
-    def send(self, *args, **kwargs):
-        return None
 
 
 def _load_win32_capture_dependencies():
@@ -240,19 +235,6 @@ def _load_psutil_module():
         except ImportError:
             _PSUTIL_MODULE = None
     return _PSUTIL_MODULE
-
-
-def _create_notifier():
-    global _DESKTOP_NOTIFIER_SYNC
-    if _DESKTOP_NOTIFIER_SYNC is _UNINITIALIZED:
-        try:
-            _DESKTOP_NOTIFIER_SYNC = importlib.import_module("desktop_notifier").DesktopNotifierSync
-        except ImportError:
-            _DESKTOP_NOTIFIER_SYNC = None
-
-    if _DESKTOP_NOTIFIER_SYNC is None:
-        return _NullNotifier()
-    return _DESKTOP_NOTIFIER_SYNC()
 
 
 config = None
@@ -3035,7 +3017,7 @@ def pause_handler(is_combo=True):
     if auto_pause_handler:
         auto_pause_handler.stop()
     if is_combo:
-        notifier.send(title="owocr", message=message)
+        desktop_events.ocr_pause_state(not paused)
     logger.info(message)
     paused = not paused
 
@@ -3053,8 +3035,6 @@ def engine_change_handler(user_input="s", is_combo=True):
         engine_index = engine_keys.index(user_input.lower())
     if engine_index != old_engine_index:
         new_engine_name = engine_instances[engine_index].readable_name
-        if is_combo:
-            notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
         engine_color = config.get_general("engine_color")
         logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
 
@@ -3096,7 +3076,6 @@ def engine_change_handler_name(engine, switch=True):
 
         if engine_index != old_engine_index:
             new_engine_name = engine_instances[engine_index].readable_name
-            notifier.send(title="owocr", message=f"Switched to {new_engine_name}")
             engine_color = config.get_general("engine_color")
             logger.opt(ansi=True).info(f"Switched to <{engine_color}>{new_engine_name}</{engine_color}>!")
 
@@ -3510,7 +3489,6 @@ def process_and_write_results(
     write_to=None,
     last_result=None,
     filtering: TextFiltering = None,
-    notify=None,
     engine=None,
     ocr_start_time=None,
     furigana_filter_sensitivity=0,
@@ -3727,8 +3705,6 @@ def process_and_write_results(
             text, orig_text = filtering(text, last_result, engine=engine, is_second_ocr=is_second_ocr)
         if get_ocr_language() == "ja" or get_ocr_language() == "zh":
             text = post_process(text, keep_blank_lines=get_ocr_keep_newline(source))
-        if notify and config.get_general("notifications"):
-            notifier.send(title="owocr", message="Text recognized: " + text)
 
         pipeline_metadata["ocr"] = {
             "crop_coords": list(crop_coords) if crop_coords else None,
@@ -3940,7 +3916,6 @@ def run(
     pause_at_startup=None,
     ignore_flag=None,
     delete_images=None,
-    notifications=None,
     auto_pause=0,
     combo_pause=None,
     combo_engine_switch=None,
@@ -3976,7 +3951,6 @@ def run(
     :param pause_at_startup: Pause at startup.
     :param ignore_flag: Process flagged clipboard images (images that are copied to the clipboard with the *ocr_ignore* string).
     :param delete_images: Delete image files after processing when reading from a directory.
-    :param notifications: Show an operating system notification with the detected text.
     :param auto_pause: Automatically pause the program after the specified amount of seconds since the last successful text recognition. Will be ignored when reading with screen capture. 0 to disable.
     :param combo_pause: Specifies a combo to wait on for pausing the program. As an example: "<ctrl>+<shift>+p". The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key
     :param combo_engine_switch: Specifies a combo to wait on for switching the OCR engine. As an example: "<ctrl>+<shift>+a". To be used with combo_pause. The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key
@@ -4094,7 +4068,6 @@ def run(
     global just_unpaused
     global first_pressed
     global auto_pause_handler
-    global notifier
     global websocket_server_thread
     global screenshot_thread
     global obs_screenshot_thread
@@ -4137,7 +4110,6 @@ def run(
         combo_pause = combo_pause.lower().replace("ctrl", "<ctrl>").replace("shift", "<shift>").replace("alt", "<alt>")
     combo_engine_switch = config.get_general("combo_engine_switch")
     screen_capture_on_combo = False
-    notifier = _create_notifier()
     image_queue = queue.Queue()
     key_combos = {}
 
@@ -4319,7 +4291,6 @@ def run(
             try:
                 item = image_queue.get(timeout=0.1)
                 img, filter_img, image_metadata = _normalize_queue_item(item)
-                notify = True
             except queue.Empty:
                 pass
 
@@ -4341,7 +4312,6 @@ def run(
                 screenshot_event.set()
                 periodic_item = periodic_screenshot_queue.get()
                 img, filter_img, image_metadata = _normalize_queue_item(periodic_item, default_filter=True)
-                notify = False
                 last_screenshot_time = time.time()
                 ocr_start_time = datetime.now()
                 if adjusted_scan_rate > base_scan_rate:
@@ -4389,7 +4359,6 @@ def run(
                     write_to,
                     last_result,
                     filtering,
-                    notify,
                     ocr_start_time=ocr_start_time,
                     furigana_filter_sensitivity=None if get_ocr_two_pass_ocr() else get_furigana_filter_sensitivity(),
                     image_metadata=image_metadata,
@@ -4421,7 +4390,6 @@ def run(
                     img,
                     write_to,
                     None,
-                    notify=notify,
                     ocr_start_time=ocr_start_time,
                     engine=ocr2,
                     image_metadata=image_metadata,

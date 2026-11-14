@@ -158,19 +158,58 @@ test('server timeouts release deduplication state and permit a later retry', asy
   assert.equal(timers.size, 0);
 });
 
-test('unavailable local tokenizer responses try the configured fallback', async () => {
-  const { handler } = setup();
+test('saved MeCab selections migrate and unavailable Sudachi exposes setup without fallback tokens', async () => {
+  const { handler, events } = setup();
   const sent = [];
-  handler.config = { tokenizerBackend: 'sudachi', localTokenizerFallbackBackend: 'mecab' };
-  handler.wsConnected = handler.sudachiAvailable = handler.mecabAvailable = true;
+  handler.config = { tokenizerBackend: 'mecab', localTokenizerFallbackBackend: 'mecab' };
+  handler.wsConnected = true;
   handler.ws = { send: json => sent.push(JSON.parse(json)) };
   const result = handler.requestTokenizationForBlock(0);
-  handler.onTokensReceived({ ...sent[0], tokenSource: 'sudachi', sudachiAvailable: false, tokens: [] });
-  await Promise.resolve();
-  assert.equal(sent[1].backend, 'mecab');
-  handler.onTokensReceived({ ...sent[1], tokenSource: 'mecab', mecabAvailable: true, tokens: [{ word: '猫', start: 0, end: 1 }] });
+  assert.equal(sent[0].backend, 'sudachi');
+  handler.onTokensReceived({ ...sent[0], tokenSource: 'sudachi', sudachiAvailable: false, setupRequired: true, error: 'Set up dictionary and retry', tokens: [] });
   await result;
-  assert.equal(handler.tokens[0].word, '猫');
+  assert.equal(sent.length, 1);
+  assert.equal(handler.tokens.length, 0);
+  assert.equal(handler.tokenCacheByBlock.size, 0);
+  assert.ok(events.some(event => event.type === 'gsm-sudachi-setup-required'));
+  // A retry after setup works without restarting the controller connection.
+  const retry = handler.requestTokenizationForBlock(0);
+  handler.onTokensReceived({ ...sent[1], tokenSource: 'sudachi', sudachiAvailable: true, tokens: [{ word: 'cat', start: 0, end: 1 }] });
+  await retry;
+  assert.equal(handler.tokens.length, 1);
+});
+
+test('missing dictionary rejects furigana and does not emit successful reading data', async () => {
+  const { handler, events } = setup();
+  handler.wsConnected = true;
+  const sent = [];
+  handler.ws = { send: json => sent.push(JSON.parse(json)) };
+  const result = handler.requestFuriganaFromServer('cat');
+  handler.onFuriganaReceived({ ...sent[0], sudachiAvailable: false, setupRequired: true, error: 'Retry setup', segments: [] });
+  await assert.rejects(result, /Retry setup/);
+  assert.equal(handler.pendingFuriganaRequests.size, 0);
+  assert.ok(!events.some(event => event.type === 'gsm-furigana-received'));
+});
+
+test('switching the shared dictionary discards old selections and pending results', async () => {
+  const { handler, events } = setup();
+  handler.config.tokenizerBackend = 'sudachi';
+  handler.wsConnected = true;
+  const sent = [];
+  handler.ws = { send: json => sent.push(JSON.parse(json)) };
+  handler.tokenCacheByBlock.set(1, { text: 'old', tokens: [] });
+  handler.tokens = [{ word: 'old', start: 0, end: 1 }];
+  const old = handler.requestTokenizationForBlock(0);
+  let refreshed = 0;
+  handler.prefetchTokenizationForAllBlocks = () => refreshed++;
+  handler.onWebSocketMessage({ data: JSON.stringify({ type: 'sudachi_dictionary_changed', dictionary: 'full', state: 'ready' }) });
+  handler.onTokensReceived({ ...sent[0], sudachiAvailable: true, tokens: [{ word: 'old', start: 0, end: 1 }] });
+  await old;
+  assert.equal(handler.config.sudachiDictionary, 'full');
+  assert.equal(handler.tokenCacheByBlock.size, 0);
+  assert.equal(handler.tokens.length, 0);
+  assert.equal(refreshed, 1);
+  assert.ok(events.some(event => event.type === 'gsm-sudachi-ready'));
 });
 
 test('remote UTF-16 token offsets map to glyph indices without splitting astral characters', async () => {

@@ -439,7 +439,7 @@ export function InstallSessionModal({
         {/* Footer — error state only */}
         {snapshot.status === "failed" ? (
           <div className="install-session-footer">
-            <button className="install-btn-retry" onClick={onRetry}>
+            <button className="install-btn-retry" onClick={onRetry} disabled={snapshot.retryAvailable === false}>
               {t("install.retry")}
             </button>
             <button className="install-btn-logs" onClick={onOpenLogs}>

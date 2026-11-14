@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./TextHookTab.css";
+import { startVisiblePolling } from '../../lib/visiblePolling';
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { useBufferedState } from "../../lib/useBufferedState";
 import {
@@ -101,6 +102,7 @@ interface TextLine {
   id: number;
   ts: number;
   text: string;
+  originalText: string;
   hookId: string;
 }
 
@@ -394,7 +396,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       activeSessionKeyRef.current = sessionKey;
       activeAgentSessionIdRef.current = next.sessionId ?? null;
       setSelectedHookId(next.selectedHookId);
-      setEngine(next.engine);
+      setEngine(next.engine === "mages" ? "luna" : next.engine);
       syncFlushDelayState(next.flushDelayMs);
       setCopyToClipboard(next.copyToClipboard ?? false);
       if (next.engine === "agent" && next.agentScriptPath) {
@@ -435,7 +437,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
       if (!statusRunningRef.current && info.sceneId !== lastAppliedProfileKeyRef.current) {
         lastAppliedProfileKeyRef.current = info.sceneId;
         if (profile) {
-          setEngine(profile.engine);
+          setEngine(profile.engine === "mages" ? "luna" : profile.engine);
           setAutoHook(profile.autoHook);
           syncFlushDelayState(profile.flushDelayMs);
           setCopyToClipboard(profile.copyToClipboard ?? false);
@@ -475,9 +477,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     if (!active) return;
     void refreshStatus();
     void refreshHooks();
-    void refreshActiveCapture();
-    void refreshTextHookSettings();
-  }, [active, refreshStatus, refreshHooks, refreshActiveCapture, refreshTextHookSettings]);
+  }, [active, refreshStatus, refreshHooks]);
 
   useEffect(() => {
     if (active) void refreshEngineStatus();
@@ -520,7 +520,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         setSelectedHookId(payload.selectedHookId ?? null);
       }
     });
-    const offText = onIpc("texthook.text", (_e, payload: any) => {
+    const offText = onIpc("texthook.processed", (_e, payload: any) => {
       if (!payload || typeof payload.text !== "string") return;
       if (typeof payload.sessionId === "string" && payload.sessionId !== activeAgentSessionIdRef.current) return;
       const text = sanitizeTextHookText(payload.text, maxBufferSize);
@@ -533,6 +533,8 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
             id,
             ts: typeof payload.ts === "number" ? payload.ts : Date.now(),
             text,
+            originalText: typeof payload.originalText === "string"
+              ? payload.originalText.slice(0, maxBufferSize) : text,
             hookId: String(payload.hookId ?? ""),
           },
         ];
@@ -596,11 +598,9 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   // Periodic capture refresh while tab is active.
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => {
-      void refreshActiveCapture();
-      void refreshTextHookSettings();
+    return startVisiblePolling(async () => {
+      await Promise.all([refreshActiveCapture(), refreshTextHookSettings()]);
     }, 4000);
-    return () => clearInterval(id);
   }, [active, refreshActiveCapture, refreshTextHookSettings]);
 
   const startSession = useCallback(async () => {
@@ -1215,7 +1215,6 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       <option value="luna">{t("texthook.engine.luna")}</option>
                       <option value="textractor">{t("texthook.engine.textractor")}</option>
                       <option value="agent">{t("texthook.engine.agent")}</option>
-                      <option value="mages">{t("texthook.engine.mages")}</option>
                     </select>
                   </div>
                 </div>
@@ -1474,17 +1473,29 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                             key={line.id}
                             className="texthook-output-line"
                           >
-                            <pre className="texthook-output-pre">{line.text}</pre>
+                            <pre className="texthook-output-pre">{line.text || t("texthook.output.filteredOut")}</pre>
                             <button
                               type="button"
                               className="texthook-output-copy"
                               aria-label={t("texthook.output.copyLine")}
                               title={t("texthook.output.copyLine")}
+                              disabled={!line.text}
                               onClick={() => window.clipboard.writeText(line.text)}
                             >
                               <svg viewBox="0 0 24 24" aria-hidden="true">
                                 <rect x="8" y="8" width="12" height="13" rx="2" />
                                 <path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              className="texthook-output-original"
+                              aria-label={t("texthook.output.original")}
+                              data-tip={`${t("texthook.output.original")}\n${line.originalText}`}
+                            >
+                              <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" />
+                                <circle cx="12" cy="12" r="3" />
                               </svg>
                             </button>
                           </li>

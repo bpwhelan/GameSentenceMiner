@@ -20,6 +20,17 @@ def _write_pcm16_wav(path, samples, sample_rate=16000, channels=1):
         wav_file.writeframes(samples.tobytes())
 
 
+def test_vad_processing_error_is_distinct_from_an_unvoiced_result(monkeypatch):
+    system = vad.VADSystem()
+    monkeypatch.setattr(
+        system, "_get_processor", lambda _model: (_ for _ in ()).throw(RuntimeError("model unavailable"))
+    )
+    result = system._do_vad_processing(SILERO, "input.wav", "output.wav", None, "text")
+    assert result.success is False
+    assert result.voice_detected is False
+    assert "model unavailable" in result.error
+
+
 @pytest.mark.parametrize("primary", [SILERO, FIRERED])
 def test_vad_system_uses_current_model_instead_of_legacy_selection(monkeypatch, primary):
     vad_config = VAD(selected_vad_model=WHISPER, selected_vad_model_v2=primary)

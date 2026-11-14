@@ -80,6 +80,7 @@ export function createClipboardMonitor({ read, change, interval = CLIPBOARD_POLL
 // Firefox's paste command sometimes fails (Mozilla bug 1603985), so it reads
 // with navigator.clipboard.readText().
 export async function readClipboardText({ document, navigator, firefox }) {
+  if (globalThis.gsmEnv?.shell === "tauri") return globalThis.clipboard.readText(); // GSM native clipboard
   if (firefox) return navigator.clipboard.readText();
   const target = document.body.appendChild(document.createElement("textarea"));
   let text = "";

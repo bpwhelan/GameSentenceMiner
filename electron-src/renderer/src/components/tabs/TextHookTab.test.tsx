@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TextHookTab } from "./TextHookTab";
 import { I18nProvider } from "../../i18n";
+import { TooltipLayer } from "../Tooltip";
 
 const invokeMock = vi.fn();
 const writeTextMock = vi.fn();
@@ -125,6 +126,46 @@ describe("TextHookTab", () => {
     expect(container.textContent).not.toContain("(no text yet)");
   });
 
+  it("shows and copies filtered output, with the original on hover and keyboard focus", async () => {
+    await act(async () => {
+      root.render(<><TextHookTab active /><TooltipLayer /></>);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "raw event must not flash" });
+    });
+    expect(container.querySelectorAll(".texthook-output-line")).toHaveLength(0);
+    const originalText = "<name>太郎</name>\n「こんにちは」";
+    await act(async () => {
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text: "こんにちは", originalText });
+    });
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("こんにちは");
+    expect(container.textContent).not.toContain(originalText);
+    const original = container.querySelector<HTMLButtonElement>(".texthook-output-original")!;
+    expect(original).not.toBeNull();
+    await act(async () => original.dispatchEvent(new MouseEvent("pointerover", { bubbles: true })));
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(originalText);
+    await act(async () => original.dispatchEvent(new MouseEvent("pointerout", { bubbles: true })));
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    await act(async () => original.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(originalText);
+    await act(async () => container.querySelector<HTMLButtonElement>(".texthook-output-copy")!.click());
+    expect(writeTextMock).toHaveBeenCalledExactlyOnceWith("こんにちは");
+  });
+
+  it("keeps fully filtered lines inspectable without falling back to raw text", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text: "", originalText: "<tag>" });
+    });
+    expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("Filtered out");
+    expect(container.querySelector(".texthook-output-original")?.getAttribute("data-tip")).toContain("<tag>");
+    expect(container.querySelector<HTMLButtonElement>(".texthook-output-copy")?.disabled).toBe(true);
+  });
+
   it.each(["inactive tab", "hidden window"])("buffers hook output without rendering in an %s", async (hiddenMode) => {
     await act(async () => {
       root.render(<TextHookTab active />);
@@ -144,7 +185,7 @@ describe("TextHookTab", () => {
           hooks: [{ id: "9", function: "Hook #9", preview: "Buffered preview", samples: [] }],
         });
         for (let i = 0; i < 305; i++) {
-          ipcListeners.get("texthook.text")?.({}, { text: `Buffered dialogue ${i}`, hookId: "9", ts: i });
+          ipcListeners.get("texthook.processed")?.({}, { text: `Buffered dialogue ${i}`, hookId: "9", ts: i });
           ipcListeners.get("texthook.log")?.({}, { message: `Buffered log ${i}`, ts: i });
         }
       });
@@ -171,14 +212,14 @@ describe("TextHookTab", () => {
     });
     await act(async () => {
       for (let i = 0; i < 300; i++) {
-        ipcListeners.get("texthook.text")?.({}, { text: `Dialogue ${i}`, hookId: "9", ts: i });
+        ipcListeners.get("texthook.processed")?.({}, { text: `Dialogue ${i}`, hookId: "9", ts: i });
         ipcListeners.get("texthook.log")?.({}, { message: `Log ${i}`, ts: i });
       }
     });
     const retainedTextRow = container.querySelectorAll(".texthook-output-line")[1];
     const retainedLogRow = container.querySelectorAll(".texthook-log-line")[1];
     await act(async () => {
-      ipcListeners.get("texthook.text")?.({}, { text: "Next dialogue", hookId: "9", ts: 300 });
+      ipcListeners.get("texthook.processed")?.({}, { text: "Next dialogue", hookId: "9", ts: 300 });
       ipcListeners.get("texthook.log")?.({}, { message: "Next log", ts: 300 });
     });
     expect(container.querySelector(".texthook-output-line")).toBe(retainedTextRow);
@@ -275,7 +316,7 @@ describe("TextHookTab", () => {
     expect(container.querySelector(".texthook-hook-id")?.textContent).toBe("#en");
   });
 
-  it.each(["agent", "mages"])("keeps %s hook listings unfiltered", async (engine) => {
+  it.each(["agent"])("keeps %s hook listings unfiltered", async (engine) => {
     const original = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
       if (channel === "texthook.getStatus") return { ...(await original(channel)), engine };
@@ -320,7 +361,7 @@ describe("TextHookTab", () => {
 
     await act(async () => {
       container.querySelector<HTMLButtonElement>("#texthook-nav-output")!.click();
-      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "Dialogue while configuring" });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text: "Dialogue while configuring" });
     });
     expect(output.hidden).toBe(false);
     expect(live.hidden).toBe(true);
@@ -754,52 +795,20 @@ describe("TextHookTab", () => {
     ).toBe(true);
   });
 
-  it("labels the built-in game hook experimental and lists every supported target", async () => {
+  it("hides the retired built-in runtime and keeps saved profiles intact", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "texthook.getStatus") return { running: false };
       if (channel === "texthook.listHooks") return { selectedHookId: null, hooks: [] };
-      if (channel === "texthook.getActiveCapture") {
-        return { sceneName: "Scene", sceneId: "scene-1", exeName: "Game.exe" };
-      }
-      if (channel === "texthook.getProfile") return null;
-      if (channel === "texthook.builtInHookTargets") {
-        return [
-          {
-            id: "fixture-one",
-            name: "Fixture Game One",
-            details: { en: "Fixture details one", ja: "テスト説明" },
-          },
-          { id: "fixture-two", name: "Fixture Engine Two", details: { en: "Fixture details two" } },
-        ];
-      }
+      if (channel === "texthook.getActiveCapture") return { sceneName: "Scene", sceneId: "scene-1", exeName: "Game.exe" };
+      if (channel === "texthook.getProfile") return { engine: "mages", exeName: "Game.exe", autoHook: true, flushDelayMs: 200 };
       return null;
     });
-
-    await act(async () => {
-      root.render(<TextHookTab active />);
-      await flushAsyncWork();
-    });
-
-    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
-    await act(async () => {
-      engineSelect.value = "mages";
-      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
-      await flushAsyncWork();
-    });
-
-    expect(engineSelect.selectedOptions[0]?.textContent).toBe(
-      "Built-in Game Hook (Experimental)"
-    );
-    expect(container.textContent).toContain(
-      "works only with the games and engines listed below"
-    );
-    const supportedTargets = Array.from(
-      container.querySelectorAll(".texthook-supported-games li")
-    ).map((entry) => entry.textContent ?? "");
-    expect(supportedTargets).toEqual([
-      "Fixture Game OneFixture details one",
-      "Fixture Engine TwoFixture details two",
-    ]);
+    await act(async () => { root.render(<TextHookTab active />); await flushAsyncWork(); });
+    const select = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    expect([...select.options].map(option => option.value)).toEqual(["luna", "textractor", "agent"]);
+    expect(select.value).toBe("luna");
+    expect(container.querySelector(".texthook-mages-notice")).toBeNull();
+    expect(invokeMock.mock.calls.some(([channel]) => channel === "texthook.builtInHookTargets" || channel === "texthook.saveProfile")).toBe(false);
   });
 
   it.each([
@@ -819,7 +828,7 @@ describe("TextHookTab", () => {
     const texts = ["  最初の行\n次の行  ", "<b>Second capture & text</b>"];
     await act(async () => {
       for (const text of texts) {
-        ipcListeners.get("texthook.text")?.({}, { hookId: "9", text });
+        ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text });
       }
     });
 
@@ -846,13 +855,13 @@ describe("TextHookTab", () => {
     });
 
     await act(async () => {
-      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "x".repeat(5000) });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text: "x".repeat(5000) });
     });
 
     expect(container.querySelector(".texthook-output-pre")?.textContent).toHaveLength(3000);
 
     await act(async () => {
-      ipcListeners.get("texthook.text")?.({}, { hookId: "9", text: "「text」".repeat(11) });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "9", text: "「text」".repeat(11) });
     });
 
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
@@ -893,20 +902,20 @@ describe("TextHookTab", () => {
       await flushAsyncWork();
     });
     await act(async () => {
-      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId, text: "previous run" });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "agent", sessionId, text: "previous run" });
     });
     expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("previous run");
     sessionId = "session-2";
     await act(async () => {
       ipcListeners.get("texthook.status")?.({}, status());
-      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId, text: "current run" });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "agent", sessionId, text: "current run" });
       await flushAsyncWork();
     });
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
     expect(container.querySelector(".texthook-output-pre")?.textContent).toBe("current run");
     await act(async () => {
       ipcListeners.get("texthook.status")?.({}, { ...status(), agentPhase: "receiving" });
-      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId: "session-1", text: "late old text" });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "agent", sessionId: "session-1", text: "late old text" });
       await flushAsyncWork();
     });
     expect(container.querySelectorAll(".texthook-output-pre")).toHaveLength(1);
@@ -979,7 +988,7 @@ describe("TextHookTab", () => {
     };
     await act(async () => {
       ipcListeners.get("texthook.status")?.({}, newStatus);
-      ipcListeners.get("texthook.text")?.({}, { hookId: "agent", sessionId: "new-session", text: "new dialogue" });
+      ipcListeners.get("texthook.processed")?.({}, { hookId: "agent", sessionId: "new-session", text: "new dialogue" });
       finishStatus({ ...newStatus, sessionId: "old-session", agentPhase: "waiting" });
       await flushAsyncWork();
     });

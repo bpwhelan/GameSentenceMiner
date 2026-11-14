@@ -63,12 +63,20 @@ class OverlayRequestHandler:
 
             logger.background(f"Received overlay message of type: {message_type}")
 
-            if message_type == "anki-setup-yomitan-result":
+            if message_type == "dictionary-setup-result":
+                from GameSentenceMiner.web.onboarding_api import accept_dictionary_setup_result
+
+                accept_dictionary_setup_result(message)
+            elif message_type == "anki-setup-yomitan-result":
                 from GameSentenceMiner.util.anki_yomitan import accept_yomitan_setup_result
 
                 accept_yomitan_setup_result(message)
             elif message_type == "translate-request":
                 await self.handle_translation_request(message)
+            elif message_type == "native-overlay-result":
+                from GameSentenceMiner.util.overlay.native_runtime import accept_result
+
+                await accept_result(get_overlay_processor(), message.get("data"))
             elif message_type == "manual-overlay-scan-request":
                 await self.handle_manual_overlay_scan_request(message)
             elif message_type == "manual-mode-background-request":
@@ -243,6 +251,8 @@ class OverlayRequestHandler:
 
             # Use whichever result is available (prefer oneocr, then lens)
             sentence = last_oneocr_result or last_lens_result
+            if message is not None and "blocks" in message:
+                sentence = "\n".join(block["text"] for block in validate_blocks(message["blocks"]))
 
             if not sentence or not sentence.strip():
                 await self.send_error("No OCR text available to translate", request_id)
@@ -440,6 +450,11 @@ class OverlayRequestHandler:
                 logger.debug(f"No target window available for overlay key request from {source}")
                 return
 
+            expected_target = payload.get("expected_target_hwnd")
+            if expected_target is not None and str(expected_target) != str(monitor.target_hwnd):
+                logger.debug("Discarding overlay input for a previous capture target")
+                return
+
             sent = await monitor.send_key_to_target_window(
                 key_name,
                 target_pid=target_pid if target_pid > 0 else None,
@@ -468,6 +483,11 @@ class OverlayRequestHandler:
             monitor = overlay_processor.window_monitor if overlay_processor else None
             if not monitor or not monitor.target_hwnd:
                 logger.debug(f"No target window available for overlay click request from {source}")
+                return
+
+            expected_target = payload.get("expected_target_hwnd")
+            if expected_target is not None and str(expected_target) != str(monitor.target_hwnd):
+                logger.debug("Discarding overlay input for a previous capture target")
                 return
 
             sent = await monitor.send_click_to_target_window(

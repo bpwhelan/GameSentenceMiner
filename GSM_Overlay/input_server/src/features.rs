@@ -11,18 +11,17 @@ pub const PROTOCOL_VERSION: u8 = 2;
 pub enum ServiceFeature {
     Gamepad,
     Keyboard,
-    Mecab,
     Sudachi,
 }
 
 impl ServiceFeature {
-    pub const ALL: [Self; 4] = [Self::Gamepad, Self::Keyboard, Self::Mecab, Self::Sudachi];
+    pub const ALL: [Self; 3] = [Self::Gamepad, Self::Keyboard, Self::Sudachi];
 
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "gamepad" => Some(Self::Gamepad),
             "keyboard" => Some(Self::Keyboard),
-            "mecab" => Some(Self::Mecab),
+            "mecab" => Some(Self::Sudachi),
             "sudachi" => Some(Self::Sudachi),
             _ => None,
         }
@@ -32,7 +31,6 @@ impl ServiceFeature {
         match self {
             Self::Gamepad => "gamepad",
             Self::Keyboard => "keyboard",
-            Self::Mecab => "mecab",
             Self::Sudachi => "sudachi",
         }
     }

@@ -220,21 +220,19 @@ describe("legacy gamepad toggle debouncing", () => {
 });
 
 describe("legacy gamepad Sudachi requests", () => {
-  it("includes the configured dictionary in tokenization requests", async () => {
+  it("reuses the service dictionary instead of overriding it per tokenization request", async () => {
     const sent: unknown[] = [];
     const handler = Object.create(GamepadHandler.prototype) as {
       config: { sudachiDictionary: string };
       wsConnected: boolean;
       ws: { send: (payload: string) => void };
       sudachiAvailable: boolean;
-      mecabAvailable: boolean;
       pendingTokenizationRequests: Map<number, any>;
     };
     handler.config = { sudachiDictionary: "small" };
     handler.wsConnected = true;
     handler.ws = { send: (payload) => sent.push(JSON.parse(payload)) };
     handler.sudachiAvailable = true;
-    handler.mecabAvailable = false;
     const request: any = { id: 1, text: "食べた。" };
     handler.pendingTokenizationRequests = new Map([[2, request]]);
 
@@ -252,7 +250,6 @@ describe("legacy gamepad Sudachi requests", () => {
         text: "食べた。",
         requestId: 1,
         backend: "sudachi",
-        dictionary: "small"
       }
     ]);
     request.resolveServer({ sudachiAvailable: true, tokens: [] });

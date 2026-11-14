@@ -151,6 +151,7 @@ electron-src/assets/prerelease.json
 /native/windows-speech-recognition/build-*
 /native/windows-speech-recognition/bin/x64/*.exe
 /native/gsm-native/target
+/native/gsm-overlay/target
 /GameSentenceMiner/_native*.pyd
 /GameSentenceMiner/_native*.pyd~
 /GameSentenceMiner/_native*.so
@@ -165,3 +166,12 @@ electron-src/assets/prerelease.json
 /native/gsm-runtime/bin
 /native/gsm-runtime/target
 /temp
+
+/src-tauri/target/
+/src-tauri/target-validation/
+/.tmp-ocr-benchmark/
+/src-tauri/gen/
+/build/native-desktop/
+/build/size-audit/
+
+/native/gsm-capture/target/

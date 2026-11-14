@@ -323,6 +323,7 @@ function probeDirectOpfs() {
 // IDBFS; "worker-local": single-thread IDBFS runtime in a dedicated worker;
 // "local": the same runtime on this document, for hosts without Worker.
 async function selectEngine() {
+  if (globalThis.location?.protocol === "gsm-hachidori:") return "local"; // GSM native engine
   if (typeof globalThis.Worker !== "function") {
     return "local";
   }

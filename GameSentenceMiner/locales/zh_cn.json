@@ -133,41 +133,6 @@
             "tooltip": "选择应用程序的语言。这将更改界面的语言。"
           }
         },
-        "text_processing": {
-          "title": "文本处理",
-          "string_replacement": {
-            "group_title": "字符串替换",
-            "group_tooltip": "将替换规则按顺序应用到所有输入文本。",
-            "enabled": {
-              "label": "启用字符串替换：",
-              "tooltip": "在记录或覆盖显示前对所有输入文本应用替换规则。"
-            },
-            "rules": {
-              "label": "规则：",
-              "tooltip": "编辑替换规则列表。"
-            },
-            "edit_rules": {
-              "label": "编辑规则",
-              "tooltip": "打开字符串替换规则编辑器。"
-            },
-            "rules_count": "{count} 条规则",
-            "dialog": {
-              "title": "字符串替换规则",
-              "add": "添加规则",
-              "remove": "删除规则",
-              "move_up": "上移",
-              "move_down": "下移",
-              "enabled": "启用",
-              "mode": "模式",
-              "find": "查找",
-              "replace": "替换",
-              "case_sensitive": "区分大小写",
-              "whole_word": "整词匹配",
-              "mode_plain": "纯文本",
-              "mode_regex": "正则"
-            }
-          }
-        },
         "paths": {
           "title": "路径",
           "folder_to_watch": {
@@ -449,10 +414,6 @@
         },
         "features": {
           "title": "功能",
-          "notify_on_update": {
-            "label": "创建或更新 Anki 卡片时通知：",
-            "tooltip": "GSM 创建或更新 Anki 卡片时通知用户。"
-          },
           "open_anki_edit": {
             "label": "打开 Anki 编辑:",
             "tooltip": "更新后自动打开 Anki 进行编辑。"
@@ -476,31 +437,6 @@
           "generate_longplay": {
             "label": "生成长流程视频:",
             "tooltip": "从 OBS 录制生成长流程视频，并将 GSM 收到的文本写入 SRT 字幕文件。需要重启。"
-          },
-          "notifications_title": "桌面通知",
-          "notify_on_audio_generated": {
-            "label": "生成音频时通知：",
-            "tooltip": "GSM 完成音频生成或剪辑时通知。"
-          },
-          "notify_on_screenshot_saved": {
-            "label": "保存截图时通知：",
-            "tooltip": "GSM 将截图保存到磁盘时通知。"
-          },
-          "notify_on_anki_enhancement_failed": {
-            "label": "Anki 卡片增强失败时通知：",
-            "tooltip": "GSM 无法完成 Anki 卡片增强时通知，包括音频缺失或生成失败。"
-          },
-          "notify_on_errors": {
-            "label": "GSM 出错时通知：",
-            "tooltip": "GSM 出现需要处理的错误时通知。"
-          },
-          "notify_on_obs_warning": {
-            "label": "OBS 回放不可用时通知：",
-            "tooltip": "GSM 无法使用 OBS 回放缓冲区时通知。"
-          },
-          "notify_on_text_intake_state": {
-            "label": "文本输入暂停或恢复时通知：",
-            "tooltip": "收到的文本处理暂停或恢复时通知。"
           }
         },
         "screenshot": {

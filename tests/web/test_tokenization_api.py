@@ -28,11 +28,7 @@ from unittest.mock import patch
 import flask
 import pytest
 
-from GameSentenceMiner.mecab.basic_types import (
-    MecabParsedToken,
-    PartOfSpeech,
-    Inflection,
-)
+from GameSentenceMiner.sudachi.types import SudachiToken, PartOfSpeech
 from GameSentenceMiner.util.database.anki_tables import (
     AnkiCardsTable,
     AnkiNotesTable,
@@ -62,14 +58,15 @@ from GameSentenceMiner.web.tokenization_api import (
 # ---------------------------------------------------------------------------
 
 
-def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> MecabParsedToken:
-    """Shorthand to build a MecabParsedToken with default inflection."""
-    return MecabParsedToken(
+def _tok(word: str, headword: str, reading: str | None, pos: PartOfSpeech) -> SudachiToken:
+    """Shorthand to build a SudachiToken with character offsets."""
+    return SudachiToken(
         word=word,
         headword=headword,
         katakana_reading=reading,
         part_of_speech=pos,
-        inflection_type=Inflection.unknown,
+        start=0,
+        end=len(word),
     )
 
 

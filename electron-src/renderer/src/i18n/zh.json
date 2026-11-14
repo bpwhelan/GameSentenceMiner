@@ -1,5 +1,14 @@
 {
   "gameLauncher": {
+    "mode": "启动方式",
+    "modeExecutable": "游戏可执行文件",
+    "modeYuzu": "Yuzu",
+    "yuzuPath": "Yuzu 可执行文件",
+    "romPath": "游戏 ROM",
+    "yuzuArguments": "Yuzu 参数",
+    "yuzuHelp": "选择 Yuzu 和要启动的 ROM。GSM 使用 -g 传递 ROM。如有已有的 Yuzu 场景设置，将自动沿用。",
+    "chooseRom": "请在下方选择游戏 ROM，然后保存或启动。",
+    "userLaunchHelp": "即使 GSM 以管理员身份运行，游戏和自定义启动器也会以桌面用户身份运行。",
     "title": "游戏启动",
     "launch": "启动游戏",
     "working": "处理中…",
@@ -23,6 +32,7 @@
     "saved": "启动选项已保存。",
     "launched": "已发送启动请求。",
     "errors": {
+      "missingRom": "请选择已存在的游戏 ROM。",
       "unsupported": "游戏启动功能仅支持Windows。",
       "invalidScene": "请先选择游戏。",
       "missingExecutable": "请选择现有的游戏可执行文件。",
@@ -45,6 +55,16 @@
     "title": "游戏钩子（实验性）"
   },
   "home": {
+    "capturePicker": {
+      "search": "搜索窗口和设备…",
+      "recentOrder": "最近聚焦的窗口优先",
+      "recent": "最近聚焦",
+      "loadingPreview": "正在加载预览…",
+      "previewUnavailable": "预览不可用",
+      "noMatches": "没有匹配的窗口或设备。",
+      "selected": "已选择：{title}",
+      "snapshotHint": "打开此对话框或刷新列表时会更新预览。"
+    },
     "workspace": {
       "library": "我的游戏",
       "savedGames": "已保存的游戏",
@@ -151,6 +171,10 @@
       "confirm": "重命名"
     },
     "overlay": {
+      "enabled": "启用叠加层",
+      "changing": "正在更新…",
+      "toggleTooltip": "开启或关闭 GSM 叠加层。关闭后，自动启动将暂停，直到您再次启用叠加层或重启 GSM。",
+      "toggleError": "无法更改叠加层状态。请重试。",
       "title": "覆盖层",
       "statusRunning": "运行中",
       "statusStopped": "未运行",
@@ -557,6 +581,61 @@
     "quit": "退出"
   },
   "settings": {
+    "notifications": {
+      "title": "通知与声音",
+      "description": "为四类通知选择通知方式。GSM 在托盘中时也能播放轻柔的确认音。",
+      "volume": "声音音量",
+      "volumeValue": "{volume}%",
+      "quietDefaults": "使用轻柔默认设置",
+      "delivery": "通知方式",
+      "sound": "声音",
+      "preview": "试听",
+      "deliveryFor": "{event}的通知方式",
+      "soundFor": "{event}的声音",
+      "previewFor": "试听{event}",
+      "loading": "正在加载通知设置…",
+      "saving": "正在保存…",
+      "autoSave": "更改会自动保存。音量仅影响 GSM 的确认音。",
+      "retry": "重试",
+      "loadError": "无法加载通知设置。",
+      "saveError": "无法保存通知设置。",
+      "previewError": "无法播放试听声音。",
+      "modes": {
+        "off": "关闭",
+        "sound": "仅声音",
+        "banner": "静音横幅",
+        "both": "横幅与声音"
+      },
+      "sounds": {
+        "soft-ping": "轻柔提示音",
+        "bell": "柔和铃声",
+        "bubble": "气泡",
+        "wood": "木头轻敲",
+        "glass": "玻璃",
+        "success": "成功",
+        "ascending": "上升音",
+        "descending": "下降音",
+        "double-tap": "双击",
+        "chime": "风铃",
+        "pause-resume": "下降音 / 上升音",
+        "marimba": "马林巴琴",
+        "sparkle": "闪烁音",
+        "low-knock": "低沉敲击声"
+      },
+      "categories": {
+        "confirmation": "完成确认",
+        "cardError": "卡片错误",
+        "pauseResume": "暂停 / 恢复",
+        "appAlert": "应用警告"
+      },
+      "categoryDescriptions": {
+        "confirmation": "卡片更新、音频或截图保存以及 GSM 就绪。无语音的卡片属于正常情况。",
+        "cardError": "卡片处理、媒体生成或 Anki 上传失败。未检测到语音不属于错误。",
+        "pauseResume": "暂停或恢复 OCR 和统计收集。",
+        "appAlert": "其他应用错误、OBS 警告和待审核卡片提醒。"
+      },
+      "globalHint": "适用于所有游戏和配置。在此统一设置通知声音与横幅。"
+    },
     "workspace": {
       "brandHint": "偏好设置与工具",
       "general": "常规",
@@ -611,7 +690,6 @@
       "iconRandomTray": "随机（含托盘图标）",
       "language": "显示语言（AI）：",
       "startMinimized": "启动时最小化控制台：",
-      "runTransparencyOnStartup": "启动时运行窗口透明工具：",
       "runOverlayOnStartup": "启动时运行覆盖层："
     },
     "visibility": {
@@ -622,13 +700,6 @@
       "tabPython": "Python",
       "tabConsole": "控制台",
       "statsTarget": "统计目标："
-    },
-    "transparency": {
-      "title": "透明工具（已弃用）",
-      "toolHotkey": "工具热键：",
-      "windowTarget": "窗口目标：",
-      "windowTargetPlaceholder": "留空以定位当前聚焦窗口",
-      "runTool": "运行窗口透明工具"
     },
     "updates": {
       "title": "更新",
@@ -651,6 +722,8 @@
       "unknown": "未知"
     },
     "catalog": {
+      "openTextProcessing": "打开文本处理",
+      "desktopNotifications": { "label": "通知与声音", "description": "为每个事件选择轻柔的声音、静音横幅或关闭通知。" },
       "alreadyOnScreen": "已在此页面",
       "openGSMSettings": "打开 GSM 主设置",
       "openOverlaySettings": "打开覆盖层设置",
@@ -1130,6 +1203,12 @@
       "events": {
         "captured": "已捕获文本",
         "noText": "未检测到文本",
+        "scanning": "正在扫描文本",
+        "waitingForContext": "正在等待后端响应",
+        "waitingForTarget": "正在等待游戏窗口或 OBS 来源",
+        "noCaptureArea": "没有可用的捕获区域",
+        "stabilizing": "正在等待文本显示稳定",
+        "furiganaFiltered": "假名注音过滤器滤除了所有文本。请在识别设置中调低过滤值。",
         "unchanged": "等待画面变化",
         "menu": "已跳过菜单文本",
         "ignored": "已跳过忽略区域中的文本",
@@ -1411,7 +1490,9 @@
     "output": {
       "title": "所选挂接输出",
       "copyLine": "复制此行",
-      "checkHint": "确认这里的文本与游戏中的文本一致。",
+      "original": "原始文本",
+      "filteredOut": "已被过滤",
+      "checkHint": "显示应用过滤器后的文本。将鼠标悬停在眼睛图标上可查看原文。",
       "waiting": "等待所选挂接输出文本…",
       "selectHook": "从列表中选择一个挂接以预览其文本。"
     },

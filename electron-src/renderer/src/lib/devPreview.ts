@@ -1,5 +1,7 @@
 import type { IpcBridge, IpcEventLike } from "../types/global";
+import { initialOnboardingProgress, ONBOARDING_STEPS, type OnboardingProgress, type OnboardingStep } from '../../../shared/onboarding';
 import { normalizeGameLaunchOptions } from '../../../shared/game_launcher';
+import { normalizeNotificationPreferences, NOTIFICATION_TONES, isNotificationSound, synthesizeNotificationSound } from '../../../shared/notifications';
 
 const DEV_PREVIEW_PARAMETER = "preview";
 const PREVIEW_SCENE = { id: "agent-preview", name: "Agent Preview" };
@@ -34,6 +36,7 @@ function previewInvokeResult(channel: string): unknown {
   const emptyHome = homePreview && params.get("homeState") === "empty";
   const offlineHome = homePreview && params.get("homeState") === "offline";
   const libraryHome = homePreview && params.get("homeState") === "library";
+  const captureHome = homePreview && params.get("homeState") === "capture";
   const homeScenes = libraryHome
     ? Array.from({ length: 50 }, (_, index) => ({
         id: `preview-game-${index}`,
@@ -53,6 +56,15 @@ function previewInvokeResult(channel: string): unknown {
     case "obs.getActiveScene":
       return emptyHome ? null : libraryHome ? homeScenes[39] : PREVIEW_SCENE;
     case "obs.getWindows":
+      if (captureHome) return [
+        ...["Recently played game", "Another game — a longer window title", "ゲームのウィンドウ", "Browser window", "Minimized game"].map((title, index) => ({
+          title, value: `capture-preview-${index}`, targetKind: "window",
+          lastFocusedAt: index < 2 ? Date.now() - index * 60_000 : undefined,
+          captureValues: { window_capture: `${title}:Game:game.exe`, game_capture: `${title}:Game:game.exe` },
+        })),
+        { title: "Display 1 · 2560 × 1440", value: "preview-monitor", targetKind: "monitor", monitorId: "display-1" },
+        { title: "USB Capture Card", value: "preview-card", targetKind: "capture_card", videoDeviceId: "preview-card" },
+      ];
       return homePreview
         ? [{
             title: "Game Window",
@@ -64,6 +76,12 @@ function previewInvokeResult(channel: string): unknown {
             },
           }]
         : [];
+    case "obs.getWindowPreviews":
+      // A simple image fixture exercises sizing without capturing the developer's desktop.
+      return captureHome ? [0, 1, 2].map(index => ({
+        value: `capture-preview-${index}`,
+        imageData: `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="${["#18354b", "#3c2948", "#234339"][index]}"/><path d="M0 250L140 110L280 250L400 150L640 330V360H0Z" fill="#7897a0" opacity=".45"/><circle cx="490" cy="85" r="32" fill="#f3dba1"/><rect x="36" y="275" width="568" height="60" rx="5" fill="#15202a" opacity=".8"/><text x="60" y="313" font-family="sans-serif" font-size="22" fill="#e2eaf1">Game preview ${index + 1}</text></svg>`)}`,
+      })) : [];
     case "settings.listGSMProfiles":
       return homePreview
         ? { profiles: ["Default", "Japanese"], profileScenes: { Japanese: [PREVIEW_SCENE.name] } }
@@ -157,8 +175,18 @@ export function installDevPreviewBridge(): void {
   const listeners = new Map<string, Set<IpcListener>>();
   let previewMode: "auto" | "manual" | null = null;
   let previewPaused = false;
+  const previewParameters = new URLSearchParams(window.location.search);
+  let onboardingProgress = initialOnboardingProgress(getDevPreviewTab() !== 'setup');
+  const previewStep = previewParameters.get('step') as OnboardingStep;
+  if (ONBOARDING_STEPS.includes(previewStep)) onboardingProgress.step = previewStep;
+  let onboardingLanguage = 'ja';
+  let onboardingReader = 'yomitan';
+  let onboardingInstalled = false;
   let previewCaptureIndex = 0;
   let hookRunning = false;
+  let overlayEnabled = false;
+  let notificationPreferences = normalizeNotificationPreferences(null);
+  let notificationAudioContext: AudioContext | null = null;
   let hookEngine = "luna";
   let previewSelectedHook: string | null = null;
   let hookProfile: unknown = null;
@@ -204,6 +232,44 @@ export function installDevPreviewBridge(): void {
 
   const bridge: IpcBridge = {
     invoke: async <T>(channel: string, ...args: unknown[]) => {
+      if (channel === 'getOverlayStatus') return { isRunning: overlayEnabled } as T;
+      if (channel === 'setOverlayEnabled') {
+        overlayEnabled = args[0] === true;
+        return { success: true, isRunning: overlayEnabled } as T;
+      }
+      if (channel === 'settings.saveSettings') return { success: true } as T;
+      if (channel === 'settings.onboarding.get') return {
+        progress: onboardingProgress, targetLanguage: onboardingLanguage, locale: previewParameters.get('locale') ?? 'en',
+      } as T;
+      if (channel === 'settings.onboarding.save') {
+        onboardingProgress = args[0] as OnboardingProgress;
+        return { success: true } as T;
+      }
+      if (channel === 'settings.onboarding.language') {
+        onboardingLanguage = String(args[0]);
+        return { success: true } as T;
+      }
+      if (channel === 'settings.onboarding.dictionary') {
+        const input = args[0] as { action: string; reader?: string };
+        if (input.action === 'select') onboardingReader = input.reader ?? 'yomitan';
+        if (input.action === 'install') onboardingInstalled = true;
+        return { reader: onboardingReader, recommended: { name: 'Jitendex', homepage: 'https://jitendex.org' },
+          installed: onboardingInstalled ? ['Jitendex'] : [], busy: false } as T;
+      }
+      if (channel === 'settings.notifications.get') return { preferences: notificationPreferences } as T;
+      if (channel === 'settings.notifications.save') {
+        notificationPreferences = normalizeNotificationPreferences(args[0]);
+        return notificationPreferences as T;
+      }
+      if (channel === 'settings.notifications.preview') {
+        const input = args[0] as { sound: unknown; volume: number };
+        if (isNotificationSound(input.sound)) {
+          notificationAudioContext ??= new AudioContext();
+          await notificationAudioContext.resume();
+          synthesizeNotificationSound(notificationAudioContext, NOTIFICATION_TONES[input.sound], input.volume);
+        }
+        return undefined as T;
+      }
       if (channel === 'game-launcher.getOptions') return gameLaunchOptions as T;
       if (channel === 'game-launcher.detect') return 'C:\\Games\\Agent Preview\\game.exe' as T;
       if (channel === 'game-launcher.save') {
@@ -300,12 +366,16 @@ export function installDevPreviewBridge(): void {
         const hookId = previewSelectedHook;
         // The component clears the previous hook's text when selection completes.
         window.setTimeout(
-          () =>
-            emit("texthook.text", {
+          () => {
+            const output = {
               hookId,
               text: PREVIEW_HOOKS.find((hook) => hook.id === hookId)?.preview ?? "",
+              originalText: PREVIEW_HOOKS.find((hook) => hook.id === hookId)?.preview ?? "",
               ts: Date.now(),
-            }),
+            };
+            emit("texthook.text", output);
+            emit("texthook.processed", output);
+          },
           100,
         );
         return { success: true } as T;

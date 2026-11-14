@@ -1,0 +1,268 @@
+name: Native desktop on all platforms
+
+on:
+  pull_request:
+    paths:
+      - 'desktop-runtime/**'
+      - 'src-tauri/**'
+      - 'native/gsm-overlay/**'
+      - 'native/gsm-texthook/**'
+      - 'native/gsm-agent/**'
+      - 'native/gsm-runtime/**'
+      - 'native/gsm-settings/**'
+      - 'native/gsm-packages/**'
+      - 'native/gsm-native/src/**'
+      - 'GameSentenceMiner/assets/vocr/**'
+      - 'electron-src/**'
+      - 'GSM_Overlay/**'
+      - 'scripts/*native*'
+      - 'package*.json'
+      - '.github/workflows/*desktop*'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      publish:
+        type: boolean
+        default: false
+      prerelease:
+        type: boolean
+        default: false
+      force_rebuild:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+      - id: version
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then
+            version=$(node scripts/compute-version.cjs --pre-release --preid beta)
+          else
+            version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            platform: win32-x64
+          - os: ubuntu-24.04
+            platform: linux-x64
+          - os: macos-15
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 100
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target/native-dev
+            GSM_Overlay/input_server -> target
+            native/gsm-native -> target
+            native/gsm-texthook -> target
+            native/gsm-agent -> target
+            native/gsm-runtime -> target
+            native/gsm-settings -> target
+            native/gsm-packages -> target
+      - name: Install Linux desktop libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libgbm-dev libpipewire-0.3-dev libclang-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libnspr4 libnss3 libasound2-dev patchelf xvfb openbox libfuse2
+      - name: Set the coordinated release version
+        run: node scripts/set-native-ci-version.mjs
+      - name: Install development dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Prepare isolated Python transfer checks
+        shell: bash
+        run: |
+          python -m venv .venv
+          if [ "$RUNNER_OS" = Windows ]; then python=.venv/Scripts/python.exe; else python=.venv/bin/python; fi
+          "$python" -m pip install cramjam websockets loguru
+          echo "GSM_MIGRATION_PYTHON=$GITHUB_WORKSPACE/$python" >> "$GITHUB_ENV"
+      - name: Build the desktop and native input service
+        run: |
+          npm run build:tauri
+          npm run build:input-server
+      - name: Check shared services and reader behavior
+        run: |
+          npm run test:ts -- --maxWorkers=2
+          node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs
+          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs
+          cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
+          cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-texthook/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-agent/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-runtime/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-settings/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
+      - name: Exercise native Python supervision and message delivery
+        if: runner.os != 'Linux'
+        run: |
+          node scripts/test-native-desktop.mjs runtime
+          node scripts/test-native-desktop.mjs foundation
+      - name: Exercise native windows, dictionaries, transfer, Home and overlay
+        if: runner.os != 'Linux'
+        run: npm run test:native
+      - name: Exercise Linux webviews under a window manager
+        if: runner.os == 'Linux'
+        run: bash scripts/test-native-linux.sh all
+        env:
+          GSM_NATIVE_TEST_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/native-dev/debug/gsm-desktop
+      - name: Build the bundled Python runtime modules
+        run: npm run build:native
+      - name: Include the matching prerelease backend
+        if: inputs.prerelease
+        run: |
+          python -m pip wheel --no-deps --wheel-dir electron-src/assets/python .
+          node scripts/write-prerelease-metadata.mjs --version "${{ needs.version.outputs.version }}" --branch "${{ github.ref_name }}" --commit "${{ github.sha }}"
+      - name: Stage the complete native application
+        run: |
+          npm run build:windows-helpers
+          npm run stage:native
+          node scripts/verify-native-package.mjs
+      - name: Build unsigned preview bundles
+        if: ${{ !inputs.publish || runner.os == 'Windows' }}
+        run: node scripts/build-native-desktop.mjs
+      - name: Build signed update bundles
+        if: inputs.publish && runner.os != 'Windows'
+        run: node scripts/build-native-desktop.mjs --signed
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - name: Verify isolated Windows release resources
+        if: runner.os == 'Windows'
+        run: node scripts/test-native-package.mjs
+      - name: Collect installers and portable builds
+        run: node scripts/collect-native-assets.mjs
+      - name: Upload Windows installer for code signing
+        id: windows-installer
+        if: inputs.publish && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-unsigned-installer
+          path: dist/native-release/win32-x64/*Setup*.exe
+          if-no-files-found: error
+      - name: Sign the Windows installer
+        if: inputs.publish && runner.os == 'Windows'
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.windows-installer.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/native-release/win32-x64
+      - name: Upload Windows portable files for code signing
+        id: windows-portable
+        if: inputs.publish && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-unsigned-portable
+          path: build/native-desktop/portable
+          if-no-files-found: error
+      - name: Sign the Windows portable application
+        if: inputs.publish && runner.os == 'Windows'
+        uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
+        with:
+          api-token: ${{ secrets.SIGNPATH_APITOKEN }}
+          organization-id: c677c167-9f3e-4577-b967-5d7730bf742d
+          project-slug: GameSentenceMiner
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: Unpacked_GSM
+          github-artifact-id: ${{ steps.windows-portable.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist/native-signed-portable
+      - name: Package signed portable files and sign the final updater bytes
+        if: inputs.publish && runner.os == 'Windows'
+        run: |
+          node scripts/package-native-portable.mjs dist/native-signed-portable "dist/native-release/win32-x64/GameSentenceMiner-${{ needs.version.outputs.version }}-win-unpacked.zip"
+          node scripts/sign-native-assets.mjs dist/native-release/win32-x64
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-release-${{ matrix.platform }}
+          path: dist/native-release/${{ matrix.platform }}
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: inputs.publish
+    needs: [version, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-release-*
+          path: dist/native-release
+      - name: Require a complete, consistently signed four-platform release
+        run: node scripts/merge-native-updates.mjs
+      - name: Prepare release notes and in-app changelog
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          mode=stable
+          if [ "$PRERELEASE" = true ]; then mode=prerelease; fi
+          node scripts/render-release-body.mjs --mode "$mode" --version "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" > dist/native-release/release-notes.md
+          node scripts/export-changelog-release-asset.mjs --version "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --out dist/native-release/gsm-changelog.json
+      - name: Publish only after every platform succeeds
+        run: node scripts/publish-native-assets.mjs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          GSM_RELEASE_PRERELEASE: ${{ inputs.prerelease }}
+          GSM_RELEASE_FORCE: ${{ inputs.force_rebuild }}

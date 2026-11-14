@@ -56,12 +56,11 @@ media_pkg.ffmpeg = ffmpeg_stub
 model_stub = ModuleType("GameSentenceMiner.util.models.model")
 model_stub.AnkiCard = object
 
-notification_stub = ModuleType("GameSentenceMiner.util.platform.notification")
-notification_stub.send_error_no_anki_update = lambda *args, **kwargs: None
-notification_stub.send_anki_enhancement_failed = lambda *args, **kwargs: None
-notification_stub.send_error_notification = lambda *args, **kwargs: None
+desktop_events_stub = ModuleType("GameSentenceMiner.util.communication.desktop_events")
+desktop_events_stub.card_error = lambda *args, **kwargs: None
+desktop_events_stub.app_error = lambda *args, **kwargs: None
+desktop_events_stub.card_updated = lambda *args, **kwargs: None
 platform_pkg = ModuleType("GameSentenceMiner.util.platform")
-platform_pkg.notification = notification_stub
 
 live_stats_stub = ModuleType("GameSentenceMiner.util.stats.live_stats")
 live_stats_stub.live_stats_tracker = SimpleNamespace()
@@ -96,7 +95,7 @@ _STUB_MODULES = {
     "GameSentenceMiner.util.media.ffmpeg": ffmpeg_stub,
     "GameSentenceMiner.util.models.model": model_stub,
     "GameSentenceMiner.util.platform": platform_pkg,
-    "GameSentenceMiner.util.platform.notification": notification_stub,
+    "GameSentenceMiner.util.communication.desktop_events": desktop_events_stub,
     "GameSentenceMiner.util.stats.live_stats": live_stats_stub,
     "GameSentenceMiner.util.text_log": text_log_stub,
     "GameSentenceMiner.web": web_pkg,
@@ -576,7 +575,7 @@ def test_apply_field_grouping_merge_moves_browser_off_selected_target(monkeypatc
 
     monkeypatch.setattr(anki, "invoke", fake_invoke)
     monkeypatch.setattr(
-        anki.notification, "open_browser_window", lambda note_id, *_a: calls.append(("browse", note_id)), raising=False
+        anki.anki_actions, "open_browser_window", lambda note_id, *_a: calls.append(("browse", note_id)), raising=False
     )
 
     anki._apply_field_grouping_merge(
@@ -1840,19 +1839,11 @@ def test_check_and_update_note_triggers_cache_sync_after_updating_note(monkeypat
 
 def test_check_and_update_note_reports_background_failure(monkeypatch):
     config = SimpleNamespace(anki=SimpleNamespace(word_field="Word"))
-    messages = []
-
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(
         anki,
         "_update_anki_note",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom")),
-    )
-    monkeypatch.setattr(
-        anki.notification,
-        "send_anki_enhancement_failed",
-        lambda message: messages.append(message),
-        raising=False,
     )
     monkeypatch.setattr(
         anki.gsm_status,
@@ -1872,7 +1863,6 @@ def test_check_and_update_note_reports_background_failure(monkeypatch):
         processing_word="語",
     )
 
-    assert messages == ["Failed to update Anki note 42: boom"]
     assert anki.anki_results["line-1"].success is False
     assert anki.anki_results["line-1"].failure_reason == "Failed to update Anki note 42: boom"
 
@@ -2103,7 +2093,7 @@ def test_update_anki_note_removes_overlay_tag_when_enabled(monkeypatch):
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
-    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+    monkeypatch.setattr(anki.anki_actions, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
 
     anki._update_anki_note(
         SimpleNamespace(noteId=42),
@@ -2133,7 +2123,7 @@ def test_update_anki_note_converts_sentence_newlines_to_html_breaks(monkeypatch)
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
-    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+    monkeypatch.setattr(anki.anki_actions, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
 
     anki._update_anki_note(
         SimpleNamespace(noteId=42),
@@ -2161,7 +2151,7 @@ def test_update_anki_note_does_not_remove_overlay_tag_when_disabled(monkeypatch)
 
     monkeypatch.setattr(anki, "get_config", lambda: config)
     monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: calls.append((action, kwargs)) or [])
-    monkeypatch.setattr(anki.notification, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
+    monkeypatch.setattr(anki.anki_actions, "open_browser_window", lambda *_args, **_kwargs: None, raising=False)
 
     anki._update_anki_note(
         SimpleNamespace(noteId=42),
@@ -3108,26 +3098,91 @@ def test_process_audio_reencodes_before_upload(monkeypatch, tmp_path):
     assert note["fields"]["SentenceAudio"] == "[sound:audio-in-anki.mp3]"
 
 
-def test_process_audio_notifies_when_upload_fails(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "vad_result,audio_path,expected_audio",
+    [
+        (SimpleNamespace(success=False, voice_detected=False, model="Silero"), "", False),
+        (SimpleNamespace(success=False, voice_detected=False, model="Silero"), "preview.opus", False),
+        (SimpleNamespace(success=False, voice_detected=False, model="No VAD"), "recovered.opus", False),
+        (SimpleNamespace(success=True, voice_detected=False, model="Silero"), "fallback.opus", True),
+        (SimpleNamespace(success=True, voice_detected=False, model="Silero", tts_used=True), "tts.opus", True),
+        (SimpleNamespace(success=True, voice_detected=True, model="Silero"), "", True),
+        (SimpleNamespace(success=True, model="No VAD"), "", True),
+        (None, "", True),
+    ],
+)
+def test_unvoiced_card_does_not_automatically_upload_preview_audio(monkeypatch, vad_result, audio_path, expected_audio):
     cfg = _base_config()
-    raw = tmp_path / "raw.opus"
-    raw.write_bytes(b"raw")
-    messages = []
+    cfg.anki.show_update_confirmation_dialog_v2 = False
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (True, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+    updates = []
+    monkeypatch.setattr(anki, "check_and_update_note", lambda *args, **_kwargs: updates.append(args))
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note={"id": 10, "fields": {"Sentence": "unvoiced line"}},
+        vad_result=vad_result,
+        audio_path=audio_path,
+        precomputed_assets=anki.MediaAssets(screenshot_path="still.png"),
+    )
+    assert len(updates) == 1
+    assert bool(updates[0][4]) is expected_audio
 
-    monkeypatch.setattr(anki, "store_media_file", lambda _path: None)
-    monkeypatch.setattr(
-        anki.notification,
-        "send_anki_enhancement_failed",
-        lambda message: messages.append(message),
-        raising=False,
+
+@pytest.mark.parametrize("source", ["overlay", "hooker"])
+@pytest.mark.parametrize("mode", ["no-confirmation", "skip-unvoiced", "keep-audio", "no-audio"])
+def test_unvoiced_preview_audio_is_uploaded_only_when_explicitly_kept(monkeypatch, tmp_path, source, mode):
+    cfg = _base_config()
+    cfg.anki.show_update_confirmation_dialog_v2 = mode != "no-confirmation"
+    cfg.anki.skip_confirmation_for_unvoiced = mode == "skip-unvoiced"
+    cfg.anki.previous_image_field = ""
+    preview = tmp_path / "unvoiced.opus"
+    preview.write_bytes(b"background audio")
+    monkeypatch.setattr(anki, "get_config", lambda: cfg)
+    monkeypatch.setattr(anki, "_determine_update_conditions", lambda _note: (True, False))
+    monkeypatch.setattr(anki, "_prepare_anki_note_fields", lambda note, *_args, **_kwargs: note)
+    monkeypatch.setattr(anki, "_prepare_anki_tags", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(anki, "_synchronize_deferred_media_metadata", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_start_animated_screenshot_prefetch", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_apply_sentence_furigana_field", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(anki, "_apply_confirmed_sentence_fields", lambda *_args: None)
+    monkeypatch.setattr(anki, "submit_background_work", lambda fn: fn())
+    uploads = []
+    monkeypatch.setattr(anki, "store_media_file", lambda path: uploads.append(path) or "uploaded.opus")
+
+    def process_audio(last_note, note, tags, assets, use_voice, update_picture, use_existing_files, *args, **kwargs):
+        anki._process_audio(assets, note, cfg, use_voice, use_existing_files, last_note=last_note)
+
+    monkeypatch.setattr(anki, "check_and_update_note", process_audio)
+    confirmations = []
+    qt_main_stub = ModuleType("GameSentenceMiner.ui.qt_main")
+
+    def confirm(*args, **kwargs):
+        confirmations.append(args[4])
+        return (mode == "keep-audio", args[1], args[5], args[2], args[3], False, args[4], {})
+
+    qt_main_stub.launch_anki_confirmation = confirm
+    monkeypatch.setitem(sys.modules, "GameSentenceMiner.ui.qt_main", qt_main_stub)
+    note = {"id": 10, "fields": {"Sentence": "unvoiced line"}}
+
+    assert anki.update_anki_card(
+        SimpleNamespace(noteId=10, get_field=lambda _field: ""),
+        note=note,
+        audio_path=str(preview),
+        game_line=SimpleNamespace(id="unvoiced", source=source, text="unvoiced line", prev=None),
+        vad_result=SimpleNamespace(
+            success=False, voice_detected=False, model="Silero", trimmed_audio_path=str(preview)
+        ),
+        precomputed_assets=anki.MediaAssets(),
     )
 
-    assets = anki.MediaAssets(audio_path=str(raw))
-    note = {"fields": {}}
-
-    anki._process_audio(assets, note, cfg, use_voice=True, use_existing_files=False)
-
-    assert messages == ["Failed to upload audio to Anki media collection."]
+    assert confirmations == ([str(preview)] if mode in {"keep-audio", "no-audio"} else [])
+    assert uploads == ([str(preview)] if mode == "keep-audio" else [])
+    assert note["fields"].get("SentenceAudio", "") == ("[sound:uploaded.opus]" if mode == "keep-audio" else "")
 
 
 @pytest.mark.parametrize("kind", ["screenshot", "previous_screenshot", "audio", "animation", "video"])
@@ -3387,6 +3442,7 @@ def test_overlay_confirmation_setting_preserves_reused_media(monkeypatch, show_d
         note={"id": 42, "fields": {"Sentence": "sentence"}},
         game_line=SimpleNamespace(id="scan", source="overlay", text="sentence", prev=SimpleNamespace()),
         use_existing_files=True,
+        vad_result=SimpleNamespace(success=False, voice_detected=False, model="Silero", start=0.0, end=0.0),
     )
 
     assert result is True
@@ -3397,6 +3453,7 @@ def test_overlay_confirmation_setting_preserves_reused_media(monkeypatch, show_d
     assert assets.screenshot_in_anki == "shot.webp"
     assert assets.reused_audio is True
     assert assets.reused_screenshot is True
+    assert updates[0][4] is True  # Reused audio was already approved for the original card.
     assert updates[0][6] is True  # The update still uses the existing files.
 
 
@@ -3873,7 +3930,6 @@ def test_check_and_update_note_finishes_after_collection_busy(monkeypatch, tmp_p
     failed = Mock()
     sync = Mock()
     remove_word = Mock()
-    monkeypatch.setattr(anki, "_notify_anki_enhancement_failure", failed)
     monkeypatch.setattr(anki, "_mark_anki_update_failure", failed)
     monkeypatch.setattr(anki, "_trigger_incremental_anki_cache_sync", sync)
     monkeypatch.setattr(anki.gsm_status, "remove_word_being_processed", remove_word)

@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import os
 from types import SimpleNamespace
 
-from PyQt6.QtWidgets import QApplication
 
 from GameSentenceMiner.ui.config.safety import safe_config_call, safe_config_callback, safe_config_methods
-from GameSentenceMiner.ui.config.tabs.text_processing import StringReplacementDialog
-from GameSentenceMiner.util.config.configuration import TextReplacementRule
 
 
 def test_safe_config_call_logs_and_swallows_exceptions(monkeypatch) -> None:
@@ -73,32 +69,3 @@ def test_safe_config_callback_ignores_extra_signal_args() -> None:
     callback(False, "extra")
 
     assert calls == ["ran"]
-
-
-def test_string_replacement_move_selected_reorders_rows_without_losing_modes() -> None:
-    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    app = QApplication.instance() or QApplication([])
-    dialog = StringReplacementDialog(
-        None,
-        [
-            TextReplacementRule(find="first", replace="1", mode="plain"),
-            TextReplacementRule(find="second", replace="2", mode="regex"),
-            TextReplacementRule(find="third", replace="3", mode="plain"),
-        ],
-        {"string_replacement": {"dialog": {}}},
-    )
-    try:
-        dialog.table.selectRow(1)
-
-        dialog._move_selected(1)
-
-        rules = dialog.get_rules()
-        assert [(rule.find, rule.mode) for rule in rules] == [
-            ("first", "plain"),
-            ("third", "plain"),
-            ("second", "regex"),
-        ]
-        assert dialog.table.currentRow() == 2
-    finally:
-        dialog.close()
-        app.processEvents()

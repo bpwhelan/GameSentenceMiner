@@ -12,11 +12,13 @@ const net = require('net');
 const http = require('http');
 const https = require('https');
 const WebSocket = require('ws');
+const { closeWebSocket } = require('./socket_lifecycle');
 const bg = require('./background');
 const BackendConnector = require('./backend_connector');
 const { createVitaModelRequest } = require('./vita_ocr_models');
 const { createMeikiModelRequest } = require('./meiki_ocr_models');
 const { configureYomitan, createSetupHandler } = require('./anki_setup');
+const { createDictionarySetup } = require('./dictionary_setup');
 const { createMagpieState } = require('./magpie');
 const { createMagpieNative } = require('./magpie_native');
 const { createMagpieSession } = require('./magpie_session');
@@ -124,8 +126,8 @@ const ipcMain = {
     return ipcMain;
   },
   handle(channel, listener) {
-    overlayIpcHandlers.add(channel);
     nativeIpcMain.handle(channel, listener);
+    overlayIpcHandlers.add(channel);
   },
   removeListener(channel, listener) {
     nativeIpcMain.removeListener(channel, listener);
@@ -208,6 +210,7 @@ const globalShortcut = {
     return registered;
   },
   unregister(accelerator) {
+    if (IN_PROCESS_OVERLAY && !overlayGlobalShortcuts.has(accelerator)) return;
     nativeGlobalShortcut.unregister(accelerator);
     overlayGlobalShortcuts.delete(accelerator);
   },
@@ -275,8 +278,8 @@ const DEFAULT_ENFORCED_PLAINTEXT_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_P
 const DEFAULT_ENFORCED_OVERLAY_WS_URL = `ws://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/ws/overlay`;
 const DEFAULT_TEXTHOOKER_URL = `http://127.0.0.1:${DEFAULT_GSM_SINGLE_PORT}/texthooker`;
 const DEFAULT_YOMITAN_API_URL = "http://127.0.0.1:19633";
-const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
-const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
+const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set(["sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", "jpdb-api"]);
+const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_TRACKED_GAME_WINDOW_STATES = new Set(["active", "background", "obscured", "minimized", "closed", "unknown"]);
 const VALID_LIVE_STATS_SCOPES = new Set(["session", "today"]);
@@ -372,6 +375,8 @@ const OVERLAY_NON_PROFILE_SETTING_KEYS = new Set([
   "vnGuideCatalogueSource",
   "mainBoxStartupWarningAcknowledged",
   "pushToShowEnforcedDialogDismissed",
+  "showManualModeRecommendations",
+  "showExclusiveFullscreenRecommendations",
   "dismissedFullscreenRecommendations",
   "dismissedExclusiveFullscreenRecommendations",
   "gamepadServerPort",
@@ -881,6 +886,7 @@ let uninstallJitenSessionBroker = null;
 const vocabularyConnection = new VocabularyConnection({ WebSocket,
   ensureServer: () => startGamepadServer('local-vocabulary'),
   getPort: () => MANAGED_INPUT_SERVER_PORT || userSettings.gamepadServerPort,
+  onDictionaryChanged: () => notifyLocalVocabularyChanged(),
 });
 const localVocabulary = new LocalVocabulary({
   request: request => vocabularyConnection.request(request), fetch: fetchJitenUpstream,
@@ -1036,6 +1042,16 @@ ipcMain.handle('gsm-jiten-lookup-vocabulary', async (_event, args = {}) => {
 // Fetch the list of active goals (with progress) from the GSM web server for the
 // overlay settings picker. Done in the main process to bypass the renderer's CORS
 // restrictions against the file:// settings window origin.
+ipcMain.handle('sudachi-setup', async (_event, payload = {}) => {
+  const response = await fetch(`http://127.0.0.1:${getGSMTransportBasePort()}/api/onboarding/sudachi`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: payload.action, dictionary: payload.dictionary }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!response.ok) throw new Error(`Dictionary setup failed (HTTP ${response.status}). Retry setup.`);
+  return response.json();
+});
+
 ipcMain.handle('overlay-get-active-goals', async () => {
   const port = getGSMTransportBasePort();
   try {
@@ -1148,6 +1164,8 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "offsetY": 0,
   "mainBoxStartupWarningAcknowledged": false,
   "pushToShowEnforcedDialogDismissed": false, // Never show the "Push to Show Enforced" startup dialog again
+  "showManualModeRecommendations": true,
+  "showExclusiveFullscreenRecommendations": true,
   "dismissedFullscreenRecommendations": [], // Games for which Push to Show recommendation was dismissed
   "dismissedExclusiveFullscreenRecommendations": [], // Games for which display-mode recommendation was dismissed
   "texthookerHotkey": DEFAULT_TEXTHOOKER_HOTKEY,
@@ -1227,7 +1245,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "gamepadKeyboardEnabled": true, // Enable keyboard hotkey activation
   "gamepadControllerEnabled": true, // Enable controller button activation
   "gamepadTokenMode": true, // Default to character mode (false) or token mode (true)
-  "gamepadTokenizerBackend": "sudachi", // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
+  "gamepadTokenizerBackend": "sudachi", // "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api" for tokenization/furigana
   "gamepadLocalTokenizerFallbackBackend": "sudachi", // Local retry backend used when the selected tokenizer fails
   "gamepadSudachiDictionary": "small", // "small", "core", or "full" for Sudachi auto-download
   "gamepadYomitanApiUrl": DEFAULT_YOMITAN_API_URL, // Base URL for Yomitan API
@@ -2172,7 +2190,7 @@ function normalizeLocalTokenizerFallbackBackend(value) {
 
 function isServerBackedGamepadTokenizerBackend(value) {
   const normalized = normalizeGamepadTokenizerBackend(value);
-  return normalized === "mecab" || normalized === "sudachi";
+  return normalized === "sudachi";
 }
 
 function normalizeGamepadYomitanApiUrl(value) {
@@ -2347,6 +2365,11 @@ let resizeMode = false;
 let yomitanShown = false;
 let gamepadNavigationActive = false; // True while renderer gamepad navigation keeps overlay focused
 let mainWindow = null;
+const nativeOverlay = require('./native_overlay.cjs').createNativeOverlay({
+  enabled: process.env.GSM_NATIVE_OVERLAY === '1',
+  getWindow: () => mainWindow,
+  call: (method, params) => require('../desktop-runtime/transport.cjs').call(method, params),
+});
 let startupNotificationWindow = null;
 let startupNotificationCloseTimer = null;
 let afkHidden = false; // true when AFK timer hid the overlay
@@ -2618,6 +2641,23 @@ const handleAnkiSetup = createSetupHandler(
   (response) => { if (backend?.connected) backend.send(response); },
 );
 
+const handleDictionarySetup = createDictionarySetup({
+  BrowserWindow,
+  getResourceRoot: () => isDev ? __dirname : getPackagedResourcesPath(),
+  getReader: () => activeDictionaryReader,
+  getExtension: () => hachidoriExt || yomitanExt,
+  openSettings: () => openYomitanSettings(),
+  selectReader: value => {
+    const previous = userSettings.dictionaryReaderSelection;
+    userSettings.dictionaryReaderSelection = value;
+    if (!saveSettings()) {
+      userSettings.dictionaryReaderSelection = previous;
+      throw new Error('The dictionary choice could not be saved. Retry.');
+    }
+  },
+  send: response => { if (backend?.connected) backend.send(response); },
+});
+
 function handleOverlayWebSocketControlMessage(type, data) {
   if ((type !== "ws2" && type !== "backend-connector") || data === "True" || data === "False") {
     return false;
@@ -2636,6 +2676,13 @@ function handleOverlayWebSocketControlMessage(type, data) {
 
   if (!message || typeof message !== "object") {
     return false;
+  }
+
+  if (nativeOverlay.receive(type, message)) return true;
+
+  if (message.type === 'dictionary-setup') {
+    void handleDictionarySetup(message);
+    return true;
   }
 
   if (message.type === 'restore-focus-result') {
@@ -2774,8 +2821,7 @@ function closeOverlayWebSocket(type, options = {}) {
     const socket = state.socket;
     state.socket = null;
     try {
-      socket.removeAllListeners();
-      socket.close();
+      closeWebSocket(socket);
     } catch (e) {
       console.warn(`[OverlayWS] Failed to close ${type} socket:`, e);
     }
@@ -2836,6 +2882,7 @@ function connectOverlayWebSocket(type, url) {
 
   socket.on("close", (code, reason) => {
     if (state.socket !== socket) return;
+    if (type === 'ws2') void nativeOverlay.stop();
     state.socket = null;
     publishOverlaySocketState(type, false);
     const reasonText = Buffer.isBuffer(reason) ? reason.toString("utf8") : String(reason || "");
@@ -3237,8 +3284,7 @@ function closeManualHotkeyInputServerConnection({ clearUrl = true, clearReconnec
 
   if (state.socket) {
     try {
-      state.socket.removeAllListeners();
-      state.socket.close();
+      closeWebSocket(state.socket);
     } catch (err) {
       console.warn("[ManualHotkey] Failed to close input server socket:", err.message);
     }
@@ -3449,8 +3495,7 @@ function closeAppHotkeyInputServerConnection({ clearUrl = true, clearReconnect =
   }
   if (state.socket) {
     try {
-      state.socket.removeAllListeners();
-      state.socket.close();
+      closeWebSocket(state.socket);
     } catch (err) {
       console.warn("[AppHotkey] Failed to close input server socket:", err.message);
     }
@@ -3706,6 +3751,11 @@ function getExtensionSessionApi() {
 }
 
 async function loadExtension(name) {
+  const readerLease = globalThis[Symbol.for('gsm.reader.dictionary')];
+  if (readerLease?.reader === name) {
+    const existing = getOverlaySession().extensions.getAllExtensions().find(ext => ext.id === readerLease.extensionId);
+    if (existing) return existing;
+  }
   const extDir = isDev ? path.join(__dirname, name) : path.join(getPackagedResourcesPath(), name);
   const extTargetDir = ensureExtensionCopy(name, extDir);
   const extensionApi = getExtensionSessionApi();
@@ -3726,10 +3776,6 @@ async function loadExtension(name) {
   };
   const readyPromise = new Promise((resolve) => {
     resolveReady = resolve;
-    readyTimeout = setTimeout(() => {
-      console.warn(`[Extensions] Timed out waiting for ${name} extension-ready event after ${EXTENSION_READY_TIMEOUT_MS}ms`);
-      resolve();
-    }, EXTENSION_READY_TIMEOUT_MS);
   });
 
   try {
@@ -3738,6 +3784,13 @@ async function loadExtension(name) {
     if (observedReadyIds.has(loadedExt.id)) {
       clearTimeout(readyTimeout);
       resolveReady();
+    } else {
+      // Loading may include a large first-use dictionary transfer. Start the
+      // readiness timeout only after the extension itself has loaded.
+      readyTimeout = setTimeout(() => {
+        console.warn(`[Extensions] Timed out waiting for ${name} extension-ready event after ${EXTENSION_READY_TIMEOUT_MS}ms`);
+        resolveReady();
+      }, EXTENSION_READY_TIMEOUT_MS);
     }
     await readyPromise;
     console.log(`${name} extension loaded.`);
@@ -3756,50 +3809,13 @@ async function loadExtension(name) {
 // beside the extension's own offscreen document can erase committed dictionary
 // files when either mirror syncs. Resolve ownership before starting an engine.
 async function createHachidoriEngineWindow() {
-  if (!hachidoriExt) {
-    return false;
-  }
-  if (hachidoriEngineWindow && !hachidoriEngineWindow.isDestroyed()) {
-    return true;
-  }
-
-  const engineWindow = new BrowserWindow({
-    show: false,
-    width: 1,
-    height: 1,
-    skipTaskbar: true,
-    webPreferences: {
-      session: getOverlaySession(),
-      nodeIntegration: false,
-      contextIsolation: true,
-      backgroundThrottling: false,
-    },
-  });
-  hachidoriEngineWindow = engineWindow;
-  engineWindow.on('closed', () => {
-    if (hachidoriEngineWindow === engineWindow) {
-      hachidoriEngineWindow = null;
-    }
-  });
-
-  // Closing the probe must not end standalone startup before its main window exists.
+  if (!hachidoriExt) return false;
   registerOverlayEmitterListener(app, 'window-all-closed', () => {}, true);
   try {
-    await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/gsm/engine-host.html`);
-    const extensionOwnsEngine = await engineWindow.webContents.executeJavaScript('GsmHachidoriEngineHost');
-    if (extensionOwnsEngine) {
-      engineWindow.destroy();
-      console.log(`[Hachidori] Extension owns its dictionary engine (${hachidoriExt.id}).`);
-      return true;
-    }
-    await engineWindow.loadURL(`chrome-extension://${hachidoriExt.id}/offscreen.html`);
-    console.log(`[Hachidori] Hosted dictionary engine ready (${hachidoriExt.id}).`);
+    hachidoriEngineWindow = await require('./shared_dictionary_engine.cjs').ensureHachidoriEngine(BrowserWindow, getOverlaySession(), hachidoriExt.id);
     return true;
   } catch (error) {
-    console.error('[Hachidori] Failed to host offscreen.html:', error);
-    if (!engineWindow.isDestroyed()) {
-      engineWindow.destroy();
-    }
+    console.error('[Hachidori] Failed to host dictionary engine:', error);
     return false;
   }
 }
@@ -3950,7 +3966,7 @@ function isManualMode() {
 // When a game may be hiding the OS cursor the automatic overlay is awkward to use,
 // so we surface a small custom window reusing the shared Manual Mode settings card
 // (manual-mode-recommendation.html). Shown at most once per game per session, and
-// permanently silenced per game once the user opts out.
+// permanently silenced per game or globally once the user opts out.
 const manualModeRecommendationPromptedGames = new Set();
 let manualModeRecommendationWindow = null;
 
@@ -4019,6 +4035,7 @@ function playSystemWarningSound() {
 
 function maybeShowManualModeRecommendation(game) {
   if (!isWindows()) return;
+  if (userSettings.showManualModeRecommendations === false) return;
   if (isManualMode()) return;
 
   const gameKey = game || "";
@@ -4110,6 +4127,7 @@ function rememberDismissedFullscreenModeRecommendation(game) {
 
 function maybeShowFullscreenModeRecommendation(game) {
   if (!isWindows()) return;
+  if (userSettings.showExclusiveFullscreenRecommendations === false) return;
 
   const gameKey = game || "";
   if (getDismissedFullscreenModeRecommendations().includes(gameKey)) return;
@@ -6408,7 +6426,7 @@ function registerManualShowHotkey(oldHotkey) {
   const manualModeType = normalizeManualModeType(userSettings.manualModeType);
 
   if (requestedBackend === MANUAL_HOTKEY_BACKEND_ELECTRON) {
-    console.log(`[ManualHotkey] Registering Electron hotkey: ${userSettings.showHotkey} | Mode: ${manualModeType}`);
+    console.log(`[ManualHotkey] Registering desktop hotkey: ${userSettings.showHotkey} | Mode: ${manualModeType}`);
     const result = registerHotkeyWithFallback({
       accelerator: userSettings.showHotkey,
       fallbackAccelerator: DEFAULT_MANUAL_HOTKEY,
@@ -6501,12 +6519,23 @@ function resetActivityTimer() {
 }
 
 let requestedSettingsTab = null;
+let settingsWindowReady = false;
 
 function sendRequestedSettingsTab(window) {
   if (requestedSettingsTab && !window.isDestroyed() && !window.webContents.isLoadingMainFrame()) {
     window.webContents.send('select-settings-tab', requestedSettingsTab);
     requestedSettingsTab = null;
   }
+}
+
+function showSettingsWindow(window) {
+  if (!settingsWindowReady || window.isDestroyed()) return;
+  window.setAlwaysOnTop(false);
+  window.show();
+  window.focus();
+  // Backend requests can arrive without foreground permission on Windows.
+  forceForegroundWindow(window);
+  sendRequestedSettingsTab(window);
 }
 
 function openSettings(tab) {
@@ -6517,16 +6546,13 @@ function openSettings(tab) {
     mainWindow.webContents.send("force-visible", true);
   }
   if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.setAlwaysOnTop(false);
-    settingsWindow.show();
-    settingsWindow.focus();
-    // Backend requests can arrive without foreground permission on Windows.
-    forceForegroundWindow(settingsWindow);
-    sendRequestedSettingsTab(settingsWindow);
+    showSettingsWindow(settingsWindow);
     return;
   }
 
+  settingsWindowReady = false;
   const openedSettingsWindow = new BrowserWindow({
+    show: false,
     width: 1200,
     height: 980,
     minWidth: 800,
@@ -6536,7 +6562,9 @@ function openSettings(tab) {
     title: "Overlay Settings",
     webPreferences: {
       preload: FIND_IN_PAGE_PRELOAD_PATH,
-      nodeIntegration: true,
+      // Tauri already supplies the IPC bridge. Loading the overlay's text
+      // modules here adds several seconds to WebView2 creation on Windows.
+      nodeIntegration: process.env.GSM_NATIVE_SERVICE !== '1',
       contextIsolation: false,
       // Own session so Yomitan/Jiten content scripts (loaded into the default
       // session) aren't injected here — keeps dictionary lookups off settings text.
@@ -6575,7 +6603,13 @@ function openSettings(tab) {
   });
 
   openedSettingsWindow.removeMenu();
-  loadOverlayPage(openedSettingsWindow, "settings.html");
+  const onSettingsPainted = (event) => {
+    if (event.sender !== openedSettingsWindow.webContents || openedSettingsWindow.isDestroyed()) return;
+    ipcMain.removeListener('overlay-settings-painted', onSettingsPainted);
+    settingsWindowReady = true;
+    showSettingsWindow(openedSettingsWindow);
+  };
+  ipcMain.on('overlay-settings-painted', onSettingsPainted);
   openedSettingsWindow.webContents.once("did-finish-load", () => {
     if (openedSettingsWindow.isDestroyed()) return;
     openedSettingsWindow.webContents.send("preload-settings", {
@@ -6594,23 +6628,19 @@ function openSettings(tab) {
     }
   });
   openedSettingsWindow.on("closed", () => {
+    ipcMain.removeListener('overlay-settings-painted', onSettingsPainted);
     if (settingsWindow === openedSettingsWindow) {
       settingsWindow = null;
+      settingsWindowReady = false;
     }
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("force-visible", false);
     }
   });
-  console.log(websocketStates);
-  setTimeout(() => {
-    if (openedSettingsWindow.isDestroyed()) return;
-    const [width, height] = openedSettingsWindow.getSize();
-    openedSettingsWindow.setSize(width, height);
-    openedSettingsWindow.webContents.invalidate();
-    openedSettingsWindow.show();
-    openedSettingsWindow.focus();
-    forceForegroundWindow(openedSettingsWindow);
-  }, 500);
+  void loadOverlayPage(openedSettingsWindow, "settings.html").catch((error) => {
+    console.error('Failed to open Overlay Settings:', error);
+    if (!openedSettingsWindow.isDestroyed()) openedSettingsWindow.destroy();
+  });
 }
 
 function openYomitanSettings() {
@@ -6995,8 +7025,8 @@ function createTray() {
   });
 }
 
-function updateTrayMenu() {
-  const contextMenu = Menu.buildFromTemplate([
+function getTrayMenuTemplate() {
+  return [
     {
       label: 'Toggle Window (Alt+Shift+H)',
       click: () => {
@@ -7137,14 +7167,18 @@ function updateTrayMenu() {
     },
     { type: 'separator' },
     {
-      label: 'Quit',
+      label: IN_PROCESS_OVERLAY ? 'Turn off overlay' : 'Quit',
       click: () => {
         requestOverlayShutdown();
       }
     }
-  ]);
+  ];
+}
 
-  tray.setContextMenu(contextMenu);
+function updateTrayMenu() {
+  if (tray) {
+    tray.setContextMenu(Menu.buildFromTemplate(getTrayMenuTemplate()));
+  }
 }
 
 
@@ -7388,7 +7422,7 @@ async function startOverlayAppImpl() {
     } catch {}
 
     let cacheReady = true;
-    if (!currentRevision || currentRevision !== storedRevision) {
+    if ((!currentRevision || currentRevision !== storedRevision) && !globalThis[Symbol.for('gsm.reader.dictionary')]) {
       console.log('[YomitanStartup] Extension contents changed. Clearing service worker cache...');
       try {
         await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
@@ -7418,7 +7452,7 @@ async function startOverlayAppImpl() {
     let storedCommit = null;
     try { storedCommit = JSON.parse(fs.readFileSync(hachidoriCommitPath, 'utf-8')).commit; } catch {}
 
-    if (currentCommit !== storedCommit) {
+    if (currentCommit !== storedCommit && !globalThis[Symbol.for('gsm.reader.dictionary')]) {
       console.log(`[HachidoriStartup] Extension changed (stored=${storedCommit}, current=${currentCommit}). Clearing service worker cache...`);
       try {
         await getOverlaySession().clearStorageData({ storages: ['serviceworkers'] });
@@ -7936,6 +7970,12 @@ async function startOverlayAppImpl() {
   mainWindow.on('closed', () => recordOverlayDiagnostic('window-closed'));
   mainWindow.on('hide', () => recordOverlayDiagnostic('window-hidden'));
   mainWindow.on('unresponsive', () => recordOverlayDiagnostic('window-unresponsive'));
+  mainWindow.on('native-pointer', point => {
+    // The native sampler already stops while hidden; avoid a synchronous
+    // window query for every pointer movement.
+    if (!mainWindow || mainWindow.isDestroyed() || !canRouteTextHover() || magpieSession?.ownsPointer()) return;
+    mainWindow.webContents.send('text-hover-pointer', point);
+  });
   attachMagpieSession();
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -8692,6 +8732,8 @@ async function startOverlayAppImpl() {
       value = normalizeOverlayGoals(value);
     } else if (
       key === "hideCompletedGoals"
+      || key === "showManualModeRecommendations"
+      || key === "showExclusiveFullscreenRecommendations"
       || key === "textHoverClickThrough"
       || key === "hideLiveStatsOnTextOverlap"
       || key === "pomodoroEnabled"
@@ -8710,6 +8752,16 @@ async function startOverlayAppImpl() {
       value = userSettings[key];
     }
     switch (key) {
+      case "showManualModeRecommendations":
+        if (!value && manualModeRecommendationWindow && !manualModeRecommendationWindow.isDestroyed()) {
+          manualModeRecommendationWindow.close();
+        }
+        break;
+      case "showExclusiveFullscreenRecommendations":
+        if (!value && fullscreenModeRecommendationWindow && !fullscreenModeRecommendationWindow.isDestroyed()) {
+          fullscreenModeRecommendationWindow.close();
+        }
+        break;
       case "showHotkey":
         {
           const resolved = ensureManualAndTexthookerHotkeysDistinct("setting-changed:showHotkey");
@@ -8957,7 +9009,7 @@ async function startOverlayAppImpl() {
       mainWindow.webContents.send("settings-updated", settingUpdate);
     }
     if (
-      key === "fontSize"
+      (key === "fontSize" || key === "showManualModeRecommendations" || key === "showExclusiveFullscreenRecommendations")
       && settingsWindow
       && !settingsWindow.isDestroyed()
       && event.sender !== settingsWindow.webContents
@@ -9070,6 +9122,12 @@ async function startOverlayAppImpl() {
 
   // let alwaysOnTopInterval;
 
+  let lastNativeOverlayError = null;
+  ipcMain.on('native-overlay-error', (_event, error) => {
+    if (lastNativeOverlayError === error) return;
+    lastNativeOverlayError = error;
+    dialog.showErrorBox('Overlay OCR', error);
+  });
   ipcMain.on("text-received", (event, text) => {
     if (isTexthookerMode || customPageController?.isVisible()) return;
     // Reset the activity timer on text received
@@ -9327,6 +9385,7 @@ async function stopOverlayApp() {
   overlayLifecycleDisposed = true;
   overlayLifecycleStopPromise = (async () => {
     try {
+      await nativeOverlay.destroy();
       if (gsmProfileStateRefreshInterval) {
         runOverlayCleanupStep('profile refresh timer', () => clearInterval(gsmProfileStateRefreshInterval));
         gsmProfileStateRefreshInterval = null;
@@ -9381,6 +9440,7 @@ async function stopOverlayApp() {
       }
 
       for (const window of Array.from(overlayWindows)) {
+        if (window === globalThis[Symbol.for("gsm.reader.dictionary")]?.engineWindow) continue;
         if (!window.isDestroyed()) {
           runOverlayCleanupStep('window', () => window.destroy());
         }
@@ -9400,8 +9460,10 @@ async function stopOverlayApp() {
       runOverlayCleanupStep('extensions', () => {
         const extensionApi = getExtensionSessionApi();
         for (const extension of [yomitanExt, hachidoriExt, jitenReaderExt]) {
+          if (extension?.id === globalThis[Symbol.for('gsm.reader.dictionary')]?.extensionId) continue;
           if (extension && extension.id) {
             try {
+              require('./shared_dictionary_engine.cjs').forgetHachidoriEngine(getOverlaySession(), extension.id);
               extensionApi.removeExtension(extension.id);
             } catch (error) {
               console.warn(`[Extensions] Failed to unload ${extension.id}:`, error);
@@ -9415,7 +9477,7 @@ async function stopOverlayApp() {
       jitenReaderExt = null;
 
       runOverlayCleanupStep('IPC registrations', () => removeOverlayIpcRegistrations());
-      runOverlayCleanupStep('Electron event listeners', () => removeOverlayEmitterListeners());
+      runOverlayCleanupStep('desktop event listeners', () => removeOverlayEmitterListeners());
       runOverlayCleanupStep('Magpie session', () => {
         magpieSession?.dispose();
         magpieSession = null;

@@ -1,0 +1,101 @@
+[package]
+name = "gsm-desktop"
+version = "2026.11.0"
+description = "GSM desktop workspace"
+edition = "2021"
+license = "LGPL-3.0-only"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+gsm-settings = { path = "../native/gsm-settings" }
+gsm-packages = { path = "../native/gsm-packages" }
+gsm-runtime = { path = "../native/gsm-runtime" }
+gsm-agent = { path = "../native/gsm-agent", default-features = false }
+gsm-texthook = { path = "../native/gsm-texthook" }
+gsm-capture = { path = "../native/gsm-capture" }
+tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
+futures-util = { version = "0.3", features = ["sink"] }
+sha2 = "0.10"
+arboard = "3"
+gsm-overlay = { path = "../native/gsm-overlay" }
+tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico", "macos-private-api"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-notification = "2"
+rodio = { version = "0.23", default-features = false, features = ["playback"] }
+tauri-plugin-updater = "2"
+tauri-plugin-single-instance = "2"
+rfd = "0.15"
+open = "5"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
+mime_guess = "2"
+tokio = { version = "1", features = ["sync", "time", "macros", "net", "rt-multi-thread"] }
+xcap = { version = "0.9", features = ["wgc"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "v5"] }
+dirs = "6"
+regex = "1"
+regress = "0.11"
+chrono = "0.4"
+zip = { version = "4", default-features = false, features = ["deflate"] }
+shell-words = "1"
+semver = "1"
+
+[dev-dependencies]
+tempfile = "3"
+
+[target.'cfg(windows)'.dependencies]
+ico = "0.6"
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications", "Graphics_Capture", "Graphics_DirectX_Direct3D11", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_DataExchange", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Accessibility", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Enable PulseAudio and PipeWire's PulseAudio server alongside ALSA playback.
+cpal = { version = "0.18.2", features = ["pulseaudio"] }
+gtk = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", features = ["NSWindow"] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+# Keep OCR and capture optimized for throughput; LTO removes unused code.
+opt-level = 3
+
+[profile.release.package.gsm-desktop]
+opt-level = "z"
+
+# npm start runs a development binary. Pixel loops must still run at native
+# speed; keep debug symbols/checks without making capture and OCR pay opt-level 0.
+[profile.dev.package.gsm-desktop]
+opt-level = 3
+[profile.dev.package.gsm-overlay]
+opt-level = 3
+[profile.dev.package.gsm-capture]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.xcap]
+opt-level = 3
+# Image codecs run on the OCR/preview path even in the development app.
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3

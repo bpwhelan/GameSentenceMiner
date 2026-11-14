@@ -43,6 +43,13 @@ class FakeSocket:
                     "dictionary": message["dictionary"],
                 }
             )
+        elif message["type"] in ("sudachi_status", "prepare_sudachi"):
+            self._incoming.append(
+                {
+                    "type": "sudachi_status",
+                    "state": "ready" if message["type"] == "prepare_sudachi" else "setup_required",
+                }
+            )
         elif message["type"] == "tokenize":
             self._incoming.append(
                 {
@@ -117,7 +124,7 @@ def test_reading_and_hiragana_preserve_existing_python_contract() -> None:
     assert client.to_hiragana("食べた。") == "たべた。"
 
     tokenize_messages = [message for message in socket.sent if message["type"] == "tokenize"]
-    assert len(tokenize_messages) == 1
+    assert len(tokenize_messages) == 2
 
 
 def test_html_is_removed_before_tokenization() -> None:
@@ -167,7 +174,7 @@ def test_configured_dictionary_is_sent_when_gsm_acquires_sudachi() -> None:
 
     assert {"type": "configure_sudachi", "dictionary": "full"} in socket.sent
     tokenize_message = next(message for message in socket.sent if message["type"] == "tokenize")
-    assert tokenize_message["dictionary"] == "full"
+    assert "dictionary" not in tokenize_message
 
 
 def test_external_sudachi_reuse_does_not_acquire_or_reconfigure_the_service() -> None:
@@ -194,3 +201,14 @@ def test_changing_dictionary_reconnects_and_invalidates_cached_tokens() -> None:
     assert any(message.get("dictionary") == "small" for message in first_socket.sent)
     assert any(message.get("dictionary") == "full" for message in second_socket.sent)
     assert sum(message["type"] == "tokenize" for message in first_socket.sent + second_socket.sent) == 2
+
+
+def test_dictionary_status_does_not_request_download_and_explicit_setup_reuses_service():
+    socket = FakeSocket()
+    setup_socket = FakeSocket()
+    sockets = iter((socket, setup_socket))
+    client = SudachiClient(connect_factory=lambda *_args, **_kwargs: next(sockets))
+    assert client.dictionary_setup()["state"] == "setup_required"
+    assert not any(request["type"] == "prepare_sudachi" for request in socket.sent)
+    assert client.dictionary_setup(install=True, dictionary="full")["state"] == "ready"
+    assert setup_socket.sent[-1] == {"type": "prepare_sudachi", "dictionary": "full"}

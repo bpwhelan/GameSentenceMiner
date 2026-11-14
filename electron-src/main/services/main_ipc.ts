@@ -13,16 +13,15 @@ import { registerAnkiBeaconIPC } from '../ui/anki_beacon.js';
 import { registerYuzuIPC } from '../ui/yuzu.js';
 import { registerVNIPC } from '../ui/vn.js';
 import { registerTextHookIPC } from '../ui/texthook.js';
-import { registerTextProcessIPC } from '../ui/textprocess.js';
-import { registerWindowsSpeechRecognitionIPC } from '../ui/speech_recognition.js';
 import { exportLogsArchive } from './log_export.js';
 import { BASE_DIR } from '../util.js';
 import { isAllowedDocsUrl } from '../../shared/docs.js';
 import type { DesktopUpdateChangelogSnapshot } from '../../shared/changelog.js';
-import type { InstallSessionSnapshot } from '../../shared/install_session.js';
 import type { AppUpdateStatus } from '../../shared/app_update.js';
 import { registerWindowSceneSwitcherIPC } from './window_scene_switcher.js';
 import { registerGameLauncherIPC } from './game_launcher_runtime.js';
+import { registerOnboardingIPC } from './onboarding.js';
+import { registerReaderIPC } from './reader.js';
 
 interface MainIPCDependencies {
     getMainWindow: () => BrowserWindow | null;
@@ -39,8 +38,6 @@ interface MainIPCDependencies {
         toVersion: string;
         includePrereleases?: boolean;
     }) => unknown;
-    getActiveInstallSession: () => InstallSessionSnapshot | null;
-    retryInstallSession: () => Promise<boolean>;
     getPendingDesktopUpdateChangelog: () => DesktopUpdateChangelogSnapshot | null;
     markDesktopUpdateChangelogSeen: (toVersion?: string) => Promise<boolean> | boolean;
     clearManualDesktopChangelog: () => void;
@@ -119,10 +116,10 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
     registerStateIPC();
     registerAnkiBeaconIPC();
     registerTextHookIPC();
-    registerTextProcessIPC();
-    registerWindowsSpeechRecognitionIPC();
     registerWindowSceneSwitcherIPC();
     registerGameLauncherIPC();
+    registerOnboardingIPC();
+    registerReaderIPC();
 
     ipcMain.handle('show-error-box', async (_event, { title, message, detail }) => {
         const mainWindow = deps.getMainWindow();
@@ -207,14 +204,6 @@ export function registerMainIPC(deps: MainIPCDependencies): void {
         } catch (err: any) {
             return { success: false, error: err?.message ?? String(err) };
         }
-    });
-
-    ipcMain.handle('install-session.getActive', async () => {
-        return deps.getActiveInstallSession();
-    });
-
-    ipcMain.handle('install-session.retry', async () => {
-        return { success: await deps.retryInstallSession() };
     });
 
     ipcMain.handle('changelog.getPendingDesktopUpdate', async () => {

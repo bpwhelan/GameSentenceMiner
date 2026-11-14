@@ -223,6 +223,12 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
     )
     from GameSentenceMiner.util.database.db import GameLinesTable
 
+    # Existing vocabulary is historical data. Do not even re-analyze a completed
+    # record when the selected dictionary or tokenizer changes.
+    existing = GameLinesTable._db.fetchone("SELECT tokenized FROM game_lines WHERE id=?", (line_id,))
+    if existing and existing[0]:
+        return True
+
     # Coerce to str in case the ORM returned a non-string (e.g. JSON-parsed dict)
     if not isinstance(line_text, str):
         line_text = str(line_text) if line_text else ""

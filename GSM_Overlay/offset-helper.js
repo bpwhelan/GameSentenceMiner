@@ -633,6 +633,7 @@ window.addEventListener("resize", () => {
 ipcRenderer.on("text-data", (_event, payload) => {
   applyPayload(payload || {});
 });
+ipcRenderer.send("overlay-settings-ready");
 
 updateOffsetDisplay();
 updateStatusCopy();

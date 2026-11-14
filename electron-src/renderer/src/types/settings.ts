@@ -3,6 +3,7 @@ export type SettingsCatalogOwner = "electron" | "python" | "overlay";
 export type SettingsCatalogActionType =
   | "current-tab"
   | "open-gsm-settings"
+  | "open-text-processing"
   | "open-overlay-settings";
 
 export interface SettingsCatalogAction {

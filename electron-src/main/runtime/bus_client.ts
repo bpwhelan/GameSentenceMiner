@@ -1,14 +1,6 @@
-/**
- * Main-process facade over the MessageBroker singleton.
- *
- * Other main modules import { bus } and call subscribe/handle/publish/request
- * without touching the broker class directly. `main` is an in-process client, so
- * these calls never go over a socket — they dispatch straight through the broker.
- *
- * Lifecycle (startBus/stopBus) is owned here and driven from main.ts during app
- * init / quit. The resolved port + token are exposed via getBusConnectInfo() so
- * spawned children can be told where to connect (see process_manager.ts).
- */
+/** Compatibility client for the Rust-owned runtime. Local main-address handlers
+ * remain here while application features migrate. All routing and lifecycle
+ * state is native; connection credentials for Python are injected by Rust. */
 
 import { BrokerStartInfo, MessageBroker } from './message_bus.js';
 import type { BusMessage } from './bus_protocol.js';

@@ -809,6 +809,33 @@ describe("OCRTab", () => {
     expect(container.querySelector<HTMLSelectElement>("#add-area-gamepad-hotkey")!.value).toBe("4");
   });
 
+  it("records Space and Command shortcuts with explicit key names", async () => {
+    await act(async () => { root.render(<OCRTab active />); await flushAsyncWork(); });
+    const binding = container.querySelector<HTMLInputElement>("#manual-hotkey")!;
+    for (const [key, metaKey, expected] of [[" ", false, "Space"], ["g", true, "Cmd+G"]] as const) {
+      await act(async () => {
+        binding.dispatchEvent(new KeyboardEvent("keydown", { key, metaKey, bubbles: true }));
+        await flushAsyncWork();
+      });
+      expect(binding.value).toBe(expected);
+    }
+  });
+
+  it("records every F13–F24 binding with and without modifiers", async () => {
+    await act(async () => { root.render(<OCRTab active />); await flushAsyncWork(); });
+    const binding = container.querySelector<HTMLInputElement>("#manual-hotkey")!;
+    for (let number = 13; number <= 24; number++) {
+      for (const modifiers of [{}, { shiftKey: true }, { ctrlKey: true }]) {
+        await act(async () => {
+          binding.dispatchEvent(new KeyboardEvent("keydown", { key: `F${number}`, code: `F${number}`, ...modifiers, bubbles: true }));
+          await flushAsyncWork();
+        });
+        const prefix = "shiftKey" in modifiers ? "Shift+" : "ctrlKey" in modifiers ? "Ctrl+" : "";
+        expect(binding.value).toBe(`${prefix}F${number}`);
+      }
+    }
+  });
+
   it("loads and saves the manual green-area delay options", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-ocr-config") {

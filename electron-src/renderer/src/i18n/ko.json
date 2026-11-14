@@ -1,5 +1,14 @@
 {
   "gameLauncher": {
+    "mode": "실행 방식",
+    "modeExecutable": "게임 실행 파일",
+    "modeYuzu": "Yuzu",
+    "yuzuPath": "Yuzu 실행 파일",
+    "romPath": "게임 ROM",
+    "yuzuArguments": "Yuzu 인수",
+    "yuzuHelp": "Yuzu와 실행할 ROM을 선택하세요. GSM은 -g로 ROM을 전달합니다. 기존 Yuzu 장면 설정이 있으면 다시 사용합니다.",
+    "chooseRom": "아래에서 게임 ROM을 선택한 후 저장하거나 실행하세요.",
+    "userLaunchHelp": "GSM을 관리자 권한으로 실행해도 게임과 사용자 지정 런처는 데스크톱 사용자 권한으로 실행됩니다.",
     "title": "게임 실행",
     "launch": "게임 실행",
     "working": "처리 중…",
@@ -23,6 +32,7 @@
     "saved": "실행 옵션을 저장했습니다.",
     "launched": "실행 요청을 보냈습니다.",
     "errors": {
+      "missingRom": "존재하는 게임 ROM을 선택하세요.",
       "unsupported": "게임 실행은 Windows에서만 사용할 수 있습니다.",
       "invalidScene": "먼저 게임을 선택하세요.",
       "missingExecutable": "존재하는 게임 실행 파일을 선택하세요.",
@@ -45,6 +55,16 @@
     "title": "게임 후크 (실험적)"
   },
   "home": {
+    "capturePicker": {
+      "search": "창 및 장치 검색…",
+      "recentOrder": "최근 활성 창 우선",
+      "recent": "최근 활성 창",
+      "loadingPreview": "미리보기 로딩 중…",
+      "previewUnavailable": "미리보기 사용 불가",
+      "noMatches": "일치하는 창이나 장치가 없습니다.",
+      "selected": "선택됨: {title}",
+      "snapshotHint": "이 대화상자를 열거나 목록을 새로고침하면 미리보기가 갱신됩니다."
+    },
     "workspace": {
       "library": "내 게임",
       "savedGames": "저장된 게임",
@@ -151,6 +171,10 @@
       "confirm": "이름 변경"
     },
     "overlay": {
+      "enabled": "오버레이 활성화",
+      "changing": "변경 중…",
+      "toggleTooltip": "GSM 오버레이를 켜거나 끕니다. 끄면 다시 켜거나 GSM을 재시작할 때까지 자동 시작도 일시 중지됩니다.",
+      "toggleError": "오버레이를 변경하지 못했습니다. 다시 시도하세요.",
       "title": "오버레이",
       "statusRunning": "실행 중",
       "statusStopped": "실행 안 됨",
@@ -557,6 +581,61 @@
     "quit": "종료"
   },
   "settings": {
+    "notifications": {
+      "title": "알림 및 소리",
+      "description": "네 가지 알림 그룹의 알림 방식을 선택하세요. GSM이 트레이에 있어도 조용한 확인음이 재생됩니다.",
+      "volume": "소리 볼륨",
+      "volumeValue": "{volume}%",
+      "quietDefaults": "조용한 기본값 사용",
+      "delivery": "알림 방식",
+      "sound": "소리",
+      "preview": "미리 듣기",
+      "deliveryFor": "{event} 알림 방식",
+      "soundFor": "{event} 소리",
+      "previewFor": "{event} 미리 듣기",
+      "loading": "알림 설정을 불러오는 중…",
+      "saving": "저장 중…",
+      "autoSave": "변경 사항은 자동 저장됩니다. 볼륨은 GSM 확인음에만 적용됩니다.",
+      "retry": "다시 시도",
+      "loadError": "알림 설정을 불러오지 못했습니다.",
+      "saveError": "알림 설정을 저장하지 못했습니다.",
+      "previewError": "소리를 재생하지 못했습니다.",
+      "modes": {
+        "off": "끄기",
+        "sound": "소리만",
+        "banner": "무음 배너",
+        "both": "배너 및 소리"
+      },
+      "sounds": {
+        "soft-ping": "부드러운 핑",
+        "bell": "부드러운 종",
+        "bubble": "물방울",
+        "wood": "나무 두드림",
+        "glass": "유리",
+        "success": "성공",
+        "ascending": "올라가는 음",
+        "descending": "내려가는 음",
+        "double-tap": "두 번 두드림",
+        "chime": "차임",
+        "pause-resume": "내려가는 음 / 올라가는 음",
+        "marimba": "마림바",
+        "sparkle": "반짝임",
+        "low-knock": "낮은 노크음"
+      },
+      "categories": {
+        "confirmation": "완료 확인",
+        "cardError": "카드 오류",
+        "pauseResume": "일시 중지 / 재개",
+        "appAlert": "앱 경고"
+      },
+      "categoryDescriptions": {
+        "confirmation": "카드 업데이트, 오디오나 스크린샷 저장, GSM 준비 완료. 음성이 없는 카드도 정상입니다.",
+        "cardError": "카드 처리, 미디어 생성 또는 Anki 업로드 실패. 음성이 감지되지 않는 것은 오류가 아닙니다.",
+        "pauseResume": "OCR과 통계 수집을 일시 중지하거나 재개합니다.",
+        "appAlert": "기타 앱 오류, OBS 경고 및 검토 대기 카드 알림."
+      },
+      "globalHint": "모든 게임과 프로필에 적용됩니다. 알림 소리와 배너를 여기서 설정하세요."
+    },
     "workspace": {
       "brandHint": "환경 설정 및 도구",
       "general": "일반",
@@ -611,7 +690,6 @@
       "iconRandomTray": "랜덤 (트레이 아이콘 포함)",
       "language": "표시 언어 (AI):",
       "startMinimized": "콘솔 최소화 시작:",
-      "runTransparencyOnStartup": "시작 시 창 투명도 도구 실행:",
       "runOverlayOnStartup": "시작 시 오버레이 실행:"
     },
     "visibility": {
@@ -622,13 +700,6 @@
       "tabPython": "Python",
       "tabConsole": "콘솔",
       "statsTarget": "통계 대상:"
-    },
-    "transparency": {
-      "title": "투명도 도구 (지원 중단)",
-      "toolHotkey": "도구 단축키:",
-      "windowTarget": "창 대상:",
-      "windowTargetPlaceholder": "포커스된 창을 대상으로 하려면 비워두세요",
-      "runTool": "창 투명도 도구 실행"
     },
     "updates": {
       "title": "업데이트",
@@ -651,6 +722,8 @@
       "unknown": "알 수 없음"
     },
     "catalog": {
+      "openTextProcessing": "텍스트 처리 열기",
+      "desktopNotifications": { "label": "알림 및 소리", "description": "이벤트마다 조용한 소리, 무음 배너 또는 알림 끄기를 선택하세요." },
       "alreadyOnScreen": "이미 이 화면에 있음",
       "openGSMSettings": "GSM 기본 설정 열기",
       "openOverlaySettings": "오버레이 설정 열기",
@@ -1134,6 +1207,12 @@
       "events": {
         "captured": "텍스트를 캡처했습니다",
         "noText": "텍스트가 감지되지 않았습니다",
+        "scanning": "텍스트 스캔 중",
+        "waitingForContext": "백엔드 응답 대기 중",
+        "waitingForTarget": "게임 창 또는 OBS 소스 대기 중",
+        "noCaptureArea": "사용할 수 있는 캡처 영역이 없습니다",
+        "stabilizing": "텍스트가 안정되기를 기다리는 중",
+        "furiganaFiltered": "후리가나 필터가 모든 텍스트를 제외했습니다. 인식 설정에서 필터 값을 낮추세요.",
         "unchanged": "화면 변경 대기 중",
         "menu": "메뉴 텍스트를 건너뛰었습니다",
         "ignored": "무시 영역의 텍스트를 건너뛰었습니다",
@@ -1415,7 +1494,9 @@
     "output": {
       "title": "선택된 훅 출력",
       "copyLine": "줄 복사",
-      "checkHint": "이 텍스트가 게임의 텍스트와 일치하는지 확인하세요.",
+      "original": "원본 텍스트",
+      "filteredOut": "필터로 제거됨",
+      "checkHint": "필터 적용 후의 텍스트를 표시합니다. 눈 아이콘에 마우스를 올리면 원본을 볼 수 있습니다.",
       "waiting": "선택된 훅의 텍스트를 기다린니다…",
       "selectHook": "목록에서 훅을 선택해 텍스트를 미리보세요."
     },

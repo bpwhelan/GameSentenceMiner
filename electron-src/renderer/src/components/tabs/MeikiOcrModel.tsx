@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MeikiModelSize, MeikiModelStatus } from "../../../../shared/meiki_ocr";
 import { useTranslation } from "../../i18n";
 import { invokeIpc } from "../../lib/ipc";
+import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 
-export function MeikiOcrModel() {
+export function MeikiOcrModel({ active = true }: { active?: boolean }) {
   const t = useTranslation();
   const [status, setStatus] = useState<MeikiModelStatus | null>(null);
   const [pending, setPending] = useState<MeikiModelSize | null>(null);
@@ -17,7 +18,7 @@ export function MeikiOcrModel() {
     try {
       const next = await invokeIpc<MeikiModelStatus>("ocr.meiki-model", {});
       if (mounted.current && !changing.current && started === generation.current && next) {
-        setStatus(next);
+        setStatus(before => retainEqual(before, next));
         setError(next.error || "");
       }
     } catch (cause) {
@@ -25,16 +26,16 @@ export function MeikiOcrModel() {
     }
   }, []);
   useEffect(() => {
+    if (!active) return;
     mounted.current = true;
-    void refresh();
-    const timer = setInterval(() => void refresh(), 3000);
+    const stop = startVisiblePolling(refresh, 3000);
     window.addEventListener("focus", refresh);
     return () => {
       mounted.current = false;
-      clearInterval(timer);
+      stop();
       window.removeEventListener("focus", refresh);
     };
-  }, [refresh]);
+  }, [active, refresh]);
   async function select(model: MeikiModelSize) {
     generation.current += 1;
     changing.current = true;

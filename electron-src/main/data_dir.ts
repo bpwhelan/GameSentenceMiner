@@ -143,11 +143,13 @@ let cachedBaseDir: string | null = null;
 let cachedSharedBaseDir: string | null = null;
 
 export function getSharedBaseDir(): string {
+    if (process.env.GSM_NATIVE_SERVICE === '1' && process.env.GSM_NATIVE_SHARED_DATA_DIR) return process.env.GSM_NATIVE_SHARED_DATA_DIR;
     return cachedSharedBaseDir ??= resolveSharedDataDir();
 }
 
 /** Memoized active data dir. Fixed for the process lifetime (a move forces a relaunch). */
 export function getBaseDir(): string {
+    if (process.env.GSM_NATIVE_SERVICE === '1' && process.env.GSM_NATIVE_DATA_DIR) return process.env.GSM_NATIVE_DATA_DIR;
     if (cachedBaseDir == null) {
         cachedBaseDir = resolveDataDir();
     }

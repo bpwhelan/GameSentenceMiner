@@ -1,0 +1,21 @@
+.notification-settings { max-width: 1100px; display: grid; gap: 1rem; }
+.notification-settings .ws-lead { color: var(--gsm-text-secondary); line-height: 1.8; }
+.notification-settings .ws-card { border: 1px solid var(--gsm-border-subtle); border-radius: 8px; background: var(--gsm-surface-1); }
+.notification-volume { display: flex; align-items: center; flex-wrap: wrap; gap: 1rem; padding: 1.2rem; }
+.notification-volume input { flex: 1; min-width: 140px; accent-color: var(--gsm-accent); }
+.notification-volume output { min-width: 3.5rem; font-variant-numeric: tabular-nums; }
+.notification-settings-hint { color: var(--gsm-text-muted); line-height: 1.7; }
+.notification-events { display: grid; gap: 0.65rem; }
+.notification-event { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(130px, 1fr) auto; align-items: center; gap: 1rem; padding: 1rem 1.2rem; }
+.notification-event-name, .notification-event label { display: flex; flex-direction: column; gap: 0.4rem; }
+.notification-event-name span, .notification-event label > span { font-size: 0.8rem; opacity: 0.75; }
+.notification-event select { width: 100%; min-width: 0; }
+.notification-preview { align-self: end; }
+@media (max-width: 1050px) {
+  .notification-event { grid-template-columns: 1fr 1fr; }
+  .notification-event-name { grid-column: 1 / -1; }
+  .notification-preview { justify-self: start; }
+}
+@media (max-width: 620px) {
+  .notification-event { grid-template-columns: 1fr; }
+}

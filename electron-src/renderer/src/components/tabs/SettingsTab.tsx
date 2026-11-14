@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc, sendIpc } from "../../lib/ipc";
 import type {
   AppSettings,
@@ -20,6 +20,7 @@ import type { SettingsCatalogEntry, SettingsCatalogOwner } from "../../types/set
 import { applyTheme, DEFAULT_THEME, THEME_GROUPS } from "../../lib/theme";
 import { setSeasonalEffectsDisabled } from "../../lib/seasonal";
 import { GpuSettings } from "./GpuSettings";
+import { NotificationSettings } from "./NotificationSettings";
 import { PythonSettings } from "./PythonSettings";
 import { ObsUpdates } from "./ObsUpdates";
 import {
@@ -30,6 +31,7 @@ import {
 const ACTION_I18N_KEYS: Record<string, string> = {
   "current-tab": "settings.catalog.alreadyOnScreen",
   "open-gsm-settings": "settings.catalog.openGSMSettings",
+  "open-text-processing": "settings.catalog.openTextProcessing",
   "open-overlay-settings": "settings.catalog.openOverlaySettings",
 };
 
@@ -45,9 +47,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   iconStyle: "gsm",
   startConsoleMinimized: false,
   customPythonPackage: "GameSentenceMiner",
-  windowTransparencyToolHotkey: "Ctrl+Alt+Y",
-  windowTransparencyTarget: "",
-  runWindowTransparencyToolOnStartup: false,
   runOverlayOnStartup: false,
   runOverlayWithActiveGame: false,
   quitOnWindowClose: false,
@@ -99,13 +98,14 @@ const STATS_ENDPOINT_OPTIONS = [
   { value: "search", labelKey: "settings.workspace.statsSearch" },
 ];
 
-type SettingsView = "general" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage";
+type SettingsView = "general" | "notifications" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage";
 const SETTINGS_VIEWS = [
   {
     id: "general",
     labelKey: "settings.workspace.general",
   },
   { id: "layout", labelKey: "settings.workspace.layout" },
+  { id: "notifications", labelKey: "settings.notifications.title" },
   { id: "gpu", labelKey: "settings.gpu.title" },
   { id: "updates", labelKey: "settings.updates.title" },
   { id: "backups", labelKey: "settings.backup.title" },
@@ -116,9 +116,9 @@ const SETTINGS_VIEWS = [
   },
 ] as const;
 const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: string }> = {
+  "desktop-notifications": { view: "notifications", focusId: "settings-view-notifications" },
   "desktop-appearance-startup": { view: "general", focusId: "icon-style" },
   "desktop-tabs-and-stats": { view: "layout", focusId: "settings-view-layout" },
-  "desktop-transparency": { view: "layout", focusId: "window-transparency-hotkey" },
   "desktop-updates": { view: "updates", focusId: "auto-update-gsm" },
   "desktop-gpu": { view: "gpu", focusId: "settings-view-gpu" },
   "desktop-python": { view: "python", focusId: "settings-view-python" },
@@ -141,6 +141,7 @@ const DATA_RELOCATE_PROGRESS_CHANNEL = "data.relocate.progress";
 interface SettingsTabProps {
   active: boolean;
   onRequestConsole?: () => void;
+  onOpenSetup?: () => void;
 }
 
 interface SettingsBackupResult {
@@ -386,10 +387,6 @@ function normalizeSettings(value: Partial<AppSettings> | null | undefined): AppS
     ...DEFAULT_SETTINGS,
     ...value,
     visibleTabs,
-    windowTransparencyToolHotkey:
-      value.windowTransparencyToolHotkey || DEFAULT_SETTINGS.windowTransparencyToolHotkey,
-    windowTransparencyTarget:
-      value.windowTransparencyTarget || DEFAULT_SETTINGS.windowTransparencyTarget,
     customPythonPackage: value.customPythonPackage || DEFAULT_SETTINGS.customPythonPackage,
     statsEndpoint: value.statsEndpoint || DEFAULT_SETTINGS.statsEndpoint,
     databaseBackupDirectory:
@@ -503,7 +500,7 @@ function normalizeSettingsBackupProgress(value: unknown): SettingsBackupProgress
   };
 }
 
-export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
+export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
@@ -523,9 +520,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customPackageDraft, setCustomPackageDraft] = useState(
     DEFAULT_SETTINGS.customPythonPackage,
-  );
-  const [transparencyTargetDraft, setTransparencyTargetDraft] = useState(
-    DEFAULT_SETTINGS.windowTransparencyTarget,
   );
   const [updateStatus, setUpdateStatus] = useState<UpdateStatusSnapshot>(DEFAULT_UPDATE_STATUS);
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
@@ -582,7 +576,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
         const normalized = normalizeSettings(result.settings);
         setSettings(normalized);
         setCustomPackageDraft(normalized.customPythonPackage);
-        setTransparencyTargetDraft(normalized.windowTransparencyTarget);
       }
     },
     [],
@@ -618,7 +611,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
         const normalized = normalizeSettings(fetchedSettings);
         setSettings(normalized);
         setCustomPackageDraft(normalized.customPythonPackage);
-        setTransparencyTargetDraft(normalized.windowTransparencyTarget);
         setCurrentLocale(normalized.locale);
       } catch (error) {
         console.error("Failed to load settings:", error);
@@ -701,10 +693,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
     setHubMessage(null);
   }, []);
 
-  const runWindowTransparencyTool = async () => {
-    await invokeIpc("settings.runWindowTransparencyTool");
-  };
-
   const selectDatabaseBackupDirectory = useCallback(async () => {
     const result = await invokeIpc<{ canceled?: boolean; directory?: string }>(
       "settings.selectDatabaseBackupDirectory",
@@ -713,27 +701,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
       patchSettings({ databaseBackupDirectory: result.directory });
     }
   }, [patchSettings]);
-
-  const updateHotkey = (event: KeyboardEvent<HTMLInputElement>) => {
-    event.preventDefault();
-    const keys: string[] = [];
-
-    if (event.ctrlKey) {
-      keys.push("Ctrl");
-    }
-    if (event.shiftKey) {
-      keys.push("Shift");
-    }
-    if (event.altKey) {
-      keys.push("Alt");
-    }
-
-    if (!["Control", "Shift", "Alt"].includes(event.key)) {
-      keys.push(event.key.toUpperCase());
-    }
-
-    patchSettings({ windowTransparencyToolHotkey: keys.join("+") });
-  };
 
   const checkForUpdates = useCallback(async () => {
     setIsCheckingUpdates(true);
@@ -1144,6 +1111,10 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
             ) : null}
           </header>
           <div className="ws-pages">
+            <section id="settings-view-notifications" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-notifications"
+              hidden={hasSearchQuery || workspaceView !== "notifications"} tabIndex={0}>
+              <NotificationSettings active={active && !hasSearchQuery && workspaceView === "notifications"} />
+            </section>
             <section id="settings-view-gpu" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-gpu"
               hidden={hasSearchQuery || workspaceView !== "gpu"} tabIndex={0}>
               <GpuSettings active={active && !hasSearchQuery && workspaceView === "gpu"} />
@@ -1170,6 +1141,11 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
               tabIndex={0}
             >
               <div className="settings-form-width">
+                {onOpenSetup && <section className="ws-section">
+                  <h2>{t('onboarding.title')}</h2>
+                  <p>{t('onboarding.settingsHint')}</p>
+                  <button type="button" onClick={onOpenSetup}>{t('onboarding.openSetup')}</button>
+                </section>}
                 <section className="ws-section">
                   <h2>{t("settings.workspace.appearance")}</h2>
                   <div className="settings-appearance-grid">
@@ -1290,24 +1266,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
                         }
                       />
                     </div>
-
-                    {isWindows ? (
-                      <div className="input-group">
-                        <label htmlFor="run-transparency-startup">
-                          {t("settings.desktop.runTransparencyOnStartup")}
-                        </label>
-                        <input
-                          id="run-transparency-startup"
-                          type="checkbox"
-                          checked={settings.runWindowTransparencyToolOnStartup}
-                          onChange={(event) =>
-                            patchSettings({
-                              runWindowTransparencyToolOnStartup: event.target.checked,
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
 
                     {isWindows ? (
                       <div className="input-group">
@@ -1439,54 +1397,6 @@ export function SettingsTab({ active, onRequestConsole }: SettingsTabProps) {
                     </div>
                   </div>
                 </section>
-                {isWindows ? (
-                  <section className="ws-section settings-content-section">
-                    <h2>{t("settings.transparency.title")}</h2>
-                    <div className="form-group">
-                      <div className="input-group">
-                        <label htmlFor="window-transparency-hotkey">
-                          {t("settings.transparency.toolHotkey")}
-                        </label>
-                        <input
-                          id="window-transparency-hotkey"
-                          type="text"
-                          value={settings.windowTransparencyToolHotkey}
-                          onKeyDown={updateHotkey}
-                          readOnly
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <label htmlFor="window-transparency-target">
-                          {t("settings.transparency.windowTarget")}
-                        </label>
-                        <input
-                          id="window-transparency-target"
-                          type="text"
-                          placeholder={t("settings.transparency.windowTargetPlaceholder")}
-                          value={transparencyTargetDraft}
-                          onChange={(event) => setTransparencyTargetDraft(event.target.value)}
-                          onBlur={() =>
-                            patchSettings({
-                              windowTransparencyTarget: transparencyTargetDraft.trim(),
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="input-group">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void runWindowTransparencyTool();
-                          }}
-                        >
-                          {t("settings.transparency.runTool")}
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-                ) : null}
               </div>
             </section>
             <section

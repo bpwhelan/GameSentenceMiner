@@ -42,6 +42,7 @@
 		dummyFn,
 		getAutoScrollStick,
 		isScrolledToEnd,
+		newLineCharacter,
 		shouldAutoScroll,
 		updateScroll,
 	} from '../util';
@@ -513,6 +514,8 @@
 	>
 		<div class="line-body" aria-busy={isTranslating}>
 		{#if lineTextMounted}
+			<!-- Yomitan's sentence scan needs literal newlines around the dialogue. -->
+			{@html newLineCharacter}
 			<p
 				class="line-source"
 				class:line-selected={isSelected}
@@ -528,6 +531,7 @@
 			>
 				<span class="source-text">{line.text}</span>
 			</p>
+			{@html newLineCharacter}
 			{#if line.translation}
 				<div class="line-translation" role="group" aria-label="Translation">
 					{#if line.blurTranslation}

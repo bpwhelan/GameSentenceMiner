@@ -11,6 +11,7 @@ import threading
 import uuid
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
+from functools import wraps
 from html import unescape
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +21,27 @@ from GameSentenceMiner.util.media import pause_history
 
 _lock = threading.RLock()
 _in_flight: set[str] = set()
+
+
+class _MissingAnkiNote(Exception):
+    """Anki confirmed that the saved note is absent from its original collection."""
+
+
+def _skip_missing_note(function):
+    """Complete stale reviews normally; None tells the caller the note was skipped."""
+
+    @wraps(function)
+    def wrapped(entry, *args, **kwargs):
+        try:
+            return function(entry, *args, **kwargs)
+        except _MissingAnkiNote:
+            config = review_config(entry)
+            _invalidate_media_reuse(entry.data["line_id"], set(entry.data["owned_media"]))
+            finish_review(entry, config.features.review_after_session)
+            logger.info(f"Skipped session review for deleted Anki note {entry.data['note_id']}.")
+            return None
+
+    return wrapped
 
 
 def get_review_root() -> Path:
@@ -279,6 +301,7 @@ def review_config(entry):
     return config
 
 
+@_skip_missing_note
 def open_in_anki(entry):
     from GameSentenceMiner import anki
 
@@ -290,18 +313,17 @@ def open_in_anki(entry):
 
 
 def notify_pending_on_startup():
-    from GameSentenceMiner.util.platform import notification
+    from GameSentenceMiner.util.communication import desktop_events
 
     config = get_config()
-    if not config.features.review_after_session.notify_on_startup:
-        return False
     pending = list_pending_reviews(config)
     if not pending:
         return False
-    notification.send_pending_reviews_notification(len(pending))
+    desktop_events.pending_reviews(len(pending))
     return True
 
 
+@_skip_missing_note
 def load_review(entry):
     from GameSentenceMiner import session_review_context
     from GameSentenceMiner.replay_handler import AudioEditContext, ReplayAudioResult, ReplayProcessingContext
@@ -310,11 +332,13 @@ def load_review(entry):
     from GameSentenceMiner.util.models.model import AnkiCard, VADResult
     from GameSentenceMiner.vad import Segment
 
+    config = review_config(entry)
+    with use_profile_config(config):
+        _current_note(entry, config)
     clip = load_clip(str(entry.folder))
     if not Path(clip.clip_path).is_file():
         raise RuntimeError("The saved replay is missing. The Anki card has not been changed.")
     pause_history.remember_pauses(clip.manifest.get("pauses", []))
-    config = review_config(entry)
     with use_profile_config(config):
         card = AnkiCard.from_dict(
             {
@@ -359,7 +383,7 @@ def load_review(entry):
         audio_result=audio,
     )
     context.saved_review = True
-    future_clip = session_review_context.load_future_clip(entry, clip)
+    future_clip, future_context_access_denied = session_review_context.load_future_clip(entry, clip)
     return SimpleNamespace(
         context=context,
         config=config,
@@ -368,6 +392,7 @@ def load_review(entry):
         previous_screenshot_path=entry.path(entry.data["previous_screenshot"]),
         original_clip=clip,
         future_clip=future_clip,
+        future_context_access_denied=future_context_access_denied,
     )
 
 
@@ -420,13 +445,17 @@ def finish_review(entry, settings):
         entry.data["status"] = "reviewed"
         entry.save()
         session_review_context.cancel(entry.id)
-        future_folder = Path(entry.path("future"))
-        if future_folder.exists():
-            try:
+        future_cleanup_succeeded = True
+        try:
+            future_folder = Path(entry.path("future"))
+            if future_folder.exists():
                 shutil.rmtree(future_folder)
-            except OSError:
-                logger.exception("Could not remove the extra context replay; cleanup can be retried.")
-    if settings.delete_local_after_review and not entry.data.get("cleanup_pending"):
+        except OSError:
+            # Avoid partially deleting the original review when the extra replay
+            # cannot be removed. A later cleanup can retry with the right access.
+            future_cleanup_succeeded = False
+            logger.exception("Could not remove the extra context replay; cleanup can be retried.")
+    if settings.delete_local_after_review and future_cleanup_succeeded and not entry.data.get("cleanup_pending"):
         try:
             _remove_owned_folder(entry.folder)
         except OSError:
@@ -461,8 +490,12 @@ def _current_note(entry, config):
     if anki.invoke("getActiveProfile") != entry.data["anki_profile"]:
         raise RuntimeError(f"Open Anki profile {entry.data['anki_profile']} before saving this review.")
     notes = anki.invoke("notesInfo", notes=[entry.data["note_id"]])
-    if not notes or not notes[0] or not notes[0].get("fields"):
-        raise RuntimeError("This note no longer exists in Anki. Use Keep card / remove from queue to dismiss it.")
+    if not isinstance(notes, list):
+        raise TypeError("AnkiConnect returned invalid note information. The review is still pending.")
+    if not notes or (len(notes) == 1 and notes[0] in (None, {})):
+        raise _MissingAnkiNote
+    if len(notes) != 1 or not isinstance(notes[0], dict) or not notes[0].get("fields"):
+        raise RuntimeError("AnkiConnect returned incomplete note information. The review is still pending.")
     info = notes[0]
     if (
         info.get("modelName") != entry.data["model_name"]
@@ -571,6 +604,7 @@ def _referenced_media(names, fields):
     return set(names) & references
 
 
+@_skip_missing_note
 def apply_review(entry, prepared, result):
     """Apply only explicit edits; an unchanged confirmation is entirely local."""
     from GameSentenceMiner import anki
@@ -791,6 +825,7 @@ def cleanup_unused_media(names):
     return pending
 
 
+@_skip_missing_note
 def discard_review(entry, *, delete_note=False):
     from GameSentenceMiner import anki
 

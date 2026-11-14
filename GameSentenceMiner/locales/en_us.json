@@ -34,8 +34,6 @@
           "enabled": "Review Anki cards after session",
           "enabled_tooltip": "Skips immediate confirmation, including its countdown. Cards are still saved to Anki during play. Confirmation changes only the fields you edit.",
           "open_on_game_close": "Open review when the game closes",
-          "notify_on_startup": "Notify about pending reviews on startup",
-          "notify_on_startup_tooltip": "Show a startup notification with a button to open your pending reviews.",
           "max_future_context_lines": "Maximum future context lines",
           "max_future_context_lines_tooltip": "Save one extra replay after this many following dialogue lines. It is used only if you add future context during review, and deleted when confirmed. 0 disables this capture.",
           "open_on_game_close_tooltip": "Uses GSM game / capture detection. Minimizing a tracked game does not end the session. You can also open the queue manually.",
@@ -150,41 +148,6 @@
           "locale": {
             "label": "Display Language:",
             "tooltip": "Select the application's language. This will change the interface language."
-          }
-        },
-        "text_processing": {
-          "title": "Text Processing",
-          "string_replacement": {
-            "group_title": "String Replacement",
-            "group_tooltip": "Apply ordered replacement rules to all incoming text.",
-            "enabled": {
-              "label": "Enable String Replacement:",
-              "tooltip": "Apply string replacement rules to all incoming text before logging or overlay."
-            },
-            "rules": {
-              "label": "Rules:",
-              "tooltip": "Edit the list of replacement rules."
-            },
-            "edit_rules": {
-              "label": "Edit Rules",
-              "tooltip": "Open the string replacement rule editor."
-            },
-            "rules_count": "{count} rules",
-            "dialog": {
-              "title": "String Replacement Rules",
-              "add": "Add Rule",
-              "remove": "Remove Rule",
-              "move_up": "Move Up",
-              "move_down": "Move Down",
-              "enabled": "Enabled",
-              "mode": "Mode",
-              "find": "Find",
-              "replace": "Replace",
-              "case_sensitive": "Case Sensitive",
-              "whole_word": "Whole Word",
-              "mode_plain": "Plain Text",
-              "mode_regex": "Regex"
-            }
           }
         },
         "paths": {
@@ -500,10 +463,6 @@
         },
         "features": {
           "title": "Features",
-          "notify_on_update": {
-            "label": "Notify when an Anki Card Is Created or Updated:",
-            "tooltip": "Notify when GSM creates or updates an Anki card."
-          },
           "open_anki_edit": {
             "label": "Open Anki Note in Edit View:",
             "tooltip": "Automatically open Anki for editing after updating."
@@ -527,31 +486,6 @@
           "generate_longplay": {
             "label": "Generate Longplay:",
             "tooltip": "Generate a Longplay video from OBS recording and write incoming GSM text to an SRT subtitle file. Restart required."
-          },
-          "notifications_title": "Desktop Notifications",
-          "notify_on_audio_generated": {
-            "label": "Notify on Audio Generated:",
-            "tooltip": "Notify when GSM finishes generating or trimming audio."
-          },
-          "notify_on_screenshot_saved": {
-            "label": "Notify on Screenshot Saved:",
-            "tooltip": "Notify when GSM saves a screenshot to disk."
-          },
-          "notify_on_anki_enhancement_failed": {
-            "label": "Notify on Anki Card Enhancement Failure:",
-            "tooltip": "Notify when GSM cannot finish enhancing an Anki card, including missing or failed audio."
-          },
-          "notify_on_errors": {
-            "label": "Notify on GSM Errors:",
-            "tooltip": "Notify when GSM encounters an error that needs attention."
-          },
-          "notify_on_obs_warning": {
-            "label": "Notify when OBS Replay is Unavailable:",
-            "tooltip": "Notify when GSM cannot use the OBS replay buffer."
-          },
-          "notify_on_text_intake_state": {
-            "label": "Notify when Text Intake Pauses or Resumes:",
-            "tooltip": "Notify when incoming text processing is paused or resumed."
           }
         },
         "screenshot": {

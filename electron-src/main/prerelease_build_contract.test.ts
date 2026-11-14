@@ -1,69 +1,31 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import path from 'node:path';
+import {describe,expect,it} from 'vitest';
 
-import { describe, expect, it } from 'vitest';
-
-describe('prerelease build contract', () => {
-    it('packages overlay-server binaries built from the exact input-server source tree', () => {
-        const prereleaseWorkflow = fs.readFileSync(
-            path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),
-            'utf8'
-        );
-        const overlayServerWorkflow = fs.readFileSync(
-            path.join(process.cwd(), '.github', 'workflows', 'build_overlay_server.yml'),
-            'utf8'
-        );
-
-        expect(prereleaseWorkflow).toContain(
-            'git rev-parse HEAD:GSM_Overlay/input_server'
-        );
-        expect(prereleaseWorkflow).toContain('wait-for-overlay-server');
-        expect(prereleaseWorkflow).toContain('overlay-server-source-tree.txt');
-        expect(overlayServerWorkflow).toContain(
-            'git rev-parse HEAD:GSM_Overlay/input_server'
-        );
-        expect(overlayServerWorkflow).toContain('overlay-server-source-tree.txt');
+describe('prerelease build contract',()=>{
+    it('builds and embeds a matching backend wheel in the coordinated native matrix',()=>{
+        const workflow=fs.readFileSync('.github/workflows/native_desktop.yml','utf8');
+        expect(workflow).toContain('python -m pip wheel --no-deps --wheel-dir electron-src/assets/python .');
+        expect(workflow).toContain('scripts/write-prerelease-metadata.mjs');
+        expect(workflow).toContain('if: inputs.prerelease');
+        const preview=fs.readFileSync('.github/workflows/dev_release_exe.yml','utf8');
+        expect(preview).toContain('prerelease: true');
+        expect(preview).toContain('uses: ./.github/workflows/native_desktop.yml');
     });
 
-    it('builds, bundles, and uploads a native backend wheel for every release platform', () => {
-        const workflow = fs.readFileSync(
-            path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),
-            'utf8'
-        );
-
-        expect(workflow.match(/Build prerelease backend wheel/g)).toHaveLength(3);
-        expect(workflow.match(/write-prerelease-metadata\.mjs/g)).toHaveLength(3);
-        expect(workflow.match(/electron-src\/assets\/python\/\*\.whl/g)).toHaveLength(3);
-    });
-
-    it('builds one app-targeted wheel and skips whole-wheel native repair on Unix', () => {
-        const workflow = fs.readFileSync(
-            path.join(process.cwd(), '.github', 'workflows', 'dev_release_exe.yml'),
-            'utf8'
-        );
-
-        expect(workflow).toContain('CIBW_BUILD: cp311-manylinux_x86_64');
-        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_LINUX: ""');
-        expect(workflow).toContain('CIBW_BUILD: cp311-macosx_arm64');
-        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
-        expect(workflow.match(/CIBW_BUILD: cp311-\*/g)).toHaveLength(1);
-    });
-
-    it('builds one stable PyPI wheel per platform and repairs Linux without following MeCab', () => {
+    it('builds one stable PyPI wheel per platform without legacy tokenizer payloads', () => {
         const workflow = fs.readFileSync(
             path.join(process.cwd(), '.github', 'workflows', 'pypi_release.yml'),
             'utf8'
         );
 
-        expect(workflow).toContain(
-            'CIBW_REPAIR_WHEEL_COMMAND_LINUX: "auditwheel repair --exclude libmecab.so.1 -w {dest_dir} {wheel}"'
-        );
+        expect(workflow).not.toContain('libmecab');
         expect(workflow).toContain('cibw_build: cp311-win_amd64');
         expect(workflow).toContain('cibw_build: cp311-manylinux_x86_64');
         expect(workflow).toContain('cibw_build: cp311-macosx_arm64');
         expect(workflow).toContain('CIBW_BUILD: ${{ matrix.cibw_build }}');
         expect(workflow).not.toContain('CIBW_BUILD: cp311-*');
-        expect(workflow).toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
+        expect(workflow).not.toContain('CIBW_REPAIR_WHEEL_COMMAND_MACOS: ""');
         expect(workflow).not.toContain('CIBW_TEST_COMMAND:');
         expect(workflow).toContain('node scripts/smoke-test-wheel.mjs wheelhouse');
     });

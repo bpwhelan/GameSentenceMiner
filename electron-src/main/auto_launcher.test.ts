@@ -53,6 +53,10 @@ vi.mock('./ui/obs.js', () => ({
     getCurrentScene: getCurrentSceneMock,
     getWindowTitleFromSource: getWindowTitleFromSourceMock,
     sceneHasVisibleOutput: sceneHasVisibleOutputMock,
+    nativeOBS: vi.fn(async (_channel: string, arg: {sceneUuid: string; foreground: {title: string; executableName: string}}) => {
+        const rules = getWindowSceneSwitcherConfigMock().collections.flatMap((collection: any) => collection.rules).filter((rule: any) => rule.sceneUuid === arg.sceneUuid && rule.enabled);
+        return rules.length ? rules.some((rule: any) => new RegExp(rule.titlePattern, 'i').test(arg.foreground.title) && (!rule.executableName || rule.executableName.toLowerCase() === arg.foreground.executableName.toLowerCase())) : null;
+    }),
 }));
 
 vi.mock('./ui/ocr.js', () => ({

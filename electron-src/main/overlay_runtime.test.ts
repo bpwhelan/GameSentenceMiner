@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let running = false;
+let isDev = true;
 const startOverlayAppMock = vi.fn(async () => {
     running = true;
 });
@@ -31,15 +32,15 @@ vi.mock('node:fs', () => ({
 
 vi.mock('./data_dir.js', () => ({
     getProfileDir: () => null,
-    getBaseDir: () => 'C:\gsm-data',
-    getDefaultBaseDir: () => 'C:\default-gsm-data',
+    getBaseDir: () => 'C:/gsm-data',
+    getDefaultBaseDir: () => 'C:/default-gsm-data',
 }));
 
 vi.mock('./util.js', () => ({
-    getOverlayAppAsarPath: () => 'C:\overlay-out\resources\app.asar',
-    getOverlayResourcesPath: () => 'C:\overlay-out\resources',
-    getResourcesDir: () => 'C:\repo',
-    isDev: true,
+    getOverlayAppAsarPath: () => 'C:/overlay-out/resources/app.asar',
+    getOverlayResourcesPath: () => 'C:/overlay-out/resources',
+    getResourcesDir: () => 'C:/repo',
+    get isDev() { return isDev; },
     OVERLAY_RESOURCES_ENV: 'GSM_OVERLAY_RESOURCES_PATH',
 }));
 
@@ -54,6 +55,7 @@ describe('in-process overlay runtime', () => {
 
     beforeEach(() => {
         running = false;
+        isDev = true;
         startOverlayAppMock.mockClear();
         stopOverlayAppMock.mockClear();
         openSettingsMock.mockClear();
@@ -75,7 +77,7 @@ describe('in-process overlay runtime', () => {
     });
 
     it('loads, stops, and removes the overlay module from the require cache', async () => {
-        const entryPath = path.join('C:\repo', 'GSM_Overlay', 'main.js');
+        const entryPath = path.join('C:/repo', 'GSM_Overlay', 'main.js');
         requireMock.cache[entryPath] = { id: entryPath };
         const runtime = await import('./overlay_runtime.js');
 
@@ -84,7 +86,7 @@ describe('in-process overlay runtime', () => {
         expect(requireMock).toHaveBeenCalledWith(entryPath);
         expect(startOverlayAppMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_OVERLAY_IN_PROCESS).toBe('1');
-        expect(process.env.GSM_OVERLAY_DATA_PATH).toBe(path.join('C:\gsm-data', 'gsm_overlay'));
+        expect(process.env.GSM_OVERLAY_DATA_PATH).toBe(path.join('C:/gsm-data', 'gsm_overlay'));
         expect(runtime.isInProcessOverlayRunning()).toBe(true);
 
         expect(runtime.stopInProcessOverlay()).toBe(true);
@@ -133,5 +135,46 @@ describe('in-process overlay runtime', () => {
         await expect(host.requestRestart('system')).rejects.toThrow('Could not restart the overlay');
         expect(openSettingsMock).not.toHaveBeenCalled();
         expect(runtime.isInProcessOverlayRunning()).toBe(false);
+    });
+
+    it('waits for startup to finish for concurrent enables and cancels a pending enable on stop', async () => {
+        const runtime = await import('./overlay_runtime.js');
+        let finishStart!: () => void;
+        startOverlayAppMock.mockImplementationOnce(async () => {
+            running = true; // The real overlay reports starting as running.
+            await new Promise<void>(resolve => { finishStart = resolve; });
+        });
+        const first = runtime.startInProcessOverlay();
+        let secondFinished = false;
+        const second = runtime.startInProcessOverlay().then(result => { secondFinished = true; return result; });
+        await Promise.resolve();
+        expect(secondFinished).toBe(false);
+        runtime.stopInProcessOverlay();
+        finishStart();
+        await expect(first).resolves.toBe(false);
+        await expect(second).resolves.toBe(false);
+        await runtime.waitForInProcessOverlayShutdown();
+        expect(stopOverlayAppMock).toHaveBeenCalledTimes(1);
+        expect(runtime.isInProcessOverlayRunning()).toBe(false);
+    });
+
+    it('loads the packaged overlay bundle and connects settings and stop requests to GSM', async () => {
+        isDev = false;
+        const runtime = await import('./overlay_runtime.js');
+        const callbacks = { requestStop: vi.fn() };
+        runtime.configureInProcessOverlayHost(callbacks);
+        expect(runtime.openInProcessOverlaySettings()).toBe(false);
+        await expect(runtime.startInProcessOverlay()).resolves.toBe(true);
+        expect(requireMock).toHaveBeenCalledWith(path.join('C:/overlay-out/resources/app.asar', 'main.js'));
+        expect(runtime.openInProcessOverlaySettings()).toBe(true);
+        expect(openSettingsMock).toHaveBeenCalledOnce();
+        const host = (globalThis as any)[Symbol.for('gsm.overlay.host')];
+        host.requestStop();
+        expect(callbacks.requestStop).toHaveBeenCalledOnce();
+        runtime.stopInProcessOverlay();
+        expect(runtime.isInProcessOverlayTransitioning()).toBe(true);
+        await runtime.waitForInProcessOverlayShutdown();
+        expect(runtime.isInProcessOverlayTransitioning()).toBe(false);
+        expect(runtime.openInProcessOverlaySettings()).toBe(false);
     });
 });

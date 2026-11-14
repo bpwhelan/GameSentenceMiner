@@ -190,6 +190,25 @@ describe("OCR captured text", () => {
     expect(container.querySelector('[role="status"]')?.textContent).not.toContain("OCR needs attention");
   });
 
+  it("shows why Rust Auto OCR is waiting or discarding text before a capture is delivered", async () => {
+    await render();
+    const status = () => container.querySelector('[role="status"]')?.textContent;
+    await act(async () => emit("ocr-ipc-status", { auto_activity: "waiting_for_context" }));
+    expect(status()).toContain("Waiting for the backend");
+    await act(async () => emit("ocr-ipc-status", { auto_activity: "scanning" }));
+    expect(status()).toContain("Scanning for text");
+    expect(status()).not.toContain("Waiting for the backend");
+    await act(async () => emit("ocr-ipc-status", { auto_activity: "furigana_filtered" }));
+    expect(status()).toContain("The Furigana Filter removed all text");
+    expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
+    await act(async () => {
+      emit("ocr-ipc-status", { auto_activity: "watching" });
+      result("Recognized dialogue", { source: "ocr" });
+    });
+    expect(status()).toContain("Text captured");
+    expect(status()).not.toContain("Furigana Filter");
+  });
+
   it("copies a capture and clears only this view", async () => {
     await render();
     await act(async () => result("Copy this\nwhole capture"));

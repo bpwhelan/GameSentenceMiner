@@ -88,7 +88,7 @@ function getDefaultConfig(): TextProcessingConfig {
     remove_repeated_chars_config: { repeat_count: 1, keep_non_repeated: true },
     remove_repeated_lines_v2: true,
     remove_repeated_lines_config: { repeat_count: 1 },
-    remove_control_chars: false,
+    remove_control_chars: true,
     language_filter: false,
     language_filter_config: { mode: "blocks" },
     remove_non_japanese: false,
@@ -174,6 +174,8 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const t = useTranslation();
   const [config, setConfig] = useState<TextProcessingConfig>(getDefaultConfig());
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [notice, setNotice] = useState<{ type: "success" | "error"; msg: string } | null>(null);
   const [expandedProcessor, setExpandedProcessor] = useState<string | null>("string_replacement");
   const [previewInput, setPreviewInput] = useState("");
@@ -194,6 +196,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
 
   useEffect(() => {
     if (!active || pendingSave.current) return;
+    setLoadFailed(false);
     let cancelled = false;
     const initialConfig = configRef.current;
     invokeIpc<Partial<TextProcessingConfig> | null>("textprocess.load").then((cfg) => {
@@ -202,9 +205,11 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
       configRef.current = next;
       setConfig(next);
       setLoaded(true);
+    }).catch(() => {
+      if (!cancelled) setLoadFailed(true);
     });
     return () => { cancelled = true; };
-  }, [active]);
+  }, [active, loadAttempt]);
 
   useEffect(() => {
     if (!active) return;
@@ -342,7 +347,12 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   if (!loaded) {
     return (
       <div className="tab-panel active text-processing-panel">
-        <div className="text-processing-loading">{t("textProcessing.loading")}</div>
+        <div className="text-processing-loading">
+          {loadFailed ? <>
+            <p role="alert">{t("textProcessing.loadFailed")}</p>
+            <button className="btn-secondary" onClick={() => setLoadAttempt(value => value + 1)}>{t("textProcessing.retry")}</button>
+          </> : t("textProcessing.loading")}
+        </div>
       </div>
     );
   }

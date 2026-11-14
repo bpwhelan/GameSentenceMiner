@@ -64,10 +64,13 @@ async function main() {
     );
   }
 
+  if (await exists(path.join(overlayResourcesDir, 'mecab_bridge.py'))) {
+    throw new Error('Obsolete MeCab bridge was included in the desktop package.');
+  }
+
   const requiredPaths = [
     path.join(overlayResourcesDir, 'app.asar'),
     path.join(overlayResourcesDir, serverExecutableName),
-    path.join(overlayResourcesDir, 'mecab_bridge.py'),
     path.join(overlayResourcesDir, 'yomitan', 'manifest.json'),
     path.join(overlayResourcesDir, 'hachidori', 'manifest.json'),
     path.join(overlayResourcesDir, 'hachidori', 'background.js'),

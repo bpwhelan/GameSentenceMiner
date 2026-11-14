@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from typing import Any, Protocol
 
-from GameSentenceMiner.util.config.configuration import get_master_config, logger
-from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
+from GameSentenceMiner.util.config.configuration import get_master_config
 
 
-MECAB_BACKEND = "mecab"
 SUDACHI_BACKEND = "sudachi"
-TOKENIZATION_BACKENDS = (SUDACHI_BACKEND, MECAB_BACKEND)
+TOKENIZATION_BACKENDS = (SUDACHI_BACKEND,)
 SUDACHI_DICTIONARIES = ("small", "core", "full")
 DEFAULT_SUDACHI_DICTIONARY = "small"
 
@@ -28,8 +25,8 @@ class _SudachiBackend(_TokenizerBackend, Protocol):
 
 
 def normalize_tokenization_backend(value: object) -> str:
-    normalized = str(value or "").strip().lower()
-    return MECAB_BACKEND if normalized == MECAB_BACKEND else SUDACHI_BACKEND
+    # Includes migration of saved MeCab selections. This never touches vocabulary data.
+    return SUDACHI_BACKEND
 
 
 def get_tokenization_backend() -> str:
@@ -51,29 +48,10 @@ def get_sudachi_dictionary() -> str:
     )
 
 
-def _load_mecab() -> _TokenizerBackend:
-    from GameSentenceMiner.mecab import mecab
-
-    return mecab
-
-
 def _load_sudachi() -> _SudachiBackend:
     from GameSentenceMiner.sudachi import sudachi
 
     return sudachi
-
-
-def _is_sudachi_available_without_loading() -> bool:
-    from GameSentenceMiner.sudachi import sudachi
-
-    return sudachi.is_available_without_loading()
-
-
-def _release_own_sudachi_lease() -> None:
-    sudachi_module = sys.modules.get("GameSentenceMiner.sudachi")
-    sudachi_client = getattr(sudachi_module, "sudachi", None)
-    if sudachi_client is not None:
-        sudachi_client.close()
 
 
 def is_word_token(token: Any) -> bool:
@@ -86,37 +64,12 @@ def is_word_token(token: Any) -> bool:
 
 
 class Tokenizer:
-    """Shared MeCab/Sudachi facade used by GSM's Python backend."""
-
-    def _select_backend(self) -> tuple[str, _TokenizerBackend]:
-        if is_tokenization_enabled():
-            configured_backend = get_tokenization_backend()
-            if configured_backend == SUDACHI_BACKEND:
-                sudachi = _load_sudachi()
-                sudachi.configure(dictionary=get_sudachi_dictionary(), acquire_feature=True)
-                return SUDACHI_BACKEND, sudachi
-            _release_own_sudachi_lease()
-            return MECAB_BACKEND, _load_mecab()
-
-        if _is_sudachi_available_without_loading():
-            sudachi = _load_sudachi()
-            sudachi.configure(acquire_feature=False)
-            return SUDACHI_BACKEND, sudachi
-        return MECAB_BACKEND, _load_mecab()
+    """All Japanese features share Sudachi, including when word statistics are off."""
 
     def _call(self, method_name: str, expression: str):
-        backend_name, backend = self._select_backend()
-        try:
-            return getattr(backend, method_name)(expression)
-        except Exception as exc:
-            if backend_name != SUDACHI_BACKEND:
-                raise
-            from GameSentenceMiner.sudachi import SudachiUnavailableError
-
-            if not isinstance(exc, SudachiUnavailableError):
-                raise
-            logger.warning(f"Sudachi {method_name} failed; falling back to MeCab: {exc}")
-            return getattr(_load_mecab(), method_name)(expression)
+        sudachi = _load_sudachi()
+        sudachi.configure(dictionary=get_sudachi_dictionary(), acquire_feature=True)
+        return getattr(sudachi, method_name)(expression)
 
     def translate(self, expression: str) -> Sequence[Any]:
         return self._call("translate", expression)
@@ -133,7 +86,6 @@ tokenizer = Tokenizer()
 
 __all__ = [
     "DEFAULT_SUDACHI_DICTIONARY",
-    "MECAB_BACKEND",
     "SUDACHI_BACKEND",
     "SUDACHI_DICTIONARIES",
     "TOKENIZATION_BACKENDS",

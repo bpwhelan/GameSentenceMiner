@@ -84,7 +84,8 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
         } finally { dispatching = false; }
       }
       lastSignature = signature;
-    } else if (publishedIgnore !== !interactive) {
+    }
+    if (!projected && publishedIgnore !== !interactive) {
       publishedIgnore = !interactive;
       onIgnore(publishedIgnore);
     }
@@ -108,6 +109,12 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
   }
   for (const name of events) win.addEventListener(name, onEvent, true);
   return {
+    forward(point) {
+      // WebView2 has no Electron-style mouse forwarding. Native passthrough
+      // samples feed the ordinary scanner without taking clicks from the game.
+      if (!projected) return update(point, true);
+      return interactive;
+    },
     project(point) {
       projected = true;
       // Popup frames have their own event path and extension origin. A state

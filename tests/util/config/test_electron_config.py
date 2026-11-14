@@ -39,11 +39,11 @@ def test_deep_merge_defaults_preserves_loaded_values():
     assert merged == {"a": {"b": 1, "c": [7]}, "d": 9, "extra": True}
 
 
-def test_store_creates_file_and_supports_get_set_delete(tmp_path):
+def test_store_reads_defaults_without_creating_file_and_supports_explicit_edits(tmp_path):
     config_path = tmp_path / "electron" / "config.json"
     store = electron_config.Store(config_path=str(config_path), defaults={"OCR": {"scanRate": 0.5}})
 
-    assert config_path.exists()
+    assert not config_path.exists()
     assert store.get("OCR.scanRate") == 0.5
 
     assert store.set("OCR.scanRate", 1.25) is True
@@ -64,6 +64,33 @@ def test_store_creates_file_and_supports_get_set_delete(tmp_path):
 
     assert deleted is True
     assert store.get("OCR.scanRate", "fallback") == "fallback"
+
+
+def test_loading_and_reloading_defaults_never_rewrites_native_preferences(tmp_path):
+    config_path = tmp_path / "config.json"
+    original = '{"OCR": {"scanRate": 0.7}, "unknown": [1, 2]}\n'
+    config_path.write_text(original, encoding="utf-8")
+    store = electron_config.Store(str(config_path), {"OCR": {"scanRate": 0.5, "missing": True}})
+    assert store.get("OCR.missing") is True
+    assert config_path.read_text(encoding="utf-8") == original
+    newer = '{"OCR": {"scanRate": 1.2}, "nativeEdit": true}\n'
+    config_path.write_text(newer, encoding="utf-8")
+    store.reload_config()
+    assert store.get("nativeEdit") is True
+    assert config_path.read_text(encoding="utf-8") == newer
+
+
+def test_native_owned_store_rejects_python_writes(tmp_path):
+    config_path = tmp_path / "config.json"
+    original = '{"saved": true}\n'
+    config_path.write_text(original, encoding="utf-8")
+    store = electron_config.Store(str(config_path), {}, read_only=True)
+    with pytest.raises(RuntimeError, match="native desktop"):
+        store.set("saved", False)
+    with pytest.raises(RuntimeError, match="native desktop"):
+        store.delete("saved")
+    assert store.get("saved") is True
+    assert config_path.read_text(encoding="utf-8") == original
 
 
 def test_store_handles_invalid_json_file(tmp_path):

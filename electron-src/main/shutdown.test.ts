@@ -48,10 +48,9 @@ function loadShutdown() {
         closeGSM: vi.fn(async () => {}),
         stopOverlay: vi.fn(),
         waitForOverlayShutdown: vi.fn(async () => {}),
-        stopScripts: vi.fn(async () => {}),
         stopOCR: vi.fn(() => true),
+        waitForOCRShutdown: vi.fn(async () => {}),
         stopManagedProcesses: vi.fn(async () => {}),
-        stopWindowTransparencyTool: vi.fn(async () => {}),
         stopInputServer: vi.fn(async () => {}),
         stopGameBackgroundHooks: vi.fn(async () => {}),
         closeOBSFromElectron: vi.fn(async () => ({ status: 'closed' })),
@@ -170,7 +169,6 @@ describe('application shutdown', () => {
 
         expect(context.stopManagedProcesses).toHaveBeenCalledOnce();
         expect(context.stopOCR).toHaveBeenCalledOnce();
-        expect(context.stopWindowTransparencyTool).toHaveBeenCalledOnce();
         expect(context.stopInputServer).toHaveBeenCalledOnce();
         expect(app.quit).toHaveBeenCalledOnce();
     });

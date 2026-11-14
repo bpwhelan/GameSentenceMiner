@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
     getPullPreReleases: vi.fn(() => false),
     showMessageBox: vi.fn(),
     getInstalledPackageVersion: vi.fn(),
+    pythonCall: vi.fn(),
+    sessionFinish: vi.fn(),
+    finishAttempt: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -43,12 +46,63 @@ vi.mock('./python_ops.js', () => ({
     resolveRequestedExtras: vi.fn(),
     syncLockedEnvironment: vi.fn(),
 }));
-vi.mock('./install_session_state.js', () => ({ installSessionManager: {} }));
-vi.mock('./managed_python_repair.js', () => ({ shouldAutoRebuildManagedPythonEnv: vi.fn() }));
+vi.mock('./install_session_state.js', () => ({ installSessionManager: {ensureSession:vi.fn(()=>({id:'update-session',attempt:2})),updateStage:vi.fn(),finishActive:mocks.sessionFinish,finishAttempt:mocks.finishAttempt} }));
+vi.mock('../runtime/native_python_install.js',()=>({pythonCall:mocks.pythonCall}));
 
 import { UpdateManager } from './update_manager.js';
 import electronUpdater from 'electron-updater';
 import log from 'electron-log/main.js';
+
+describe('native backend maintenance adapter',()=>{
+    beforeEach(()=>{vi.clearAllMocks();mocks.pythonCall.mockReset();});
+    function setup(){
+        const stop=vi.fn(async()=>{}), launch=vi.fn(()=>new Promise<void>(()=>{}));
+        const manager=new UpdateManager({getPythonPath:()=> 'python',closeAllPythonProcesses:stop,closeAllForAppUpdate:vi.fn(),ensureAndRunGSM:launch});
+        return {manager,stop,launch};
+    }
+    it('leaves a running backend alone when native policy says it is current',async()=>{
+        const {manager,stop,launch}=setup();
+        mocks.pythonCall.mockResolvedValue({currentVersion:'2026.11.0',latestVersion:'2026.11.0',updateAvailable:false});
+        await manager.updateGSM(true);
+        expect(stop).not.toHaveBeenCalled();expect(launch).not.toHaveBeenCalled();
+        expect(manager.lastBackendUpdateWasSuccessful).toBe(true);
+        expect(mocks.sessionFinish).toHaveBeenCalledWith('completed',expect.any(String));
+    });
+    it('stops before one native workflow and returns while the replacement backend remains running',async()=>{
+        const {manager,stop,launch}=setup();
+        mocks.pythonCall.mockResolvedValueOnce({updateAvailable:true,latestVersion:'2026.11.0'}).mockImplementationOnce(async()=>{
+            expect(stop).toHaveBeenCalledOnce();return {pythonPath:'repaired-python',installedVersion:'2026.11.0',latestVersion:'2026.11.0'};
+        });
+        await manager.updateGSM(true,true);
+        expect(mocks.pythonCall.mock.calls.map(([action])=>action)).toEqual(['updateCheck','maintain']);
+        expect(launch).toHaveBeenCalledExactlyOnceWith('repaired-python');
+        expect(manager.lastBackendUpdateWasSuccessful).toBe(true);
+    });
+    it('retains native failures without starting a competing Node retry or launch',async()=>{
+        const {manager,launch}=setup();
+        mocks.pythonCall.mockResolvedValueOnce({updateAvailable:true}).mockRejectedValueOnce(Error('Native retries exhausted'));
+        await manager.updateGSM(true);
+        expect(mocks.pythonCall).toHaveBeenCalledTimes(2);expect(launch).not.toHaveBeenCalled();
+        expect(manager.lastBackendUpdateWasSuccessful).toBe(false);
+        expect(manager.lastBackendUpdateFailureReason).toBe('Native retries exhausted');
+        expect(manager.updateInProgress).toBe(false);
+    });
+    it('coalesces simultaneous update requests',async()=>{
+        const {manager}=setup();let resolve!:(value:unknown)=>void;
+        mocks.pythonCall.mockImplementationOnce(()=>new Promise(r=>{resolve=r;}));
+        const first=manager.updateGSM(),second=manager.updateGSM();
+        resolve({updateAvailable:false});await Promise.all([first,second]);
+        expect(mocks.pythonCall).toHaveBeenCalledOnce();
+    });
+    it('ties a later backend launch failure to the original update attempt',async()=>{
+        const {manager,launch}=setup();let fail!:(error:Error)=>void;
+        launch.mockImplementationOnce(()=>new Promise((_resolve,reject)=>{fail=reject;}));
+        mocks.pythonCall.mockResolvedValueOnce({updateAvailable:true}).mockResolvedValueOnce({pythonPath:'python'});
+        await manager.updateGSM(true);fail(Error('Later backend failure'));
+        await vi.waitFor(()=>expect(mocks.finishAttempt).toHaveBeenCalledWith({sessionId:'update-session',attempt:2},'failed','Backend restart failed.','Later backend failure'));
+        expect(mocks.sessionFinish).not.toHaveBeenCalled();
+    });
+});
 
 describe('desktop update offers', () => {
     let manager: UpdateManager;
@@ -64,7 +118,6 @@ describe('desktop update offers', () => {
             closeAllPythonProcesses: vi.fn(),
             closeAllForAppUpdate: vi.fn(),
             ensureAndRunGSM: vi.fn(),
-            reinstallPython: vi.fn(),
         });
         manager.setAppUpdateStatusListener(onStatus);
     });

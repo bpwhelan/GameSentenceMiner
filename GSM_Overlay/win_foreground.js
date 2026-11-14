@@ -63,6 +63,8 @@ function hwndAddressFromHandle(handle) {
 // existing focus() fallback.
 function forceForegroundWindow(win) {
   if (!win || win.isDestroyed()) return false;
+  // Tauri owns the HWND on a different process/thread from this Node service.
+  if (typeof win.forceForegroundWindow === 'function') return win.forceForegroundWindow();
   if (!init()) return false;
 
   let hwnd;

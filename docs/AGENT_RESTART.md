@@ -18,7 +18,7 @@ app or backend to start:
 npm run agent:restart -- --build --handoff --reason "The OCR fix is ready to try"
 ```
 
-`--build` builds the Electron main process and renderer before asking GSM to
+`--build` builds the desktop services, renderer and Tauri executable before asking GSM to
 restart. If the build fails, the running app is left alone. Omit `--build` for
 Python-only changes or when the necessary assets have already been built:
 
@@ -62,19 +62,21 @@ See [Portable profiles](PORTABLE_PROFILES.md) for isolated development and langu
 
 Use `npm start` for this workflow. `npm run dev` owns a watcher-driven restart loop
 and is deliberately rejected, since rebuilding watched files could otherwise
-restart Electron before the warning. Manually started tools follow their normal
+restart the desktop before the warning. Manually started tools follow their normal
 startup settings; this command does not promise to restore an unsaved UI session.
 An independently launched overlay or other tool is outside the main app's managed
 processes and must be restarted separately when its code changes.
 
-On Windows, development launches use a cached GSM-branded Electron runtime in
-`node_modules/electron/gsm-dev-runtime`. The launcher prepares it automatically,
-and direct `electron .` launches switch to it before GSM starts. It preserves
-`electron.exe` as the filename so Electron still reports development mode, while
-Windows uses the embedded GameSentenceMiner description and icon. Task Manager's
-Processes tab uses that friendly name; its Details tab still lists `electron.exe`.
-The main window also sets its taskbar icon and relaunch command explicitly, with
-a separate development app ID so installed GSM shortcuts do not supply its icon.
+Development builds run the native Tauri executable; Node is used by the build and
+development launcher scripts, not by the running desktop services. Each completed
+native build is copied to an immutable directory under
+`src-tauri/target/desktop-runs`, so a running Windows executable cannot block the
+next build. The build also compiles the shared input/Sudachi helper and copies it
+alongside the desktop executable. Development launches use that matching helper,
+not older packaged copies left under `GSM_Overlay/input_server/bin`. The launcher
+and development restart resolve the latest successful
+build through its platform-specific pointer. Installed apps restart their own
+installed executable. Neither launch path starts Electron.
 
 The backend stops first so its replay-buffer manager cannot restart OBS outputs.
 GSM then stops active recording and replay buffering through OBS WebSocket and
@@ -88,8 +90,8 @@ and their related GSM settings are snapshotted under `<GSM data directory>/backu
 before startup changes and shutdown, and again after OBS exits. The newest 20
 snapshots are retained. Each includes a `snapshot.json` file listing its contents.
 
-The command does not sync or build Yomitan, regenerate Hachidori, or compile Rust
-helpers. Follow the relevant repository workflows first. `--build` only targets a
+The command does not sync or build Yomitan or regenerate Hachidori. Follow those
+repository workflows first when applicable. `--build` only targets a
 development app running from this checkout; it will not claim local changes were
 loaded by an installed or different copy of GSM.
 

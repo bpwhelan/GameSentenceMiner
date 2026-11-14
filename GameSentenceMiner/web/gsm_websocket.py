@@ -201,9 +201,9 @@ class _PortConflictSupport:
 
         self._notified_conflicts.add(conflict_key)
         try:
-            from GameSentenceMiner.util.platform import notification
+            from GameSentenceMiner.util.communication import desktop_events
 
-            notification.send_error_notification(f"{server_name} websocket port {port} is in use ({owner_summary}).")
+            desktop_events.app_error(f"{server_name} websocket port {port} is in use ({owner_summary}).")
         except Exception as notify_error:
             logger.debug(f"[{server_name}] Failed to send port conflict notification: {notify_error}")
 

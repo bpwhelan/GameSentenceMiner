@@ -1,13 +1,18 @@
+import { loadCaptureTargets } from '../../lib/captureTargets';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { invokeIpc } from "../../lib/ipc";
+import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 import { useTranslation } from "../../i18n";
 import { TextCaptureWizard } from "../TextCaptureWizard";
 import { GameBackgroundSettings } from "../GameBackgroundSettings";
 import { GameLaunchControls } from "../GameLaunchControls";
 import { WorkspaceIcon } from "../Workspace";
 import { HomeGameMenu } from "./HomeGameMenu";
+import { CaptureTargetPicker } from "./CaptureTargetPicker";
+import { ReadingPane } from "../reader/ReadingPane";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 import "./HomeTab.css";
+import type { OnboardingHomeAction } from '../../../../shared/onboarding';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -15,6 +20,7 @@ import "./HomeTab.css";
 
 interface HomeTabProps {
   active: boolean;
+  onboardingAction?: OnboardingHomeAction | null;
   onNavigateTab?: (tab: "ocr" | "texthook" | "launcher" | "settings") => void;
 }
 
@@ -95,7 +101,7 @@ function AddGameDialog({ children, busy, returnFocus, onClose }: {
     const dialog = dialogRef.current!;
     const previousFocus = returnFocus ?? document.activeElement;
     const focusStart = () => {
-      const control = dialog.querySelector<HTMLElement>("select:not(:disabled)") ?? dialog.querySelector<HTMLElement>("button:not(:disabled)");
+      const control = dialog.querySelector<HTMLElement>("#home-window-search:not(:disabled)") ?? dialog.querySelector<HTMLElement>("button:not(:disabled)");
       (control ?? dialog).focus();
     };
     const containFocus = (event: FocusEvent) => {
@@ -385,13 +391,20 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
 /*  Main HomeTab                                                       */
 /* ------------------------------------------------------------------ */
 
-export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
+export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProps) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [readingFocus, setReadingFocus] = useState(false);
+  const [gameOptionsOpen, setGameOptionsOpen] = useState(false);
+  const toggleReadingFocus = useCallback(() => setReadingFocus(value => !value), []);
   const t = useTranslation();
 
   /* ---- Status ---------------------------------------------------- */
   const [status, setStatus] = useState<GsmStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
   const [overlayRunning, setOverlayRunning] = useState(false);
+  const [overlayChanging, setOverlayChanging] = useState(false);
+  const [overlayToggleError, setOverlayToggleError] = useState(false);
+  const overlayChange = useRef({ pending: false, revision: 0 });
   const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
   const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState(false);
   const [overlaySettingsSaving, setOverlaySettingsSaving] = useState(false);
@@ -408,19 +421,22 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     const poll = async () => {
       try {
         const s = await invokeIpc<GsmStatus | null>("get_gsm_status");
-        if (!cancelled) { setStatus(s); setStatusError(false); }
+        if (!cancelled) { setStatus(before => retainEqual(before, s)); setStatusError(false); }
       } catch {
         if (!cancelled) { setStatus(null); setStatusError(true); }
       }
+      if (cancelled) return;
       try {
+        const revision = overlayChange.current.revision;
         const o = await invokeIpc<{ isRunning: boolean }>("getOverlayStatus");
-        if (!cancelled) setOverlayRunning(Boolean(o?.isRunning));
+        if (!cancelled && !overlayChange.current.pending && revision === overlayChange.current.revision) {
+          setOverlayRunning(Boolean(o?.isRunning));
+        }
       } catch { /* swallow */ }
     };
 
-    void poll();
-    const id = setInterval(() => void poll(), STATUS_POLL_MS);
-    return () => { cancelled = true; clearInterval(id); };
+    const stop = startVisiblePolling(poll, STATUS_POLL_MS);
+    return () => { cancelled = true; stop(); };
   }, [active]);
 
   useEffect(() => {
@@ -465,6 +481,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   const addGameTriggerRef = useRef<HTMLButtonElement | null>(null);
   const openNewCapture = useCallback((trigger: HTMLButtonElement) => {
     addGameTriggerRef.current = trigger;
+    setPickerWindowsReady(false);
     setNewCaptureOpen(true);
   }, []);
   const [gameSearch, setGameSearch] = useState("");
@@ -500,62 +517,83 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   /* ---- Loaders --------------------------------------------------- */
   const [scenesLoading, setScenesLoading] = useState(true);
   const [windowsLoading, setWindowsLoading] = useState(true);
+  const [pickerWindowsReady, setPickerWindowsReady] = useState(false);
+  const windowRequestRef = useRef(0);
+  const windowRequestPending = useRef(false);
 
   const loadScenes = useCallback(async () => {
-    setScenesLoading(true);
     try {
       const obsScenes = await invokeIpc<ObsScene[]>("obs.getScenes");
-      setScenes(obsScenes ?? []);
+      setScenes(before => retainEqual(before, obsScenes ?? []));
       const activeScene = await invokeIpc<ObsScene | null>("obs.getActiveScene");
       if (activeScene) setSelectedSceneId(activeScene.id);
     } catch { /* swallow */ }
     setScenesLoading(false);
   }, []);
 
-  const loadWindows = useCallback(async (quick = false) => {
+  const loadWindows = useCallback(async (quick = false, refresh = false) => {
     if (!canEnumerateWindows) return;
-    setWindowsLoading(true);
+    if (quick && !refresh && windowRequestPending.current) return;
+    const request = ++windowRequestRef.current;
+    windowRequestPending.current = true;
+    if (!quick || refresh) setWindowsLoading(true);
     try {
-      const res = await invokeIpc<ObsWindow[]>("obs.getWindows", { quick });
-      setWindows(res ?? []);
-      if (res?.length) {
-        setSelectedWindowValue((prev) => {
-          const currentWindow = res.find((w) => w.value === prev);
-          if (currentWindow) {
-            setSelectedCaptureMode((prevMode) =>
-              isCaptureModeAvailable(currentWindow, prevMode)
-                ? prevMode
-                : getDefaultCaptureMode(currentWindow),
-            );
-            return prev;
-          }
-          setSelectedCaptureMode("window_capture");
-          return "";
-        });
-      }
+      const res = await loadCaptureTargets({ quick, refresh });
+      if (request !== windowRequestRef.current) return;
+      const nextWindows = res ?? [];
+      setWindows(before => retainEqual(before, nextWindows));
+      setSelectedWindowValue((prev) => {
+        const currentWindow = nextWindows.find((w) => w.value === prev);
+        if (currentWindow) {
+          setSelectedCaptureMode((prevMode) =>
+            isCaptureModeAvailable(currentWindow, prevMode)
+              ? prevMode
+              : getDefaultCaptureMode(currentWindow),
+          );
+          return prev;
+        }
+        setSelectedCaptureMode("window_capture");
+        return "";
+      });
     } catch { /* swallow */ }
-    setWindowsLoading(false);
+    if (request === windowRequestRef.current) {
+      windowRequestPending.current = false;
+      setWindowsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    setPickerWindowsReady(false);
+    if (!active || !newCaptureOpen) return;
+    let cancelled = false;
+    let first = true;
+    const stop = startVisiblePolling(async () => {
+      const refresh = first;
+      first = false;
+      await loadWindows(true, refresh);
+      if (!cancelled) setPickerWindowsReady(true);
+    }, SCENE_POLL_MS);
+    return () => { cancelled = true; stop(); };
+  }, [active, newCaptureOpen, loadWindows]);
 
   const loadGsmProfiles = useCallback(async () => {
     try {
       const result = await invokeIpc<GsmProfileList | null>("settings.listGSMProfiles");
-      setGsmProfiles(Array.isArray(result?.profiles) ? result.profiles : []);
-      setProfileScenes(
+      setGsmProfiles(before => retainEqual(before, Array.isArray(result?.profiles) ? result.profiles : []));
+      setProfileScenes(before => retainEqual(before,
         result?.profileScenes && typeof result.profileScenes === "object"
           ? result.profileScenes
-          : {},
-      );
+          : {}));
     } catch { /* swallow */ }
   }, []);
 
   const refreshAll = useCallback(
     async (quick = false) => {
       await loadScenes();
-      await loadWindows(quick);
+      if (newCaptureOpen) await loadWindows(quick);
       await loadGsmProfiles();
     },
-    [loadScenes, loadWindows, loadGsmProfiles],
+    [loadScenes, loadWindows, loadGsmProfiles, newCaptureOpen],
   );
 
   const handleWindowSelectionChange = useCallback((value: string) => {
@@ -568,10 +606,17 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   // Initial fetch + polling
   useEffect(() => {
     if (!active) return;
-    void refreshAll(true);
-    const id = setInterval(() => void refreshAll(true), SCENE_POLL_MS);
-    return () => clearInterval(id);
-  }, [active, refreshAll]);
+    return startVisiblePolling(loadScenes, SCENE_POLL_MS);
+  }, [active, loadScenes]);
+
+  useEffect(() => {
+    if (!active) return;
+    const refresh = () => { void loadGsmProfiles(); };
+    refresh();
+    // Configuration windows can change profiles while Home remains selected.
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, [active, loadGsmProfiles]);
 
   // Capture card probe state
   useEffect(() => {
@@ -810,6 +855,19 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     setCaptureWizardOpen(true);
   }, [isHelperScene, selectedScene]);
 
+  const handledOnboardingAction = useRef<number | null>(null);
+  useEffect(() => {
+    if (!active || !onboardingAction || handledOnboardingAction.current === onboardingAction.id) return;
+    if (onboardingAction.action === 'game') {
+      setPickerWindowsReady(false);
+      setNewCaptureOpen(true);
+    } else {
+      if (!selectedScene || isHelperScene) return;
+      handleOpenCaptureWizard();
+    }
+    handledOnboardingAction.current = onboardingAction.id;
+  }, [active, onboardingAction, selectedScene, isHelperScene, handleOpenCaptureWizard]);
+
   const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
     if (!win || sceneCreating) return;
@@ -872,7 +930,22 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   /* ---- Actions --------------------------------------------------- */
   const openGSMSettings = useCallback(() => void invokeIpc("settings.openGSMSettings"), []);
   const openTexthooker = useCallback(() => void invokeIpc("openTexthooker"), []);
-  const runOverlay = useCallback(() => void invokeIpc("runOverlay"), []);
+  const handleOverlayToggle = useCallback(async (enabled: boolean) => {
+    if (overlayChange.current.pending) return;
+    overlayChange.current = { pending: true, revision: overlayChange.current.revision + 1 };
+    setOverlayChanging(true);
+    setOverlayToggleError(false);
+    try {
+      const result = await invokeIpc<{ success: boolean; isRunning: boolean }>("setOverlayEnabled", enabled);
+      if (typeof result?.isRunning === "boolean") setOverlayRunning(result.isRunning);
+      if (!result?.success) throw new Error("Overlay could not be changed");
+    } catch {
+      setOverlayToggleError(true);
+    } finally {
+      overlayChange.current = { pending: false, revision: overlayChange.current.revision + 1 };
+      setOverlayChanging(false);
+    }
+  }, []);
   const openOverlaySettings = useCallback(() => void invokeIpc("settings.openOverlaySettings"), []);
   const openOBS = useCallback(() => void invokeIpc("openOBS"), []);
   const openAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(true), []);
@@ -988,15 +1061,8 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
     clipTooltip = t("home.status.tooltipClipboardDisabled");
   }
 
-  /* ---- Capture target groupings ---------------------------------- */
-  const windowTargets = windows.filter(
-    (w) => w.targetKind !== "capture_card" && w.targetKind !== "monitor",
-  );
-  const captureCardTargets = windows.filter((w) => w.targetKind === "capture_card");
-  const monitorTargets = windows.filter((w) => w.targetKind === "monitor");
-
   const overlaySection = (
-    <section className="home-overlay-card" aria-labelledby="home-overlay-heading">
+    <section className="home-overlay-card" aria-labelledby="home-overlay-heading" aria-busy={overlayChanging}>
       <div className="home-section-heading">
         <h2 id="home-overlay-heading"><WorkspaceIcon name="layout" />{t("home.overlay.title")}</h2>
         <span
@@ -1006,7 +1072,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               : "home-overlay-card__status--stopped"
           }`}
         >
-          {overlayRunning
+          {overlayChanging ? t("home.overlay.changing") : overlayRunning
             ? t("home.overlay.statusRunning")
             : t("home.overlay.statusStopped")}
         </span>
@@ -1014,14 +1080,23 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       <p className="home-section-hint">{t("home.workspace.overlayHint")}</p>
       <div className="home-section-body">
         <div className="home-overlay-card__controls">
+          <label className="home-toggle home-overlay-card__enabled" htmlFor="home-overlay-toggle"
+            data-tip={t("home.overlay.toggleTooltip")}>
+            <input id="home-overlay-toggle" type="checkbox" role="switch"
+              checked={overlayRunning} disabled={overlayChanging}
+              onChange={(event) => void handleOverlayToggle(event.target.checked)} />
+            <span>{t("home.overlay.enabled")}</span>
+          </label>
+          {overlayToggleError ? <p role="alert">{t("home.overlay.toggleError")}</p> : null}
           <div className="home-overlay-card__actions">
             <button
               type="button"
               className="home-overlay-primary-btn"
-              onClick={overlayRunning ? openOverlaySettings : runOverlay}
+              onClick={openOverlaySettings}
+              disabled={!overlayRunning || overlayChanging}
             >
-              <WorkspaceIcon name={overlayRunning ? "settings" : "play"} />
-              {overlayRunning ? t("home.actions.overlaySettings") : t("home.actions.overlay")}
+              <WorkspaceIcon name="settings" />
+              {t("home.actions.overlaySettings")}
             </button>
             <button
               type="button"
@@ -1088,70 +1163,10 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
       </div>
       <div className="capture-wizard-body home-section-body">
         {/* Capture target selector */}
-        <div className="home-row">
-          <label className="home-row__label" htmlFor="home-window-select">
-            {t("home.obs.captureTargetLabel")}
-          </label>
-          <div className="home-row__controls">
-            <select
-              id="home-window-select"
-              className="home-select"
-              value={selectedWindowValue}
-              disabled={!canEnumerateWindows || sceneCreating}
-              data-tip={!canEnumerateWindows ? t("home.obs.notSupportedTooltip") : undefined}
-              onChange={(e) => handleWindowSelectionChange(e.target.value)}
-            >
-              {!canEnumerateWindows && (
-                <option>{t("home.obs.notSupportedOS")}</option>
-              )}
-              {canEnumerateWindows && windows.length > 0 && (
-                <option value="" disabled>{t("home.obs.selectWindow")}</option>
-              )}
-              {windowsLoading && windows.length === 0 && canEnumerateWindows && (
-                <option>{t("home.obs.loading")}</option>
-              )}
-              {windows.length === 0 && !windowsLoading && canEnumerateWindows && (
-                <option value="">{t("home.obs.noCaptureTargets")}</option>
-              )}
-              {windowTargets.length > 0 && (
-                <optgroup label={t("home.obs.sectionWindows")}>
-                  {windowTargets.map((w) => (
-                    <option key={w.value} value={w.value}>
-                      {w.targetKind === "wayland_pipewire"
-                        ? t("home.obs.waylandPipewireOption")
-                        : w.title}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {monitorTargets.length > 0 && (
-                <optgroup label={t("home.obs.sectionMonitors")}>
-                  {monitorTargets.map((w) => (
-                    <option key={w.value} value={w.value}>{w.title}</option>
-                  ))}
-                </optgroup>
-              )}
-              {captureCardTargets.length > 0 && (
-                <optgroup label={t("home.obs.sectionCaptureCards")}>
-                  {captureCardTargets.map((w) => (
-                    <option key={w.value} value={w.value}>
-                      {t("home.obs.captureCardPrefix", { title: w.title })}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-            <button
-              type="button"
-              className="home-icon-btn"
-              disabled={!canEnumerateWindows || sceneCreating}
-              onClick={() => void loadWindows()}
-              aria-label={t("home.obs.refreshWindows")}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
-            </button>
-          </div>
-        </div>
+        <CaptureTargetPicker windows={windows} selectedValue={selectedWindowValue}
+          disabled={sceneCreating} loading={windowsLoading} supported={canEnumerateWindows}
+          previewsEnabled={isWindows && pickerWindowsReady} onSelect={handleWindowSelectionChange}
+          onRefresh={() => loadWindows(false, true)} />
 
         {/* Capture mode selector */}
         {canSelectCaptureMode && <div className="home-row home-row--capture-mode">
@@ -1253,8 +1268,9 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
   /* ---- Render ---------------------------------------------------- */
   return (
     <div className={`tab-panel home-panel ${active ? "active" : ""}`}>
-      <div className="gsm-workspace home-desk">
-        <aside className="home-library" aria-label={t("home.workspace.library")} inert={newCaptureOpen}>
+      <div className="gsm-workspace home-desk home-reading-desk" data-reading-focus={readingFocus}>
+        <aside className="home-library" id="home-game-library" hidden={!libraryOpen || readingFocus} aria-label={t("home.workspace.library")} inert={newCaptureOpen}>
+          <button type="button" className="home-library-close" onClick={() => setLibraryOpen(false)}>{t("reader.closeLibrary")}</button>
           <div className="home-library-brand">
             <span className="home-library-mark"><WorkspaceIcon name="general" /></span>
             <div>
@@ -1304,7 +1320,7 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                   ref={selectedSceneId === scene.id ? selectedGameRef : null}
                   data-scene-id={scene.id}
                   aria-current={selectedSceneId === scene.id ? "true" : undefined}
-                  onClick={() => handleSceneChange(scene.id)}
+                  onClick={() => { handleSceneChange(scene.id); setLibraryOpen(false); }}
                 >
                   <WorkspaceIcon name="general" />
                   <span>{scene.name}</span>
@@ -1321,58 +1337,14 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
           </ul>
           {!hasUserScenes && <p className="home-library-empty">{t(scenesLoading ? "home.obs.loading" : "home.workspace.noGames")}</p>}
           {hasUserScenes && filteredScenes.length === 0 && <p className="home-library-empty" role="status">{t("home.workspace.noMatchingGames")}</p>}
-          <section className="home-status-card" aria-label={t("home.workspace.connections")}>
-            <div className="home-status-grid">
-              {/* Fixed core statuses */}
-              <StatusPill
-                icon="capture"
-                label={t("home.status.gsm")}
-                text={gsmText}
-                variant={gsmVariant}
-                tooltip={gsmTooltip}
-              />
-              <StatusPill
-                icon="general"
-                label={t("home.status.obs")}
-                text={obsOk ? t("home.status.connected") : t("home.status.disconnected")}
-                variant={obsOk ? "ok" : "bad"}
-                tooltip={obsOk ? t("home.status.tooltipObsConnected") : t("home.status.tooltipObsDisconnected")}
-                onClick={openOBS}
-                clickable
-              />
-              <StatusPill
-                icon="backups"
-                label={t("home.status.anki")}
-                text={ankiText}
-                variant={ankiVariant}
-                tooltip={ankiTooltip}
-                onClick={showAnkiBeaconNudge ? openAnkiBeaconModal : undefined}
-                clickable={showAnkiBeaconNudge}
-              />
-              <StatusPill
-                icon="layout"
-                label={t("home.status.clipboard")}
-                text={clipText}
-                variant={clipEnabled ? "ok" : "neutral"}
-                tooltip={clipTooltip}
-              />
-              {/* Dynamic input sources */}
-              {wsEntries.map(([url, name]) => (
-                <StatusPill
-                  key={url}
-                  icon="activity"
-                  label={name}
-                  text={t("home.status.connected")}
-                  variant="ok"
-                  tooltip={t("home.status.tooltipWsConnected", { name })}
-                />
-              ))}
-            </div>
-          </section>
+
         </aside>
 
         <div className="home-session" inert={newCaptureOpen}>
           <div className="home-session-scroll">
+            <button type="button" className="home-library-toggle" aria-expanded={libraryOpen} aria-controls="home-game-library" onClick={() => setLibraryOpen(value => !value)}>
+              <WorkspaceIcon name="general" />{t("home.workspace.library")}<WorkspaceIcon name="arrow" />
+            </button>
             {!hasUserScenes && <section className="home-empty-game" aria-labelledby="home-empty-game-heading">
               <span className="home-empty-game__icon" aria-hidden="true"><WorkspaceIcon name="general" /></span>
               <h1 id="home-empty-game-heading">{t("home.workspace.noGames")}</h1>
@@ -1467,7 +1439,8 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
               )}
             </section>
 
-            <div className="home-game-details" hidden={isHelperScene || !selectedScene}>
+            <details className="home-game-details" hidden={isHelperScene || !selectedScene} onToggle={event => setGameOptionsOpen(event.currentTarget.open)}>
+              <summary>{t("reader.gameOptions")}</summary>
               <div className="home-section-body">
                 {/* Windows resolves the executable from the captured game automatically. */}
                 {!isWindows && selectedScene && !isHelperScene && (
@@ -1508,14 +1481,14 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
                 )}
 
                 {isWindows && selectedScene && !isHelperScene && (
-                  <GameBackgroundSettings sceneId={selectedScene.id} active={active} />
+                  <GameBackgroundSettings sceneId={selectedScene.id} active={active && gameOptionsOpen} />
                 )}
               </div>
-            </div>
+            </details>
 
             <div className="home-tools">
               {overlaySection}
-              <section className="home-quick-actions" aria-labelledby="home-text-feed-heading">
+              <section className="home-quick-actions home-reader-legacy-actions" aria-labelledby="home-text-feed-heading">
                 <div className="home-section-heading">
                   <h2 id="home-text-feed-heading"><WorkspaceIcon name="activity" />{t("home.workspace.textFeed")}</h2>
                 </div>
@@ -1535,6 +1508,57 @@ export function HomeTab({ active, onNavigateTab }: HomeTabProps) {
             </div>
           </div>
 
+          <section className="home-status-card" aria-label={t("home.workspace.connections")}>
+            <div className="home-status-grid">
+              {/* Fixed core statuses */}
+              <StatusPill
+                icon="capture"
+                label={t("home.status.gsm")}
+                text={gsmText}
+                variant={gsmVariant}
+                tooltip={gsmTooltip}
+              />
+              <StatusPill
+                icon="general"
+                label={t("home.status.obs")}
+                text={obsOk ? t("home.status.connected") : t("home.status.disconnected")}
+                variant={obsOk ? "ok" : "bad"}
+                tooltip={obsOk ? t("home.status.tooltipObsConnected") : t("home.status.tooltipObsDisconnected")}
+                onClick={openOBS}
+                clickable
+              />
+              <StatusPill
+                icon="backups"
+                label={t("home.status.anki")}
+                text={ankiText}
+                variant={ankiVariant}
+                tooltip={ankiTooltip}
+                onClick={showAnkiBeaconNudge ? openAnkiBeaconModal : undefined}
+                clickable={showAnkiBeaconNudge}
+              />
+              <StatusPill
+                icon="layout"
+                label={t("home.status.clipboard")}
+                text={clipText}
+                variant={clipEnabled ? "ok" : "neutral"}
+                tooltip={clipTooltip}
+              />
+              {/* Dynamic input sources */}
+              {wsEntries.map(([url, name]) => (
+                <StatusPill
+                  key={url}
+                  icon="activity"
+                  label={name}
+                  text={t("home.status.connected")}
+                  variant="ok"
+                  tooltip={t("home.status.tooltipWsConnected", { name })}
+                />
+              ))}
+            </div>
+          </section>
+        </div>
+        <div className="home-reading-surface" inert={newCaptureOpen}>
+          <ReadingPane active={active} focus={readingFocus} onToggleFocus={toggleReadingFocus} onOpenBrowser={openTexthooker} />
         </div>
         <footer className="home-support" inert={newCaptureOpen}>
           <span className="home-support__heart" aria-hidden="true">♥</span>

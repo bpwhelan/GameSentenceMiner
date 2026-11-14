@@ -101,6 +101,10 @@ export class DictionaryImporter {
         this._progressReset();
 
         configure({
+            // The desktop host already runs this importer in a dedicated
+            // worker. WebView2 does not reliably route nested worker loads
+            // through its custom resource handler, so decompress there.
+            useWebWorkers: !/^gsm-yomitan:$/.test(new URL(import.meta.url).protocol) && new URL(import.meta.url).hostname !== 'gsm-yomitan.localhost',
             workerScripts: {
                 deflate: ['../../lib/z-worker.js'],
                 inflate: ['../../lib/z-worker.js'],

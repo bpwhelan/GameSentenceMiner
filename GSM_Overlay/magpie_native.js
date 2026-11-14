@@ -64,8 +64,14 @@ function createMagpieNative() {
     watch(win, callback, onReorder) {
       const hwnd = handleValue(win.getNativeWindowHandle());
       // Permit just this registered message when GSM has higher integrity.
-      if (!f.filter(hwnd, message, 1, null)) console.warn('[Magpie] Could not allow scaling notifications through UIPI');
+      if (!process.env.GSM_NATIVE_SERVICE && !f.filter(hwnd, message, 1, null)) console.warn('[Magpie] Could not allow scaling notifications through UIPI');
       win.hookWindowMessage(message, (wParam, lParam) => callback(Number(handleValue(wParam)), Number(handleValue(lParam))));
+      // The native host owns the HWND and Windows message loop. Node cannot
+      // receive WinEvent callbacks on Electron's former UI thread.
+      if (process.env.GSM_NATIVE_SERVICE) {
+        if (onReorder) win.on('native-reorder', onReorder);
+        return () => { if (onReorder) win.removeListener('native-reorder', onReorder); if (!win.isDestroyed()) win.unhookWindowMessage(message); };
+      }
       let stopped = false, pending = null, hook = 0, proc = null;
       if (onReorder) {
         // Cross-thread activation can restack the scaler *after* its broadcast.

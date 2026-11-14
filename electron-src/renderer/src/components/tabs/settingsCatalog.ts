@@ -27,9 +27,9 @@ export const SETTINGS_LOCATION_LABELS: Record<SettingsCatalogOwner, string> = {
 };
 
 export const SETTINGS_CATALOG_I18N_KEYS: Record<string, string> = {
+  "desktop-notifications": "desktopNotifications",
   "desktop-appearance-startup": "desktopAppearance",
   "desktop-tabs-and-stats": "desktopTabs",
-  "desktop-transparency": "desktopTransparency",
   "desktop-updates": "desktopUpdates",
   "desktop-gpu": "desktopGpu",
   "desktop-python": "desktopPython",
@@ -66,6 +66,14 @@ export const SETTINGS_CATALOG_I18N_KEYS: Record<string, string> = {
 };
 
 export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
+  {
+    id: "desktop-notifications",
+    label: "Notifications & sounds",
+    owner: "electron",
+    keywords: ["notification", "notifications", "sound", "sounds", "quiet", "ping", "pause", "resume", "card edited", "note edited", "audio added", "banner", "toast", "volume"],
+    shortDescription: "Choose quiet sounds, silent banners, or no notification for each event.",
+    openAction: OPEN_CURRENT_TAB,
+  },
   {
     id: "desktop-python",
     label: "Python & debug",
@@ -155,25 +163,6 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
     ],
     shortDescription: "Show or hide desktop tabs and choose the default stats page.",
     openAction: OPEN_CURRENT_TAB
-  },
-  {
-    id: "desktop-transparency",
-    label: "Window transparency tool",
-    owner: "electron",
-    keywords: [
-      "transparency",
-      "transparent window",
-      "window opacity",
-      "opacity",
-      "transparency hotkey",
-      "window target",
-      "run transparency on startup",
-      "ctrl alt y",
-      "click through"
-    ],
-    shortDescription: "Configure and run the Windows window-transparency helper.",
-    openAction: OPEN_CURRENT_TAB,
-    notes: "Available on Windows."
   },
   {
     id: "desktop-updates",
@@ -364,7 +353,7 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
   {
     id: "gsm-text-processing",
     label: "Text filtering and replacement",
-    owner: "python",
+    owner: "electron",
     keywords: [
       "text filtering",
       "text processing",
@@ -385,9 +374,8 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
     ],
     shortDescription: "Clean incoming text with filters, regular expressions, and replacement rules.",
     openAction: {
-      ...OPEN_GSM_SETTINGS,
-      rootTabKey: "general",
-      subtabKey: "text_processing"
+      type: "open-text-processing",
+      label: "Open Text Processing"
     },
     notes: "Applied before text is logged or sent to the overlay."
   },
@@ -819,8 +807,6 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "features",
       "optional features",
       "quality of life",
-      "notify on anki update",
-      "anki update notification",
       "longplay",
       "longplay recording",
       "generate longplay",
@@ -953,7 +939,7 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "token furigana backend",
       "dictionary backend"
     ],
-    shortDescription: "Style readings and choose the MeCab, Sudachi, Yomitan, Jiten, or JPDB tokenizer backend.",
+    shortDescription: "Style readings and choose the Sudachi, Yomitan, Jiten, or JPDB tokenizer backend.",
     openAction: OPEN_OVERLAY_SETTINGS,
     notes: "Found under Reading, Stats & Jiten in Overlay Settings."
   },
@@ -1314,6 +1300,8 @@ export async function performSettingsCatalogAction(
       });
     case "open-overlay-settings":
       return await invoke("settings.openOverlaySettings");
+    case "open-text-processing":
+      return await invoke("settings.openTextProcessing");
     default: {
       const neverAction: never = action.type;
       throw new Error(`Unsupported settings action: ${neverAction}`);

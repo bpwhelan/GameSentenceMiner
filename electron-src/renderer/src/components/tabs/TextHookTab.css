@@ -555,7 +555,8 @@
   overflow-wrap: anywhere;
   font: inherit;
 }
-.texthook-desk .texthook-output-copy {
+.texthook-desk .texthook-output-copy,
+.texthook-desk .texthook-output-original {
   flex: 0 0 auto;
   width: 24px;
   min-height: 24px;
@@ -563,7 +564,8 @@
   border: 0;
   color: var(--gsm-text-muted);
 }
-.texthook-desk .texthook-output-copy svg {
+.texthook-desk .texthook-output-copy svg,
+.texthook-desk .texthook-output-original svg {
   width: 14px;
   height: 14px;
 }

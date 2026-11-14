@@ -40,25 +40,10 @@ export interface ChaosHarnessSummary {
     results: ChaosScenarioResult[];
 }
 
+// Dependency faults are tested in the native maintenance workflow now.
 const DEFAULT_CHECKPOINTS = [
-    'update.check_for_updates',
-    'update.close_running_processes',
-    'update.ensure_uv',
-    'update.sync_lockfile',
-    'update.install_package',
-    'update.retry.clean_uv_cache',
-    'update.retry.sync_lockfile',
-    'update.retry.install_package',
-    'update.restart_backend',
-    'startup.check_and_ensure_pip',
-    'startup.check_and_install_uv',
-    'startup.sync_lock_check',
-    'startup.sync_lock_apply',
-    'startup.install_package',
-    'startup.run_gsm',
-    'startup.repair.clean_uv_cache',
-    'startup.repair.sync_lock',
-    'startup.repair.install_package',
+    'update.check_for_updates', 'update.close_running_processes', 'update.restart_backend',
+    'startup.ensure_and_run_enter', 'startup.run_gsm',
 ] as const;
 
 function delay(ms: number): Promise<void> {

@@ -195,6 +195,28 @@ test.each([1, 2])('the mining hint links to GSM Yomitan setup and shows %i selec
 	expect(link.getAttribute('target')).toBe('_blank');
 });
 
+test('each dialogue line has literal newlines for Yomitan sentence parsing', async () => {
+	stores.lineData$.next(stores.lineData$.getValue().map((line) =>
+		line.id === 'b' ? { ...line, translation: 'Translated dialogue' } : line,
+	));
+	keyToggle('c');
+	await settle();
+	expect(row('b').querySelector('.line-translation')?.textContent).toContain('Translated dialogue');
+	expect(document.querySelector('.mining-summary')?.textContent).toContain('to mine 1 line');
+
+	for (const id of ['a', 'b', 'c']) {
+		const dialogue = source(id);
+		const before = document.createRange();
+		before.selectNodeContents(document.body);
+		before.setEndBefore(dialogue);
+		const after = document.createRange();
+		after.selectNodeContents(document.body);
+		after.setStartAfter(dialogue);
+		expect(before.toString()).toMatch(/\n[ \t]*$/);
+		expect(after.toString()).toMatch(/^[ \t]*\n/);
+	}
+});
+
 test('Shift-click selects the anchored range and Escape clears it', async () => {
 	fetcher.mockResolvedValue(response(['a']));
 	keyToggle('a');

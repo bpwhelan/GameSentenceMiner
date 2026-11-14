@@ -3,6 +3,11 @@ name = "gsm_overlay_server"
 version = "0.1.0"
 edition = "2021"
 
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+
 [dependencies]
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "io-util"] }
 tokio-tungstenite = "0.21"

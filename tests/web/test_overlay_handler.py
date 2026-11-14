@@ -17,6 +17,23 @@ def test_magpie_notification_wakes_the_existing_monitor(monkeypatch):
     assert calls == ["refresh"]
 
 
+def test_controller_input_rejects_the_previous_game(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    key, click = AsyncMock(return_value=True), AsyncMock(return_value=True)
+    monitor = SimpleNamespace(target_hwnd=42, send_key_to_target_window=key, send_click_to_target_window=click)
+    monkeypatch.setattr(
+        overlay_handler_module, "get_overlay_processor", lambda: SimpleNamespace(window_monitor=monitor)
+    )
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for expected in [7, "42"]:
+        message = {"expected_target_hwnd": expected, "key": "enter", "targetPid": 99}
+        asyncio.run(handler.handle_send_key_request(message))
+        asyncio.run(handler.handle_send_click_request(message))
+    key.assert_awaited_once_with("enter", target_pid=99, activate_window=True)
+    click.assert_awaited_once_with(target_pid=99, activate_window=True, client_x=8, client_y=8)
+
+
 def test_focus_acknowledgement_reports_completion_and_rejects_a_previous_target(monkeypatch):
     sent, activated, refreshed = [], [], []
 

@@ -1,0 +1,18 @@
+[package]
+name = "gsm-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-only"
+
+[dependencies]
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "net", "macros"] }
+tokio-tungstenite = "0.28"
+futures-util = { version = "0.3", features = ["sink"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }

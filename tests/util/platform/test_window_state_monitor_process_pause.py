@@ -351,6 +351,33 @@ def test_anki_confirmation_close_does_not_release_a_later_manual_pause(confirmat
     assert 4242 in window_state_monitor._suspended_pids
 
 
+def test_game_process_pause_state_tracks_successful_pauses_and_resumes(confirmation_process_pause):
+    _config, _suspended, _resumed = confirmation_process_pause
+    paused, initial_generation = window_state_monitor.get_game_process_pause_state()
+    assert paused is False
+
+    assert window_state_monitor.request_overlay_process_pause("pause", source="manual") is True
+    paused, pause_generation = window_state_monitor.get_game_process_pause_state()
+    assert paused is True
+    assert pause_generation > initial_generation
+
+    assert window_state_monitor.request_overlay_process_pause("resume", source="manual") is True
+    assert window_state_monitor.get_game_process_pause_state() == (False, pause_generation)
+
+    assert window_state_monitor.toggle_active_game_pause() is True
+    paused, next_generation = window_state_monitor.get_game_process_pause_state()
+    assert paused is True
+    assert next_generation > pause_generation
+
+
+def test_failed_game_pause_does_not_change_pause_state(confirmation_process_pause, monkeypatch):
+    before = window_state_monitor.get_game_process_pause_state()
+    monkeypatch.setattr(window_state_monitor, "_suspend_process", lambda _pid: False)
+
+    assert window_state_monitor.request_overlay_process_pause("pause", source="manual") is False
+    assert window_state_monitor.get_game_process_pause_state() == before
+
+
 # ---------------------------------------------------------------------------
 # Linux / POSIX process pausing
 # ---------------------------------------------------------------------------

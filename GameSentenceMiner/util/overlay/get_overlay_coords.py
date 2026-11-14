@@ -8,6 +8,7 @@ import regex
 import threading
 import time
 import uuid
+from GameSentenceMiner.util.overlay import native_runtime
 from PIL import Image
 from datetime import UTC, datetime
 from itertools import count
@@ -59,6 +60,7 @@ from GameSentenceMiner.util.overlay.ocr_retry import AdaptiveOCRRetryState
 from GameSentenceMiner.util.overlay.scan_delay import AdaptiveOverlayScanDelay, OverlayScanTiming
 from GameSentenceMiner.util.platform.window_state_monitor import (
     WindowStateMonitor,
+    get_game_process_pause_state,
     get_window_client_physical_geometry,
     user32,
     set_window_state_monitor,
@@ -83,6 +85,7 @@ SAVE_DEBUG_IMAGES = False
 # Convert images to grayscale for overlay processing
 CONVERT_TO_GRAYSCALE = False
 OCR_ENGINE_INACTIVITY_TIMEOUT_SECONDS = 5 * 60
+PERIODIC_TEXT_QUIET_SECONDS = 8.0
 LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS = 0.35
 OVERLAY_SCAN_MAX_FIRST_SEEN_AGE_SECONDS = 30
 OVERLAY_VISIBLE_TEXT_REGEX = regex.compile(r"\S")
@@ -226,9 +229,20 @@ async def _overlay_loop():
     first_time_run = True
     last_cursor_pos = None
     while True:
+        if native_runtime.enabled():
+            if websocket_manager.has_clients(ID_OVERLAY):
+                await native_runtime.send(overlay_processor)
+            await asyncio.sleep(0.5)
+            continue
         if websocket_manager.has_clients(ID_OVERLAY):
             overlay_cfg = get_config().overlay
             if overlay_cfg.periodic:
+                # Normal text owns the overlay while dialogue is arriving. Wake
+                # at the deadline and recheck: a newer line may have extended it.
+                quiet_delay = overlay_processor.periodic_scan_delay()
+                if quiet_delay > 0:
+                    await asyncio.sleep(quiet_delay)
+                    continue
                 # Mouse-move gating: only scan when the cursor moved AND is over the visible game window.
                 if overlay_cfg.scan_on_mouse_move:
                     cursor_pos = _get_cursor_pos()
@@ -870,12 +884,38 @@ class OverlayProcessor:
         try:
             # This task starts only after the coordinate payload has been sent.
             await asyncio.sleep(0)
-            reference_frame, reference_geometry, pixel_payload = self._capture_last_sent_presence_frame(overlay_data)
-            candidate = prepare_presence_candidate(
-                reference_frame,
-                pixel_payload,
-                presence_id=presence_id,
-            )
+            while generation == self._last_sent_presence_generation:
+                overlay_config = get_overlay_config()
+                if not overlay_config.last_sent_ocr_presence_check or not websocket_manager.has_clients(ID_OVERLAY):
+                    return
+                paused, pause_generation = get_game_process_pause_state()
+                if paused:
+                    await asyncio.sleep(LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS)
+                    continue
+                try:
+                    reference_frame, reference_geometry, pixel_payload = self._capture_last_sent_presence_frame(
+                        overlay_data
+                    )
+                except Exception:
+                    if get_game_process_pause_state() == (False, pause_generation):
+                        raise
+                    await asyncio.sleep(LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS)
+                    continue
+                if get_game_process_pause_state() != (False, pause_generation):
+                    await asyncio.sleep(LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS)
+                    continue
+                candidate = prepare_presence_candidate(
+                    reference_frame,
+                    pixel_payload,
+                    presence_id=presence_id,
+                )
+                if get_game_process_pause_state() != (False, pause_generation):
+                    # A pause can begin during capture, even if it has already ended.
+                    await asyncio.sleep(LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS)
+                    continue
+                break
+            else:
+                return
             if candidate is None:
                 return
             tracker.activate(candidate)
@@ -892,13 +932,29 @@ class OverlayProcessor:
                 overlay_config = get_overlay_config()
                 if not overlay_config.last_sent_ocr_presence_check or not websocket_manager.has_clients(ID_OVERLAY):
                     return
+                paused, current_pause_generation = get_game_process_pause_state()
+                if current_pause_generation != pause_generation:
+                    # Do not count misses from opposite sides of a pause together.
+                    if not invalidated:
+                        tracker.activate(candidate)
+                    pause_generation = current_pause_generation
+                if paused:
+                    continue
                 try:
                     current_frame, current_geometry, _ = self._capture_last_sent_presence_frame(overlay_data)
                 except Exception as error:
+                    if get_game_process_pause_state() != (False, pause_generation):
+                        if not invalidated:
+                            tracker.activate(candidate)
+                        continue
                     logger.debug(f"Last-sent overlay presence capture failed: {error}")
                     capture_failures += 1
                     if capture_failures >= 3:
                         return
+                    continue
+                if get_game_process_pause_state() != (False, pause_generation):
+                    if not invalidated:
+                        tracker.activate(candidate)
                     continue
                 capture_failures = 0
                 if current_geometry != reference_geometry:
@@ -906,6 +962,10 @@ class OverlayProcessor:
                     # and arm a monitor using the new capture geometry.
                     return
                 invalidation = tracker.observe(current_frame, enabled=True)
+                if get_game_process_pause_state() != (False, pause_generation):
+                    if not invalidated:
+                        tracker.activate(candidate)
+                    continue
                 if invalidation is None:
                     if not invalidated:
                         continue
@@ -923,6 +983,9 @@ class OverlayProcessor:
                     await asyncio.sleep(0)
                     if generation != self._last_sent_presence_generation:
                         return
+                    if get_game_process_pause_state() != (False, pause_generation):
+                        tracker.activate(candidate)
+                        continue
                     replacement_candidate = (
                         prepare_presence_candidate(
                             current_frame, {"line_coords": rescanned_lines}, presence_id=presence_id
@@ -944,6 +1007,9 @@ class OverlayProcessor:
                             off_y,
                         )
                         self._normalize_overlay_data_fullwidth(updated_data)
+                        if get_game_process_pause_state() != (False, pause_generation):
+                            tracker.activate(candidate)
+                            continue
                         overlay_payload = {**overlay_payload, "data": updated_data}
                         # Cache source-space geometry so window reprocessing
                         # cannot restore the text's old position later.
@@ -968,6 +1034,9 @@ class OverlayProcessor:
                             "Last-sent overlay text {} confirmed by secondary OCR; refreshed coordinates.", presence_id
                         )
                         continue
+                    if get_game_process_pause_state() != (False, pause_generation):
+                        tracker.activate(candidate)
+                        continue
                     logger.info(
                         "Last-sent overlay text {} disappeared (similarity {:.3f}).",
                         presence_id,
@@ -986,6 +1055,8 @@ class OverlayProcessor:
                     continue
 
                 similarity = candidate.similarity(current_frame)
+                if get_game_process_pause_state() != (False, pause_generation):
+                    continue
                 if similarity is None or similarity < tracker.similarity_threshold:
                     continue
                 logger.info(
@@ -1585,6 +1656,9 @@ class OverlayProcessor:
 
     async def set_skip_scan_state(self, active: bool) -> None:
         self._skip_scan_suspended = active
+        if native_runtime.enabled():
+            await native_runtime.send(self, "pause", paused=active)
+            return
         self._cancel_last_sent_presence_monitor()
         if self.current_task and not self.current_task.done():
             self.current_task.cancel()
@@ -1625,6 +1699,9 @@ class OverlayProcessor:
         )
 
     async def recover_after_skip(self, *, sequence: int) -> None:
+        if native_runtime.enabled():
+            await native_runtime.send(self, "scan", retries=5, recovery=True)
+            return
         task = asyncio.current_task()
         self._skip_recovery_task = task
         try:
@@ -1633,6 +1710,12 @@ class OverlayProcessor:
         finally:
             if getattr(self, "_skip_recovery_task", None) is task:
                 self._skip_recovery_task = None
+
+    def note_text_event(self) -> None:
+        self._periodic_resume_at = time.monotonic() + PERIODIC_TEXT_QUIET_SECONDS
+
+    def periodic_scan_delay(self) -> float:
+        return max(0.0, getattr(self, "_periodic_resume_at", 0.0) - time.monotonic())
 
     async def find_box_and_send_to_overlay(
         self,
@@ -1645,6 +1728,21 @@ class OverlayProcessor:
         source: TextSource = None,
     ):
         """Sends the detected text boxes to the overlay via WebSocket."""
+        if native_runtime.enabled():
+            native_source = getattr(line, "source", None) or source
+            native_source = getattr(native_source, "value", native_source)
+            await native_runtime.send(
+                self,
+                "scan",
+                line_id=str(line.id) if line else None,
+                text=getattr(line, "text", None),
+                precomputed=dict_from_ocr,
+                retries=local_ocr_retry,
+                manual=self._is_manual_overlay_source(native_source),
+                source=native_source,
+                source_instance=getattr(line, "source_instance", None),
+            )
+            return
         if getattr(self, "_skip_scan_suspended", False) and not OverlayProcessor._is_manual_overlay_source(source):
             return
         if line is None and source is None and getattr(self, "_skip_recovery_task", None) is not None:
@@ -1654,6 +1752,14 @@ class OverlayProcessor:
             return
         if sequence is not None and sequence != self._current_sequence:
             logger.debug(f"Skipping outdated overlay request (sequence {sequence}, current {self._current_sequence})")
+            return
+
+        if line is not None:
+            self.note_text_event()
+        elif source is None and self.periodic_scan_delay() > 0:
+            # Also guard the entrypoint so a timer cannot cancel a text scan
+            # that arrived just before this coroutine started. Manual scans pass
+            # an explicit source and remain available during the quiet period.
             return
 
         activity_generation = self._mark_ocr_engine_active()
@@ -2181,6 +2287,9 @@ class OverlayProcessor:
         Triggered by the overlay app the instant manual mode activates (before it steals
         focus from the game), so the fresh mss grab captures the game's last frame.
         """
+        if native_runtime.enabled():
+            await native_runtime.send(self, "background", manual=True)
+            return
         if not get_overlay_capture_state(self.window_monitor)["available"]:
             return
         if self._get_manual_background_mode() == OverlayManualBackgroundMode.OFF.value:
@@ -3804,6 +3913,9 @@ class OverlayProcessor:
 
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""
+        if native_runtime.enabled():
+            await native_runtime.send(self, "scan", retries=0)
+            return
         if getattr(self, "_skip_scan_suspended", False) or getattr(self, "_skip_recovery_task", None) is not None:
             return
         if not self.last_raw_results or not self.last_raw_source:
@@ -4436,7 +4548,10 @@ async def init_overlay_processor():
         logger.background("Overlay processor ready")
         return
 
-    overlay_processor.init()
+    if native_runtime.enabled():
+        overlay_processor.ready = True
+    else:
+        overlay_processor.init()
     _configure_overlay_processor_for_loop(asyncio.get_running_loop())
     _start_overlay_background_tasks()
     logger.background("Overlay processor ready")

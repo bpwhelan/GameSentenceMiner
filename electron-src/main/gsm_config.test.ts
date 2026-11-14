@@ -6,10 +6,28 @@ import {
     DEFAULT_GSM_SINGLE_PORT,
     getConfiguredSinglePort,
     getConfiguredTargetLanguage,
+    getLegacyNotificationFeatures,
     resolveSinglePortFromConfigData,
 } from './gsm_config.js';
 
 const tempDirs: string[] = [];
+
+describe('notification profile switches', () => {
+    it('reads the active profile for the one-time notification migration', () => {
+        const configPath = writeTempConfig({ current_profile: 'Game', configs: {
+            Default: { features: { notify_on_update: true } }, Game: { features: { notify_on_update: false } },
+        } });
+        expect(getLegacyNotificationFeatures(configPath)).toEqual({ notify_on_update: false });
+        fs.writeFileSync(configPath, JSON.stringify({ features: { notify_on_audio_generated: false } }));
+        expect(getLegacyNotificationFeatures(configPath)).toEqual({ notify_on_audio_generated: false });
+    });
+    it('handles missing and malformed legacy configurations', () => {
+        const configPath = writeTempConfig({ configs: { Default: { features: [] } } });
+        expect(getLegacyNotificationFeatures(configPath)).toEqual({});
+        fs.writeFileSync(configPath, '{');
+        expect(getLegacyNotificationFeatures(configPath)).toEqual({});
+    });
+});
 
 afterEach(() => {
     for (const dir of tempDirs.splice(0)) {

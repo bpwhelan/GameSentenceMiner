@@ -160,6 +160,19 @@ export function getConfiguredTargetLanguage(
     return 'ja';
 }
 
+/** Read obsolete profile switches for the one-time desktop settings migration. */
+export function getLegacyNotificationFeatures(
+    configPath = path.join(DEFAULT_GSM_BASE_DIR, 'config.json')
+): Record<string, unknown> {
+    try {
+        const config: unknown = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
+        const profile = isJsonObject(config) ? getProfileData(config) : null;
+        return profile && isJsonObject(profile.features) ? profile.features : {};
+    } catch {
+        return {};
+    }
+}
+
 /** Build a URL to the local Python backend (single-port mode). */
 export function gsmBackendUrl(routePath: string): string {
     return `http://localhost:${getConfiguredSinglePort()}${routePath}`;

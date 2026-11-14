@@ -18,35 +18,16 @@ function injectCsp(html) {
   return html.replace(headMatch[0], `${headMatch[0]}\n    ${htmlCspMeta}`);
 }
 
-async function copyDirectory(source, target) {
-  await fs.mkdir(target, { recursive: true });
-  const entries = await fs.readdir(source, { withFileTypes: true });
-
-  await Promise.all(
-    entries.map(async (entry) => {
-      const sourcePath = path.join(source, entry.name);
-      const targetPath = path.join(target, entry.name);
-
-      if (entry.isDirectory()) {
-        await copyDirectory(sourcePath, targetPath);
-        return;
-      }
-
-      if (path.extname(entry.name).toLowerCase() === ".html") {
-        const html = await fs.readFile(sourcePath, "utf-8");
-        const withCsp = injectCsp(html);
-        await fs.writeFile(targetPath, withCsp, "utf-8");
-        return;
-      }
-
-      await fs.copyFile(sourcePath, targetPath);
-    })
-  );
-}
-
 async function main() {
   await fs.rm(targetDir, { recursive: true, force: true });
-  await copyDirectory(sourceDir, targetDir);
+  // Only this remaining legacy editor is opened by the React renderer. Main
+  // process windows use assets/ directly; copying those resources here embeds
+  // native hooks, release videos and a second set of icons in every build.
+  await fs.mkdir(targetDir, { recursive: true });
+  for (const name of ['ocr_replacements.html', 'style.css', 'shared.js']) {
+    const content = await fs.readFile(path.join(sourceDir, name), 'utf8');
+    await fs.writeFile(path.join(targetDir, name), name.endsWith('.html') ? injectCsp(content) : content);
+  }
 }
 
 main().catch((error) => {

@@ -1,4 +1,5 @@
 import { activeGame } from './active_game.js';
+import { attachHomeDictionary, homeReaderSession, preserveHomePreferences } from './services/reader_dictionary.js';
 import { gamePrivilegeMonitor } from './services/game_privileges.js';
 import { refreshGamePrivilegeCapture, startGamePrivilegeChecks, stopGamePrivilegeChecks } from './services/game_privileges_runtime.js';
 import { getActiveCapture } from './ui/texthook.js';
@@ -15,6 +16,7 @@ import {
     Tray,
 } from 'electron';
 import {
+    configureNotificationDelivery,
     sendAgentRestartNotification,
     sendGSMCrashNotification,
     sendGSMReadyNotification,
@@ -23,11 +25,10 @@ import {
     sendNotificationFromPython,
 } from './notifications.js';
 import * as path from 'path';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { NativePythonProcess } from './runtime/native_python.js';
 import {
     getOrInstallPython,
     hasManagedPythonInstall,
-    reinstallPython,
 } from './python/python_downloader.js';
 import {
     APP_NAME,
@@ -38,8 +39,6 @@ import {
     getResourcesDir,
     resolvePreReleaseBranch,
     getSecureWebPreferences,
-    getSanitizedPythonEnv,
-    getWindowsNamedPythonExecutable,
     isConnected,
     isDev,
     isWindows,
@@ -60,6 +59,7 @@ import { fileURLToPath } from 'node:url';
 import log from 'electron-log/main.js';
 import { recordProcessOutput } from './services/logging.js';
 import {
+    getNotificationPreferences,
     getAutoUpdateGSMApp,
     getPullPreReleases,
     getPreReleaseMetadataAutoEnableApplied,
@@ -67,7 +67,6 @@ import {
     getPythonExtras,
     getQuitOnWindowClose,
     getRunOverlayOnStartup,
-    getRunWindowTransparencyToolOnStartup,
     getStartConsoleMinimized,
     getElectronAppVersion,
     getHasCompletedSetup,
@@ -81,16 +80,15 @@ import {
     clearPendingDesktopChangelog,
     hasSeenDesktopChangelog,
     markDesktopChangelogSeen,
-    setPythonExtras,
     setPullPreReleases,
     setPreReleaseMetadataAutoEnableApplied,
 } from './store.js';
 import { getSeasonalEvent, resolveSeasonalIconStyle } from '../shared/seasonal.js';
+import { playNotificationSound } from './services/notification_sound.js';
 import { launchSteamGameID } from './ui/steam.js';
 import { bus, getBroker, getBusConnectInfo, startBus, stopBus } from './runtime/bus_client.js';
 import { AGENT_RESTART_ARG, agentRelaunchArgs, startAgentControl } from './services/agent_control.js';
 import { getProcessManager, setLaunchBlockedCheck, stopManagedProcesses } from './runtime/process_supervisor.js';
-import { terminateProcessTree, waitForProcessExit } from './runtime/process_tree.js';
 import { getWindowsSystemExecutable } from './runtime/windows_tools.js';
 import { submitTextObservation } from './runtime/text_ingress.js';
 import {
@@ -102,15 +100,9 @@ import {
     ensureObsInstalledAndLaunch,
     isObsRuntimeUpdateInProgress,
     waitForObsRuntimeUpdate,
-    getCurrentOBSSceneCollectionName,
-    getCurrentScene,
-    getOBSScenesForSceneSwitcher,
     isOBSConnected,
     launchOBSFromElectron,
     setOBSScene,
-    setOBSSceneByUuid,
-    shouldRetryElectronManagedOBSLaunch,
-    suggestWindowSceneSwitcherRule,
     syncProcessPausingTargetForCurrentScene,
 } from './ui/obs.js';
 import {
@@ -123,24 +115,19 @@ import type {
     ForegroundWindowSnapshot,
     WindowSceneSwitcherHookStatus,
 } from '../shared/window_scene_switcher.js';
-import {
-    runWindowTransparencyTool,
-    stopWindowTransparencyTool,
-    window_transparency_process,
-} from './ui/settings.js';
-import { startOCR, startManualOCR, stopOCR, getOCRRuntimeState } from './ui/ocr.js';
+import { startOCR, startManualOCR, stopOCR, getOCRRuntimeState, waitForOCRShutdown } from './ui/ocr.js';
 import * as fs from 'node:fs';
 import {
-    runOverlay,
+    setOverlayEnabled,
     runOverlayWithSource,
     stopOverlay,
     waitForOverlayShutdown,
 } from './ui/front.js';
+import { configureInProcessOverlayHost } from './overlay_runtime.js';
 import { execFile } from 'node:child_process';
 import { autoLauncher } from './auto_launcher.js';
 import { registerMainIPC } from './services/main_ipc.js';
 import { installSessionManager } from './services/install_session_state.js';
-import { recordLatestTextProcessingInput } from './services/latest_text.js';
 import { UpdateManager } from './services/update_manager.js';
 import { syncStartupBackend } from './services/startup_backend_update.js';
 import { markStartup } from './services/startup_timing.js';
@@ -166,34 +153,20 @@ import {
     type TrayVisualState,
 } from './tray_icons.js';
 import {
-    checkAndInstallPython311,
     checkAndInstallUV,
-    checkAndEnsurePip,
-    cleanUvCache,
-    getBundledBackendSpecifier,
     getBundledBackendVersion,
     getInstalledPackageVersion,
     getProjectPath,
     getVenvDirFromPythonPath,
-    installPackageNoDeps,
-    isBackendVersionCompatible,
     isPackageInstalled,
-    resolveRequestedExtras,
-    syncLockedEnvironment,
 } from './services/python_ops.js';
 import { BackendProcessError } from './services/managed_python_repair.js';
-import { runBackendWithCrashRecovery } from './services/backend_recovery.js';
-import {
-    getDevPyprojectSyncState,
-    type DevPyprojectSyncState,
-} from './services/dev_environment_sync.js';
 import type {
     InstallProgressKind,
     InstallSessionOrigin,
     InstallStageId,
 } from '../shared/install_session.js';
-import { INSTALL_STAGE_IDS } from '../shared/install_session.js';
-import { requiresBackendStartupPreparation } from './services/backend_version.js';
+import { pythonCall } from './runtime/native_python_install.js';
 
 export class FeatureFlags {
     /**
@@ -326,11 +299,11 @@ app.on('child-process-gone', (event, details) => {
 
 export let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-export let pyProc: ChildProcessWithoutNullStreams;
+export let pyProc: NativePythonProcess;
 export let isQuitting = false;
 let restartingGSM: boolean = false;
 let gsmStopPromise: Promise<void> | null = null;
-const intentionalBackendStops = new WeakSet<ChildProcessWithoutNullStreams>();
+const intentionalBackendStops = new WeakSet<NativePythonProcess>();
 let reopenSettingsAfterBackendRestart: boolean = false;
 let pythonPath: string;
 const originalLog = console.log;
@@ -358,8 +331,6 @@ let quitCleanupComplete = false;
 const UPDATE_PROGRESS_PREFIX = 'UpdateProgress:';
 const TRAY_READY_INDICATOR_MS = 10_000;
 const BACKEND_STATUS_POLL_MS = 2_000;
-const SIMULATED_STARTUP_FAILURE_MESSAGE = 'Simulated failure before starting GSM';
-let simulatedStartupFailureTriggered = false;
 let terminalLogSendDepth = 0;
 
 function canSendToMainWindow(): boolean {
@@ -388,10 +359,6 @@ function safeSendToMainWindow(channel: string, payload: unknown): boolean {
         return false;
     }
 }
-
-installSessionManager.setSnapshotListener((channel, snapshot) => {
-    safeSendToMainWindow(channel, snapshot);
-});
 
 let desktopChangelogManager: DesktopChangelogManager;
 
@@ -490,79 +457,6 @@ function finishInstallSession(
     if (snapshot?.origin === 'startup' && status === 'completed') {
         markStartupInstallComplete(message || 'startup install session completed');
     }
-}
-
-function isInstallStageId(value: unknown): value is InstallStageId {
-    return typeof value === 'string' && INSTALL_STAGE_IDS.includes(value as InstallStageId);
-}
-
-function isInstallProgressKind(value: unknown): value is InstallProgressKind {
-    return value === 'bytes' || value === 'estimated' || value === 'indeterminate';
-}
-
-function handleBackendInstallProgressMessage(data: Record<string, unknown> | undefined): void {
-    if (!data) {
-        return;
-    }
-    const stageId = data.stage_id;
-    if (!isInstallStageId(stageId)) {
-        return;
-    }
-    const status =
-        data.status === 'pending' ||
-        data.status === 'running' ||
-        data.status === 'completed' ||
-        data.status === 'skipped' ||
-        data.status === 'failed'
-            ? data.status
-            : undefined;
-
-    // The OBS launch retry is independent of any install session: the backend
-    // reports OBS is ready whether or not a startup install session is active
-    // (a session only exists when Python itself still needs installing). If OBS
-    // was downloaded fresh while Python was already installed, there is no active
-    // session, so this must run before the session guard below — otherwise the
-    // download completes but the managed launch never fires.
-    if (
-        stageId === 'obs' &&
-        (status === 'completed' || status === 'skipped') &&
-        shouldRetryElectronManagedOBSLaunch()
-    ) {
-        void launchOBSFromElectron({ reason: `backend obs ${status}` }).catch((launchError) => {
-            console.warn('Failed to launch OBS after backend dependency check:', launchError);
-        });
-    }
-
-    const activeSession = installSessionManager.getActiveSnapshot();
-    if (!activeSession) {
-        return;
-    }
-    const sessionId = typeof data.session_id === 'string' ? data.session_id : '';
-    if (sessionId && sessionId !== activeSession.id) {
-        return;
-    }
-    const progressKind = isInstallProgressKind(data.progress_kind)
-        ? data.progress_kind
-        : undefined;
-    const progress =
-        typeof data.progress === 'number' && Number.isFinite(data.progress)
-            ? data.progress
-            : null;
-    const message = typeof data.message === 'string' ? data.message : undefined;
-    const downloadedBytes =
-        typeof data.downloaded_bytes === 'number' && Number.isFinite(data.downloaded_bytes)
-            ? data.downloaded_bytes
-            : null;
-    const totalBytes =
-        typeof data.total_bytes === 'number' && Number.isFinite(data.total_bytes)
-            ? data.total_bytes
-            : null;
-    const error = typeof data.error === 'string' ? data.error : null;
-    updateInstallStage(stageId, status, progressKind, progress, message, {
-        downloadedBytes,
-        totalBytes,
-        error,
-    });
 }
 
 function formatBackendExitCode(code: number | null): string {
@@ -757,7 +651,7 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
         source: payload.source ?? 'system',
     };
 
-    if (normalized.channel !== 'background' || normalized.level === 'ERROR' || normalized.level === 'WARNING') {
+    if (normalized.source !== 'python' && (normalized.channel !== 'background' || normalized.level === 'ERROR' || normalized.level === 'WARNING')) {
         installSessionManager.appendLog({
             message,
             level,
@@ -813,7 +707,6 @@ const updateManager = new UpdateManager({
     },
     ensureAndRunGSM: async (pyPath: string) =>
         ensureAndRunGSM(pyPath, 1, { allowDuringUpdate: true, origin: 'backend_update' }),
-    reinstallPython: async () => reinstallPython(),
 });
 
 const devUpdatePreview = new DevUpdatePreview(isDev, () => {
@@ -824,6 +717,8 @@ updateManager.setAppUpdateStatusListener((status) => {
     if (status.downloading) devUpdatePreview.clear();
     safeSendToMainWindow(APP_UPDATE_STATUS_CHANNEL, devUpdatePreview.apply(status));
 });
+
+export function isApplicationUpdateInProgress(): boolean { return updateManager.anyUpdateInProgress; }
 
 export function isPythonLaunchBlockedByUpdate(): boolean {
     return updateManager.anyUpdateInProgress || isObsRuntimeUpdateInProgress();
@@ -890,19 +785,8 @@ function showUpdateChangelogPreview(input: {
     );
 }
 
-function getGSMModulePath(): string {
-    return 'GameSentenceMiner.gsm';
-}
-
 function wantsChaosHarnessRun(): boolean {
     return process.argv.includes('--dev-chaos-update');
-}
-
-function shouldSimulateStartupFailureOnce(): boolean {
-    return (
-        process.env.GSM_SIMULATE_STARTUP_FAILURE_ONCE === '1' ||
-        process.argv.includes('--simulate-startup-failure-once')
-    );
 }
 
 let useRareIcon: boolean = Math.random() < .01;
@@ -1123,7 +1007,7 @@ function maybeNotifyAgentRestartReady(): void {
 }
 
 async function pollBackendStatusOnce(): Promise<void> {
-    if (backendStatusReady) {
+    if (backendStatusReady && backendInitialized) {
         clearBackendStatusPollTimer();
         return;
     }
@@ -1137,9 +1021,17 @@ async function pollBackendStatusOnce(): Promise<void> {
         if (!response.ok) {
             return;
         }
-        backendStatusReady = true;
-        markStartup('backend HTTP available');
-        clearBackendStatusPollTimer();
+        const status = await response.json() as {ready?:boolean};
+        if (!backendStatusReady) {
+            backendStatusReady = true;
+            markStartup('backend HTTP available');
+        }
+        // Startup can finish before the authenticated bus connects. Recover
+        // its dropped one-shot announcement from the backend's durable state.
+        if (!backendInitialized && status.ready === true && bus.isConnected('backend')) {
+            handleBackendMessage({function:'initialized',data:{status:'ready'}});
+        }
+        if (backendInitialized) clearBackendStatusPollTimer();
         maybeActivateReadyTrayIndicator();
         refreshTrayPresentation();
         syncProcessPausingTargetForCurrentScene(true);
@@ -1230,149 +1122,6 @@ function refreshTrayPresentation(): void {
 function setTextIntakePausedState(paused: boolean): void {
     textIntakePaused = paused;
     refreshTrayPresentation();
-}
-
-interface ManagedGSMProcessState {
-    pid: number;
-    command: string;
-    args: string[];
-}
-
-const GSM_PROCESS_STATE_FILE = path.join(BASE_DIR, 'electron', 'gsm_managed_process.json');
-
-function writeManagedGSMProcessState(command: string, args: string[], pid: number | undefined): void {
-    if (!pid || !Number.isInteger(pid) || pid <= 0) {
-        return;
-    }
-    try {
-        fs.mkdirSync(path.dirname(GSM_PROCESS_STATE_FILE), { recursive: true });
-        const state: ManagedGSMProcessState = { pid, command, args };
-        fs.writeFileSync(GSM_PROCESS_STATE_FILE, JSON.stringify(state), 'utf8');
-    } catch {
-        // Best-effort tracking only; never block startup/launch.
-    }
-}
-
-function readManagedGSMProcessState(): ManagedGSMProcessState | null {
-    try {
-        if (!fs.existsSync(GSM_PROCESS_STATE_FILE)) {
-            return null;
-        }
-        const raw = fs.readFileSync(GSM_PROCESS_STATE_FILE, 'utf8');
-        const parsed = JSON.parse(raw) as Partial<ManagedGSMProcessState>;
-        const pid = typeof parsed?.pid === 'number' ? parsed.pid : NaN;
-        if (
-            !parsed ||
-            !Number.isInteger(pid) ||
-            pid <= 0 ||
-            typeof parsed.command !== 'string' ||
-            !Array.isArray(parsed.args)
-        ) {
-            return null;
-        }
-        return {
-            pid,
-            command: parsed.command,
-            args: parsed.args.map((arg) => String(arg)),
-        };
-    } catch {
-        return null;
-    }
-}
-
-function clearManagedGSMProcessState(): void {
-    try {
-        if (fs.existsSync(GSM_PROCESS_STATE_FILE)) {
-            fs.unlinkSync(GSM_PROCESS_STATE_FILE);
-        }
-    } catch {
-        // Best-effort cleanup only.
-    }
-}
-
-function looksLikeManagedGSMCommand(commandLine: string, state: ManagedGSMProcessState): boolean {
-    const normalized = commandLine.toLowerCase();
-    const expectedExeName = path.basename(state.command).toLowerCase();
-    const moduleToken = getGSMModulePath().toLowerCase();
-    if (!normalized.includes(moduleToken)) {
-        return false;
-    }
-    if (expectedExeName && !normalized.includes(expectedExeName)) {
-        return false;
-    }
-    // Keep matching conservative; require the same argument tokens we launched with.
-    for (const arg of state.args) {
-        const token = arg.toLowerCase();
-        if (!normalized.includes(token)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-async function getProcessCommandLine(pid: number): Promise<string | null> {
-    if (isWindows()) {
-        const psScript = [
-            `$p = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object CommandLine`,
-            `if ($null -ne $p) { $p | ConvertTo-Json -Compress }`,
-        ].join('; ');
-        const { stdout } = await execFileAsync('powershell.exe', [
-            '-NoProfile',
-            '-NonInteractive',
-            '-Command',
-            psScript,
-        ]);
-        const raw = stdout.trim();
-        if (!raw) {
-            return null;
-        }
-        const parsed = JSON.parse(raw) as { CommandLine?: string } | Array<{ CommandLine?: string }>;
-        const item = Array.isArray(parsed) ? parsed[0] : parsed;
-        return typeof item?.CommandLine === 'string' ? item.CommandLine : null;
-    }
-
-    try {
-        const { stdout } = await execFileAsync('ps', ['-p', String(pid), '-o', 'command=']);
-        const commandLine = stdout.trim();
-        return commandLine.length > 0 ? commandLine : null;
-    } catch (err: any) {
-        if (err?.code === 1) {
-            return null;
-        }
-        throw err;
-    }
-}
-
-async function cleanupStaleManagedGSMProcess(): Promise<void> {
-    const state = readManagedGSMProcessState();
-    if (!state) {
-        return;
-    }
-
-    let clearStateFile = true;
-    try {
-        if (pyProc && pyProc.pid === state.pid && !pyProc.killed) {
-            clearStateFile = false;
-            return;
-        }
-
-        const commandLine = await getProcessCommandLine(state.pid);
-        if (!commandLine || !looksLikeManagedGSMCommand(commandLine, state)) {
-            return;
-        }
-
-        if (isWindows()) {
-            await execFileAsync(getWindowsSystemExecutable('taskkill.exe'), ['/PID', String(state.pid), '/T', '/F']);
-        } else {
-            await execFileAsync('kill', ['-9', String(state.pid)]);
-        }
-    } catch {
-        // Silent best-effort cleanup.
-    } finally {
-        if (clearStateFile) {
-            clearManagedGSMProcessState();
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1471,30 +1220,6 @@ function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'active_game_state') {
         activeGame.update(msg.data);
     }
-    if (msg.function === 'windows_speech_status') {
-        safeSendToMainWindow('speech-recognition.status', msg.data ?? {});
-    }
-    if (msg.function === 'windows_speech_log') {
-        safeSendToMainWindow('speech-recognition.log', msg.data ?? {});
-    }
-    if ((msg.function === 'foreground_window_changed' || msg.function === 'emulator_window_changed') && msg.data) {
-        const snapshot = msg.data as Partial<ForegroundWindowSnapshot>;
-        if (
-            typeof snapshot.hwnd === 'string' &&
-            typeof snapshot.pid === 'number' &&
-            typeof snapshot.title === 'string' &&
-            typeof snapshot.capturedAt === 'number' &&
-            typeof snapshot.sequence === 'number'
-        ) {
-            if (msg.function === 'emulator_window_changed') {
-                autoLauncher.handleEmulatorWindowChanged(snapshot as ForegroundWindowSnapshot);
-            } else {
-                handleForegroundWindowSnapshot(snapshot as ForegroundWindowSnapshot);
-                autoLauncher.handleForegroundWindowChanged(snapshot as ForegroundWindowSnapshot);
-                gamePrivilegeMonitor.handleForeground(snapshot as ForegroundWindowSnapshot);
-            }
-        }
-    }
     if (msg.function === 'foreground_window_hook_status') {
         const allowedStatuses = new Set<WindowSceneSwitcherHookStatus>([
             'unsupported',
@@ -1529,17 +1254,8 @@ function handleBackendMessage(msg: BackendMessage): void {
     if (msg.function === 'text_intake_state') {
         setTextIntakePausedState(Boolean(msg.data?.paused));
     }
-    if (msg.function === 'text_received') {
-        const latestText = recordLatestTextProcessingInput(msg.data);
-        if (latestText) {
-            safeSendToMainWindow('textprocess-latest-text', latestText);
-        }
-    }
     if (msg.function === 'on_connect') {
         markPythonIPCConnected();
-    }
-    if (msg.function === 'install_progress') {
-        handleBackendInstallProgressMessage(msg.data);
     }
     if (msg.function === 'start_obs') {
         // The backend asks us to launch OBS once its runtime is in place.
@@ -1556,15 +1272,6 @@ function handleBackendMessage(msg: BackendMessage): void {
         backendInitialized = true;
         markPythonIPCConnected();
         maybeNotifyAgentRestartReady();
-        updateInstallStage('backend_boot', 'completed', 'estimated', 1, 'GSM backend is running.');
-        const activeInstallSession = installSessionManager.getActiveSnapshot();
-        if (activeInstallSession) {
-            const finalizeStage = activeInstallSession.stages.find((stage) => stage.id === 'finalize');
-            if (finalizeStage && finalizeStage.status === 'pending') {
-                updateInstallStage('finalize', 'completed', 'estimated', 1, 'Setup complete.');
-            }
-            finishInstallSession('completed', 'Setup complete.');
-        }
         safeSendToMainWindow('gsm-initialized', msg.data ?? {});
         updateTrayMenu();
         refreshTrayPresentation();
@@ -1596,7 +1303,7 @@ function handleBackendMessage(msg: BackendMessage): void {
 }
 
 /** Forward the backend child's stdout/stderr to the renderer terminal as logs. */
-function attachBackendLogForwarding(proc: ChildProcessWithoutNullStreams): void {
+function attachBackendLogForwarding(proc: NativePythonProcess): void {
     let stdoutBuffer = '';
     proc.stdout.on('data', (data: Buffer) => {
         recordProcessOutput('backend', 'stdout', data.toString());
@@ -1654,7 +1361,7 @@ function initializeAgentControl(): void {
                 return null;
             },
             notify: sendAgentRestartNotification,
-            restart: (requestId) => quit(agentRelaunchArgs(process.argv.slice(1), requestId)),
+            restart: (requestId) => quit(agentRelaunchArgs(process.argv.slice(process.env.GSM_NATIVE_SERVICE ? 2 : 1), requestId)),
         });
     } catch (error) {
         // Agent discovery must not prevent the normal runtime from starting.
@@ -1667,61 +1374,41 @@ function initializeAgentControl(): void {
  * @param command The command to run.
  * @param args The arguments to pass.
  */
-function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<void> {
+function runGSM(command: string, _args: string[], onSpawn?: () => void, preparation: Record<string, unknown> = {}, restart = false): Promise<void> {
     if (isQuitting) {
         onSpawn?.();
         return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
-        const activeInstallSessionId = installSessionManager.getActiveSnapshot()?.id ?? '';
-        const taskManagerCommand = getWindowsNamedPythonExecutable(command, APP_NAME);
-        const busConnectInfo = getBusConnectInfo();
-        const proc = spawn(taskManagerCommand, args, {
-            detached: !isWindows(),
-            env: {
-                ...getSanitizedPythonEnv(),
-                GSM_ELECTRON: '1',
-                GSM_DATA_DIR: BASE_DIR,
-                GSM_NATIVE_HELPER_ROOT: path.join(getResourcesDir(), 'native'),
-                GSM_INSTALL_SESSION_ID: activeInstallSessionId,
-                ...(busConnectInfo
-                    ? {
-                        GSM_BROKER_PORT: String(busConnectInfo.port),
-                        GSM_BROKER_TOKEN: busConnectInfo.token,
-                        GSM_CLIENT_ID: 'backend',
-                    }
-                    : {}),
-            }
-        });
+        const proc = new NativePythonProcess({ pythonPath: command, ...preparation, restart });
 
         pyProc = proc;
-        writeManagedGSMProcessState(taskManagerCommand, args, proc.pid);
         resetStartupTrayState();
         setTextIntakePausedState(false);
         startBackendStatusPolling();
 
         // Backend stdout/stderr are pure logs now — control travels over the bus.
         attachBackendLogForwarding(proc);
-        proc.once('spawn', () => {
+        proc.on('spawn', () => {
+            resetStartupTrayState();
+            startBackendStatusPolling();
             markStartup('backend process spawned');
             onSpawn?.();
+        });
+        proc.on('crash', (event) => {
+            if (event.beforeInitialization) return;
+            console.error(event.restarting ? 'GSM crashed; the native supervisor is restarting it.' : 'GSM keeps crashing; automatic restarts stopped.', event.code);
+            sendGSMCrashNotification(event.restarting);
+            if (event.restarting) { resetStartupTrayState(); setTextIntakePausedState(false); }
         });
 
         proc.on('exit', async (code) => {
             // resetStartupTrayState clears this flag; preserve it before any
             // cleanup so slow initialization failures remain eligible for repair.
-            const beforeInitialization = !backendInitialized;
-            try {
-                // A worker holding an inherited stdout/stderr pipe can prevent
-                // 'close' forever. Reap the owned tree as soon as the parent exits.
-                await terminateProcessTree(proc);
-            } catch (error) {
-                reject(new BackendProcessError('Failed to clean up the exited backend.', beforeInitialization, { cause: error }));
-                return;
-            }
-            const intentionallyStopped = intentionalBackendStops.has(proc);
+            const beforeInitialization = proc.beforeInitialization;
+            // Rust emits exit only after the owned worker tree has been reaped.
+            const intentionallyStopped = intentionalBackendStops.has(proc) || proc.killed;
             if (pyProc === proc) {
-                clearManagedGSMProcessState();
                 resetStartupTrayState();
                 setTextIntakePausedState(false);
             }
@@ -1747,13 +1434,12 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
                     }, 0);
                 }
             } else {
-                reject(new BackendProcessError(`Command failed with exit code ${formatBackendExitCode(code)}`, beforeInitialization));
+                reject(new BackendProcessError(proc.failureMessage || `Command failed with exit code ${formatBackendExitCode(code)}`, beforeInitialization));
             }
         });
 
         proc.on('error', (err) => {
             if (pyProc === proc) {
-                clearManagedGSMProcessState();
                 resetStartupTrayState();
                 setTextIntakePausedState(false);
             }
@@ -1762,7 +1448,7 @@ function runGSM(command: string, args: string[], onSpawn?: () => void): Promise<
     });
 }
 
-async function createWindow() {
+export async function createWindow() {
     const adminSuffix = isRunningAsAdmin() ? ' (Admin)' : '';
     const windowTitle = `${APP_NAME} v${app.getVersion()}${adminSuffix}`;
 
@@ -1781,6 +1467,8 @@ async function createWindow() {
         // Start hidden; show when ready for consistent taskbar icon
         show: false,
         webPreferences: getSecureWebPreferences({
+            session: homeReaderSession(),
+            additionalArguments: ['--gsm-home-reader'],
             nodeIntegrationInSubFrames: true,
             // Let hidden/minimized desktop pages report visibility correctly so
             // previews can stop capturing and Chromium can suspend idle paints.
@@ -1788,6 +1476,10 @@ async function createWindow() {
         }),
         title: windowTitle,
     });
+    await preserveHomePreferences(mainWindow);
+    if (process.env.GSM_NATIVE_SERVICE && process.platform === 'win32' && process.env.GSM_PORTABLE_DICTIONARIES !== '1') {
+        await attachHomeDictionary(mainWindow.webContents);
+    }
     applyMainWindowAppDetails();
     configureYouTubeEmbedHeaders(mainWindow);
 
@@ -1810,40 +1502,20 @@ async function createWindow() {
     });
 
     configureWindowSceneSwitcherRuntime({
-        isOBSConnected,
-        getCurrentCollectionName: getCurrentOBSSceneCollectionName,
-        getScenes: async () => {
-            try {
-                return await getOBSScenesForSceneSwitcher();
-            } catch (error) {
-                console.warn(
-                    '[SceneSwitcher] Skipping rule reconciliation because OBS did not return a scene list:',
-                    error
-                );
-                return null;
-            }
-        },
-        getCurrentScene,
-        switchScene: setOBSSceneByUuid,
-        suggestRule: suggestWindowSceneSwitcherRule,
-        requestForegroundSnapshot: () => {
-            sendBackendCommand('refresh_foreground_window');
-        },
-        restoreForegroundWindow: (hwnd) => {
-            sendBackendCommand('restore_foreground_window', { hwnd });
-        },
         onSceneChanged: () => {
             autoLauncher.handleOBSSceneChanged();
             refreshGamePrivilegeCapture();
         },
     });
 
-    startGamePrivilegeChecks({
-        getMainWindow: () => mainWindow,
-        getCapture: async () => isOBSConnected() ? getActiveCapture() : null,
-        restartAsAdmin: async () => { await restartAsAdmin(); },
-        notifyWarning: (warning, onClick) => sendGamePrivilegeWarningNotification(warning.exeName, onClick),
-    });
+    if (!process.env.GSM_NATIVE_SERVICE) {
+        startGamePrivilegeChecks({
+            getMainWindow: () => mainWindow,
+            getCapture: async () => isOBSConnected() ? getActiveCapture() : null,
+            restartAsAdmin: async () => { await restartAsAdmin(); },
+            notifyWarning: (warning, onClick) => sendGamePrivilegeWarningNotification(warning.exeName, onClick),
+        });
+    }
 
     registerMainIPC({
         getMainWindow: () => mainWindow,
@@ -1873,8 +1545,6 @@ async function createWindow() {
             return updateManager.installAppUpdate(version);
         },
         showUpdateChangelogPreview,
-        getActiveInstallSession: () => installSessionManager.getRendererSnapshot(),
-        retryInstallSession: async () => await installSessionManager.retryLastFailedSession(),
         getPendingDesktopUpdateChangelog: () => desktopChangelogManager.getPendingSnapshot(),
         markDesktopUpdateChangelogSeen: async (toVersion?: string) =>
             desktopChangelogManager.markSeen(toVersion),
@@ -2092,7 +1762,12 @@ function showManualDesktopChangelog(): void {
     });
 }
 
-function createTray() {
+export function createTray() {
+    configureInProcessOverlayHost({
+        requestStop: () => {
+            void setOverlayEnabled(false).catch(error => console.error('Could not turn off overlay:', error));
+        },
+    });
     try {
         const iconPath = getIconPath(true);
 
@@ -2344,6 +2019,7 @@ function updateTrayMenu(): void {
  */
 interface EnsureAndRunOptions {
     allowDuringUpdate?: boolean;
+    restart?: boolean;
     knownInstalledVersion?: string | null;
     origin?: InstallSessionOrigin;
     trackInstallSession?: boolean;
@@ -2381,463 +2057,24 @@ async function ensureAndRunGSM(
         await waitForPythonLaunchReadiness('GSM backend startup');
     }
 
-    // Best-effort cleanup for a stale backend process previously spawned by GSM.
-    await cleanupStaleManagedGSMProcess();
     updateInstallStage('prepare', 'completed', 'estimated', 1, 'Install session prepared.');
     devFaultInjector.maybeFail('startup.ensure_and_run_enter');
 
-    let runtimePythonPath = pythonPath;
-    let installedVersion = options?.knownInstalledVersion;
-    if (installedVersion === undefined) {
-        installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-    }
-    let isInstalled = installedVersion !== null;
-    const bundledVersion = getBundledBackendVersion();
-    const isPreRelease = resolvePreReleaseBranch() !== null;
-    const versionMismatch =
-        installedVersion !== null &&
-        !isPreRelease &&
-        bundledVersion !== null &&
-        !isBackendVersionCompatible(installedVersion, bundledVersion);
-    const requiresStartupPreparation = requiresBackendStartupPreparation(
-        installedVersion,
-        bundledVersion,
-        isPreRelease
-    );
-
-    // Resolve extras up front so the normal launch and launch-repair paths use
-    // the same selection without invoking Python.
-    const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-        getPythonExtras()
-    );
-    if (ignoredExtras.length > 0) {
-        setPythonExtras(selectedExtras);
-        console.warn(
-            `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
-            }.`
-        );
-    }
-
-    let devPyprojectSyncState: DevPyprojectSyncState | null = null;
-    try {
-        devPyprojectSyncState = getDevPyprojectSyncState(
-            getProjectPath(),
-            getVenvDirFromPythonPath(runtimePythonPath),
-            selectedExtras
-        );
-    } catch (error) {
-        console.warn('Could not determine whether the locked Python environment changed:', error);
-    }
-    const shouldSyncChangedDevPyproject = devPyprojectSyncState?.changed === true;
-    const requiresEnvironmentPreparation =
-        requiresStartupPreparation || shouldSyncChangedDevPyproject;
-    const syncOptions = { deferValidation: requiresStartupPreparation };
-
-    if (requiresEnvironmentPreparation) {
-        try {
-            updateInstallStage(
-                'verify_runtime',
-                'running',
-                'estimated',
-                0.2,
-                'Verifying Python runtime and pip tooling...'
-            );
-            devFaultInjector.maybeFail('startup.check_and_ensure_pip');
-            await checkAndEnsurePip(runtimePythonPath);
-            devFaultInjector.maybeFail('startup.check_and_install_uv');
-            await checkAndInstallUV(runtimePythonPath);
-            updateInstallStage(
-                'verify_runtime',
-                'completed',
-                'estimated',
-                1,
-                'Python runtime tooling verified.'
-            );
-        } catch (error) {
-            console.warn(
-                'Python runtime bootstrap failed (pip/uv). Reinitializing python_venv from scratch...',
-                error
-            );
-            updateInstallStage(
-                'verify_runtime',
-                'running',
-                'estimated',
-                0.45,
-                'Python runtime verification failed. Rebuilding managed Python environment...'
-            );
-            await closeAllPythonProcesses();
-            await reinstallPython();
-            runtimePythonPath = await getOrInstallPython();
-            pythonPath = runtimePythonPath;
-            setPythonPath(runtimePythonPath);
-            await checkAndEnsurePip(runtimePythonPath);
-            await checkAndInstallUV(runtimePythonPath);
-            installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-            isInstalled = installedVersion !== null;
-            updateInstallStage(
-                'verify_runtime',
-                'completed',
-                'estimated',
-                1,
-                'Python runtime tooling rebuilt and verified.'
-            );
-        }
-
-        if (shouldSyncChangedDevPyproject && devPyprojectSyncState) {
-            console.log(
-                `Locked Python environment inputs changed; syncing dependencies, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }`
-            );
-            devFaultInjector.maybeFail('startup.sync_lock_apply');
-            updateInstallStage(
-                'lock_sync',
-                'running',
-                'estimated',
-                0.15,
-                'Lockfile, project dependencies, or selected extras changed; syncing...'
-            );
-            await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    event.progress,
-                    event.message
-                );
-            }, syncOptions);
-            updateInstallStage(
-                'lock_sync',
-                'completed',
-                'estimated',
-                1,
-                'Python environment synced after its locked inputs changed.'
-            );
-        } else {
-            // App-version and backend updates still verify the environment and
-            // perform a full lockfile sync only when the check finds drift.
-            try {
-                devFaultInjector.maybeFail('startup.sync_lock_check');
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    0.1,
-                    'Checking whether the Python environment matches the lockfile...'
-                );
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, true, undefined, syncOptions);
-                console.log('Python environment already matches lockfile.');
-                updateInstallStage(
-                    'lock_sync',
-                    'skipped',
-                    'estimated',
-                    1,
-                    'Python environment already matches the lockfile.'
-                );
-            } catch {
-                console.log(
-                    `Syncing Python environment with lockfile, extras: ${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                    }`
-                );
-                devFaultInjector.maybeFail('startup.sync_lock_apply');
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    0.15,
-                    'Syncing Python environment with the bundled lockfile...'
-                );
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                    updateInstallStage(
-                        'lock_sync',
-                        'running',
-                        'estimated',
-                        event.progress,
-                        event.message
-                    );
-                }, syncOptions);
-                updateInstallStage(
-                    'lock_sync',
-                    'completed',
-                    'estimated',
-                    1,
-                    'Python environment synced to the lockfile.'
-                );
-            }
-        }
-    } else {
-        console.log(
-            `Backend ${installedVersion} is compatible; skipping unchanged Python environment checks.`
-        );
-        updateInstallStage(
-            'verify_runtime',
-            'skipped',
-            'indeterminate',
-            1,
-            'Managed Python runtime is already configured.'
-        );
-        updateInstallStage(
-            'lock_sync',
-            'skipped',
-            'indeterminate',
-            1,
-            'Lockfile dependencies are unchanged.'
-        );
-    }
-
-    // The startup updater owns the optional PyPI compatibility decision. Do
-    // not repeat it here: only install when the package is missing or
-    // incompatible, and launch an unchanged backend immediately.
-    if (requiresStartupPreparation) {
-        const packageSpecifier = getBundledBackendSpecifier();
-        if (versionMismatch) {
-            console.log(
-                `${APP_NAME} backend ${installedVersion} is incompatible with bundled ${bundledVersion}. Installing ${packageSpecifier}...`
-            );
-        } else {
-            console.log(`${APP_NAME} is not installed. Installing ${packageSpecifier}...`);
-        }
-        updateInstallStage(
-            'gsm_package',
-            'running',
-            'estimated',
-            0.1,
-            `Installing ${APP_NAME} backend package...`
-        );
-        devFaultInjector.maybeFail('startup.install_package');
-        await installPackageNoDeps(
-            runtimePythonPath,
-            packageSpecifier,
-            !isInstalled || versionMismatch,
-            (event) => {
-                updateInstallStage(
-                    'gsm_package',
-                    'running',
-                    'estimated',
-                    event.progress,
-                    event.message
-                );
-            },
-            selectedExtras
-        );
-        installedVersion = await getInstalledPackageVersion(runtimePythonPath, APP_NAME);
-        console.log(
-            `Backend install complete. Installed version: ${installedVersion ?? 'unknown'}.`
-        );
-        updateInstallStage(
-            'gsm_package',
-            'completed',
-            'estimated',
-            1,
-            `${APP_NAME} backend package is installed.`
-        );
-    } else {
-        updateInstallStage(
-            'gsm_package',
-            'skipped',
-            'estimated',
-            1,
-            `${APP_NAME} backend package is already installed.`
-        );
-    }
-
-    console.log('Starting GameSentenceMiner...');
-    const backendLaunchStartedAt = Date.now();
-    try {
-        const args = ['-m', getGSMModulePath()];
-        if (isDev) {
-            args.push('--dev');
-        }
-        devFaultInjector.maybeFail('startup.run_gsm');
-        updateInstallStage(
-            'backend_boot',
-            'running',
-            'estimated',
-            0.15,
-            'Starting the GSM backend process...'
-        );
-        if (shouldSimulateStartupFailureOnce() && !simulatedStartupFailureTriggered) {
-            simulatedStartupFailureTriggered = true;
-            throw new Error(SIMULATED_STARTUP_FAILURE_MESSAGE);
-        }
-        let supervisedProcess: ChildProcessWithoutNullStreams | null = null;
-        return await runBackendWithCrashRecovery(() => {
-            const lifetime = runGSM(runtimePythonPath, args, options?.onSpawn);
-            supervisedProcess = pyProc;
-            return lifetime;
-        }, {
-            canRestart: () => !isQuitting && !restartingGSM && !updateManager.anyUpdateInProgress
-                && pyProc === supervisedProcess
-                && (!supervisedProcess || !intentionalBackendStops.has(supervisedProcess)),
-            notify: (restarting, error) => {
-                console.error(restarting ? 'GSM crashed; restarting the backend.' : 'GSM keeps crashing; automatic restarts stopped.', error);
-                sendGSMCrashNotification(restarting);
-            },
-        });
-    } catch (err) {
-        if (isQuitting) {
-            return;
-        }
-        if (err instanceof BackendProcessError && !err.beforeInitialization) {
-            // The crash supervisor already attempted ordinary restarts. Runtime
-            // crashes must never trigger package or dependency reinstallation.
-            throw err;
-        }
-        console.error('Failed to start GameSentenceMiner:', err);
-        console.log(`[Startup] Failed to start GameSentenceMiner: ${formatConsoleArg(err)}`);
-        const backendRuntimeMs = Date.now() - backendLaunchStartedAt;
-        const startupFailureDetails = `[Startup] Backend initialization failure: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, pythonPath=${runtimePythonPath}`;
-        console.error(startupFailureDetails);
-        console.log(startupFailureDetails);
-        if (retry > 0) {
-            const repairStartedAt = Date.now();
-            const repairSpecifier = getBundledBackendSpecifier();
-            console.log(
-                `[Startup Repair] Starting repair flow: retryRemaining=${retry}, runtimeMs=${backendRuntimeMs}, specifier=${repairSpecifier}, extras=${selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                }`
-            );
-            try {
-                console.log('[Startup Repair] Step 1/5: Closing running backend-related processes.');
-                await closeAllPythonProcesses();
-
-                console.log('[Startup Repair] Step 2/5: Verifying pip and uv tooling.');
-                devFaultInjector.maybeFail('startup.check_and_ensure_pip');
-                await checkAndEnsurePip(runtimePythonPath);
-                devFaultInjector.maybeFail('startup.check_and_install_uv');
-                await checkAndInstallUV(runtimePythonPath);
-
-                console.log('[Startup Repair] Step 3/5: Cleaning uv cache.');
-                updateInstallStage(
-                    'backend_boot',
-                    'running',
-                    'estimated',
-                    0.25,
-                    'Backend launch failed. Cleaning uv cache before retry...'
-                );
-                devFaultInjector.maybeFail('startup.repair.clean_uv_cache');
-                await cleanUvCache(runtimePythonPath);
-
-                console.log('[Startup Repair] Step 4/5: Re-syncing lockfile dependencies.');
-                devFaultInjector.maybeFail('startup.repair.sync_lock');
-                updateInstallStage(
-                    'lock_sync',
-                    'running',
-                    'estimated',
-                    0.2,
-                    'Re-syncing the lockfile after launch failure...'
-                );
-                await syncLockedEnvironment(runtimePythonPath, selectedExtras, false, (event) => {
-                    updateInstallStage(
-                        'lock_sync',
-                        'running',
-                        'estimated',
-                        event.progress,
-                        event.message
-                    );
-                }, { deferValidation: true, reinstall: true });
-                updateInstallStage(
-                    'lock_sync',
-                    'completed',
-                    'estimated',
-                    1,
-                    'Lockfile dependencies refreshed after launch failure.'
-                );
-
-                console.log('[Startup Repair] Step 5/5: Reinstalling GSM backend package.');
-                devFaultInjector.maybeFail('startup.repair.install_package');
-                updateInstallStage(
-                    'gsm_package',
-                    'running',
-                    'estimated',
-                    0.2,
-                    'Reinstalling the GSM backend package after launch failure...'
-                );
-                await installPackageNoDeps(runtimePythonPath, repairSpecifier, true, (event) => {
-                    updateInstallStage(
-                        'gsm_package',
-                        'running',
-                        'estimated',
-                        event.progress,
-                        event.message
-                    );
-                }, selectedExtras);
-                updateInstallStage(
-                    'gsm_package',
-                    'completed',
-                    'estimated',
-                    1,
-                    'GSM backend package reinstalled after launch failure.'
-                );
-            } catch (repairError) {
-                const repairDurationMs = Date.now() - repairStartedAt;
-                console.error(
-                    `[Startup Repair] Repair flow failed after ${repairDurationMs}ms; backend will not be retried automatically.`,
-                    repairError
-                );
-                console.log(
-                    `[Startup Repair] Repair flow failed after ${repairDurationMs}ms; error=${formatConsoleArg(
-                        repairError
-                    )}`
-                );
-                updateInstallStage(
-                    'backend_boot',
-                    'failed',
-                    'estimated',
-                    null,
-                    'Backend repair failed.',
-                    {
-                        error: repairError instanceof Error ? repairError.message : String(repairError),
-                    }
-                );
-                const failure = new BackendProcessError(
-                    `Backend repair failed: ${repairError instanceof Error ? repairError.message : String(repairError)}`,
-                    true,
-                    { cause: repairError }
-                );
-                finishInstallSession('failed', 'Backend repair failed.', failure.message);
-                throw failure;
-            }
-
-            const repairDurationMs = Date.now() - repairStartedAt;
-            console.log(
-                `[Startup Repair] Repair completed in ${repairDurationMs}ms. Retrying backend launch (remaining retries after this: ${retry - 1
-                }).`
-            );
-            return await ensureAndRunGSM(runtimePythonPath, retry - 1, options);
-        }
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        updateInstallStage(
-            'backend_boot',
-            'failed',
-            'estimated',
-            null,
-            'Failed to start the GSM backend process.',
-            {
-                error: err instanceof Error ? err.message : String(err),
-            }
-        );
-        finishInstallSession(
-            'failed',
-            'Failed to start the GSM backend process.',
-            err instanceof Error ? err.message : String(err)
-        );
-        throw err instanceof BackendProcessError
-            ? err
-            : new BackendProcessError(err instanceof Error ? err.message : String(err), true, { cause: err });
-    }
+    // Rust carries preparation, launch and bounded initialization recovery through
+    // to completion. This promise only tracks that lifetime for the existing UI.
+    devFaultInjector.maybeFail('startup.run_gsm');
+    return runGSM(pythonPath, [], options?.onSpawn, {
+        extras: getPythonExtras(),
+        knownInstalledVersion: options?.knownInstalledVersion,
+        isPreRelease: resolvePreReleaseBranch() !== null,
+        repairOnFailure: retry > 0,
+    }, options?.restart ?? false);
 }
 
 async function handleBackendStartupFailure(error: unknown): Promise<void> {
-    if (error instanceof BackendProcessError) {
-        // ensureAndRunGSM has already handled the bounded startup repair.
-        // A forced update here would start it all over again.
-        console.error('GSM backend process failed:', error);
-        finishInstallSession('failed', error.beforeInitialization
-            ? 'Failed to initialize the GSM backend process.'
-            : 'GSM stopped after repeated crashes.', error.message);
-        return;
-    }
-    console.log('Failed to run GSM, attempting repair of python package...', error);
-    await updateGSM(true, true);
+    // Native recovery already recorded the result against its own session
+    // attempt. A delayed UI callback must not finish a newer installation.
+    console.error('GSM backend process failed:', error);
 }
 
 async function processArgsAndStartSettings() {
@@ -2865,10 +2102,6 @@ async function processArgsAndStartSettings() {
         void runOverlayWithSource('startup').catch((error) => console.warn('Failed to start overlay:', error));
     }
 
-    if (getRunWindowTransparencyToolOnStartup()) {
-        runWindowTransparencyTool();
-    }
-
     if (gameName) {
         await launchSteamGameID(gameName);
     }
@@ -2881,7 +2114,9 @@ async function startDesktopDependencies(): Promise<void> {
     // Neither service depends on the other. Children must still wait for both
     // so they inherit the bound input endpoint and the authenticated bus.
     await Promise.all([
-        startInputServer().then((ready) => markStartup(ready ? 'input service ready' : 'input service unavailable')),
+        ...(process.env.GSM_NATIVE_SERVICE
+            ? []
+            : [startInputServer().then((ready) => markStartup(ready ? 'input service ready' : 'input service unavailable'))]),
         startBus().then(() => {
             markStartup('message bus ready');
             wireBackendBus();
@@ -2925,6 +2160,12 @@ if (!app.requestSingleInstanceLock()) {
         }
         try {
             markStartup('Electron ready');
+            // Migrate before Python loads/saves its config without the retired switches.
+            getNotificationPreferences();
+            configureNotificationDelivery({
+                getPreferences: getNotificationPreferences,
+                playSound: playNotificationSound,
+            });
             // Recheck the local date across midnight, timezone changes, and sleep.
             setInterval(refreshSeasonalPresentation, 60_000).unref();
             app.on('browser-window-focus', refreshSeasonalPresentation);
@@ -2935,20 +2176,19 @@ if (!app.requestSingleInstanceLock()) {
                 startStartupInstallSession();
             }
             // Start the install session first so OBS download progress (if a
-            // download is needed) renders in the install-progress UI. Electron
-            // owns the OBS download here, then launches it directly — no
-            // dependency on a backend "OBS is ready" signal.
+            // download is needed) renders in the install-progress UI. Rust owns
+            // OBS installation and launch; this only requests application startup.
             void ensureObsInstalledAndLaunch({ reason: 'startup' }).then(() => {
                 markStartup('OBS launch checked');
             }).catch((error) => {
-                console.warn('Electron-managed OBS startup ensure/launch failed:', error);
+                console.warn('Native OBS startup ensure/launch failed:', error);
             });
             await startDesktopDependencies();
             if (isQuitting) return;
             createWindow().then(async () => {
                 createTray();
-                autoLauncher.startPolling();
-                if (!isQuitting) startGameBackgroundHooks();
+                if (!process.env.GSM_NATIVE_SERVICE) autoLauncher.startPolling();
+                if (!isQuitting && !process.env.GSM_NATIVE_SERVICE) startGameBackgroundHooks();
                 // setTimeout(async () => {
                 //     await checkAndRunWizard(true);
                 // }, 1000);
@@ -3099,39 +2339,10 @@ function registerShutdownHandlers(): void {
 }
 
 export async function runPipInstall(packageName: string): Promise<void> {
-    const pythonPath = await getOrInstallPython();
-    await closeGSM();
-
-    console.log(`Running uv add for package: ${packageName}`);
-    try {
-        console.log(`Running command: ${pythonPath} -m uv add ${packageName}`);
-        await new Promise<void>((resolve, reject) => {
-            const child = execFile(pythonPath, [
-                '-m',
-                'uv',
-                'add',
-                packageName,
-            ]);
-            child.stdout?.on('data', (data) => {
-                console.log(data.toString());
-            });
-            child.stderr?.on('data', (data) => {
-                console.error(data.toString());
-            });
-            child.on('close', (code) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`pip install exited with code ${code}`));
-                }
-            });
-        });
-        console.log(`Package ${packageName} installed successfully.`);
-    } catch (error) {
-        console.error(`Failed to install package ${packageName}:`, error);
-        throw error;
-    }
-    await ensureAndRunGSM(pythonPath);
+    await closeAllPythonProcesses();
+    const pythonPath=await getOrInstallPython();
+    await pythonCall('packageInstall',{pythonPath,requirement:packageName});
+    await restartGSM();
 }
 
 async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<void> {
@@ -3142,10 +2353,10 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
         },
         async () => {
             stopOCR({ reason: 'python-process-group-shutdown' });
+            await waitForOCRShutdown();
             // stopOCR reports whether a request was made; it is not an exit promise.
             await stopManagedProcesses();
         },
-        () => stopWindowTransparencyTool(),
         async () => {
             const { shutdownTextHook } = await import('./ui/texthook.js');
             await shutdownTextHook();
@@ -3161,45 +2372,14 @@ async function closeAllPythonProcesses(closeGSMFlag: boolean = true): Promise<vo
     }
 }
 
-function hasChildProcessExited(proc: ChildProcessWithoutNullStreams): boolean {
+function hasChildProcessExited(proc: NativePythonProcess): boolean {
     return proc.exitCode !== null || proc.signalCode !== null;
 }
 
 function isChildProcessActive(
-    proc: ChildProcessWithoutNullStreams | undefined
-): proc is ChildProcessWithoutNullStreams {
+    proc: NativePythonProcess | undefined
+): proc is NativePythonProcess {
     return Boolean(proc && !hasChildProcessExited(proc));
-}
-
-async function waitForChildProcessExit(
-    proc: ChildProcessWithoutNullStreams,
-    timeoutMs: number = 5000
-): Promise<boolean> {
-    if (hasChildProcessExited(proc)) {
-        return true;
-    }
-
-    return new Promise((resolve) => {
-        let settled = false;
-        let timeout: ReturnType<typeof setTimeout> | undefined;
-        const finish = (exited: boolean) => {
-            if (settled) {
-                return;
-            }
-            settled = true;
-            if (timeout) {
-                clearTimeout(timeout);
-            }
-            proc.off('close', onCloseOrExit);
-            proc.off('exit', onCloseOrExit);
-            resolve(exited);
-        };
-        const onCloseOrExit = () => finish(true);
-        timeout = setTimeout(() => finish(hasChildProcessExited(proc)), timeoutMs);
-
-        proc.once('close', onCloseOrExit);
-        proc.once('exit', onCloseOrExit);
-    });
 }
 
 /** Release capture clients before OBS unloads its WebSocket server. */
@@ -3222,6 +2402,7 @@ export async function suspendObsClientsForUpdate(): Promise<() => Promise<void>>
     try {
         if (ocr.isRunning) {
             stopOCR({ reason: 'managed-obs-update' });
+            await waitForOCRShutdown();
             await getProcessManager().stop('ocr');
         }
         if (backendWasRunning) await closeGSM();
@@ -3238,10 +2419,6 @@ async function closeGSM(): Promise<void> {
     }
     const procToClose = pyProc;
     if (!isChildProcessActive(procToClose)) {
-        if (procToClose) {
-            await terminateProcessTree(procToClose);
-        }
-        clearManagedGSMProcessState();
         return;
     }
     gsmStopPromise = stopGSMProcess(procToClose).finally(() => {
@@ -3250,33 +2427,9 @@ async function closeGSM(): Promise<void> {
     return gsmStopPromise;
 }
 
-async function stopGSMProcess(procToClose: ChildProcessWithoutNullStreams): Promise<void> {
+async function stopGSMProcess(procToClose: NativePythonProcess): Promise<void> {
     intentionalBackendStops.add(procToClose);
-    await stopScripts();
-    if (bus.isConnected('backend')) {
-        try {
-            sendBackendCommand('quit');
-            console.log('Sent quit command to GSM over the bus.');
-            // cleanup_complete precedes transport/thread teardown. Only process
-            // exit proves it is safe to launch another backend or modify its files.
-            if (await waitForChildProcessExit(procToClose)) {
-                await terminateProcessTree(procToClose);
-                console.log('GSM closed gracefully.');
-                return;
-            }
-        } catch (error) {
-            console.warn('Failed to request graceful GSM shutdown:', error);
-        }
-    }
-
-    await forceTerminateGSMProcess(procToClose);
-    if (!(await waitForChildProcessExit(procToClose))) {
-        throw new Error(`GSM process ${procToClose.pid} did not exit; refusing to start a second backend.`);
-    }
-}
-
-async function forceTerminateGSMProcess(proc: ChildProcessWithoutNullStreams): Promise<void> {
-    await terminateProcessTree(proc);
+    await procToClose.stop();
 }
 
 async function restartGSM(): Promise<void> {
@@ -3286,11 +2439,10 @@ async function restartGSM(): Promise<void> {
     }
     restartingGSM = true;
     try {
-        await closeGSM();
         await new Promise<void>((resolve, reject) => {
             // ensureAndRunGSM follows the child until exit; release the restart
             // guard once it spawns so subsequent restart requests can proceed.
-            void ensureAndRunGSM(pythonPath, 1, { onSpawn: resolve }).catch((error) => {
+            void ensureAndRunGSM(pythonPath, 1, { onSpawn: resolve, restart: true }).catch((error) => {
                 console.error('Failed to run GSM after restart:', error);
                 reject(error);
             });
@@ -3304,23 +2456,7 @@ async function restartGSM(): Promise<void> {
 }
 
 export { closeGSM, restartGSM, closeAllPythonProcesses, ensureAndRunGSM };
-export { checkAndInstallPython311, checkAndInstallUV, isPackageInstalled };
-
-export async function stopScripts(): Promise<void> {
-    const proc = window_transparency_process;
-    if (proc && proc.exitCode === null && proc.signalCode === null) {
-        console.log('Stopping existing Window Transparency Tool process');
-        try {
-            proc.stdin.write('exit\n');
-            if (await waitForProcessExit(proc, 1000)) {
-                return;
-            }
-        } catch (error) {
-            console.warn('Could not request a graceful stop from Window Transparency Tool:', error);
-        }
-        await terminateProcessTree(proc);
-    }
-}
+export { checkAndInstallUV, isPackageInstalled };
 
 async function runQuit(relaunchArgs?: string[]): Promise<void> {
     await waitForObsRuntimeUpdate();
@@ -3386,7 +2522,6 @@ async function stopAllChildrenForRelocation(): Promise<void> {
     shutdownWindowSceneSwitcher();
     stopOverlay();
     await waitForOverlayShutdown();
-    await stopScripts();
     await closeAllPythonProcesses();
     await stopInputServer();
     const obsResult = await closeOBSFromElectron({ reason: 'data relocation' });
@@ -3536,15 +2671,6 @@ export function applyChangelogSettingChoice(choice: string): boolean {
     }
     return sendBackendCommand('apply_changelog_setting_choice', { choice });
 }
-export function sendWindowsSpeechStart(data: Record<string, unknown>) {
-    return sendBackendCommand('windows_speech_start', data);
-}
-export function sendWindowsSpeechStop() {
-    return sendBackendCommand('windows_speech_stop');
-}
-export function sendWindowsSpeechGetStatus() {
-    return sendBackendCommand('windows_speech_get_status');
-}
 export function sendOpenOverlaySettings() {
     return sendBackendCommand('open_overlay_settings');
 }
@@ -3562,6 +2688,7 @@ export function sendRelateSceneToProfile(scene: string, profileName: string, cre
 
 export interface TextHookLinePayload {
     text: string;
+    sessionId?: string;
     hookId?: string;
     hookFunction?: string;
     engine?: 'textractor' | 'luna' | 'agent' | 'mages';
@@ -3574,20 +2701,38 @@ export interface TextHookLinePayload {
     textGeometry?: TextGeometryV1;
 }
 
-export function sendTextHookLine(payload: TextHookLinePayload): void {
+export interface ProcessedTextHookLine {
+    text: string;
+    originalText: string;
+    hookId?: string;
+    sessionId?: string;
+    ts: number;
+}
+
+export function sendTextHookLine(payload: TextHookLinePayload, onProcessed?: (line: ProcessedTextHookLine) => void): void {
     const displayParts = [payload.engine, payload.exeName, payload.hookId ? `#${payload.hookId}` : ''].filter(Boolean);
     const precomputedOverlayPayload = payload.textGeometry
         ? textGeometryToOverlayPayload(payload.text, payload.textGeometry)
         : null;
+    const capturedAt = payload.capturedAt ?? Date.now();
     submitTextObservation({
         ...payload,
         ...(precomputedOverlayPayload ? { dict_from_ocr: precomputedOverlayPayload } : {}),
         source: 'texthook',
         sourceInstance: payload.hookId || `${payload.engine ?? 'hook'}:${payload.exeName ?? ''}`,
         sourceDisplayName: displayParts.join(' · '),
-        capturedAt: payload.capturedAt ?? Date.now(),
+        capturedAt,
         revisionWindowMs: 0,
         mergeFragments: false,
+    }, (ack) => {
+        if (typeof ack.processed_text !== 'string' || typeof ack.raw_text !== 'string') return;
+        onProcessed?.({
+            text: ack.processed_text,
+            originalText: ack.raw_text,
+            hookId: payload.hookId,
+            sessionId: payload.sessionId,
+            ts: capturedAt,
+        });
     });
 }
 
@@ -3601,4 +2746,48 @@ export function sendTextHookStatus(active: boolean): void {
 // (not just a graceful stop) still resumes clipboard polling.
 export function sendOcrStatus(active: boolean): void {
     sendBackendCommand('ocr_status', { active });
+}
+
+export async function handleNativeTrayAction(action: string): Promise<void> {
+    switch (action) {
+        case 'update-gsm':
+            await runUpdateChecks(true, true);
+            break;
+        case 'restart-python':
+            await restartGSM();
+            break;
+        case 'restart-as-admin':
+            await restartAsAdmin();
+            break;
+        case 'restart-app':
+            await closeAllPythonProcesses();
+            app.relaunch();
+            await quit();
+            break;
+        case 'quit':
+            await quit();
+            break;
+    }
+}
+
+export async function handleNativeLifecycleAction(action: string): Promise<void> {
+    switch (action) {
+        case 'stop-for-relocation':
+            await stopAllChildrenForRelocation();
+            break;
+        case 'stop-python':
+            await closeAllPythonProcesses();
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            if (pyProc && pyProc.exitCode === null && pyProc.signalCode === null) {
+                throw new Error(
+                    'Timed out waiting for the GSM Python backend to stop. Restore was not applied so the database would not be copied while locked.'
+                );
+            }
+            break;
+        case 'restart-python':
+            await restartGSM();
+            break;
+        default:
+            throw new Error(`Unknown lifecycle operation: ${action}`);
+    }
 }

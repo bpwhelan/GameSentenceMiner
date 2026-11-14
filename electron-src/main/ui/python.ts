@@ -1,23 +1,18 @@
 // python.ts
 import { ipcMain, shell, dialog } from 'electron';
-import { ChildProcess, spawn } from 'child_process';
-import { getOrInstallPython, reinstallPython } from '../python/python_downloader.js';
-import { runPipInstall, closeAllPythonProcesses, restartGSM, checkAndInstallUV, pyProc } from '../main.js';
+import { getOrInstallPython } from '../python/python_downloader.js';
+import { closeAllPythonProcesses, restartGSM, checkAndInstallUV } from '../main.js';
 import { FeatureFlags } from '../main.js';
-import { BASE_DIR, execFileAsync, getSanitizedPythonEnv, getGSMBaseDir } from '../util.js';
+import {pythonCall} from '../runtime/native_python_install.js';
 import {
-    getBundledBackendSpecifier,
     resolveRequestedExtras,
     syncLockedEnvironment,
-    installPackageNoDeps,
 } from '../services/python_ops.js';
 import { installSessionManager } from '../services/install_session_state.js';
 import { getPythonExtras, setPythonExtras } from '../store.js';
 import { bus } from '../runtime/bus_client.js';
 import { changeGpuRuntime } from '../services/gpu_install.js';
 import { GPU_INSTALL_PROGRESS_CHANNEL } from '../../shared/gpu.js';
-
-let consoleProcess: ChildProcess | null = null;
 
 type ManualInstallOrigin = 'repair' | 'reset_dependencies';
 
@@ -44,44 +39,23 @@ function startManualInstallSession(origin: ManualInstallOrigin, retryHandler: ()
     updateInstallStage('prepare', 'completed', 'estimated', 1, 'Manual dependency workflow prepared.');
 }
 
-/**
- * Reusable pip install function with console logging.
- * @param pythonPath Path to python executable
- * @param pipArgs Array of arguments for pip (e.g. ['install', 'numpy'])
- * @param logLabel Label for console output
- * @param cwd Optional working directory
- */
-export async function pipInstallWithLogging(
-    pythonPath: string,
-    pipArgs: string[],
-    logLabel: string = 'PIP',
-    cwd?: string
-): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-        const proc = spawn(pythonPath, ['-m', 'uv', 'pip', '--no-progress', ...pipArgs], {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            cwd: cwd || BASE_DIR,
-            env: getSanitizedPythonEnv()
-        });
-        if (proc.stdout) {
-            proc.stdout.on('data', (data) => {
-                console.log(`[${logLabel}]: ${data.toString().trim()}`);
-            });
-        }
-        if (proc.stderr) {
-            proc.stderr.on('data', (data) => {
-                console.log(`[${logLabel}]: ${data.toString().trim()}`);
-            });
-        }
-        proc.on('close', (code) => {
-            if (code === 0) {
-                console.log(`${logLabel} install finished successfully.`);
-                resolve();
-            } else {
-                reject(new Error(`${logLabel} install exited with code ${code}`));
-            }
-        });
+export async function runPythonMaintenance(origin: ManualInstallOrigin): Promise<void> {
+    await closeAllPythonProcesses();
+    const result = await pythonCall<{pythonPath:string}>('maintain', {mode:origin, extras:getPythonExtras()});
+    const {ensureAndRunGSM} = await import('../main.js');
+    await new Promise<void>((resolve,reject) => {
+        void ensureAndRunGSM(result.pythonPath,1,{origin,onSpawn:resolve}).catch(reject);
     });
+}
+
+async function installCustomPackage(requirement: string, reinstall=false): Promise<{success:boolean;message:string}> {
+    try {
+        await closeAllPythonProcesses();
+        const pythonPath=await getOrInstallPython();
+        const result=await pythonCall<{success:boolean;message:string}>('packageInstall',{pythonPath,requirement,reinstall});
+        await restartGSM();
+        return result;
+    } catch(error) { return {success:false,message:error instanceof Error?error.message:String(error)}; }
 }
 
 export function registerPythonIPC() {
@@ -195,302 +169,26 @@ export function registerPythonIPC() {
         }
     });
 
-    // Reset Dependencies (uv sync)
-    ipcMain.handle('python.resetDependencies', async () => {
-        const executeResetDependencies = async () => {
-            const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-
-            if (pyProc) {
-                pyProc.kill();
+    for (const [channel,origin] of [['python.resetDependencies','reset_dependencies'],['python.repairGSM','repair']] as const) {
+        ipcMain.handle(channel, async () => {
+            const execute=()=>runPythonMaintenance(origin);
+            try {
+                startManualInstallSession(origin,execute);
+                await execute();
+                return {success:true,message:origin==='repair'?'GSM repaired successfully':'Python dependencies reset successfully'};
+            } catch(error) {
+                const message=error instanceof Error?error.message:String(error);
+                installSessionManager.finishActive('failed','Python maintenance failed.',message);
+                return {success:false,message};
             }
-
-            console.log('Resetting Python dependencies (uv lock sync)...');
-            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                getPythonExtras()
-            );
-            if (ignoredExtras.length > 0) {
-                setPythonExtras(selectedExtras);
-                console.warn(
-                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
-                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
-                    }.`
-                );
-            }
-            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
-            await checkAndInstallUV(pythonPath);
-            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
-            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Resetting Python dependencies from the lockfile...');
-            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
-                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
-            }, { reinstall: true });
-            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Python dependencies reset successfully.');
-            console.log('Python dependencies reset successfully.');
-
-            console.log('Restarting GSM...');
-            const { ensureAndRunGSM } = await import('../main.js');
-            // The launch promise follows GSM until exit. The install session
-            // tracks startup progress; release this request once it spawns.
-            await new Promise<void>((resolve, reject) => {
-                void ensureAndRunGSM(pythonPath, 1, {
-                    origin: 'reset_dependencies',
-                    onSpawn: resolve,
-                }).catch(reject);
-            });
-        };
-
-        try {
-            startManualInstallSession('reset_dependencies', executeResetDependencies);
-            await executeResetDependencies();
-            return { success: true, message: 'Python dependencies reset successfully' };
-        } catch (error: any) {
-            console.error('Failed to reset dependencies:', error);
-            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to reset Python dependencies.', error?.message || 'Unknown error');
-            installSessionManager.finishActive(
-                'failed',
-                'Failed to reset Python dependencies.',
-                error?.message || 'Unknown error'
-            );
-            return {
-                success: false,
-                message: `Failed to reset dependencies: ${error?.message || 'Unknown error'}`,
-            };
-        }
-    });
-
-    // Repair GSM - Complete reinstall
-    ipcMain.handle('python.repairGSM', async () => {
-        const executeRepair = async () => {
-            console.log('Starting strict GSM repair...');
-
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-
-            if (pyProc) {
-                pyProc.kill();
-            }
-
-            const pythonPath = await getOrInstallPython();
-            updateInstallStage('verify_runtime', 'running', 'estimated', 0.25, 'Ensuring uv runtime tooling...');
-            await checkAndInstallUV(pythonPath);
-            updateInstallStage('verify_runtime', 'completed', 'estimated', 1, 'uv runtime tooling is ready.');
-
-            const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                getPythonExtras()
-            );
-            if (ignoredExtras.length > 0) {
-                setPythonExtras(selectedExtras);
-                console.warn(
-                    `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed extras: ${
-                        allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
-                    }.`
-                );
-            }
-
-            updateInstallStage('lock_sync', 'running', 'estimated', 0.1, 'Syncing dependencies from the lockfile...');
-            await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
-                updateInstallStage('lock_sync', 'running', 'estimated', event.progress, event.message);
-            }, { deferValidation: true, reinstall: true });
-            updateInstallStage('lock_sync', 'completed', 'estimated', 1, 'Dependencies synced from the lockfile.');
-            const packageSpecifier = getBundledBackendSpecifier();
-            updateInstallStage('gsm_package', 'running', 'estimated', 0.1, `Reinstalling ${packageSpecifier}...`);
-            await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
-                updateInstallStage('gsm_package', 'running', 'estimated', event.progress, event.message);
-            }, selectedExtras);
-            updateInstallStage('gsm_package', 'completed', 'estimated', 1, 'GSM backend package reinstalled.');
-
-            const { ensureAndRunGSM } = await import('../main.js');
-            await ensureAndRunGSM(pythonPath, 1, { origin: 'repair' });
-        };
-
-        try {
-            startManualInstallSession('repair', executeRepair);
-            await executeRepair();
-            return { success: true, message: 'GSM repaired successfully' };
-        } catch (error: any) {
-            console.error('Failed to repair GSM:', error);
-            updateInstallStage('finalize', 'failed', 'estimated', null, 'Failed to repair GSM.', error?.message || 'Unknown error');
-            installSessionManager.finishActive(
-                'failed',
-                'Failed to repair GSM.',
-                error?.message || 'Unknown error'
-            );
-            return {
-                success: false,
-                message: `Failed to repair GSM: ${error?.message || 'Unknown error'}`,
-            };
-        }
-    });
-
-    // Install custom package
-    ipcMain.handle('python.installCustomPackage', async (_, packageName: string) => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-            if (pyProc) {
-                pyProc.kill();
-            }
-            console.log(`Installing custom package: ${packageName}`);
-            await pipInstallWithLogging(
-                pythonPath,
-                ['install', '--upgrade', packageName],
-                `Custom Package: ${packageName}`
-            );
-            await restartGSM();
-            return { success: true, message: `Package ${packageName} installed successfully` };
-        } catch (error: any) {
-            console.error(`Failed to install package ${packageName}:`, error);
-            return {
-                success: false,
-                message: `Failed to install package: ${error?.message || 'Unknown error'}`,
-            };
-        }
-    });
-
-    // Get list of installed packages
-    ipcMain.handle('python.getInstalledPackages', async () => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            const result = await execFileAsync(pythonPath, [
-                '-m',
-                'uv',
-                '--no-progress',
-                'pip',
-                'list',
-                '--format=json',
-            ]);
-            console.log(result);
-            return { success: true, packages: JSON.parse(result.stdout) };
-        } catch (error) {
-            console.error('Failed to get installed packages:', error);
-            return { success: false, message: 'Failed to get installed packages', packages: [] };
-        }
-    });
+        });
+    }
+    ipcMain.handle('python.installCustomPackage',(_event,requirement:string)=>installCustomPackage(requirement));
+    ipcMain.handle('python.reinstallPackage',(_event,requirement:string)=>installCustomPackage(requirement,true));
 
     // Open CUDA guide
     ipcMain.handle('python.openCudaGuide', async () => {
         shell.openExternal('https://pytorch.org/get-started/locally/');
     });
 
-    // Get Python environment info
-    ipcMain.handle('python.getPythonInfo', async () => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            const versionResult = await execFileAsync(pythonPath, ['--version']);
-            const pipVersionResult = await execFileAsync(pythonPath, ['-m', 'pip', '--version']);
-
-            return {
-                success: true,
-                pythonPath,
-                pythonVersion: versionResult.stdout.trim(),
-                pipVersion: pipVersionResult.stdout.trim(),
-            };
-        } catch (error) {
-            console.error('Failed to get Python info:', error);
-            return { success: false, message: 'Failed to get Python info' };
-        }
-    });
-
-    // Clean Python cache and temporary files
-    ipcMain.handle('python.cleanCache', async () => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            console.log('Cleaning Python cache...');
-
-            // Clean pip cache
-            await execFileAsync(pythonPath, ['-m', 'uv', 'cache', 'clean']);
-
-            return { success: true, message: 'Python cache cleaned successfully' };
-        } catch (error: any) {
-            console.error('Failed to clean cache:', error);
-            return {
-                success: false,
-                message: `Failed to clean cache: ${error?.message || 'Unknown error'}`,
-            };
-        }
-    });
-
-    // Reinstall a specific package
-    ipcMain.handle('python.reinstallPackage', async (_, packageName: string) => {
-        try {
-            const pythonPath = await getOrInstallPython();
-            await closeAllPythonProcesses();
-
-            await new Promise((resolve) => setTimeout(resolve, 3000));
-
-            if (pyProc) {
-                pyProc.kill();
-            }
-
-            console.log(`Reinstalling package: ${packageName}`);
-
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', 'pip', 'uninstall', '-y', packageName],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
-            );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log(`Package ${packageName} uninstalled.`);
-                        resolve();
-                    } else {
-                        // Continue even if uninstall fails
-                        resolve();
-                    }
-                });
-            });
-
-            // Reinstall the package
-            consoleProcess = spawn(
-                pythonPath,
-                ['-m', 'uv', 'pip', 'install', '--upgrade', '--force-reinstall', packageName],
-                {
-                    stdio: 'inherit',
-                    cwd: getGSMBaseDir(),
-                    env: getSanitizedPythonEnv()
-                }
-            );
-
-            await new Promise<void>((resolve, reject) => {
-                consoleProcess!.on('close', (code) => {
-                    if (code === 0) {
-                        console.log(`Package ${packageName} reinstalled successfully.`);
-                        resolve();
-                    } else {
-                        reject(new Error(`Package reinstallation exited with code ${code}`));
-                    }
-                });
-            });
-
-            await restartGSM();
-            return { success: true, message: `Package ${packageName} reinstalled successfully` };
-        } catch (error: any) {
-            console.error(`Failed to reinstall package ${packageName}:`, error);
-            return {
-                success: false,
-                message: `Failed to reinstall package: ${error?.message || 'Unknown error'}`,
-            };
-        }
-    });
-
-    // Kill console process if running
-    ipcMain.handle('python.killConsoleProcess', async () => {
-        if (consoleProcess && !consoleProcess.killed) {
-            consoleProcess.kill();
-            consoleProcess = null;
-            return { success: true };
-        }
-        return { success: false, message: 'No console process running' };
-    });
 }

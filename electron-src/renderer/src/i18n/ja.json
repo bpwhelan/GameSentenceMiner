@@ -1,5 +1,102 @@
 {
+  "onboarding": {
+    "brand": "GSM · はじめの一歩",
+    "title": "最初のゲームを設定しよう",
+    "subtitle": "基本を設定して、さっそく読み始めましょう。",
+    "progress": "セットアップの進行状況",
+    "steps": {
+      "language": "言語",
+      "dictionary": "辞書",
+      "game": "ゲームを追加",
+      "capture": "テキスト取得",
+      "finish": "読み始める"
+    },
+    "savedHint": "いつでも中断できます。「設定」のセットアップガイドから再開してください。",
+    "stepOf": "ステップ {step} / {total}",
+    "pause": "あとで設定",
+    "skip": "この手順をスキップ",
+    "back": "戻る",
+    "next": "次へ",
+    "finish": "設定を完了",
+    "saving": "保存中…",
+    "loading": "読み込み中…",
+    "retry": "再試行",
+    "return": "ガイドに戻る",
+    "error": "保存または画面の表示に失敗しました。GSMが起動していることを確認して再試行してください。",
+    "languageTitle": "何語を学びますか？",
+    "languageDescription": "GSMの表示言語と、読みたいゲームの言語を選んでください。",
+    "appLanguage": "表示言語",
+    "learningLanguage": "学習言語",
+    "languageHint": "学習言語は文字認識と最初に導入する辞書に使われます。あとから変更できます。",
+    "dictionaryTitle": "ゲーム中に単語を調べる",
+    "dictionaryDescription": "ポップアップ辞書を選んでください。GSMの辞書はブラウザーの辞書とは別に保存されます。",
+    "reader": "辞書リーダー",
+    "yomitan": "Yomitan",
+    "hachidori": "Hachidori",
+    "yomitanHint": "多くの言語の辞書に対応した定番のリーダー。",
+    "hachidoriHint": "独自の辞書ライブラリを持つ別のリーダー。",
+    "chooseDictionary": "辞書を選択",
+    "dictionaryHint": "学習言語用の基本辞書です。語義は英語で表示されます。ダウンロードには数分かかる場合があります。",
+    "manualDictionary": "辞書設定を開いて言語パックを選ぶか、お持ちの辞書をインポートしてください。",
+    "dictionarySource": "この辞書について",
+    "installDictionary": "{name} を導入・有効化",
+    "installing": "ダウンロード・インポート中…",
+    "switching": "辞書リーダーを切り替え中…",
+    "dictionarySettings": "辞書設定",
+    "dictionaryReady": "有効な辞書が利用できます。",
+    "dictionaryWaiting": "有効な辞書を待っています。あとで設定することもできます。",
+    "dictionaryError": "辞書の設定を確認してください。導入を再試行するか、辞書設定を開いてください。",
+    "gameTitle": "ゲームをGSMに追加する",
+    "gameDescription": "まずは1つのゲームから。キャプチャとテキスト設定はゲームごとに保存されます。",
+    "gameStart": "ゲームを起動し、台詞のある場面を表示します。最初はウィンドウまたはボーダーレス表示がおすすめです。",
+    "gameSelect": "「ゲームを追加」でウィンドウを選び、名前を付けます。",
+    "gamePreview": "キャプチャのプレビューを確認します。追加後にテキスト設定ガイドが開きます。",
+    "addGame": "最初のゲームを追加",
+    "gameReady": "ゲームが追加されました。テキストの設定に進みましょう。",
+    "gameWaiting": "最初のゲームの追加を待っています。",
+    "gameGuide": "ゲームのウィンドウを選び、テキスト設定を進めてください。準備ができたらここに戻ります。",
+    "captureTitle": "最初の台詞を取得する",
+    "captureDescription": "キャプチャガイドでテキストフックかOCRを選び、実際の台詞を確認します。",
+    "hookTitle": "テキストフック",
+    "hookDescription": "対応ゲームからテキストを直接取得します。推奨フックを試し、台詞を進めて、一致するテキストを選んでください。",
+    "ocrTitle": "OCR",
+    "ocrDescription": "画面の文字を読み取ります。台詞の領域を選んでスキャンし、結果を確認してから自動スキャンを有効にします。",
+    "configureCapture": "テキスト設定を開く",
+    "captureHint": "キャプチャガイドで動作確認とゲーム用の自動起動設定ができます。ゲーム追加時に済ませた場合は、次へ進んでください。",
+    "captureGuide": "台詞を進め、キャプチャガイドのテキストを確認してください。ゲームの設定を保存してからここに戻ります。",
+    "finishTitle": "GSMと一緒に遊ぼう",
+    "finishDescription": "次はここから始めましょう。スキップした項目は設定からいつでも変更できます。",
+    "tourHome": "ホームはゲームライブラリです。ゲームを選んで起動し、キャプチャやオーバーレイ、自動起動を管理します。",
+    "tourLookup": "ホームからオーバーレイを起動し、表示用ホットキーを押して単語を指すと検索できます。キーはオーバーレイ設定で確認できます。",
+    "tourText": "ホームからテキストログを開き、取得した文章や新しい台詞が届いているかを確認できます。",
+    "ankiTitle": "任意：Ankiに単語を保存",
+    "ankiDescription": "カードを作る準備ができたら、「設定 → Anki」のガイドでデッキとノートタイプを選んでください。",
+    "openSettings": "設定を見てみる",
+    "openText": "テキストログを開く",
+    "finishGuide": "必要な設定を確認し、ここに戻ってガイドを完了してください。",
+    "openSetup": "セットアップガイドを開く",
+    "settingsHint": "言語と辞書を選び、ゲームを追加して、テキスト取得を設定します。途中から再開することも、最初から見直すこともできます。",
+    "sudachiTitle": "日本語の読みと単語選択",
+    "sudachiDescription": "ふりがな、読み、単語統計、ゲームパッドの単語選択、ユーザー辞書は同じSudachi辞書を使用します。辞書はセットアップ時にダウンロードされます。既存の語彙履歴は保持されます。",
+    "sudachiEdition": "Sudachi辞書",
+    "sudachismall": "Small（既定）",
+    "sudachicore": "Core",
+    "sudachifull": "Full（固有名詞を追加）",
+    "sudachiInstall": "選択した辞書をダウンロード／使用",
+    "sudachiReady": "日本語解析の準備ができました。",
+    "sudachiRequired": "読みと単語選択を有効にするには、日本語辞書を設定してください。",
+    "sudachiError": "辞書の設定に失敗しました。接続を確認して再試行してください。"
+  },
   "gameLauncher": {
+    "mode": "起動方法",
+    "modeExecutable": "ゲームの実行ファイル",
+    "modeYuzu": "Yuzu",
+    "yuzuPath": "Yuzuの実行ファイル",
+    "romPath": "ゲームROM",
+    "yuzuArguments": "Yuzuの引数",
+    "yuzuHelp": "Yuzuと起動するROMを選択してください。GSMは-gでROMを渡します。既存のYuzuシーン設定があれば再利用します。",
+    "chooseRom": "下でゲームROMを選択し、保存または起動してください。",
+    "userLaunchHelp": "GSMを管理者として実行していても、ゲームとカスタムランチャーはデスクトップの通常ユーザーとして起動します。",
     "title": "ゲーム起動",
     "launch": "ゲームを起動",
     "working": "処理中…",
@@ -23,6 +120,7 @@
     "saved": "起動オプションを保存しました。",
     "launched": "起動を要求しました。",
     "errors": {
+      "missingRom": "存在するゲームROMを選択してください。",
       "unsupported": "ゲームの起動はWindowsのみ対応しています。",
       "invalidScene": "先にゲームを選択してください。",
       "missingExecutable": "存在するゲームの実行ファイルを選択してください。",
@@ -71,6 +169,16 @@
     }
   },
   "home": {
+    "capturePicker": {
+      "search": "ウィンドウやデバイスを検索…",
+      "recentOrder": "最近フォーカスした順",
+      "recent": "最近フォーカス",
+      "loadingPreview": "プレビューを読み込み中…",
+      "previewUnavailable": "プレビューを表示できません",
+      "noMatches": "一致するウィンドウやデバイスがありません。",
+      "selected": "選択中：{title}",
+      "snapshotHint": "プレビューは、この画面を開くか一覧を更新すると更新されます。"
+    },
     "workspace": {
       "library": "ゲーム一覧",
       "savedGames": "保存済みのゲーム",
@@ -181,6 +289,10 @@
       "confirm": "名前変更"
     },
     "overlay": {
+      "enabled": "オーバーレイを有効にする",
+      "changing": "変更中…",
+      "toggleTooltip": "GSMのオーバーレイをオン・オフにします。オフにすると、再度有効にするかGSMを再起動するまで自動起動も停止します。",
+      "toggleError": "オーバーレイを変更できませんでした。もう一度お試しください。",
       "title": "オーバーレイ",
       "statusRunning": "実行中",
       "statusStopped": "停止中",
@@ -620,6 +732,61 @@
     }
   },
   "settings": {
+    "notifications": {
+      "title": "通知とサウンド",
+      "description": "4種類の通知グループの通知方法を選べます。GSMがトレイにある間も控えめな確認音が鳴ります。",
+      "volume": "サウンドの音量",
+      "volumeValue": "{volume}%",
+      "quietDefaults": "控えめな初期設定に戻す",
+      "delivery": "通知方法",
+      "sound": "サウンド",
+      "preview": "試聴",
+      "deliveryFor": "{event}の通知方法",
+      "soundFor": "{event}のサウンド",
+      "previewFor": "{event}を試聴",
+      "loading": "通知設定を読み込み中…",
+      "saving": "保存中…",
+      "autoSave": "変更は自動保存されます。音量はGSMの確認音にのみ適用されます。",
+      "retry": "再試行",
+      "loadError": "通知設定を読み込めませんでした。",
+      "saveError": "通知設定を保存できませんでした。",
+      "previewError": "サウンドを試聴できませんでした。",
+      "modes": {
+        "off": "オフ",
+        "sound": "サウンドのみ",
+        "banner": "音なしバナー",
+        "both": "バナーとサウンド"
+      },
+      "sounds": {
+        "soft-ping": "控えめなピング",
+        "bell": "柔らかなベル",
+        "bubble": "泡",
+        "wood": "木のタップ",
+        "glass": "ガラス",
+        "success": "成功",
+        "ascending": "上昇音",
+        "descending": "下降音",
+        "double-tap": "ダブルタップ",
+        "chime": "チャイム",
+        "pause-resume": "下降音・上昇音",
+        "marimba": "マリンバ",
+        "sparkle": "きらめき",
+        "low-knock": "低いノック音"
+      },
+      "categories": {
+        "confirmation": "完了の確認",
+        "cardError": "カードのエラー",
+        "pauseResume": "一時停止・再開",
+        "appAlert": "アプリの警告"
+      },
+      "categoryDescriptions": {
+        "confirmation": "カード更新、音声や画像の保存、GSMの準備完了。音声のないカードも正常です。",
+        "cardError": "カード処理、メディア生成、Ankiへのアップロードの失敗。音声未検出はエラーではありません。",
+        "pauseResume": "OCRと統計収集の一時停止・再開。",
+        "appAlert": "その他のアプリのエラー、OBSの警告、未確認カードのリマインダー。"
+      },
+      "globalHint": "すべてのゲームとプロファイルに適用されます。通知音とバナーはここで設定できます。"
+    },
     "python": {
       "title": "Python とデバッグ",
       "description": "GSM のトラブルシューティングに使う環境情報と復旧ツールです。",
@@ -757,7 +924,6 @@
       "iconRandomTray": "ランダム（トレイアイコンも）",
       "language": "言語:",
       "startMinimized": "コンソール最小化で起動:",
-      "runTransparencyOnStartup": "起動時に透過ツールを実行:",
       "runOverlayOnStartup": "起動時にオーバーレイを実行:",
       "quitOnWindowClose": "ウィンドウを閉じたときにGSMを終了:",
       "textCaptureWizard": "キャプチャ設定後にテキストキャプチャウィザードを表示:"
@@ -771,13 +937,6 @@
       "tabPython": "Python",
       "tabConsole": "コンソール",
       "statsTarget": "統計ターゲット:"
-    },
-    "transparency": {
-      "title": "透過ツール（非推奨）",
-      "toolHotkey": "ツールホットキー:",
-      "windowTarget": "ウィンドウターゲット:",
-      "windowTargetPlaceholder": "空欄にするとフォーカス中のウィンドウが対象になります",
-      "runTool": "透過ツールを実行"
     },
     "updates": {
       "title": "アップデート",
@@ -893,6 +1052,11 @@
       }
     },
     "catalog": {
+      "openTextProcessing": "テキスト処理を開く",
+      "desktopNotifications": {
+        "label": "通知とサウンド",
+        "description": "イベントごとに控えめなサウンド、音なしバナー、通知なしを選べます。"
+      },
       "desktopPython": {
         "label": "Python とデバッグ",
         "description": "Python 環境の確認、依存関係のリセット、デバッグ用パッケージのインストールを行います。"
@@ -914,11 +1078,6 @@
       "desktopTabs": {
         "label": "デスクトップタブと統計",
         "description": "Windows音声認識を含むデスクトップタブの表示/非表示とデフォルトの統計ページを選択します。"
-      },
-      "desktopTransparency": {
-        "label": "ウィンドウ透過ツール",
-        "description": "Windowsのウィンドウ透過ツールを設定して実行します。",
-        "notes": "Windowsでのみ利用できます。"
       },
       "desktopUpdates": {
         "label": "アップデートとベータリリース",
@@ -1061,7 +1220,7 @@
       },
       "overlayFuriganaTokenization": {
         "label": "ふりがな、ピンイン、トークン化",
-        "description": "読みの表示を整え、MeCab、Sudachi、Yomitan、Jiten、JPDBのトークナイザーを選択します。",
+        "description": "読みの表示を整え、Sudachi、Yomitan、Jiten、JPDBのトークナイザーを選択します。",
         "notes": "オーバーレイ設定の「読書、統計、Jiten」にあります。"
       },
       "overlayTranslation": {
@@ -1573,6 +1732,12 @@
       "events": {
         "captured": "テキストを読み取りました",
         "noText": "テキストが検出されませんでした",
+        "scanning": "テキストをスキャン中",
+        "waitingForContext": "バックエンドからの応答を待機中",
+        "waitingForTarget": "ゲームウィンドウまたはOBSソースを待機中",
+        "noCaptureArea": "使用できるキャプチャ範囲がありません",
+        "stabilizing": "テキストの表示が安定するまで待機中",
+        "furiganaFiltered": "ふりがなフィルターですべてのテキストが除外されました。認識設定で値を下げてください。",
         "unchanged": "画面の変化を待機中",
         "menu": "メニューテキストをスキップしました",
         "ignored": "無視領域内のテキストをスキップしました",
@@ -1734,7 +1899,7 @@
         "tools": "OCR パッケージ、診断、設定ファイルを管理します。",
         "console": "OCR の出力と診断ログ。他のページを使用中もログは保持されます。"
       },
-      "shortcutHelp": "入力欄を選択してキーの組み合わせを押してください。Escape で解除できます。",
+      "shortcutHelp": "入力欄を選択してキーの組み合わせを押してください。Escape で解除できます。F13〜F24 を含むすべての OCR ショートカットは、キャプチャ対象のゲームウィンドウが表示されていれば、別のアプリを操作中でも有効です。ゲームを非表示または最小化すると無効になります。キー入力は操作中のアプリにも届きます。",
       "openAreaSelector": "範囲選択ツールを開く",
       "editor": {
         "edit": "プレビューで範囲を編集",
@@ -1882,20 +2047,22 @@
     }
   },
   "textProcessing": {
-    "previewFailed": "プレビューを生成できませんでした",
-    "workspace": {
-      "eyebrow": "取得したテキスト",
-      "description": "取得したテキストを整え、編集しながら結果を確認できます。",
-      "unsaved": "未保存の変更",
-      "saved": "保存済み",
-      "enabledCount": "{total} 件中 {count} 件が有効",
-      "live": "ライブ",
-      "sample": "サンプル",
-      "previewHint": "未保存の変更を含む現在のルールでプレビューします。",
-      "followLatest": "最新のゲームテキストに追従"
+    "loadFailed": "テキスト処理設定を読み込めませんでした。保存済みの設定は変更されていません。",
+    "retry": "再試行",
+    "processors": {
+      "languageFilter": "対象言語フィルター",
+      "languageFilterDesc": "対象言語の文字体系に基づいて取得したテキストを絞り込みます",
+      "removeNonJapanese": "Shift-JIS 外の文字を削除"
     },
-    "rules": {
-      "mode": "ルールの種類"
+    "languageFilter": {
+      "mode": "フィルターの強さ",
+      "blocks": "1. ブロックを絞り込む",
+      "trim": "2. ブロックを絞り込み、前後の不要な文字を削除",
+      "strict": "3. 一致する文字のみ残す",
+      "blocksDescription": "受信イベントの各行をブロックとして扱います。対象言語の文字がないブロックを削除し、複数の言語が混在するブロックはそのまま残します。一致する文字がないイベントは空になります。",
+      "trimDescription": "ブロックを絞り込んだ後、残った各ブロックの先頭と末尾から対象言語以外の文字を削除します。内部の混在テキストと隣接する句読点は残します。",
+      "strictDescription": "一致しない文字をすべて空文字に置換します。空白、数字、句読点も削除されます。",
+      "targetHint": "設定の対象言語を使用します。文字体系で判定するため、同じ文字体系を使う言語同士は区別できません。ブロックの区切りを保つため、「改行を削除」より前に配置してください。"
     }
   },
   "texthook": {
@@ -2067,7 +2234,9 @@
     "output": {
       "title": "選択中フックの出力",
       "copyLine": "行をコピー",
-      "checkHint": "ゲーム内のテキストと一致しているか確認してください。",
+      "original": "元のテキスト",
+      "filteredOut": "フィルターで除外されました",
+      "checkHint": "フィルター適用後のテキストを表示しています。目のアイコンにカーソルを合わせると元のテキストを確認できます。",
       "waiting": "選択中フックからのテキストを待機中…",
       "selectHook": "プレビューするフックを一覧から選択してください。"
     },
@@ -2165,21 +2334,66 @@
       "error": "OBS の更新に失敗しました"
     }
   },
-  "textProcessing": {
-    "processors": {
-      "languageFilter": "対象言語フィルター",
-      "languageFilterDesc": "対象言語の文字体系に基づいて取得したテキストを絞り込みます",
-      "removeNonJapanese": "Shift-JIS 外の文字を削除"
+  "reader": {
+    "gameOptions": "ゲームのオプション",
+    "title": "テキストフィード",
+    "connection": {
+      "connecting": "接続中",
+      "live": "受信中",
+      "offline": "再接続中"
     },
-    "languageFilter": {
-      "mode": "フィルターの強さ",
-      "blocks": "1. ブロックを絞り込む",
-      "trim": "2. ブロックを絞り込み、前後の不要な文字を削除",
-      "strict": "3. 一致する文字のみ残す",
-      "blocksDescription": "受信イベントの各行をブロックとして扱います。対象言語の文字がないブロックを削除し、複数の言語が混在するブロックはそのまま残します。一致する文字がないイベントは空になります。",
-      "trimDescription": "ブロックを絞り込んだ後、残った各ブロックの先頭と末尾から対象言語以外の文字を削除します。内部の混在テキストと隣接する句読点は残します。",
-      "strictDescription": "一致しない文字をすべて空文字に置換します。空白、数字、句読点も削除されます。",
-      "targetHint": "設定の対象言語を使用します。文字体系で判定するため、同じ文字体系を使う言語同士は区別できません。ブロックの区切りを保つため、「改行を削除」より前に配置してください。"
-    }
+    "search": "テキストを検索",
+    "smaller": "文字を小さくする",
+    "larger": "文字を大きくする",
+    "smallerSymbol": "A−",
+    "largerSymbol": "A+",
+    "focus": "読書に集中",
+    "showControls": "ホームの操作を表示",
+    "browser": "ブラウザーで開く",
+    "close": "閉じる",
+    "closeLibrary": "読書に戻る",
+    "dismiss": "閉じる",
+    "intakePaused": "テキストの受信は一時停止中です。履歴は引き続き読めます。",
+    "emptyTitle": "次の一文を、ここから",
+    "emptyHint": "OCR・テキストフック・クリップボード取得を開始すると、ゲームの文章がここに表示されます。",
+    "noMatches": "一致する文章がありません",
+    "noMatchesHint": "別の語で検索するか、検索を解除してください。",
+    "currentSession": "現在のセッション",
+    "previousSession": "前のセッション",
+    "selectLine": "マイニング用に選択：{text}",
+    "historyOnly": "テキストのみ・リプレイ期限切れ",
+    "stop": "音声を停止",
+    "preparingAudio": "音声を準備中",
+    "replay": "音声を再生",
+    "translate": "翻訳を表示・非表示",
+    "lookup": "辞書で調べる",
+    "lookupHint": "選択した文字を検索します。Shiftを押しながら語をクリックすると、その位置から検索します。",
+    "screenshot": "このスクリーンショットを使用",
+    "saveClip": "クリップを保存",
+    "copy": "文章をコピー",
+    "copied": "文章をコピーしました。",
+    "dictionary": "辞書",
+    "lookingUp": "検索中…",
+    "transfer": {
+      "reading": "{name} の辞書を準備しています… {count} 件を読み込みました。元のデータは保持されています。",
+      "importing": "{name} の辞書を復元しています… {count} 件を復元しました。",
+      "failed": "{name} の辞書を復元できませんでした。元のデータは保持されています。GSM を再起動して再試行してください。"
+    },
+    "noDefinition": "見つかりませんでした。語を選択するか、辞書を開いて検索してください。",
+    "openDictionary": "辞書を開いてカードを作成",
+    "selected": "{count}件をマイニング用に選択",
+    "clearSelection": "解除",
+    "createMedia": "メディアを作成",
+    "lineCount": "{count}行",
+    "characterCount": "{count}文字",
+    "following": "最新を追従",
+    "follow": "最新を表示",
+    "newLines": "新着{count}行",
+    "requested": "GSMにリクエストを送信しました。",
+    "clipSaved": "クリップを保存しました。",
+    "audioError": "音声を再生できませんでした。リプレイの有効期間内に再試行してください。",
+    "audioTimeout": "音声の準備がタイムアウトしました。OBSのリプレイ録画を確認してください。",
+    "actionFailed": "操作を完了できませんでした。",
+    "historyUnavailable": "この端末に読書履歴を保存できませんでした。"
   }
 }

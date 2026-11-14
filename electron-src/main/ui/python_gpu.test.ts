@@ -12,19 +12,13 @@ function registerHandler(channel: string, dependencies: Record<string, unknown>)
     const source = fs.readFileSync(path.resolve('electron-src/main/ui/python.ts'), 'utf8');
     const parsed = ts.createSourceFile('python.ts', source, ts.ScriptTarget.Latest, true);
     const handlers = new Map<string, (...args: any[]) => Promise<any>>();
-    const snippets: string[] = [];
-    function visit(node: ts.Node) {
-        if (ts.isCallExpression(node) && node.expression.getText(parsed) === 'ipcMain.handle'
-            && ts.isStringLiteral(node.arguments[0]) && node.arguments[0].text === channel) snippets.push(node.getText(parsed));
-        ts.forEachChild(node, visit);
-    }
-    visit(parsed);
+    const snippets=parsed.statements.filter(node=>ts.isFunctionDeclaration(node)&&node.name&&['runPythonMaintenance','registerPythonIPC'].includes(node.name.text)).map(node=>node.getText(parsed).replace(/^export /,''));
     const context = vm.createContext({
         console: { log: vi.fn(), warn: vi.fn(), error: vi.fn() },
         ipcMain: { handle: (name: string, handler: (...args: any[]) => Promise<any>) => handlers.set(name, handler) },
         ...dependencies,
     });
-    vm.runInContext(ts.transpile(snippets.join(';'), { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }), context);
+    vm.runInContext(ts.transpile(snippets.join(';')+';registerPythonIPC();', { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }), context);
     return handlers.get(channel)!;
 }
 
@@ -75,60 +69,33 @@ describe('GPU package IPC completion', () => {
 });
 
 describe('Python dependency recovery IPC completion', () => {
-    it('replaces dependency files during an explicit GSM repair', async () => {
-        const sync = vi.fn(async () => {});
-        const install = vi.fn(async () => {});
-        const handler = registerHandler('python.repairGSM', {
-            setTimeout: (callback: () => void) => { callback(); return 0; },
-            getOrInstallPython: async () => 'managed-python',
-            closeAllPythonProcesses: async () => {},
-            pyProc: null,
-            getPythonExtras: () => ['gpu'],
-            resolveRequestedExtras: (extras: string[]) => ({ selectedExtras: extras, ignoredExtras: [] }),
-            checkAndInstallUV: async () => {},
-            syncLockedEnvironment: sync,
-            getBundledBackendSpecifier: () => 'GameSentenceMiner==2026.10.3',
-            installPackageNoDeps: install,
-            startManualInstallSession: vi.fn(),
-            updateInstallStage: vi.fn(),
-            installSessionManager: { finishActive: vi.fn() },
-            require: () => ({ ensureAndRunGSM: vi.fn(async () => {}) }),
+    it.each(['python.resetDependencies','python.repairGSM'])('returns on spawn while %s keeps its backend running',async channel=>{
+        const operations:string[]=[];
+        const native=vi.fn(async()=>{operations.push('native');return {pythonPath:'repaired-python'};});
+        const launch=vi.fn((_python,_retry,options)=>{operations.push('launch');options.onSpawn();return new Promise<void>(()=>{});});
+        const handler=registerHandler(channel,{
+            closeAllPythonProcesses:async()=>{operations.push('stop');},getPythonExtras:()=>['gpu'],pythonCall:native,
+            startManualInstallSession:vi.fn(),installSessionManager:{finishActive:vi.fn()},
+            require:()=>({ensureAndRunGSM:launch}),
         });
-        expect(await handler()).toMatchObject({ success: true });
-        expect(sync).toHaveBeenCalledWith('managed-python', ['gpu'], false, expect.any(Function), { deferValidation: true, reinstall: true });
-        expect(install).toHaveBeenCalledWith('managed-python', 'GameSentenceMiner==2026.10.3', true, expect.any(Function), ['gpu']);
+        expect(await handler()).toMatchObject({success:true});
+        expect(operations).toEqual(['stop','native','launch']);
+        const mode=channel==='python.repairGSM'?'repair':'reset_dependencies';
+        expect(native).toHaveBeenCalledExactlyOnceWith('maintain',{mode,extras:['gpu']});
+        expect(launch).toHaveBeenCalledWith('repaired-python',1,expect.objectContaining({origin:mode,onSpawn:expect.any(Function)}));
+    },1000);
+    it.each(['stop','native','launch'])('reports %s errors without continuing maintenance',async failure=>{
+        const native=vi.fn(async()=>{if(failure==='native')throw Error('Native failure');return {pythonPath:'python'};});
+        const launch=vi.fn(async()=>{throw Error('Launch failure');});
+        const finish=vi.fn();
+        const handler=registerHandler('python.repairGSM',{
+            closeAllPythonProcesses:async()=>{if(failure==='stop')throw Error('Stop failure');},getPythonExtras:()=>[],pythonCall:native,
+            startManualInstallSession:vi.fn(),installSessionManager:{finishActive:finish},
+            require:()=>({ensureAndRunGSM:launch}),
+        });
+        expect(await handler()).toMatchObject({success:false,message:expect.stringContaining('failure')});
+        expect(finish).toHaveBeenCalledWith('failed','Python maintenance failed.',expect.any(String));
+        if(failure==='stop')expect(native).not.toHaveBeenCalled();
+        if(failure!=='launch')expect(launch).not.toHaveBeenCalled();
     });
-
-    it.each([false, true])('finishes on launch or reports a launch error (failure: %s)', async (failLaunch) => {
-        const launch = vi.fn((_python, _retry, options) => {
-            if (failLaunch) return Promise.reject(new Error('Launch failed'));
-            options.onSpawn?.();
-            return new Promise<void>(() => {});
-        });
-        const sync = vi.fn(async () => {});
-        const finishSession = vi.fn();
-        const handler = registerHandler('python.resetDependencies', {
-            setTimeout: (callback: () => void) => { callback(); return 0; },
-            getOrInstallPython: async () => 'managed-python',
-            closeAllPythonProcesses: async () => {},
-            pyProc: null,
-            getPythonExtras: () => ['gpu'],
-            resolveRequestedExtras: (extras: string[]) => ({ selectedExtras: extras, ignoredExtras: [] }),
-            checkAndInstallUV: async () => {},
-            syncLockedEnvironment: sync,
-            startManualInstallSession: vi.fn(),
-            updateInstallStage: vi.fn(),
-            installSessionManager: { finishActive: finishSession },
-            require: () => ({ ensureAndRunGSM: launch }),
-        });
-        const result = await handler();
-        expect(sync).toHaveBeenCalledWith('managed-python', ['gpu'], false, expect.any(Function), { reinstall: true });
-        expect(result.success).toBe(!failLaunch);
-        if (failLaunch) {
-            expect(result.message).toContain('Launch failed');
-            expect(finishSession).toHaveBeenCalledWith('failed', expect.any(String), 'Launch failed');
-        } else {
-            expect(launch).toHaveBeenCalledWith('managed-python', 1, expect.objectContaining({ origin: 'reset_dependencies', onSpawn: expect.any(Function) }));
-        }
-    }, 1000);
 });

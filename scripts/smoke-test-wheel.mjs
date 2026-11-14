@@ -25,6 +25,9 @@ function runPython(args, options = {}) {
 }
 
 try {
+  runPython(['-c',
+    'import sys, zipfile; names=zipfile.ZipFile(sys.argv[1]).namelist(); bad=[n for n in names if "/mecab/" in n.lower() or n.endswith(".dic") or "mecab_bridge" in n]; assert not bad, bad',
+    wheelPath]);
   runPython(['-m', 'pip', 'install', '--disable-pip-version-check', '--no-deps', '--target', targetDir, wheelPath]);
   runPython(
     ['-c', 'from GameSentenceMiner import _native; assert _native.api_version() == 1'],

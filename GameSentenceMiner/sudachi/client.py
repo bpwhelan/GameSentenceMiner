@@ -41,7 +41,7 @@ class SudachiClient:
         *,
         endpoint: str | None = None,
         dictionary: str | None = None,
-        cache_max_size: int = 1024,
+        cache_max_size: int = 0,
         connect_factory: Callable[..., Any] = connect,
     ) -> None:
         self.endpoint = endpoint or os.getenv("GSM_INPUT_SERVER_URL", DEFAULT_INPUT_SERVER_URL)
@@ -114,11 +114,13 @@ class SudachiClient:
                     except Exception:
                         pass
 
-    def _receive_type(self, expected_type: str, *, request_id: int | None = None) -> dict[str, Any]:
+    def _receive_type(
+        self, expected_type: str, *, request_id: int | None = None, timeout: float = 30
+    ) -> dict[str, Any]:
         if self._socket is None:
             raise ConnectionError("Sudachi service is not connected")
         while True:
-            payload = json.loads(self._socket.recv(timeout=180))
+            payload = json.loads(self._socket.recv(timeout=timeout))
             if payload.get("type") != expected_type:
                 continue
             response_id = payload.get("requestId")
@@ -126,7 +128,7 @@ class SudachiClient:
                 continue
             return payload
 
-    def _connect(self) -> None:
+    def _connect(self, *, setup_only: bool = False) -> None:
         try:
             self._socket = self._connect_factory(
                 self.endpoint,
@@ -136,12 +138,13 @@ class SudachiClient:
                 max_size=16 * 1024 * 1024,
             )
             service_info = self._receive_type("service_info")
-            if not self._acquire_feature:
+            if not setup_only and not self._acquire_feature:
                 enabled = service_info.get("features", {}).get("enabled", [])
                 if "sudachi" not in enabled:
                     raise SudachiUnavailableError("The shared Sudachi capability is not enabled")
                 return
-            self._socket.send(json.dumps({"type": "configure_features", "features": ["sudachi"]}))
+            if not setup_only:
+                self._socket.send(json.dumps({"type": "configure_features", "features": ["sudachi"]}))
             self._socket.send(
                 json.dumps(
                     {
@@ -153,7 +156,27 @@ class SudachiClient:
             self._receive_type("sudachi_configuration")
         except Exception as exc:
             self.close()
-            raise SudachiUnavailableError(f"Unable to connect to Sudachi service at {self.endpoint}: {exc}") from exc
+            raise SudachiUnavailableError(
+                f"Unable to connect to Sudachi. Start GSM, open Japanese dictionary setup and retry: {exc}"
+            ) from exc
+
+    def dictionary_setup(self, *, install: bool = False, dictionary: str | None = None) -> dict[str, Any]:
+        """Only explicit setup requests may download a dictionary, in the shared service."""
+        with self._lock:
+            if self._socket is None:
+                self._connect(setup_only=True)
+            try:
+                request: dict[str, Any] = {"type": "prepare_sudachi" if install else "sudachi_status"}
+                if install and dictionary is not None:
+                    request["dictionary"] = dictionary
+                self._socket.send(json.dumps(request))
+                return self._receive_type("sudachi_status", timeout=960 if install else 5)
+            except Exception as exc:
+                raise SudachiUnavailableError(f"Japanese dictionary setup failed. Retry setup: {exc}") from exc
+            finally:
+                # A setup-only connection owns no analysis lease. Any later
+                # translate call must acquire its own feature connection.
+                self.close()
 
     def _request_tokens(self, text: str) -> tuple[SudachiToken, ...]:
         last_error: Exception | None = None
@@ -168,12 +191,12 @@ class SudachiClient:
                     "text": text,
                     "requestId": request_id,
                 }
-                if self._acquire_feature:
-                    request["dictionary"] = self.dictionary
                 self._socket.send(json.dumps(request, ensure_ascii=False))
                 payload = self._receive_type("tokens", request_id=request_id)
                 if payload.get("featureDisabled") or not payload.get("sudachiAvailable"):
-                    raise SudachiUnavailableError("The shared Sudachi capability is unavailable")
+                    raise SudachiUnavailableError(
+                        payload.get("error") or "Sudachi is unavailable. Open Japanese dictionary setup and retry."
+                    )
                 return tuple(self._parse_token(token) for token in payload.get("tokens", []))
             except SudachiUnavailableError:
                 raise

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./OCRTab.css";
+import { startVisiblePolling } from '../../lib/visiblePolling';
 import { OCRCaptureMap, type CaptureMapConfig } from "./OCRCaptureMap";
 import { OCRTextFeed } from "./OCRTextFeed";
 import { VitaOcrModel } from "./VitaOcrModel";
@@ -964,8 +965,11 @@ function captureHotkey(event: React.KeyboardEvent<HTMLInputElement>): string {
   if (event.altKey) {
     keys.push("Alt");
   }
-  if (event.key && !["Control", "Shift", "Alt"].includes(event.key)) {
-    keys.push(event.key.length === 1 ? event.key.toUpperCase() : event.key);
+  if (event.metaKey) {
+    keys.push("Cmd");
+  }
+  if (event.key && !["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
+    keys.push(event.key === " " ? "Space" : event.key.length === 1 ? event.key.toUpperCase() : event.key);
   }
 
   return keys.join("+");
@@ -1704,23 +1708,22 @@ export function OCRTab({ active }: OcrTabProps) {
       return;
     }
 
-    void refreshScenesAndConfig();
-    void refreshRunningState();
-
-    const sceneTimer = setInterval(() => {
-      void refreshScenesAndConfig(false);
+    let first = true;
+    const stopScenes = startVisiblePolling(async () => {
+      await refreshScenesAndConfig(first);
+      first = false;
     }, 5000);
 
-    const statusTimer = setInterval(() => {
-      void refreshRunningState();
+    const stopStatus = startVisiblePolling(async () => {
+      await refreshRunningState();
       if (runningStateRef.current.isRunning) {
         sendIpc("ocr.get-status");
       }
     }, 5000);
 
     return () => {
-      clearInterval(sceneTimer);
-      clearInterval(statusTimer);
+      stopScenes();
+      stopStatus();
     };
   }, [active, refreshRunningState, refreshScenesAndConfig]);
 
@@ -2767,9 +2770,9 @@ export function OCRTab({ active }: OcrTabProps) {
                       ) : null}
 
                       {config.mainOcr === "vitaocr" || (config.twoPassOCR && config.stabilityOcr === "vitaocr")
-                        ? <VitaOcrModel /> : null}
+                        ? <VitaOcrModel active={active && workspaceView === 'recognition'} /> : null}
                       {config.mainOcr === "meikiocr" || (config.twoPassOCR && ["meikiocr", "meiki_text_detector"].includes(config.stabilityOcr))
-                        ? <MeikiOcrModel /> : null}
+                        ? <MeikiOcrModel active={active && workspaceView === 'recognition'} /> : null}
 
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                         <label

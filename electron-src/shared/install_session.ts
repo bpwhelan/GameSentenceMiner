@@ -58,6 +58,9 @@ export interface InstallLogEntry {
 }
 
 export interface InstallSessionSnapshot {
+    attempt?: number;
+    revision?: number;
+    retryAvailable?: boolean;
     id: string;
     origin: InstallSessionOrigin;
     status: 'running' | 'completed' | 'failed';

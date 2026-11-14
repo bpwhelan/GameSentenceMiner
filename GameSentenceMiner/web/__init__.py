@@ -1,4 +1,5 @@
 def register_routes() -> None:
+    from GameSentenceMiner.web.onboarding_api import register_onboarding_routes
     from GameSentenceMiner.web.texthooking_page import app
     from GameSentenceMiner.web.anki_api_endpoints import register_anki_api_endpoints
     from GameSentenceMiner.web.database_api import register_database_api_routes
@@ -41,6 +42,7 @@ def register_routes() -> None:
     register_anki_api_endpoints(app)
     register_tokenization_api_routes(app)
     register_clips_api_routes(app)
+    register_onboarding_routes(app)
     from GameSentenceMiner.web.cloud_sync_api import register_cloud_sync_api_routes
 
     register_cloud_sync_api_routes(app)

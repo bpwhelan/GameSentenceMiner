@@ -1,0 +1,61 @@
+.setup-overlay { position: fixed; inset: 0; z-index: 9000; display: grid; place-items: center; padding: 24px; background: #070e19cc; backdrop-filter: blur(12px); }
+.setup-card { display: grid; grid-template-columns: 235px minmax(0, 1fr); width: min(900px, 100%); max-height: calc(100vh - 48px); min-height: min(590px, calc(100vh - 48px)); overflow: hidden; color: var(--gsm-text-primary); background: var(--gsm-surface-1); border: 1px solid var(--gsm-border-default); border-radius: 20px; box-shadow: 0 24px 90px #0008; }
+.setup-sidebar { display: flex; flex-direction: column; gap: 12px; padding: 32px 24px; background: var(--gsm-surface-0); border-right: 1px solid var(--gsm-border-default); }
+.setup-brand, .setup-eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .14em; color: var(--gsm-accent, #78b7ff); font-weight: 700; }
+.setup-sidebar h2 { margin: 8px 0 0; font-size: 24px; line-height: 1.25; }
+.setup-sidebar p, .setup-sidebar-note { margin: 0; color: var(--gsm-text-secondary); font-size: 12px; line-height: 1.6; }
+.setup-sidebar-note { margin-top: auto; }
+.setup-sidebar ol { padding: 0; margin: 18px 0; list-style: none; display: grid; gap: 9px; }
+.setup-sidebar li { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--gsm-text-secondary); padding: 6px 0; }
+.setup-sidebar li[aria-current] { color: var(--gsm-text-primary); font-weight: 650; }
+.setup-step-number { width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid var(--gsm-border-default); border-radius: 50%; font-size: 11px; flex-shrink: 0; }
+.setup-sidebar li[aria-current] .setup-step-number { background: var(--gsm-accent, #78b7ff); color: #071526; border-color: transparent; }
+.setup-sidebar li[data-past=true] .setup-step-number { color: var(--gsm-accent, #78b7ff); }
+.setup-card svg, .setup-guide svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.setup-main { min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.setup-content { padding: 36px 36px 24px; overflow-y: auto; flex: 1; }
+.setup-content h1 { margin: 12px 0; font-size: 28px; line-height: 1.2; letter-spacing: -.025em; outline: none; }
+.setup-lede { color: var(--gsm-text-secondary); line-height: 1.6; font-size: 14px; margin: 0 0 25px; }
+.setup-card button, .setup-guide button { cursor: pointer; font: inherit; font-size: 13px; border: 1px solid var(--gsm-border-default); border-radius: 8px; padding: 10px 14px; background: var(--gsm-surface-2); color: var(--gsm-text-primary); }
+.setup-card button:hover:not(:disabled), .setup-guide button:hover:not(:disabled) { filter: brightness(1.15); }
+.setup-card button:disabled, .setup-guide button:disabled { opacity: .5; cursor: default; }
+.setup-card :is(button, select):focus-visible, .setup-guide button:focus-visible { outline: 2px solid var(--gsm-accent, #78b7ff); outline-offset: 3px; }
+.setup-card .setup-primary { background: var(--gsm-accent, #78b7ff); color: #071526; border-color: transparent; font-weight: 650; }
+.setup-card .setup-link { border-color: transparent; background: transparent; color: var(--gsm-text-secondary); padding-left: 0; }
+.setup-fields { display: grid; gap: 10px; }
+.setup-fields label { font-size: 13px; font-weight: 600; margin-top: 8px; }
+.setup-fields select { width: 100%; padding: 12px; background: var(--gsm-surface-0); color: var(--gsm-text-primary); border: 1px solid var(--gsm-border-default); border-radius: 8px; font: inherit; }
+.setup-note, .setup-status { font-size: 12px; line-height: 1.6; color: var(--gsm-text-secondary); }
+.setup-status { margin-top: 18px; }
+.setup-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.setup-choices button { display: grid; gap: 7px; text-align: left; padding: 15px; }
+.setup-choices button[aria-pressed=true] { border-color: var(--gsm-accent, #78b7ff); background: var(--gsm-surface-0); }
+.setup-choices span { font-size: 12px; color: var(--gsm-text-secondary); line-height: 1.45; }
+.setup-dictionary { display: flex; gap: 14px; padding: 17px; background: var(--gsm-surface-0); border-radius: 10px; margin-bottom: 16px; }
+.setup-dictionary svg { flex-shrink: 0; color: var(--gsm-accent, #78b7ff); }
+.setup-dictionary strong { font-size: 14px; }
+.setup-dictionary p, .setup-info p { font-size: 13px; line-height: 1.6; color: var(--gsm-text-secondary); margin: 8px 0; }
+.setup-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.setup-instructions { padding-left: 22px; display: grid; gap: 17px; font-size: 14px; line-height: 1.6; margin: 24px 0; }
+.setup-instructions li::marker { color: var(--gsm-accent, #78b7ff); font-weight: bold; }
+.setup-info { padding: 15px 18px; background: var(--gsm-surface-0); border-radius: 10px; margin-bottom: 14px; }
+.setup-info h3 { font-size: 14px; margin: 0; }
+.setup-error { color: var(--gsm-danger, #ffacac); font-size: 13px; line-height: 1.6; }
+.setup-error span { display: block; overflow-wrap: anywhere; }
+.setup-footer { border-top: 1px solid var(--gsm-border-default); padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.setup-footer > div { display: flex; align-items: center; gap: 8px; }
+.setup-guide { flex-shrink: 0; display: flex; gap: 12px; align-items: center; padding: 12px 20px; background: var(--gsm-surface-1); border-bottom: 1px solid var(--gsm-accent, #78b7ff); }
+.setup-guide > div { display: grid; gap: 4px; flex: 1; font-size: 13px; }
+.setup-guide span { font-size: 12px; color: var(--gsm-text-secondary); }
+@media (max-width: 720px) {
+  .setup-overlay { padding: 12px; }
+  .setup-card { grid-template-columns: minmax(0, 1fr); max-height: calc(100vh - 24px); }
+  .setup-sidebar { padding: 18px 24px 8px; border-right: 0; border-bottom: 1px solid var(--gsm-border-default); }
+  .setup-sidebar h2, .setup-sidebar p, .setup-sidebar-note { display: none; }
+  .setup-sidebar ol { display: flex; justify-content: space-between; margin: 0; gap: 4px; }
+  .setup-sidebar li { font-size: 0; }
+  .setup-content { padding: 24px; }
+  .setup-content h1 { font-size: 24px; }
+  .setup-footer { padding: 14px 20px; }
+  .setup-guide { flex-wrap: wrap; }
+}

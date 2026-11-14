@@ -2,13 +2,18 @@
 // The managed overlay also receives changes immediately through the shared IPC.
 (() => {
   const { ipcRenderer } = require("electron");
-  const { readFileSync } = require("node:fs");
-  const path = require("node:path");
-  const os = require("node:os");
-  const dataDir = process.env.GSM_DATA_DIR || path.join(
-    process.env.APPDATA || path.join(os.homedir(), ".config"), "GameSentenceMiner",
-  );
-  const configPath = path.join(dataDir, "electron", "config.json");
+  const native = window.gsmEnv?.shell === "tauri";
+  let readTheme = () => window.gsmEnv?.theme;
+  if (!native) {
+    const { readFileSync } = require("node:fs");
+    const path = require("node:path");
+    const os = require("node:os");
+    const dataDir = process.env.GSM_DATA_DIR || path.join(
+      process.env.APPDATA || path.join(os.homedir(), ".config"), "GameSentenceMiner",
+    );
+    const configPath = path.join(dataDir, "electron", "config.json");
+    readTheme = () => JSON.parse(readFileSync(configPath, "utf8")).theme;
+  }
   let revision = 0;
 
   function applyTheme(theme) {
@@ -18,11 +23,11 @@
   function refreshTheme() {
     const requestRevision = ++revision;
     try {
-      applyTheme(JSON.parse(readFileSync(configPath, "utf8")).theme);
+      applyTheme(readTheme());
     } catch {
       // A standalone overlay can run before GSM has saved desktop preferences.
     }
-    if (process.env.GSM_OVERLAY_IN_PROCESS === "1") {
+    if (native || process.env.GSM_OVERLAY_IN_PROCESS === "1") {
       void ipcRenderer.invoke("settings.getTheme").then((theme) => {
         if (revision === requestRevision) applyTheme(theme);
       }).catch(() => {

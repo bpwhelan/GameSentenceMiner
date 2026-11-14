@@ -1,0 +1,747 @@
+{
+  "checks": [
+    "backtick and tilde remain typeable",
+    "plain and modified shortcuts accept visible background game",
+    "minimized and hidden game suppress shortcuts",
+    "restore re-enables shortcuts",
+    "exact modifiers",
+    "stop releases input"
+  ],
+  "extended": [
+    {
+      "key": "F13",
+      "variants": [
+        {
+          "binding": "F13",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F13",
+            "keyCode": 124
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F13",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F13",
+            "keyCode": 124
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F13",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F13",
+            "keyCode": 124
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F14",
+      "variants": [
+        {
+          "binding": "F14",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F14",
+            "keyCode": 125
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F14",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F14",
+            "keyCode": 125
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F14",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F14",
+            "keyCode": 125
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F15",
+      "variants": [
+        {
+          "binding": "F15",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F15",
+            "keyCode": 126
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F15",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F15",
+            "keyCode": 126
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F15",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F15",
+            "keyCode": 126
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F16",
+      "variants": [
+        {
+          "binding": "F16",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F16",
+            "keyCode": 127
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F16",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F16",
+            "keyCode": 127
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F16",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F16",
+            "keyCode": 127
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F17",
+      "variants": [
+        {
+          "binding": "F17",
+          "reservedElsewhere": true,
+          "skipped": "Existing system registration could trigger another application"
+        },
+        {
+          "binding": "Shift+F17",
+          "reservedElsewhere": true,
+          "skipped": "Existing system registration could trigger another application"
+        },
+        {
+          "binding": "Ctrl+F17",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F17",
+            "keyCode": 128
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F18",
+      "variants": [
+        {
+          "binding": "F18",
+          "reservedElsewhere": true,
+          "skipped": "Existing system registration could trigger another application"
+        },
+        {
+          "binding": "Shift+F18",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F18",
+            "keyCode": 129
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F18",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F18",
+            "keyCode": 129
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F19",
+      "variants": [
+        {
+          "binding": "F19",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F19",
+            "keyCode": 130
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F19",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F19",
+            "keyCode": 130
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F19",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F19",
+            "keyCode": 130
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F20",
+      "variants": [
+        {
+          "binding": "F20",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F20",
+            "keyCode": 131
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F20",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F20",
+            "keyCode": 131
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F20",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F20",
+            "keyCode": 131
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F21",
+      "variants": [
+        {
+          "binding": "F21",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F21",
+            "keyCode": 132
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F21",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F21",
+            "keyCode": 132
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F21",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F21",
+            "keyCode": 132
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F22",
+      "variants": [
+        {
+          "binding": "F22",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F22",
+            "keyCode": 133
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F22",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F22",
+            "keyCode": 133
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F22",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F22",
+            "keyCode": 133
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F23",
+      "variants": [
+        {
+          "binding": "F23",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F23",
+            "keyCode": 134
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F23",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F23",
+            "keyCode": 134
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F23",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F23",
+            "keyCode": 134
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    },
+    {
+      "key": "F24",
+      "variants": [
+        {
+          "binding": "F24",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F24",
+            "keyCode": 135
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Shift+F24",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F24",
+            "keyCode": 135
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        },
+        {
+          "binding": "Ctrl+F24",
+          "reservedElsewhere": false,
+          "recorded": {
+            "code": "",
+            "key": "F24",
+            "keyCode": 135
+          },
+          "visibleBackground": true,
+          "minimizedIgnored": true,
+          "hiddenIgnored": true
+        }
+      ]
+    }
+  ],
+  "actionTimes": [
+    {
+      "vk": 192,
+      "modifier": 0,
+      "milliseconds": 1.099699999999757
+    },
+    {
+      "vk": 192,
+      "modifier": 0,
+      "milliseconds": 1.4317000000000917
+    },
+    {
+      "vk": 192,
+      "modifier": 16,
+      "milliseconds": 3.096599999999853
+    },
+    {
+      "vk": 192,
+      "modifier": 16,
+      "milliseconds": 2.378799999999501
+    },
+    {
+      "vk": 124,
+      "modifier": 0,
+      "milliseconds": 0.7696999999998297
+    },
+    {
+      "vk": 124,
+      "modifier": 16,
+      "milliseconds": 3.872599999999693
+    },
+    {
+      "vk": 124,
+      "modifier": 17,
+      "milliseconds": 3.16150000000016
+    },
+    {
+      "vk": 125,
+      "modifier": 0,
+      "milliseconds": 1.0216999999993277
+    },
+    {
+      "vk": 125,
+      "modifier": 16,
+      "milliseconds": 2.9045999999998457
+    },
+    {
+      "vk": 125,
+      "modifier": 17,
+      "milliseconds": 3.141799999999421
+    },
+    {
+      "vk": 126,
+      "modifier": 0,
+      "milliseconds": 1.2026999999998225
+    },
+    {
+      "vk": 126,
+      "modifier": 16,
+      "milliseconds": 2.788200000002689
+    },
+    {
+      "vk": 126,
+      "modifier": 17,
+      "milliseconds": 4.391999999999825
+    },
+    {
+      "vk": 127,
+      "modifier": 0,
+      "milliseconds": 0.9205999999976484
+    },
+    {
+      "vk": 127,
+      "modifier": 16,
+      "milliseconds": 2.7651999999980035
+    },
+    {
+      "vk": 127,
+      "modifier": 17,
+      "milliseconds": 2.6067000000002736
+    },
+    {
+      "vk": 128,
+      "modifier": 17,
+      "milliseconds": 4.566299999998591
+    },
+    {
+      "vk": 129,
+      "modifier": 16,
+      "milliseconds": 3.090299999999843
+    },
+    {
+      "vk": 129,
+      "modifier": 17,
+      "milliseconds": 2.6702000000004773
+    },
+    {
+      "vk": 130,
+      "modifier": 0,
+      "milliseconds": 1.1042000000015832
+    },
+    {
+      "vk": 130,
+      "modifier": 16,
+      "milliseconds": 2.5722999999998137
+    },
+    {
+      "vk": 130,
+      "modifier": 17,
+      "milliseconds": 2.7855000000017753
+    },
+    {
+      "vk": 131,
+      "modifier": 0,
+      "milliseconds": 1.1495000000068103
+    },
+    {
+      "vk": 131,
+      "modifier": 16,
+      "milliseconds": 3.0241000000023632
+    },
+    {
+      "vk": 131,
+      "modifier": 17,
+      "milliseconds": 2.80279999999766
+    },
+    {
+      "vk": 132,
+      "modifier": 0,
+      "milliseconds": 1.0094000000026426
+    },
+    {
+      "vk": 132,
+      "modifier": 16,
+      "milliseconds": 3.3267000000050757
+    },
+    {
+      "vk": 132,
+      "modifier": 17,
+      "milliseconds": 1.917699999998149
+    },
+    {
+      "vk": 133,
+      "modifier": 0,
+      "milliseconds": 0.982800000005227
+    },
+    {
+      "vk": 133,
+      "modifier": 16,
+      "milliseconds": 4.270199999999022
+    },
+    {
+      "vk": 133,
+      "modifier": 17,
+      "milliseconds": 2.3999000000039814
+    },
+    {
+      "vk": 134,
+      "modifier": 0,
+      "milliseconds": 0.8972999999969034
+    },
+    {
+      "vk": 134,
+      "modifier": 16,
+      "milliseconds": 2.2665999999953783
+    },
+    {
+      "vk": 134,
+      "modifier": 17,
+      "milliseconds": 2.8744000000006054
+    },
+    {
+      "vk": 135,
+      "modifier": 0,
+      "milliseconds": 0.8104000000021188
+    },
+    {
+      "vk": 135,
+      "modifier": 16,
+      "milliseconds": 3.094200000006822
+    },
+    {
+      "vk": 135,
+      "modifier": 17,
+      "milliseconds": 2.7506999999968684
+    },
+    {
+      "vk": 119,
+      "modifier": 17,
+      "milliseconds": 15.179300000003423
+    }
+  ],
+  "metrics": [
+    {
+      "phase": "visible-background-keyboard-idle",
+      "wall_seconds": 10.000244199996814,
+      "processes": [
+        {
+          "pid": 74008,
+          "cpu_seconds": 0,
+          "total_machine_percent": 0,
+          "role": "tauri_desktop"
+        },
+        {
+          "pid": 72660,
+          "cpu_seconds": 0.046875,
+          "total_machine_percent": 0.0292961595877922,
+          "role": "input_service"
+        }
+      ],
+      "combined_machine_percent": 0.0292961595877922
+    },
+    {
+      "phase": "hidden-game-keyboard-idle",
+      "wall_seconds": 10.000243599992245,
+      "processes": [
+        {
+          "pid": 74008,
+          "cpu_seconds": 0.03125,
+          "total_machine_percent": 0.019530774230354892,
+          "role": "tauri_desktop"
+        },
+        {
+          "pid": 72660,
+          "cpu_seconds": 0.03125,
+          "total_machine_percent": 0.019530774230354892,
+          "role": "input_service"
+        }
+      ],
+      "combined_machine_percent": 0.039061548460709784
+    },
+    {
+      "phase": "stopped",
+      "wall_seconds": 10.000312800053507,
+      "processes": [
+        {
+          "pid": 74008,
+          "cpu_seconds": 0,
+          "total_machine_percent": 0,
+          "role": "tauri_desktop"
+        },
+        {
+          "pid": 72660,
+          "cpu_seconds": 0.1875,
+          "total_machine_percent": 0.11718383448903015,
+          "role": "input_service"
+        }
+      ],
+      "combined_machine_percent": 0.11718383448903015
+    }
+  ],
+  "date": "2026-11-11",
+  "logical_cpus": 16,
+  "cpu": "AMD Ryzen 7 5800X 8-Core Processor             ",
+  "desktop_binary": "582c2747946800c551bf",
+  "input_service_sha256": "a8a71d8f728cde1907f94288d85cdf402ce886007e882b42f1d75f3eba4489a3",
+  "scope": "Windows development build; actual SendInput to isolated test windows; process CPU includes the fixture Tauri host and shared Rust input service with an attached controller. Excludes WebView/Node/Python processes and OCR inference. Sequential ten-second samples, not an isolated keyboard overhead estimate.",
+  "latency": {
+    "samples": 38,
+    "median_ms": 2.710449999998673,
+    "p95_ms": 4.566299999998591,
+    "max_ms": 15.179300000003423,
+    "method": "Elapsed time from immediately before Win32 SendInput to receipt of the native pause/unpause event in the desktop bridge; includes transport."
+  }
+}

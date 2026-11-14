@@ -669,6 +669,24 @@
               <section class="settings-page" data-page="interaction-reveal">
                 <div class="setting-group full-width" data-tab="interaction" id="manualModeCardMount"></div>
                 <div class="setting-group" data-tab="interaction">
+                  <h4>Recommendation Popups</h4>
+                  <p class="hotkey-info">These preferences apply to all games and overlay profiles.</p>
+                  <label>
+                    <span class="label-text">
+                      Show Push to Show recommendation
+                      <div class="hotkey-info">Suggest Push to Show when a game hides the mouse cursor.</div>
+                    </span>
+                    <input type="checkbox" id="showManualModeRecommendations" checked />
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Show exclusive fullscreen warning
+                      <div class="hotkey-info">Suggest Borderless Fullscreen or Windowed mode for exclusive fullscreen games.</div>
+                    </span>
+                    <input type="checkbox" id="showExclusiveFullscreenRecommendations" checked />
+                  </label>
+                </div>
+                <div class="setting-group" data-tab="interaction">
                   <h4>Exclusive Fullscreen Compatibility</h4>
                   <label>
                     <span class="label-text">
@@ -1452,13 +1470,11 @@
                       <span class="label-text">
                         Token/Furigana Backend
                         <div class="hotkey-info">
-                          Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core
-                          dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
+                          Choose whether tokenization/furigana uses the shared Sudachi dictionary, Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
                         </div>
                       </span>
                       <select id="gamepadTokenizerBackend">
-                        <option value="mecab">MeCab</option>
-                        <option value="sudachi">Sudachi (Auto-download)</option>
+                        <option value="sudachi">Sudachi (Shared dictionary)</option>
                         <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
                         <option value="yomitan-api">Yomitan API (Setup Required)</option>
                         <option value="jiten-api">JitenAPI</option>
@@ -1469,13 +1485,13 @@
                       <span class="label-text">
                         Sudachi Dictionary
                         <div class="hotkey-info">
-                          Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is
+                          Choose the shared Sudachi dictionary edition, then use Download / Retry below. Small is
                           the mini option; Full includes more proper nouns.
                         </div>
                       </span>
                       <select id="gamepadSudachiDictionary">
-                        <option value="core">Core (Default)</option>
-                        <option value="small">Small (Mini)</option>
+                        <option value="core">Core</option>
+                        <option value="small">Small (Default)</option>
                         <option value="full">Full</option>
                       </select>
                     </label>
@@ -2258,13 +2274,11 @@
                     <span class="label-text">
                       Token/Furigana Backend
                       <div class="hotkey-info">
-                        Choose whether tokenization/furigana uses overlay MeCab, overlay Sudachi (auto-downloads core
-                        dict), Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
+                        Choose whether tokenization/furigana uses the shared Sudachi dictionary, Yomitan bridge, Yomitan API, JitenAPI, or JPDB API
                       </div>
                     </span>
                     <select id="furiganaTokenizerBackend">
-                      <option value="mecab">MeCab</option>
-                      <option value="sudachi">Sudachi (Auto-download)</option>
+                      <option value="sudachi">Sudachi (Shared dictionary)</option>
                       <option value="yomitan-bridge">Yomitan Bridge (Overlay)</option>
                       <option value="yomitan-api">Yomitan API (Setup Required)</option>
                       <option value="jiten-api">JitenAPI</option>
@@ -2277,7 +2291,6 @@
                       <div class="hotkey-info">If the selected backend fails, retry with this local provider.</div>
                     </span>
                     <select id="furiganaLocalTokenizerFallbackBackend">
-                      <option value="mecab">MeCab</option>
                       <option value="sudachi">Sudachi</option>
                     </select>
                   </label>
@@ -2285,16 +2298,20 @@
                     <span class="label-text">
                       Sudachi Dictionary
                       <div class="hotkey-info">
-                        Choose the Sudachi dictionary edition to auto-download. Core is the default balance; Small is
+                        Choose the shared Sudachi dictionary edition, then use Download / Retry below. Small is
                         the mini option; Full includes more proper nouns.
                       </div>
                     </span>
                     <select id="furiganaSudachiDictionary">
-                      <option value="core">Core (Default)</option>
-                      <option value="small">Small (Mini)</option>
+                      <option value="core">Core</option>
+                      <option value="small">Small (Default)</option>
                       <option value="full">Full</option>
                     </select>
                   </label>
+                  <div data-tokenizer-setting="sudachi">
+                    <button id="sudachiSetupRetry" type="button">Download / Retry Japanese dictionary</button>
+                    <p id="sudachiSetupStatus" role="status">Checking Japanese dictionary setup...</p>
+                  </div>
                   <div
                     id="sudachiProgressContainer"
                     class="sudachi-progress-container"

@@ -1,5 +1,14 @@
 {
   "gameLauncher": {
+    "mode": "Iniciar con",
+    "modeExecutable": "Ejecutable del juego",
+    "modeYuzu": "Yuzu",
+    "yuzuPath": "Ejecutable de Yuzu",
+    "romPath": "ROM del juego",
+    "yuzuArguments": "Argumentos de Yuzu",
+    "yuzuHelp": "Elige Yuzu y la ROM que quieres iniciar. GSM pasa la ROM con -g. Se reutilizan los ajustes de escenas de Yuzu existentes cuando están disponibles.",
+    "chooseRom": "Elige la ROM del juego abajo y luego guarda o inicia.",
+    "userLaunchHelp": "Los juegos y lanzadores personalizados se ejecutan como el usuario del escritorio, incluso cuando GSM se ejecuta como administrador.",
     "title": "Inicio de juegos",
     "launch": "Iniciar juego",
     "working": "Procesando…",
@@ -23,6 +32,7 @@
     "saved": "Opciones de inicio guardadas.",
     "launched": "Solicitud de inicio enviada.",
     "errors": {
+      "missingRom": "Elige una ROM del juego que exista.",
       "unsupported": "El inicio de juegos solo está disponible en Windows.",
       "invalidScene": "Primero selecciona un juego.",
       "missingExecutable": "Elige un ejecutable de juego existente.",
@@ -45,6 +55,16 @@
     "title": "Hook del juego (experimental)"
   },
   "home": {
+    "capturePicker": {
+      "search": "Buscar ventanas y dispositivos…",
+      "recentOrder": "Ventanas activadas recientemente primero",
+      "recent": "Activada recientemente",
+      "loadingPreview": "Cargando vista previa…",
+      "previewUnavailable": "Vista previa no disponible",
+      "noMatches": "No hay ventanas ni dispositivos coincidentes.",
+      "selected": "Selección: {title}",
+      "snapshotHint": "Las vistas previas se actualizan al abrir este diálogo o actualizar la lista."
+    },
     "workspace": {
       "library": "Tus juegos",
       "savedGames": "Juegos guardados",
@@ -151,6 +171,10 @@
       "confirm": "Renombrar"
     },
     "overlay": {
+      "enabled": "Activar superposición",
+      "changing": "Actualizando…",
+      "toggleTooltip": "Activa o desactiva la superposición de GSM. Al desactivarla, se pausa el inicio automático hasta que la actives de nuevo o reinicies GSM.",
+      "toggleError": "No se pudo cambiar la superposición. Inténtalo de nuevo.",
       "title": "Superposición",
       "statusRunning": "En ejecución",
       "statusStopped": "No ejecutándose",
@@ -557,6 +581,61 @@
     "quit": "Salir"
   },
   "settings": {
+    "notifications": {
+      "title": "Notificaciones y sonidos",
+      "description": "Elige cómo se anuncian cuatro grupos de notificaciones. Los sonidos discretos también funcionan con GSM en la bandeja del sistema.",
+      "volume": "Volumen del sonido",
+      "volumeValue": "{volume}%",
+      "quietDefaults": "Usar valores discretos",
+      "delivery": "Aviso",
+      "sound": "Sonido",
+      "preview": "Escuchar",
+      "deliveryFor": "Aviso para {event}",
+      "soundFor": "Sonido para {event}",
+      "previewFor": "Escuchar {event}",
+      "loading": "Cargando notificaciones…",
+      "saving": "Guardando…",
+      "autoSave": "Los cambios se guardan automáticamente. El volumen solo afecta a los sonidos de confirmación de GSM.",
+      "retry": "Reintentar",
+      "loadError": "No se pudo cargar la configuración de notificaciones.",
+      "saveError": "No se pudo guardar la configuración de notificaciones.",
+      "previewError": "No se pudo reproducir el sonido.",
+      "modes": {
+        "off": "Desactivado",
+        "sound": "Solo sonido",
+        "banner": "Aviso silencioso",
+        "both": "Aviso y sonido"
+      },
+      "sounds": {
+        "soft-ping": "Ping suave",
+        "bell": "Campana suave",
+        "bubble": "Burbuja",
+        "wood": "Toque de madera",
+        "glass": "Cristal",
+        "success": "Éxito",
+        "ascending": "Tonos ascendentes",
+        "descending": "Tonos descendentes",
+        "double-tap": "Doble toque",
+        "chime": "Campanillas",
+        "pause-resume": "Descendente / ascendente",
+        "marimba": "Marimba",
+        "sparkle": "Destello",
+        "low-knock": "Golpe grave"
+      },
+      "categories": {
+        "confirmation": "Confirmaciones",
+        "cardError": "Errores de tarjetas",
+        "pauseResume": "Pausa / reanudación",
+        "appAlert": "Alertas de la aplicación"
+      },
+      "categoryDescriptions": {
+        "confirmation": "Tarjetas actualizadas, audio o capturas guardados y GSM listo. Las tarjetas sin voz son normales.",
+        "cardError": "Fallos al procesar tarjetas, generar archivos o subirlos a Anki. No detectar voz no es un error.",
+        "pauseResume": "Pausar o reanudar el OCR y la recopilación de estadísticas.",
+        "appAlert": "Otros errores de la aplicación, advertencias de OBS y recordatorios de revisión."
+      },
+      "globalHint": "Se aplica a todos los juegos y perfiles. Configura aquí los sonidos y avisos."
+    },
     "workspace": {
       "brandHint": "Preferencias y herramientas",
       "general": "General",
@@ -611,7 +690,6 @@
       "iconRandomTray": "Aleatorio (icono de bandeja también)",
       "language": "Idioma de visualización (IA):",
       "startMinimized": "Iniciar consola minimizada:",
-      "runTransparencyOnStartup": "Ejecutar herramienta de transparencia al inicio:",
       "runOverlayOnStartup": "Ejecutar superposición al inicio:"
     },
     "visibility": {
@@ -622,13 +700,6 @@
       "tabPython": "Python",
       "tabConsole": "Consola",
       "statsTarget": "Objetivo de estadísticas:"
-    },
-    "transparency": {
-      "title": "Herramienta de transparencia (Obsoleta)",
-      "toolHotkey": "Atajo de herramienta:",
-      "windowTarget": "Ventana objetivo:",
-      "windowTargetPlaceholder": "Dejar vacío para usar la ventana enfocada",
-      "runTool": "Ejecutar herramienta de transparencia de ventana"
     },
     "updates": {
       "title": "Actualizaciones",
@@ -651,6 +722,8 @@
       "unknown": "Desconocido"
     },
     "catalog": {
+      "openTextProcessing": "Abrir procesamiento de texto",
+      "desktopNotifications": { "label": "Notificaciones y sonidos", "description": "Elige sonidos discretos, avisos silenciosos o ninguna notificación para cada evento." },
       "alreadyOnScreen": "Ya en esta pantalla",
       "openGSMSettings": "Abrir ajustes principales de GSM",
       "openOverlaySettings": "Abrir ajustes de superposición",
@@ -1130,6 +1203,12 @@
       "events": {
         "captured": "Texto capturado",
         "noText": "No se detectó texto",
+        "scanning": "Buscando texto en la captura",
+        "waitingForContext": "Esperando la respuesta del servicio interno",
+        "waitingForTarget": "Esperando la ventana del juego o la fuente de OBS",
+        "noCaptureArea": "No hay un área de captura utilizable",
+        "stabilizing": "Esperando a que el texto se estabilice",
+        "furiganaFiltered": "El filtro de furigana descartó todo el texto. Baja su valor en Reconocimiento.",
         "unchanged": "Esperando cambios en la pantalla",
         "menu": "Texto de menú omitido",
         "ignored": "Texto en un área ignorada omitido",
@@ -1411,7 +1490,9 @@
     "output": {
       "title": "Salida del hook seleccionado",
       "copyLine": "Copiar línea",
-      "checkHint": "Comprueba que coincida con el texto del juego.",
+      "original": "Texto original",
+      "filteredOut": "Filtrado por completo",
+      "checkHint": "Se muestra el texto después de aplicar tus filtros. Pasa el cursor sobre el icono del ojo para ver el original.",
       "waiting": "Esperando texto del hook seleccionado…",
       "selectHook": "Selecciona un hook de la lista para ver su texto."
     },

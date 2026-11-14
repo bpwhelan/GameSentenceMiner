@@ -39,10 +39,10 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.database.db import DB_PRIORITY_HIGH, GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.gsm_utils import SleepManager
-from GameSentenceMiner.util.platform.notification import (
+from GameSentenceMiner.util.communication.desktop_events import (
     announce_text_intake_state,
-    send_text_intake_paused_notification,
-    send_text_intake_resumed_notification,
+    text_intake_paused,
+    text_intake_resumed,
 )
 from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
 from GameSentenceMiner.util.sentence_exclusions import is_sentence_excluded
@@ -303,9 +303,9 @@ def set_text_intake_paused(paused: bool) -> bool:
         logger.info(f"GSM text intake {'paused' if new_state else 'resumed'}.")
         announce_text_intake_state(new_state)
         if new_state:
-            send_text_intake_paused_notification(should_relay_outputs_when_text_intake_paused())
+            text_intake_paused(should_relay_outputs_when_text_intake_paused())
         else:
-            send_text_intake_resumed_notification()
+            text_intake_resumed()
     return new_state
 
 
@@ -886,7 +886,10 @@ def _ingest_line_sync(
         logger.warning(f"Rejected text observation {observation.observation_id}: {result.ack.reason}")
     if wait_projected:
         get_authoritative_text_runtime().wait_projected(timeout=1.0)
-    return result.ack
+    # Return the exact filter result, including empty/duplicate output, to source
+    # previews. Hook and OCR clients must not re-run processing or show raw text
+    # as though it had passed the user's filters.
+    return replace(result.ack, raw_text=guarded_line, processed_text=current_line_after_regex)
 
 
 def _parse_ingress_datetime(value, fallback: datetime | None = None) -> datetime:

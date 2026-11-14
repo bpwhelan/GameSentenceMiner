@@ -2,6 +2,7 @@
 <html>
 
 <head>
+<title>GSM Overlay</title>
 <link rel="stylesheet" href="quick_actions.css">
 <style>
   /* Hidden container for Jiten Reader to parse text into .jiten-word spans.
@@ -153,6 +154,19 @@ background: rgba(202, 12, 12, 0.692);
     text-shadow: 0 0 1px var(--gsm-furigana-outline-color);
   }
 
+  .furigana-box--vertical {
+    align-items: center;
+    transform: translateX(2px);
+    transform-origin: left center;
+  }
+
+  .furigana-box--vertical .furigana-reading {
+    width: auto;
+    height: 100%;
+    writing-mode: vertical-rl;
+    text-orientation: upright;
+  }
+
   .pinyin-tone-1 { color: var(--gsm-pinyin-tone1-color); }
   .pinyin-tone-2 { color: var(--gsm-pinyin-tone2-color); }
   .pinyin-tone-3 { color: var(--gsm-pinyin-tone3-color); }
@@ -177,8 +191,7 @@ background: rgba(202, 12, 12, 0.692);
      injects styles generated from Jiten Reader's Word Styling settings. */
   :root {
     --gsm-jiten-highlight-opacity: 0.7;
-    /* Nudge the whole highlight box (and thus its bottom underline) down a few
-       pixels by default so the underline clears the glyph descenders. User
+    /* Nudge highlights away from the text: down for rows, left for columns. User
        adjustable via the "Highlight Vertical Offset" setting. */
     --gsm-jiten-highlight-offset-y: 3px;
     --gsm-jiten-color-new: 165, 102, 239;
@@ -212,23 +225,23 @@ background: rgba(202, 12, 12, 0.692);
     transform: translateY(var(--gsm-jiten-highlight-offset-y, 0px));
   }
   .gsm-jiten-hl--new {
-    border-bottom: 3px solid rgba(var(--gsm-jiten-color-new), var(--gsm-jiten-highlight-opacity));
+    border-block-end: 3px solid rgba(var(--gsm-jiten-color-new), var(--gsm-jiten-highlight-opacity));
   }
   .gsm-jiten-hl--young {
-    border-bottom: 3px solid rgba(var(--gsm-jiten-color-young), var(--gsm-jiten-highlight-opacity));
+    border-block-end: 3px solid rgba(var(--gsm-jiten-color-young), var(--gsm-jiten-highlight-opacity));
   }
   .gsm-jiten-hl--due {
-    border-bottom: 3px solid rgba(var(--gsm-jiten-color-due), var(--gsm-jiten-highlight-opacity));
+    border-block-end: 3px solid rgba(var(--gsm-jiten-color-due), var(--gsm-jiten-highlight-opacity));
   }
   .gsm-jiten-hl--mature {
     /* Known words: subtle. */
-    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mature), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+    border-block-end: 2px solid rgba(var(--gsm-jiten-color-mature), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
   }
   .gsm-jiten-hl--mastered {
-    border-bottom: 2px solid rgba(var(--gsm-jiten-color-mastered), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+    border-block-end: 2px solid rgba(var(--gsm-jiten-color-mastered), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
   }
   .gsm-jiten-hl--blacklisted {
-    border-bottom: 2px solid rgba(var(--gsm-jiten-color-blacklisted), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
+    border-block-end: 2px solid rgba(var(--gsm-jiten-color-blacklisted), calc(var(--gsm-jiten-highlight-opacity) * 0.4));
   }
   .gsm-jiten-hl--frequent {
     /* Modest teal underline layered on top of the state highlight. */
@@ -236,7 +249,14 @@ background: rgba(202, 12, 12, 0.692);
   }
   .gsm-jiten-hl--iplus1 {
     /* Primary "you should know this word" signal. Thicker blue underline. */
-    border-bottom: 4px solid rgba(var(--gsm-jiten-color-iplus1), 0.95) !important;
+    border-block-end: 4px solid rgba(var(--gsm-jiten-color-iplus1), 0.95) !important;
+  }
+  .gsm-jiten-hl--vertical {
+    writing-mode: vertical-rl;
+    transform: translateX(calc(-1 * var(--gsm-jiten-highlight-offset-y, 0px)));
+  }
+  .gsm-jiten-hl--vertical.gsm-jiten-hl--frequent {
+    box-shadow: inset 3px 0 0 rgba(var(--gsm-jiten-color-frequent), 0.6);
   }
 
   .text-box-container {
@@ -1560,6 +1580,7 @@ background: rgba(202, 12, 12, 0.692);
 </script>
 
 <script src="block_detection.js"></script>
+<script src="native_layout.js"></script>
 <script src="block_translation.js"></script>
 <script src="quick_actions.js"></script>
 <script src="live_stats_widget.js"></script>
@@ -1632,6 +1653,12 @@ background: rgba(202, 12, 12, 0.692);
     isClickThroughEnabled: () => textHoverClickThrough,
     onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore, textHoverClickThrough) });
   ipcRenderer.on('text-hover-refresh', () => textHover.refresh());
+  ipcRenderer.on('overlay-input-reset', () => {
+    textHover.reset();
+    gamepadHandler?.deactivateNavigation();
+    void closeDictionaryLookups('native-input-reset');
+  });
+  ipcRenderer.on('text-hover-pointer', (_event, point) => textHover.forward(point));
   ipcRenderer.on('magpie-pointer', (_event, sample) => {
     if (sample.signature !== magpieController.getState().signature) {
       ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit: false });
@@ -1779,6 +1806,13 @@ background: rgba(202, 12, 12, 0.692);
   let showTextIndicators = true;
   let fadeTextIndicators = false;
   let showFurigana = false;
+  let furiganaVisible = true;
+  let hideFuriganaOnStartup = false;
+  let hideFuriganaAfterSeconds = 0;
+  let furiganaAutoHidden = false;
+  let furiganaAutoHideTimer = null;
+  let furiganaVisibilityInitialized = false;
+  let furiganaVisibilityProfile = null;
   // Which reading system the overlay renders above the text: 'japanese'
   // (furigana via the tokenizer backend) or 'chinese' (pinyin via pinyin-pro).
   let readingLanguage = 'japanese';
@@ -1806,6 +1840,7 @@ background: rgba(202, 12, 12, 0.692);
   const MAX_FURIGANA_LINE_CACHE_ENTRIES = 200;
   let lastFuriganaRenderSignature = null;
   const furiganaLineCache = new Map();
+  let furiganaDictionaryGeneration = 0;
   let jitenFuriganaFrameTimer = null;
   let releaseJitenFuriganaFrame = null;
   let jitenFuriganaFrameSignature = null;
@@ -1974,7 +2009,7 @@ background: rgba(202, 12, 12, 0.692);
           const style = JITEN_GSM_UNDERLINE_STYLES.has(effect.style) ? effect.style : 'solid';
           const thickness = clampJitenStyleNumber(effect.thickness, 1, 10, 3);
           if (colour) {
-            declarations.push(`border-bottom: ${thickness}px ${style} ${colour} !important;`);
+            declarations.push(`border-block-end: ${thickness}px ${style} ${colour} !important;`);
             hasLineOrBorder = true;
           }
           break;
@@ -2017,7 +2052,7 @@ background: rgba(202, 12, 12, 0.692);
     }
 
     if (textColourFallback && !hasLineOrBorder) {
-      declarations.unshift(`border-bottom: 3px solid ${textColourFallback} !important;`);
+      declarations.unshift(`border-block-end: 3px solid ${textColourFallback} !important;`);
     }
     if (shadows.length > 0) {
       declarations.push(`box-shadow: ${shadows.join(', ')} !important;`);
@@ -2663,6 +2698,19 @@ background: rgba(202, 12, 12, 0.692);
       !(manualMode && !manualHotkeyPressed && shouldHideOverlayWhenManualInactive());
   }
 
+  function applyFuriganaStartupVisibility(settings) {
+    const profile = settings.overlaySettingsProfilesEnabled === true
+      ? `profile:${String(settings.overlayActiveProfileName || 'Default')}`
+      : 'global';
+    if (furiganaVisibilityInitialized && profile === furiganaVisibilityProfile) return;
+
+    furiganaVisibilityInitialized = true;
+    furiganaVisibilityProfile = profile;
+    furiganaVisible = settings.hideFuriganaOnStartup !== true;
+    furiganaAutoHidden = false;
+    clearFuriganaAutoHideTimer();
+  }
+
   function updateFuriganaVisibilityState() {
     if (!furiganaLayer) {
       return;
@@ -3116,6 +3164,12 @@ background: rgba(202, 12, 12, 0.692);
           return;
         }
 
+        if (data.type === 'native-overlay-error') {
+          console.error('Native overlay:', data.error);
+          ipcRenderer.send('native-overlay-error', String(data.error || ''));
+          return;
+        }
+
         if (data.type === "yomitan_character_dictionary_changed") {
           console.log("[Yomitan] Character dictionary change event received:", data);
           scheduleGsmCharacterDictionaryEnsure(
@@ -3125,6 +3179,11 @@ background: rgba(202, 12, 12, 0.692);
               delayMs: GSM_CHARACTER_DICTIONARY_REFRESH_DELAY_MS,
             }
           );
+          return;
+        }
+
+        if (data.type === 'magpie-info') {
+          applyMagpieInfo(data.info, 'native-magpie');
           return;
         }
 
@@ -3265,7 +3324,8 @@ background: rgba(202, 12, 12, 0.692);
           // Rebuild visual lines from word geometry before grouping. Keep the
           // authoritative payload intact while rendering, translation, and
           // enrichment all use the same prepared text and line indexes.
-          data = { ...data, data: prepareTextLines(data.data, blockLayoutOptions) };
+          const nativeLayout = window.GsmNativeLayout.nativeLayout(data);
+          if (!nativeLayout) data = { ...data, data: prepareTextLines(data.data, blockLayoutOptions) };
 
           // FIRST PASS: Group the prepared lines using local text spacing.
           // OCR retries for one line may grow from partial to complete text. The
@@ -4156,6 +4216,7 @@ background: rgba(202, 12, 12, 0.692);
       return characters;
     }
 
+    const vertical = isOverlayLineVertical(line);
     for (const word of line.words) {
       if (!word || typeof word.text !== 'string' || !word.bounding_rect) {
         continue;
@@ -4167,23 +4228,28 @@ background: rgba(202, 12, 12, 0.692);
       }
 
       const rect = word.bounding_rect;
-      const charWidth = (rect.x3 - rect.x1) / Math.max(1, text.length);
+      const glyphs = Array.from(text);
+      const charWidth = (rect.x3 - rect.x1) / glyphs.length;
+      const charHeight = (rect.y3 - rect.y1) / glyphs.length;
 
-      for (let i = 0; i < text.length; i++) {
-        const origX1 = (rect.x1 + (i * charWidth)) * 100;
-        const origY1 = rect.y1 * 100;
-        const origX3 = (rect.x1 + ((i + 1) * charWidth)) * 100;
-        const origY3 = rect.y3 * 100;
+      for (let i = 0; i < glyphs.length; i++) {
+        const origX1 = (vertical ? rect.x1 : rect.x1 + i * charWidth) * 100;
+        const origY1 = (vertical ? rect.y1 + i * charHeight : rect.y1) * 100;
+        const origX3 = (vertical ? rect.x3 : rect.x1 + (i + 1) * charWidth) * 100;
+        const origY3 = (vertical ? rect.y1 + (i + 1) * charHeight : rect.y3) * 100;
         const topLeft = mapPercentToMagpie(origX1, origY1);
         const bottomRight = mapPercentToMagpie(origX3, origY3);
 
-        characters.push({
-          text: text[i],
+        const character = {
+          text: glyphs[i],
           x1: topLeft.x,
           y1: topLeft.y,
           x3: bottomRight.x,
           y3: bottomRight.y,
-        });
+        };
+        // Backend annotation offsets count UTF-16 units; both halves of a
+        // supplementary glyph must refer to the same full character box.
+        for (let unit = 0; unit < glyphs[i].length; unit++) characters.push(character);
       }
     }
 
@@ -4250,6 +4316,7 @@ background: rgba(202, 12, 12, 0.692);
 
   function createFuriganaBoxesForLine(line, segments) {
     const boxes = [];
+    const vertical = isOverlayLineVertical(line);
     const characters = buildLineCharacterBoxes(line);
     if (characters.length === 0) {
       return boxes;
@@ -4272,26 +4339,36 @@ background: rgba(202, 12, 12, 0.692);
       const startChar = annotationChars[0];
       const endChar = annotationChars[annotationChars.length - 1];
       const minTop = Math.min(...annotationChars.map((char) => char.y1));
-      const maxHeightPercent = Math.max(...annotationChars.map((char) => Math.max(0, char.y3 - char.y1)));
-      const baseFontSize = Math.max(8, Math.min(100, Math.round((maxHeightPercent / 100) * window.innerHeight)));
+      const maxRight = Math.max(...annotationChars.map((char) => char.x3));
+      const maxBottom = Math.max(...annotationChars.map((char) => char.y3));
+      const crossSizePercent = Math.max(...annotationChars.map((char) => Math.max(0,
+        vertical ? char.x3 - char.x1 : char.y3 - char.y1)));
+      const baseFontSize = Math.max(8, Math.min(100, Math.round((crossSizePercent / 100)
+        * (vertical ? window.innerWidth : window.innerHeight))));
       const segmentWidth = Math.max(0.35, endChar.x3 - startChar.x1);
+      const segmentHeight = Math.max(0.35, maxBottom - minTop);
 
-      const left = startChar.x1 + offsetX;
+      const left = (vertical ? maxRight : startChar.x1) + offsetX;
       const top = minTop + offsetY;
       const furiganaBox = document.createElement('div');
-      furiganaBox.className = 'furigana-box';
+      furiganaBox.className = vertical ? 'furigana-box furigana-box--vertical' : 'furigana-box';
       furiganaBox.style.left = `${left}%`;
       furiganaBox.style.top = `${top}%`;
-      furiganaBox.style.width = `${segmentWidth}%`;
+      if (vertical) {
+        furiganaBox.style.height = `${segmentHeight}%`;
+      } else {
+        furiganaBox.style.width = `${segmentWidth}%`;
+      }
       furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
       const toneColored = readingLanguage === 'chinese'
         && pinyinToneColorsEnabled
         && Array.isArray(annotation.parts)
         && annotation.parts.length > 0;
       furiganaBox._gsmRenderSignature = [
+        vertical ? 'vertical' : 'horizontal',
         roundFuriganaSignatureValue(left),
         roundFuriganaSignatureValue(top),
-        roundFuriganaSignatureValue(segmentWidth),
+        roundFuriganaSignatureValue(vertical ? segmentHeight : segmentWidth),
         String(Math.round(baseFontSize)),
         reading,
         toneColored ? `t:${annotation.parts.map((p) => p.tone).join(',')}` : '',
@@ -4323,6 +4400,7 @@ background: rgba(202, 12, 12, 0.692);
 
   async function renderFuriganaForFrame(lines, renderGeneration, jitenMeta, lineBlocks) {
     const pauseGeneration = intakePauseGeneration;
+    const dictionaryGeneration = furiganaDictionaryGeneration;
     // Remember the current lines even when highlighting is off, so flipping the
     // toggle on can immediately highlight what's already on screen.
     lastJitenHighlightLines = lines;
@@ -4421,7 +4499,7 @@ background: rgba(202, 12, 12, 0.692);
       return gamepadHandler.requestFurigana(line.text, lineIdx, 1200)
         .then((result) => {
           const normalizedResult = { segments: result.segments || [] };
-          setCachedFuriganaLine(line.text, normalizedResult);
+          if (dictionaryGeneration === furiganaDictionaryGeneration) setCachedFuriganaLine(line.text, normalizedResult);
           return { line, lineIdx, segments: normalizedResult.segments };
         })
         .catch((err) => {
@@ -4431,7 +4509,7 @@ background: rgba(202, 12, 12, 0.692);
     });
 
     const resolved = await Promise.all(furiganaRequests);
-    if (renderGeneration !== overlayRenderGeneration ||
+    if (renderGeneration !== overlayRenderGeneration || dictionaryGeneration !== furiganaDictionaryGeneration ||
         (usesJiten && (textIntakePaused || pauseGeneration !== intakePauseGeneration))) {
       return;
     }
@@ -4767,6 +4845,32 @@ background: rgba(202, 12, 12, 0.692);
     ipcRenderer.send("open-settings");
   });
 
+  // Furigana can be enabled without controller navigation, so its setup state
+  // must also be visible outside the gamepad mode indicator.
+  window.addEventListener('gsm-sudachi-setup-required', () => {
+    if (document.getElementById('sudachi-setup-notice')) return;
+    const notice = document.createElement('button');
+    notice.id = 'sudachi-setup-notice';
+    notice.type = 'button';
+    notice.setAttribute('role', 'status');
+    notice.textContent = 'Japanese dictionary setup required. Open Settings → Furigana and Tokenization to download or retry.';
+    notice.style.cssText = 'position:fixed;bottom:20px;left:20px;max-width:420px;z-index:2147483647;padding:12px;background:#292524;color:#fff;border:1px solid #fbbf24;border-radius:8px;pointer-events:auto;';
+    notice.addEventListener('click', () => ipcRenderer.send('open-settings'));
+    document.body.appendChild(notice);
+  });
+  window.addEventListener('gsm-sudachi-ready', () => {
+    document.getElementById('sudachi-setup-notice')?.remove();
+    furiganaDictionaryGeneration++;
+    furiganaLineCache.clear();
+    if (readingLanguage === 'japanese' && gamepadHandler?.isUsingSudachi()) {
+      resetFuriganaRenderState();
+      if (lastJitenHighlightLines?.length) {
+        void renderFuriganaForFrame(lastJitenHighlightLines, overlayRenderGeneration,
+          lastJitenHighlightMeta, lastJitenHighlightLineBlocks);
+      }
+    }
+  });
+
   document.getElementById("btn-yomitan").addEventListener("click", () => {
     ipcRenderer.send("open-yomitan-settings");
   });
@@ -5010,10 +5114,8 @@ background: rgba(202, 12, 12, 0.692);
       }
     }
     
-    // Apply hide furigana on startup if enabled
-    if (hideFuriganaOnStartup && showFurigana) {
-      furiganaVisible = false;
-    }
+    // Apply hide furigana on startup, without resetting a later hotkey choice.
+    applyFuriganaStartupVisibility(newsettings);
     updateFuriganaVisibilityState();
     
     showRecycledIndicator = newsettings.showRecycledIndicator !== false;
@@ -5086,6 +5188,15 @@ background: rgba(202, 12, 12, 0.692);
   ipcRenderer.on("settings-updated", (event, updatedSettings) => {
     console.log("Settings updated:", updatedSettings);
     updateOverlayTextOffsets(updatedSettings);
+
+    // A profile may arrive from the backend after the initial startup settings.
+    // Only full profile snapshots initialize visibility; ordinary setting
+    // changes and repeated snapshots must preserve the user's hotkey choice.
+    if (Object.prototype.hasOwnProperty.call(updatedSettings, 'overlaySettingsProfilesEnabled') &&
+        Object.prototype.hasOwnProperty.call(updatedSettings, 'hideFuriganaOnStartup')) {
+      applyFuriganaStartupVisibility(updatedSettings);
+      updateFuriganaVisibilityState();
+    }
 
     Object.keys(updatedSettings).forEach(key => {
       const value = updatedSettings[key];
@@ -5388,14 +5499,8 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   // Toggle furigana visibility on hotkey
-  let furiganaVisible = true;
-  let hideFuriganaOnStartup = true; // default to true
-  let hideFuriganaAfterSeconds = 0;
-  let furiganaAutoHidden = false;
-  let furiganaAutoHideTimer = null;
-  
   function toggleFuriganaVisibility() {
-    furiganaVisible = !furiganaVisible;
+    furiganaVisible = furiganaAutoHidden || !furiganaVisible;
     if (furiganaVisible) {
       furiganaAutoHidden = false;
       scheduleFuriganaAutoHide();
@@ -5791,7 +5896,7 @@ background: rgba(202, 12, 12, 0.692);
     autoConfirmSelection: true,
     focusOverlayOnEntry: true, // Focus overlay window when navigation activates
     tokenMode: false, // Navigate by tokenizer word units instead of characters
-    tokenizerBackend: 'sudachi', // "mecab", "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
+    tokenizerBackend: 'sudachi', // "sudachi", "yomitan-bridge", "yomitan-api", "jiten-api", or "jpdb-api"
     localTokenizerFallbackBackend: 'sudachi', // Local retry backend when the selected tokenizer fails
     sudachiDictionary: 'small', // Shared service dictionary: "small", "core", or "full"
     yomitanApiUrl: 'http://127.0.0.1:19633', // Base URL for Yomitan API
@@ -5846,7 +5951,7 @@ background: rgba(202, 12, 12, 0.692);
 
   function usesServerBackedGamepadTokenizer(backend) {
     const tokenizerBackend = String(backend || 'sudachi').toLowerCase();
-    return tokenizerBackend === 'mecab' || tokenizerBackend === 'sudachi';
+    return tokenizerBackend === 'sudachi';
   }
 
   function shouldConnectGamepadServer() {

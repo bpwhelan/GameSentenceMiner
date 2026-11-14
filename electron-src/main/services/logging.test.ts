@@ -9,7 +9,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('electron-log/main.js', async () => ({ default: (await import('electron-log/node.js')).default }));
 
 import { initializeDesktopLogging, recordProcessOutput, rotateLogFile, captureRendererDiagnostics } from './logging.js';
-import { InstallSessionManager } from './install_session.js';
 import { createAnonymizedLogsArchive } from './log_archive.js';
 
 const folders: string[] = [];
@@ -56,10 +55,9 @@ describe('persistent desktop logging', () => {
         const originalConsole = { ...console };
         try {
             initializeDesktopLogging(folder);
-            const session = new InstallSessionManager();
-            session.startSession('repair');
-            session.updateStage({ stageId: 'lock_sync', status: 'failed', error: 'Dependency download failed' });
-            session.finishActive('failed');
+            // Native session diagnostics are a bounded JSON snapshot in a text log.
+            fs.writeFileSync(path.join(folder, 'logs', 'install-session.log'), JSON.stringify({status:'failed',error:'Dependency download failed',logs:[{message:'token=private-token'}]}));
+            console.error('Dependency download failed');
             recordProcessOutput('setup:1234', 'stderr', 'HTTP 403 token=private-token');
             rotateLogFile(path.join(folder, 'logs', 'desktop.log'));
             console.info('Next session after failed update');
@@ -69,6 +67,9 @@ describe('persistent desktop logging', () => {
             await extract(archive, { dir: extracted });
             expect(fs.readFileSync(path.join(extracted, 'desktop.log'), 'utf8')).toContain('Next session');
             expect(fs.readFileSync(path.join(extracted, 'history', 'desktop.log.1'), 'utf8')).toContain('Dependency download failed');
+            const native = fs.readFileSync(path.join(extracted, 'install-session.log'), 'utf8');
+            expect(native).toContain('Dependency download failed');
+            expect(native).not.toContain('private-token');
             const output = fs.readFileSync(path.join(extracted, 'process-output.log'), 'utf8');
             expect(output).toContain('HTTP 403');
             expect(output).toContain('[REDACTED]');

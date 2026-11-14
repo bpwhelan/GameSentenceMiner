@@ -43,7 +43,7 @@ describe("SETTINGS_CATALOG", () => {
       "desktop-data-folder": ["current-tab", undefined, undefined],
       "gsm-paths": ["open-gsm-settings", "general", "paths"],
       "gsm-discord": ["open-gsm-settings", "general", "discord"],
-      "gsm-text-processing": ["open-gsm-settings", "general", "text_processing"],
+      "gsm-text-processing": ["open-text-processing", undefined, undefined],
       "gsm-anki-confirmation": ["open-gsm-settings", "anki", "confirmation"],
       "gsm-anki-field-grouping": ["open-gsm-settings", "anki", "field_grouping"],
       "gsm-anki-tags": ["open-gsm-settings", "anki", "tags"],
@@ -204,11 +204,16 @@ describe("performSettingsCatalogAction", () => {
       { type: "open-overlay-settings", label: "Open Overlay Settings" },
       invoke as never
     );
+    await performSettingsCatalogAction(
+      { type: "open-text-processing", label: "Open Text Processing" },
+      invoke as never
+    );
 
     expect(invoke).toHaveBeenNthCalledWith(1, "settings.openGSMSettings", {
       rootTabKey: "anki",
       subtabKey: "general"
     });
     expect(invoke).toHaveBeenNthCalledWith(2, "settings.openOverlaySettings");
+    expect(invoke).toHaveBeenNthCalledWith(3, "settings.openTextProcessing");
   });
 });

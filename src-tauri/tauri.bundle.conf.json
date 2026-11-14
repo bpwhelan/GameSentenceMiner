@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": { "../build/native-desktop/app/": "app/" },
+    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/128x128.png", "icons/128x128@2x.png"],
+    "publisher": "Beangate",
+    "copyright": "GameSentenceMiner contributors",
+    "category": "Education",
+    "shortDescription": "Read, capture, and learn from your games",
+    "windows": { "nsis": { "installMode": "currentUser", "displayLanguageSelector": true, "languages": ["English", "Japanese", "Ukrainian"], "installerHooks": "windows-installer.nsh" }, "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true } },
+    "macOS": { "minimumSystemVersion": "14.0", "entitlements": "Entitlements.plist", "infoPlist": "Info.plist" },
+    "linux": { "appimage": { "bundleMediaFramework": true }, "deb": { "depends": ["libwebkit2gtk-4.1-0", "libayatana-appindicator3-1", "libxdo3", "libasound2t64 | libasound2"] } }
+  }
+}

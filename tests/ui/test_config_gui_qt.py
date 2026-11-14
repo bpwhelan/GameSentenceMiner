@@ -12,7 +12,7 @@ from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigW
 from GameSentenceMiner.util.config.configuration import Anki, Locale
 
 
-def test_settings_save_preserves_live_overlay_settings(monkeypatch) -> None:
+def test_settings_save_preserves_desktop_text_processing_and_live_overlay_settings(monkeypatch) -> None:
     from GameSentenceMiner.util.config import configuration
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -42,11 +42,20 @@ def test_settings_save_preserves_live_overlay_settings(monkeypatch) -> None:
             check_previous_lines_for_recycled_indicator=True,
         )
         monkeypatch.setattr(configuration, "get_overlay_config", lambda: live_overlay)
+        saved_master = configuration.Config.load()
+        desktop_text_processing = saved_master.configs[window.settings.name].text_processing
+        desktop_text_processing.string_replacement.enabled = True
+        desktop_text_processing.string_replacement.rules = [
+            configuration.TextReplacementRule(find="original", replace="replacement", mode="regex")
+        ]
+        with open(configuration.get_config_path(), "w", encoding="utf-8") as config_file:
+            config_file.write(saved_master.to_json(indent=4))
         # This unused legacy control still has the monitor from when the editor opened.
         window.overlay_monitor_combo.addItems(["Monitor 1", "Monitor 2"])
         window.overlay_monitor_combo.setCurrentIndex(0)
         window.periodic_interval_edit.setText("2.5")
         assert window.save_settings(show_indicator=False)
+        assert configuration.Config.load().get_config().text_processing == desktop_text_processing
         saved = configuration.Config.load().overlay
         for field in (
             "monitor_to_capture",
@@ -712,6 +721,8 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
         window.obs_error_timer.stop()
         window.obs_scene_refresh_timer.stop()
 
+        assert "text_processing" not in window._settings_subtab_indices["general"]
+        assert not hasattr(window, "string_replacement_enabled_check")
         assert "features" in window._settings_tab_indices
         assert window.tab_widget.tabText(window._settings_tab_indices["features"]) == "Features"
         assert set(window._settings_subtab_indices["features"]) == {
@@ -722,10 +733,7 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
 
         feature_tabs = window._settings_subtab_widgets["features"]
         promoted_controls = {
-            "general": (
-                window.generate_longplay_check,
-                window.notify_on_update_check,
-            ),
+            "general": (window.generate_longplay_check,),
             "tokenization": (
                 window.experimental_features_enabled_check,
                 window.enable_tokenization_check,
@@ -751,6 +759,10 @@ def test_features_tab_collects_optional_feature_controls(monkeypatch) -> None:
         for subtab_key, controls in promoted_controls.items():
             pane = feature_tabs.widget(window._settings_subtab_indices["features"][subtab_key])
             assert all(pane.isAncestorOf(control) for control in controls)
+
+        assert not hasattr(window, "notify_on_update_check")
+        assert not hasattr(window, "notify_on_audio_generated_check")
+        assert not hasattr(window, "notify_on_anki_enhancement_failed_check")
 
         assert "advanced" not in window._settings_subtab_widgets
         assert "discord" in window._settings_subtab_indices["general"]

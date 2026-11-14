@@ -2,6 +2,7 @@ import {
     getExecutableNameFromSource,
     getCurrentScene,
     sceneHasVisibleOutput,
+    nativeOBS,
     getWindowTitleFromSource,
     ObsScene
 } from './ui/obs.js';
@@ -26,7 +27,6 @@ import {
     getTextractorPath32,
     getTextractorPath64,
     getYuzuGamesConfig,
-    getWindowSceneSwitcherConfig,
     runtimeState,
     upsertSceneLaunchProfile
 } from './store.js';
@@ -48,7 +48,7 @@ import {
     stopHookSessionAndWait,
 } from './ui/texthook.js';
 import { findLinuxGamePid } from './ui/linux_wine.js';
-import { matchWindowSceneRule, normalizeExecutableName, type ForegroundWindowSnapshot } from '../shared/window_scene_switcher.js';
+import { normalizeExecutableName, type ForegroundWindowSnapshot } from '../shared/window_scene_switcher.js';
 
 type IntegratedTextHookEngine = "textractor" | "luna" | "agent" | "mages";
 
@@ -1025,7 +1025,7 @@ export class AutoLauncher {
         }
 
         if (profile.engine === "mages") {
-            return "mages";
+            return null;
         }
 
         if (!profile.hookId && !profile.hookFunction && !profile.manualHookCode) {
@@ -1435,15 +1435,11 @@ export class AutoLauncher {
 
             // A scene can have an English label while Eden displays a Japanese
             // game title. Reuse the user's exact scene rule when available.
-            const rules = getWindowSceneSwitcherConfig().collections.flatMap((collection) =>
-                collection.rules.filter((rule) => rule.sceneUuid === expectedScene.id && rule.enabled)
-            );
-            const matches = rules.length > 0
-                ? rules.some((rule) => matchWindowSceneRule(rule, {
-                    hwnd: '', pid, title: liveTitle, executableName: processName,
-                    capturedAt: Date.now(), sequence: 0,
-                }).matched)
-                : !requireTitleMatch || this.titlesRoughlyMatch(expectedTitle, liveTitle);
+            const ruleMatch = await nativeOBS<boolean | null>('scene-switcher.matchSceneRules', {
+                sceneUuid: expectedScene.id,
+                foreground: { hwnd: '', pid, title: liveTitle, executableName: processName, capturedAt: Date.now(), sequence: 0 },
+            });
+            const matches = ruleMatch ?? (!requireTitleMatch || this.titlesRoughlyMatch(expectedTitle, liveTitle));
             if (!matches) {
                 this.logInternal(
                     `AutoLauncher: Switch title mismatch for ${processName}. Expected "${expectedTitle}", got "${liveTitle}".`

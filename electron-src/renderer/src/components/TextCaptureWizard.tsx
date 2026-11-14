@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startVisiblePolling } from '../lib/visiblePolling';
 import { invokeIpc, onIpc, sendIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
 import type { ObsCaptureMode, ObsScene, SceneLaunchProfile, SceneOcrMode } from "../types/models";
@@ -368,11 +369,7 @@ export function TextCaptureWizard({
   useEffect(() => {
     if (step !== "preview" || !activeScene?.id) return undefined;
     setPreviewLoading(true);
-    void refreshPreview();
-    const interval = window.setInterval(() => {
-      void refreshPreview();
-    }, 1000);
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(refreshPreview, 1000);
   }, [activeScene?.id, refreshPreview, step]);
 
   const switchCaptureMode = useCallback(async () => {
@@ -502,11 +499,7 @@ export function TextCaptureWizard({
 
   useEffect(() => {
     if (step !== "hook") return undefined;
-    void refreshHookRuntime();
-    const interval = window.setInterval(() => {
-      void refreshHookRuntime();
-    }, 1000);
-    return () => window.clearInterval(interval);
+    return startVisiblePolling(refreshHookRuntime, 1000);
   }, [refreshHookRuntime, step]);
 
   useEffect(() => {

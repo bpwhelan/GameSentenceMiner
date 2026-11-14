@@ -104,7 +104,7 @@ def test_ocr_suppresses_empty_recognition_log_only_for_duplicate_filtering(
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(run_module, "logger", SimpleNamespace(opt=lambda **_kwargs: log_sink))
     monkeypatch.setattr(run_module, "engine_instances", [FakeOCR()], raising=False)
@@ -180,7 +180,7 @@ def test_oneocr_furigana_filter_is_not_undone_by_structured_text_rebuild(monkeyp
     monkeypatch.setattr(
         run_module,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(
         run_module,

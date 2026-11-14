@@ -1,6 +1,8 @@
 import { spawn } from 'child_process';
 import { getOwocrConfigPath } from '../data_dir.js';
 import { dialog, ipcMain, BrowserWindow, screen, IpcMainEvent, clipboard, shell } from 'electron';
+import { createRequire } from 'node:module';
+import { createNativeOcrService } from '../services/native_ocr.js';
 import {
     getAutoUpdateElectron,
     getAutoUpdateGSMApp,
@@ -31,7 +33,7 @@ import {
     restartGSM,
     sendOcrStatus,
 } from '../main.js';
-import { getCurrentScene, ObsScene } from './obs.js';
+import { getCurrentScene, ObsScene, getElectronOBSStartupConfig } from './obs.js';
 import { createOcrPreviewService } from './ocr-preview.js';
 import { createVitaModelService } from './vita-ocr.js';
 import { createMeikiModelService } from './meiki-ocr.js';
@@ -49,15 +51,13 @@ import {
 } from '../util.js';
 import path, { resolve } from 'path';
 import * as fs from 'node:fs';
-import * as os from 'os';
 import {
     resolveRequestedExtras,
     syncLockedEnvironment,
 } from '../services/python_ops.js';
 
-// OCR is now a bus-managed process: the ProcessManager owns its lifecycle and
-// the message bus carries events (ocr.event) and commands (ocr.command). See
-// runtime/process_supervisor.ts and util/communication/ocr_ipc.py.
+// Windows Tauri uses its owned Rust worker for supported configurations. The
+// The legacy Electron desktop uses ProcessManager (ocr.event/ocr.command).
 const OCR_CLIENT_ID = 'ocr';
 let pendingOcrLaunch: { command: string; args: string[]; windowsHide: boolean } | null = null;
 let ocrSupervisorWired = false;
@@ -76,6 +76,39 @@ interface OCRStopOptions {
 }
 let activeOcrSource: OCRStartSource | null = null;
 let activeOcrRunMode: OCRRunMode | null = null;
+let nativeOcr: ReturnType<typeof createNativeOcrService> | null = null;
+let nativeStarting = false;
+let nativeStartSource: OCRStartSource = 'user';
+let launchGeneration = 0;
+let nativeStop: Promise<void> = Promise.resolve();
+const nativeEnabled = () => process.env.GSM_NATIVE_SERVICE === '1';
+function getNativeOcr() {
+    if (nativeOcr) return nativeOcr;
+    const require = createRequire(import.meta.url);
+    const transport = require(path.join(process.env.GSM_APP_ROOT || process.cwd(), 'desktop-runtime/transport.cjs'));
+    nativeOcr = createNativeOcrService({
+        call: message => transport.call('ocr.command', message),
+        context: async () => ({ ...await bus.request<Record<string, any>>('backend', 'ocr.native.context', {}, 2000), input_url: process.env.GSM_INPUT_SERVER_URL, obs: getElectronOBSStartupConfig() }),
+        configuration: async context => {
+            const scene = context?.scene ? { name: String(context.scene), id: '' } : await getCurrentScene();
+            const settings = { ...getOCRConfig(), ...await readSceneSettings(scene) };
+            if (!settings.advancedMode) { settings.twoPassOCR = true; settings.optimize_second_scan = true; }
+            return { profile: BASE_DIR, settings, engine_config_path: getOwocrConfigPath(), input_url: process.env.GSM_INPUT_SERVER_URL, obs: getElectronOBSStartupConfig(), areas: await getActiveOCRConfig(scene), replacements: Object.entries(readEnabledOcrReplacements()) };
+        },
+        ingest: data => bus.request('backend', 'ocr.native.result', data, 2000),
+        emit: handleOcrEvent,
+        state: running => {
+            sendToMainWindowFrames(running ? 'ocr-started' : 'ocr-stopped');
+            sendOcrStatus(running);
+            if (!running) clearActiveOcrSession();
+        },
+        addArea: () => runScreenSelector({ addArea: true }),
+    });
+    ipcMain.on('native-ocr-event', (_event, message) => nativeOcr?.receive(message));
+    return nativeOcr;
+}
+function isOcrRunning() { return nativeStarting || Boolean(nativeOcr?.running) || getProcessManager().isRunning(OCR_CLIENT_ID); }
+export async function waitForOCRShutdown() { await nativeStop; }
 const OCR_GRACEFUL_STOP_TIMEOUT_MS = 2000;
 const OCR_PROCESS_PRIORITIES: OCRProcessPriority[] = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
 
@@ -128,44 +161,17 @@ function normalizeOcrProcessPriority(value: unknown): OCRProcessPriority {
     return normalized;
 }
 
-function getWindowsPriorityValue(priority: OCRProcessPriority): number {
-    switch (priority) {
-        case 'low':
-            return os.constants.priority.PRIORITY_LOW;
-        case 'below_normal':
-            return os.constants.priority.PRIORITY_BELOW_NORMAL;
-        case 'above_normal':
-            return os.constants.priority.PRIORITY_ABOVE_NORMAL;
-        case 'high':
-            return os.constants.priority.PRIORITY_HIGH;
-        case 'normal':
-        default:
-            return os.constants.priority.PRIORITY_NORMAL;
-    }
-}
-
 function applyWindowsOcrProcessPriority(pid: number | undefined) {
-    if (!isWindows() || typeof pid !== 'number' || pid <= 0) {
-        return;
-    }
-
-    const configuredPriority = normalizeOcrProcessPriority(getOCRConfig().processPriority);
-    const priorityValue = getWindowsPriorityValue(configuredPriority);
-
-    try {
-        os.setPriority(pid, priorityValue);
-        console.log(`[OCR] Applied Windows process priority "${configuredPriority}" to PID=${pid}`);
-    } catch (error) {
-        console.warn(
-            `[OCR] Failed to apply process priority "${configuredPriority}" to PID=${pid}:`,
-            error
-        );
-    }
+    if (!isWindows() || typeof pid !== 'number' || pid <= 0) return;
+    const priority = normalizeOcrProcessPriority(getOCRConfig().processPriority);
+    void getProcessManager().setPriority(OCR_CLIENT_ID, priority).catch(error => {
+        console.warn(`[OCR] Could not apply native process priority "${priority}":`, error);
+    });
 }
 
 export function getOCRRuntimeState() {
     return {
-        isRunning: getProcessManager().isRunning(OCR_CLIENT_ID),
+        isRunning: isOcrRunning(),
         source: activeOcrSource,
         mode: activeOcrRunMode,
     };
@@ -217,6 +223,10 @@ function shouldEnableLegacyKeepNewlineFlag(ocr_config: ReturnType<typeof getOCRC
 }
 
 function requestOcrConfigReload(reason: string, options?: { reloadArea?: boolean; reloadElectron?: boolean; changes?: Record<string, any>; force?: boolean }) {
+    if (nativeOcr?.running) {
+        void nativeOcr.reload().catch(error => handleOcrEvent('error', { error: String(error) }));
+        return;
+    }
     if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
         console.warn(`[OCR] Skipping reload config (${reason}) - no active OCR process`);
         return;
@@ -301,6 +311,10 @@ function shouldHideOcrConsole(options?: { source?: OCRStartSource; mode?: OCRRun
 
 /** Send a control command to the OCR process over the bus. */
 function sendOcrCommand(command: string, data?: Record<string, any>): void {
+    if (nativeOcr?.running) {
+        void nativeOcr.command(command, data).catch(error => handleOcrEvent('error', { error: String(error) }));
+        return;
+    }
     if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
         console.warn(`[OCR] Cannot send "${command}" - no active OCR process`);
         return;
@@ -330,6 +344,12 @@ function handleOcrEvent(event: string, data: any): void {
             break;
         case 'status':
             sendToMainWindowFrames('ocr-ipc-status', data);
+            break;
+        case 'log':
+            if (typeof data?.message === 'string') {
+                console.log(data.message);
+                sendToMainWindowFrames('ocr-log', data.message);
+            }
             break;
         case 'ocr_result':
             // Backend receives the result directly via the ocr.event broadcast;
@@ -403,7 +423,6 @@ function ensureOcrSupervisorWired(): void {
             data: buildOcrStopCommand('process-manager-default-stop'),
             timeoutMs: OCR_GRACEFUL_STOP_TIMEOUT_MS,
         },
-        matchTokens: ['gsm_ocr'],
     });
 
     pm.on('state-changed', (id: string, state: string) => {
@@ -457,7 +476,7 @@ function ensureOcrSupervisorWired(): void {
 // can hot-reload the running OCR's areas without the selector closing.
 const LIVE_AREA_SAVED_MARKER = 'GSM_AREA_SAVED';
 
-async function runScreenSelector(options?: { live?: boolean }) {
+async function runScreenSelector(options?: { live?: boolean; addArea?: boolean }) {
     if (blockOcrStartDuringUpdate('OCR screen selector')) {
         sendToMainWindowFrames('ocr-log', 'COMMAND_FINISHED');
         return false;
@@ -466,6 +485,7 @@ async function runScreenSelector(options?: { live?: boolean }) {
     await new Promise((resolve, reject) => {
         let args = ['-m', 'GameSentenceMiner.ocr.owocr_area_selector_qt', '--obs'];
         if (options?.live) args.push('--live');
+        if (options?.addArea) args.push('--add-area');
         const pythonExecutable = getWindowsNamedPythonExecutable(
             getPythonPath(),
             'OCR'
@@ -533,7 +553,7 @@ async function runScreenSelector(options?: { live?: boolean }) {
  * @param command - An array where the first element is the executable
  *                  and the rest are its arguments (e.g., ['tesseract', 'image.png', 'stdout']).
  */
-function runOCR(
+function runPythonOCR(
     command: string[],
     options?: OCRStartOptions & { mode?: OCRRunMode }
 ) {
@@ -574,6 +594,25 @@ function runOCR(
             console.error('[OCR] Failed to (re)start process:', err);
             sendToMainWindowFrames('ocr-stopped');
         });
+}
+
+function runOCR(command: string[], options?: OCRStartOptions & { mode?: OCRRunMode }) {
+    if (!nativeEnabled()) { runPythonOCR(command, options); return; }
+    const generation = ++launchGeneration;
+    nativeStarting = true;
+    setActiveOcrSession(options?.source ?? 'user', options?.mode ?? 'auto');
+    void (async () => {
+        if (getProcessManager().isRunning(OCR_CLIENT_ID)) await getProcessManager().stop(OCR_CLIENT_ID, { gracefulStopData: buildOcrStopCommand('switch-to-native-ocr') });
+        if (generation !== launchGeneration) return;
+        nativeStartSource = options?.source ?? 'user';
+        await getNativeOcr().start(options?.mode ?? 'auto');
+        if (generation !== launchGeneration) { await nativeOcr!.stop(); return; }
+        setActiveOcrSession(options?.source ?? 'user', options?.mode ?? 'auto');
+        handleOcrEvent('log', { message: '[OCR] Rust capture and OCR worker started.' });
+    })().catch(error => {
+        handleOcrEvent('error', { error: String(error) });
+        if (!nativeOcr?.running) { sendToMainWindowFrames('ocr-stopped'); sendOcrStatus(false); clearActiveOcrSession(); }
+    }).finally(() => { if (generation === launchGeneration) nativeStarting = false; });
 }
 
 async function runCommandAndLog(command: string[]): Promise<void> {
@@ -694,6 +733,13 @@ export function stopOCR(options: OCRStopOptions): boolean {
         return false;
     }
 
+    if (nativeStarting || nativeOcr?.running) {
+        ++launchGeneration;
+        nativeStarting = false;
+        nativeStop = nativeOcr?.stop() ?? Promise.resolve();
+        void nativeStop.catch(error => handleOcrEvent('error', { error: String(error) }));
+        return true;
+    }
     if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
         ocrStopRequested = true;
         void getProcessManager().stop(OCR_CLIENT_ID, {
@@ -748,6 +794,11 @@ export function startManualOCR(options?: OCRStartOptions) {
 }
 
 const OCR_REPLACEMENTS_FILE = path.join(BASE_DIR, 'config', 'ocr_replacements.json');
+function readEnabledOcrReplacements(): Record<string, string> {
+    if (!fs.existsSync(OCR_REPLACEMENTS_FILE)) return {};
+    const config = JSON.parse(fs.readFileSync(OCR_REPLACEMENTS_FILE, 'utf8'));
+    return config.enabled && config.args?.replacements && typeof config.args.replacements === 'object' ? config.args.replacements : {};
+}
 
 function readOCRReplacements(): Record<string, string> {
     fs.mkdirSync(path.dirname(OCR_REPLACEMENTS_FILE), { recursive: true });
@@ -791,7 +842,10 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr.vita-model', (_event, request) => vitaModel(request));
     const meikiModel = createMeikiModelService(bus);
     ipcMain.handle('ocr.meiki-model', (_event, request) => meikiModel(request));
-    const getPreview = createOcrPreviewService(bus);
+    const getPreview = createOcrPreviewService({
+        isConnected: client => client === 'ocr' && nativeOcr?.running ? true : bus.isConnected(client),
+        request: (client, topic, data, timeout) => topic === 'capture.preview' && nativeEnabled() ? getNativeOcr().capturePreview(data) : client === 'ocr' && nativeOcr?.running ? nativeOcr.preview() : bus.request(client, topic, data, timeout),
+    });
     ipcMain.handle('ocr.get-preview', (_event, request) => getPreview(request));
     const saveAreas = createOcrAreaSaver({
         getScene: getCurrentScene,
@@ -812,6 +866,9 @@ export function registerOCRUtilsIPC() {
     ipcMain.handle('ocr-replacements.save', async (_, replacements: Record<string, string>) => {
         try {
             writeOCRReplacements(replacements || {});
+            if (nativeOcr?.running) {
+                await nativeOcr.reload();
+            }
             return { success: true };
         } catch (error: any) {
             console.error('Failed to save OCR replacements:', error);
@@ -1006,7 +1063,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.kill-ocr', () => {
-        if (getProcessManager().isRunning(OCR_CLIENT_ID)) {
+        if (isOcrRunning()) {
             sendToMainWindowFrames('ocr-log', 'Stopping OCR process...');
             stopOCR({ reason: 'user-stop-request' });
         }
@@ -1038,6 +1095,10 @@ export function registerOCRUtilsIPC() {
             });
         } catch (err: any) {
             console.warn(`[OCR] Failed to write scene settings: ${err.message}`);
+        }
+        if (nativeOcr?.running) {
+            await nativeOcr.reload();
+            return;
         }
         if ('processPriority' in changes && getProcessManager().isRunning(OCR_CLIENT_ID)) {
             applyWindowsOcrProcessPriority(getProcessManager().getPid(OCR_CLIENT_ID));
@@ -1094,7 +1155,7 @@ export function registerOCRUtilsIPC() {
 
     ipcMain.handle('ocr.get-running-state', () => {
         return {
-            isRunning: getProcessManager().isRunning(OCR_CLIENT_ID),
+            isRunning: isOcrRunning(),
             source: activeOcrSource,
             mode: activeOcrRunMode,
         };
@@ -1260,7 +1321,7 @@ export function registerOCRUtilsIPC() {
     });
 
     ipcMain.on('ocr.get-status', () => {
-        if (!getProcessManager().isRunning(OCR_CLIENT_ID)) {
+        if (!isOcrRunning()) {
             sendToMainWindowFrames('ocr-ipc-error', 'No active OCR process');
             return;
         }

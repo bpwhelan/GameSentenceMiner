@@ -1,17 +1,16 @@
 import Store from "electron-store";
+import { initialOnboardingProgress, type OnboardingProgress } from '../shared/onboarding.js';
+import { migrateLegacyNotificationPreferences, normalizeNotificationPreferences, type NotificationPreferences } from '../shared/notifications.js';
+import { getLegacyNotificationFeatures } from './gsm_config.js';
 import type { GameLaunchOptions } from '../shared/game_launcher.js';
 import type { GameBackgroundOptions } from '../shared/game_background.js';
 import { SteamGame } from "./ui/steam.js";
-import {ObsScene} from "./ui/obs.js";
+import type { ObsScene } from "./ui/obs.js";
 import { BrowserWindow } from "electron";
 import path from "path";
 import { findAgentScriptById } from "./agent_script_resolver.js";
 import { getBaseDir } from "./data_dir.js";
 import type { DesktopUpdateChangelogPendingRecord } from "../shared/changelog.js";
-import {
-    emptyWindowSceneSwitcherConfig,
-    type WindowSceneSwitcherConfig,
-} from "../shared/window_scene_switcher.js";
 import {
     getDefaultStabilityOcr,
     withBasicOcrPlatformDefaults,
@@ -167,6 +166,8 @@ interface FrontPageState {
 }
 
 interface StoreConfig {
+    notificationPreferencesMigrationVersion: number;
+    notificationPreferences: NotificationPreferences;
     gameLaunchProfiles: Record<string, GameLaunchOptions>;
     gameBackgroundProfiles: Record<string, GameBackgroundOptions>;
     frontPageState: FrontPageState;
@@ -182,13 +183,9 @@ interface StoreConfig {
     startConsoleMinimized: boolean;
     autoUpdateElectron: boolean;
     autoUpdateGSMApp: boolean;
-    autoUpdateOBS: boolean;
     autoUpdateTexthook: boolean;
     customPythonPackage: string;
     pythonExtras: string[];
-    windowTransparencyToolHotkey: string;
-    windowTransparencyTarget: string; // Target window for transparency tool
-    runWindowTransparencyToolOnStartup: boolean; // Whether to run the transparency tool on startup
     runOverlayOnStartup: boolean; // Whether to run the overlay on startup
     runOverlayWithActiveGame: boolean;
     quitOnWindowClose: boolean; // Whether the main window X button quits instead of hiding to tray
@@ -221,12 +218,14 @@ interface StoreConfig {
     hasCompletedSetup: boolean;
     consoleMode: 'simple' | 'advanced';
     setupWizardVersion: number;
+    onboarding: OnboardingProgress | null;
     uiMode: 'basic' | 'advanced';
-    windowSceneSwitcher: WindowSceneSwitcherConfig;
 }
 
 export const store = new Store<StoreConfig>({
     defaults: {
+        notificationPreferencesMigrationVersion: 0,
+        notificationPreferences: normalizeNotificationPreferences(null),
         gameLaunchProfiles: {},
         gameBackgroundProfiles: {},
         frontPageState: {
@@ -251,7 +250,6 @@ export const store = new Store<StoreConfig>({
         startConsoleMinimized: false,
         autoUpdateElectron: false,
         autoUpdateGSMApp: false,
-        autoUpdateOBS: false,
         autoUpdateTexthook: true,
         VN: {
             vns: [],
@@ -338,9 +336,6 @@ export const store = new Store<StoreConfig>({
         },
         customPythonPackage: "GameSentenceMiner",
         pythonExtras: [],
-        windowTransparencyToolHotkey: 'Ctrl+Alt+Y',
-        windowTransparencyTarget: '', // Default to empty string if not set
-        runWindowTransparencyToolOnStartup: false, // Whether to run the transparency tool on startup
         runOverlayOnStartup: false, // Whether to run the overlay on startup
         runOverlayWithActiveGame: false,
         quitOnWindowClose: false,
@@ -362,11 +357,19 @@ export const store = new Store<StoreConfig>({
         hasCompletedSetup: false,
         consoleMode: 'simple', // 'simple' = need-to-know only, 'advanced' = full log
         setupWizardVersion: 0,
+        onboarding: null,
         uiMode: 'basic',
-        windowSceneSwitcher: emptyWindowSceneSwitcherConfig(),
     },
     cwd: path.join(APP_BASE_DIR, 'electron')
 });
+
+// Decide before the dependency installer marks its separate setup flag complete.
+// Existing installations can opt in from Settings without an unexpected wizard.
+if (!store.get('onboarding')) {
+    store.set('onboarding', initialOnboardingProgress(
+        store.get('hasCompletedSetup') || store.get('setupWizardVersion') > 0,
+    ));
+}
 
 const DEFAULT_SCENE_TEXT_HOOK_MODE: SceneTextHookMode = "none";
 const DEFAULT_SCENE_OCR_MODE: SceneOcrMode = "none";
@@ -861,30 +864,6 @@ export function setPythonExtraEnabled(extra: string, enabled: boolean): void {
     }
 }
 
-export function getWindowTransparencyToolHotkey(): string {
-    return store.get("windowTransparencyToolHotkey");
-}
-
-export function setWindowTransparencyToolHotkey(hotkey: string): void {
-    store.set("windowTransparencyToolHotkey", hotkey);
-}
-
-export function setWindowTransparencyTarget(target: string): void {
-    store.set("windowTransparencyTarget", target);
-}
-
-export function getWindowTransparencyTarget(): string {
-    return store.get("windowTransparencyTarget") || '';
-}
-
-export function getRunWindowTransparencyToolOnStartup(): boolean {
-    return store.get("runWindowTransparencyToolOnStartup");
-}
-
-export function setRunWindowTransparencyToolOnStartup(run: boolean): void {
-    store.set("runWindowTransparencyToolOnStartup", run);
-}
-
 export function getRunOverlayOnStartup(): boolean {
     return store.get("runOverlayOnStartup") && !getRunOverlayWithActiveGame();
 }
@@ -966,13 +945,9 @@ export function setIgnoreActiveSceneForOcr(ignore: boolean): void {
     store.set("ignoreActiveSceneForOcr", ignore);
 }
 
-export function getWindowSceneSwitcherConfig(): WindowSceneSwitcherConfig {
-    return store.get("windowSceneSwitcher", emptyWindowSceneSwitcherConfig());
-}
 
-export function setWindowSceneSwitcherConfig(config: WindowSceneSwitcherConfig): void {
-    store.set("windowSceneSwitcher", config);
-}
+
+
 
 export function getSceneLaunchProfiles(): SceneLaunchProfile[] {
     ensureSceneLaunchProfilesMigrated();
@@ -1063,6 +1038,11 @@ export function getVisibleTabs(): string[] {
 
 export function setVisibleTabs(tabs: string[]): void {
     store.set("visibleTabs", tabs);
+    for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
+            window.webContents.send('settings.visibleTabsChanged', tabs);
+        }
+    }
 }
 
 export function getStatsEndpoint(): string {
@@ -1117,6 +1097,29 @@ export function setLocale(locale: string): void {
 
 export function getTheme(): string {
     return store.get("theme") || "gsm-dark";
+}
+
+export function getNotificationPreferences(): NotificationPreferences {
+    const migrationVersion = store.get('notificationPreferencesMigrationVersion', 0);
+    if (migrationVersion < 2) {
+        const preferences = migrationVersion < 1
+            ? migrateLegacyNotificationPreferences(store.get('notificationPreferences'), getLegacyNotificationFeatures())
+            : normalizeNotificationPreferences(store.get('notificationPreferences'));
+        if (['soft-ping', 'descending', 'ascending'].includes(preferences.categories.pauseResume.sound)) {
+            preferences.categories.pauseResume.sound = 'pause-resume';
+        }
+        store.set('notificationPreferences', preferences);
+        store.set('notificationPreferencesMigrationVersion', 2);
+        return preferences;
+    }
+    return normalizeNotificationPreferences(store.get('notificationPreferences'));
+}
+
+export function setNotificationPreferences(preferences: unknown): NotificationPreferences {
+    getNotificationPreferences();
+    const normalized = normalizeNotificationPreferences(preferences);
+    store.set('notificationPreferences', normalized);
+    return normalized;
 }
 
 export function getSeasonalEffectsDisabled(): boolean {

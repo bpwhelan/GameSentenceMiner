@@ -57,14 +57,13 @@ const VALID_MANUAL_MODE_TYPES = new Set(["hold", "toggle"]);
 const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set(["hide-overlay", "disable-interaction"]);
 const VALID_GAMEPAD_ACTIVATION_MODES = new Set(["modifier", "toggle"]);
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set([
-  "mecab",
   "sudachi",
   "yomitan-bridge",
   "yomitan-api",
   "jiten-api",
   "jpdb-api",
 ]);
-const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["mecab", "sudachi"]);
+const VALID_LOCAL_TOKENIZER_FALLBACK_BACKENDS = new Set(["sudachi"]);
 const VALID_SUDACHI_DICTIONARIES = new Set(["small", "core", "full"]);
 const VALID_LIVE_STATS_SCOPES = new Set(["session", "today"]);
 const VALID_LIVE_STATS_DISPLAY_MODES = new Set(["always", "new-line"]);
@@ -408,7 +407,7 @@ function syncManualHotkeyStatusUi() {
     document.getElementById("platform-override")?.value &&
     document.getElementById("platform-override")?.value !== "null"
       ? document.getElementById("platform-override").value
-      : process.platform;
+      : (window.gsmEnv?.platform || globalThis.process?.platform);
 
   if (backend === "input_server") {
     if (platform === "darwin") {
@@ -1009,6 +1008,8 @@ const SETTING_BINDING_DEFINITIONS = [
     normalize: (value) => normalizeTrimmedString(value, "600"),
   }),
   createCheckboxBinding("manualMode", "#manualMode"),
+  createCheckboxBinding("showManualModeRecommendations", "#showManualModeRecommendations"),
+  createCheckboxBinding("showExclusiveFullscreenRecommendations", "#showExclusiveFullscreenRecommendations"),
   createSelectBinding("manualModeType", "#manualModeType", {
     normalize: normalizeManualModeTypeValue,
     afterApply: () => syncManualHotkeyStatusUi(),

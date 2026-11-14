@@ -324,7 +324,7 @@ describe('App install-session integration', () => {
     it('preserves the longer Logs history while the tab is hidden', async () => {
         const { default: App } = await import('./App.js');
         await act(async () => { root.render(<App />); });
-        expect(terminalCreateMock).toHaveBeenCalledWith(expect.objectContaining({ scrollback: 1000 }));
+        expect(terminalCreateMock).not.toHaveBeenCalled();
         await act(async () => {
             for (let i = 0; i < 1200; i++) {
                 for (const listener of listeners.get('terminal-output') ?? []) listener({}, { message: `History ${i}` });
@@ -333,6 +333,7 @@ describe('App install-session integration', () => {
         expect(terminalWriteMock).not.toHaveBeenCalled();
         const logsButton = Array.from(container.querySelectorAll('.tab-button')).find(button => button.textContent === 'Logs')!;
         await act(async () => { logsButton.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+        expect(terminalCreateMock).toHaveBeenCalledWith(expect.objectContaining({ scrollback: 1000 }));
         const data = terminalWriteMock.mock.calls.map(([value]) => value).join('');
         expect(data.match(/History \d+/g)).toHaveLength(1000);
         expect(data).toContain('History 200\r\n');
@@ -340,7 +341,7 @@ describe('App install-session integration', () => {
         expect(data).not.toContain('History 199\r\n');
     });
 
-    it('loads the stats tab from the configured GSM single port', async () => {
+    it('loads stats from the configured port and releases the page on leaving the tab', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true }));
         vi.stubGlobal('fetch', fetchMock);
 
@@ -390,6 +391,9 @@ describe('App install-session integration', () => {
         expect(container.querySelector('iframe[title="stats"]')?.getAttribute('src')).toBe(
             'http://localhost:6123/overview'
         );
+        const home = Array.from(container.querySelectorAll('.tab-button')).find(button => button.textContent === 'Home')!;
+        await act(async () => (home as HTMLButtonElement).click());
+        expect(container.querySelector('iframe[title="stats"]')).toBeNull();
     });
 
     it('reloads an already-mounted stats iframe when GSM finishes initializing', async () => {
@@ -535,6 +539,22 @@ describe('App install-session integration', () => {
         ).not.toContain('Windows Speech');
     });
 
+    it('updates visible tabs from settings events without polling the full settings document', async () => {
+        vi.useFakeTimers();
+        try {
+            const { default: App } = await import('./App.js');
+            await act(async () => { root.render(<App />); });
+            const reads = () => invokeMock.mock.calls.filter(([channel]) => channel === 'settings.getSettings').length;
+            const initial = reads();
+            await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+            expect(reads()).toBe(initial);
+            await act(async () => {
+                for (const callback of listeners.get('settings.visibleTabsChanged') ?? []) callback({}, ['speech']);
+            });
+            expect(Array.from(container.querySelectorAll('.tab-button')).map(button => button.textContent)).toContain('Windows Speech');
+        } finally { vi.useRealTimers(); }
+    });
+
     it('shows Windows Speech when selected in visible tabs', async () => {
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {
@@ -573,6 +593,20 @@ describe('App install-session integration', () => {
         expect(container.textContent).toContain('Speech Recognition Tab');
     });
 
+    it('ignores delayed progress from before the native completion event', async () => {
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); await Promise.resolve(); });
+        const completed = {...createSnapshot('running', 'repair'), status:'completed', revision:20};
+        await act(async () => {
+            listeners.get('install-session.finished')?.forEach(listener => listener({}, completed));
+        });
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+        await act(async () => {
+            listeners.get('install-session.snapshot')?.forEach(listener => listener({}, {...createSnapshot('running', 'repair'), revision:19}));
+        });
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+    });
+
     it('shows the blocking install modal automatically for an active failed session', async () => {
         const { default: App } = await import('./App.js');
 
@@ -609,7 +643,7 @@ describe('App install-session integration', () => {
         openLogsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         quitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-        expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
+        expect(invokeMock).toHaveBeenCalledWith('install-session.retry', {sessionId:'session-1',attempt:1});
         expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
         expect(sendMock).toHaveBeenCalledWith('app-close');
     });
@@ -914,7 +948,7 @@ describe('App install-session integration', () => {
             container.querySelector<HTMLButtonElement>('.install-btn-retry')?.click();
             container.querySelector<HTMLButtonElement>('.install-btn-logs')?.click();
         });
-        expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
+        expect(invokeMock).toHaveBeenCalledWith('install-session.retry', {sessionId:'session-1',attempt:1});
         expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
     });
 
@@ -1041,7 +1075,7 @@ describe('App install-session integration', () => {
         openLogsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         quitButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
-        expect(invokeMock).toHaveBeenCalledWith('install-session.retry');
+        expect(invokeMock).toHaveBeenCalledWith('install-session.retry', {sessionId:'session-1',attempt:1});
         expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
         expect(sendMock).toHaveBeenCalledWith('app-close');
         expect(invokeMock).not.toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');

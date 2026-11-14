@@ -432,7 +432,9 @@ class VADSystem:
                     return processor.process_audio(input_audio, output_audio, game_line, text_mined)
         except Exception as e:
             logger.exception(f"Error during VAD processing with model {model}: {e}")
-            return VADResult(False, 0, 0, model)
+            result = VADResult(False, 0, 0, model)
+            result.error = f"Voice detection failed with {model}: {e}"
+            return result
 
     def _get_processor(self, model):
         with self._init_lock:

@@ -1,88 +1,34 @@
-import * as fs from 'node:fs';
-import { createRequire } from 'node:module';
-import * as path from 'node:path';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+import {describe, expect, it} from 'vitest';
+const {load}=createRequire(import.meta.url)('js-yaml');
+const workflow=(name:string)=>load(fs.readFileSync('.github/workflows/'+name,'utf8'));
+const native=workflow('native_desktop.yml');
 
-import { describe, expect, it } from 'vitest';
-
-const require = createRequire(import.meta.url);
-const { load } = require('js-yaml') as { load: (source: string) => unknown };
-
-interface WorkflowStep {
-    id?: string;
-    uses?: string;
-    run?: string;
-    env?: Record<string, string>;
-    with?: Record<string, string>;
-}
-
-interface WorkflowJob {
-    needs?: string[];
-    if?: string;
-    outputs?: Record<string, string>;
-    steps: WorkflowStep[];
-}
-
-function readWorkflow(name: string): { jobs: Record<string, WorkflowJob> } {
-    return load(fs.readFileSync(
-        path.join(process.cwd(), '.github', 'workflows', name),
-        'utf8',
-    )) as { jobs: Record<string, WorkflowJob> };
-}
-
-const { jobs } = readWorkflow('release_exe.yml');
-
-describe('stable release overlay server build contract', () => {
-    it('resolves the overlay source tree from the release checkout', () => {
-        const prepare = jobs['prepare-release'];
-        const source = prepare.steps.find((step) => step.id === 'overlay_server_source');
-
-        expect(prepare.outputs?.OVERLAY_SERVER_SOURCE_TREE).toBe(
-            '${{ steps.overlay_server_source.outputs.OVERLAY_SERVER_SOURCE_TREE }}',
-        );
-        expect(source?.run).toContain('git rev-parse HEAD:GSM_Overlay/input_server');
+describe('coordinated native release',()=>{
+    it('uses one build pipeline for stable and preview releases',()=>{
+        for(const file of ['release_exe.yml','dev_release_exe.yml']) {
+            expect(workflow(file).jobs.release.uses).toBe('./.github/workflows/native_desktop.yml');
+            expect(workflow(file).jobs.release.with.publish).toBe(true);
+        }
     });
-
-    it('uses the development release wait and artifact handoff, only when a build is needed', () => {
-        const wait = jobs['wait-for-overlay-server'];
-        const devWait = readWorkflow('dev_release_exe.yml').jobs['wait-for-overlay-server'];
-
-        expect(wait).toBeDefined();
-        expect(wait.needs).toContain('prepare-release');
-        expect(wait.if).toBe("needs.prepare-release.outputs.should_build_any == 'true'");
-        expect(wait.steps[0].env?.EXPECTED_SOURCE_TREE).toBe(
-            '${{ needs.prepare-release.outputs.OVERLAY_SERVER_SOURCE_TREE }}',
-        );
-        expect(wait.steps[0].run).toBe(devWait.steps[0].run);
-        expect(wait.steps[1].uses).toBe('actions/upload-artifact@v4');
-        expect(wait.steps[1].with).toEqual({
-            ...devWait.steps[1].with,
-            name: 'overlay-server-binaries-${{ needs.prepare-release.outputs.OVERLAY_SERVER_SOURCE_TREE }}',
-        });
-    });
-
-    it('waits before creating the public release', () => {
-        expect(jobs['create-release'].needs).toContain('wait-for-overlay-server');
-    });
-
-    it.each([
-        ['build-windows-unsigned', 'win32', 'gsm_overlay_server-win32.exe'],
-        ['build-linux', 'linux', 'gsm_overlay_server-linux'],
-        ['build-mac-arm64', 'darwin', 'gsm_overlay_server-darwin'],
-    ])('%s only packages binaries from the successful wait job', (jobId, platform, binary) => {
-        const job = jobs[jobId];
-        const download = job.steps.find((step) => step.uses === 'actions/download-artifact@v4');
-        const commands = job.steps.map((step) => step.run ?? '').join('\n');
-
-        expect(job.needs).toContain('wait-for-overlay-server');
-        // These jobs use always() to allow an existing release shell to be skipped.
-        // They must still stop when the overlay wait fails, is cancelled, or is skipped.
-        expect(job.if).toContain("needs.wait-for-overlay-server.result == 'success'");
-        expect(download?.with).toEqual({
-            name: 'overlay-server-binaries-${{ needs.prepare-release.outputs.OVERLAY_SERVER_SOURCE_TREE }}',
-            path: 'overlay-server-binaries',
-        });
-        expect(commands).toContain(`overlay-server-binaries/${binary}`);
-        expect(commands).toContain(`GSM_Overlay/input_server/bin/${platform}/gsm_overlay_server`);
+    it('builds the input server from the same checkout on every target',()=>{
+        expect(native.jobs.build.strategy.matrix.include.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);
+        const commands=native.jobs.build.steps.map((step:{run?:string})=>step.run||'').join('\n');
+        expect(commands).toContain('npm run build:input-server');
         expect(commands).not.toContain('gh release download overlay-server');
+    });
+    it('publishes only after all platform builds and verification succeed',()=>{
+        expect(native.jobs.publish.needs).toEqual(['version','build']);
+        expect(native.jobs.publish.if).toBe('inputs.publish');
+        const commands=native.jobs.publish.steps.map((step:{run?:string})=>step.run||'').join('\n');
+        expect(commands.indexOf('merge-native-updates.mjs')).toBeLessThan(commands.indexOf('publish-native-assets.mjs'));
+        expect(commands).toContain('export-changelog-release-asset.mjs');
+    });
+    it('signs updater metadata after Windows code signing',()=>{
+        const steps=native.jobs.build.steps as Array<{uses?:string;run?:string}>;
+        const signing=steps.findLastIndex(step=>step.uses?.startsWith('signpath/'));
+        const manifest=steps.findIndex(step=>step.run?.includes('sign-native-assets.mjs'));
+        expect(signing).toBeGreaterThan(-1);expect(manifest).toBeGreaterThan(signing);
     });
 });

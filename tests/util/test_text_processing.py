@@ -10,6 +10,7 @@ from GameSentenceMiner.util.text_processing import (
     apply_text_processing,
     extract_bracketed_text,
     preview_text_processing_request,
+    remove_control_chars,
     remove_newlines,
 )
 
@@ -40,6 +41,34 @@ def _rule(
 def test_apply_text_processing_passthrough_for_empty_and_none_config():
     assert apply_text_processing("", None) == ""
     assert apply_text_processing("abc", None) == "abc"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("もうそんな時期なんだね…\x03…\x03", "もうそんな時期なんだね……"),
+        ("\x01名前\x02「台詞」\x03", "名前「台詞」"),
+        ("\x01\x02\x03", ""),
+    ],
+)
+def test_control_characters_are_removed_by_default_in_processing_and_preview(text, expected):
+    assert apply_text_processing(text, TextProcessing()) == expected
+    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": expected}
+
+
+def test_control_character_filter_removes_ascii_controls_but_preserves_text_formatting():
+    controls = "".join(chr(code) for code in range(32) if code not in (9, 10, 13)) + "\x7f"
+    text = "「日本語……」\r\n次の行\t👩‍💻\u200fالعربية\u200e e\u0301"
+    assert remove_control_chars(controls + text + controls) == text
+
+
+def test_control_character_filter_keeps_explicit_opt_out_and_replacements_before_cleanup():
+    raw = "名前\x01台詞\x02"
+    config = TextProcessing.from_dict({"remove_control_chars": False})
+    assert apply_text_processing(raw, config) == raw
+    assert TextProcessing.from_dict(config.to_dict()).remove_control_chars is False
+    config = TextProcessing(string_replacement=_cfg(rules=[_rule(find="\x01", replace="：")]))
+    assert apply_text_processing(raw, config) == "名前：台詞"
 
 
 def test_repeated_lines_are_removed_by_default_in_processing_and_preview():

@@ -193,12 +193,12 @@ def build_tokenization_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     tokenizer_backend_label = QLabel("Tokenizer Backend:")
     tokenizer_backend_label.setToolTip(
         "Choose the tokenizer used when experimental tokenization is enabled. "
-        "Sudachi is the default; MeCab avoids loading the shared Sudachi service."
+        "All Japanese features use the shared Sudachi service."
     )
     tokenization_layout.addRow(tokenizer_backend_label, window.tokenization_backend_combo)
     sudachi_dictionary_label = QLabel("Sudachi Dictionary:")
     sudachi_dictionary_label.setToolTip(
-        "Choose the Sudachi dictionary downloaded and loaded when GSM enables Sudachi. "
+        "Initial dictionary preference. Open desktop Japanese setup or overlay settings to download or change the shared dictionary. "
         "Small is the default and uses the least disk space and memory."
     )
     tokenization_layout.addRow(sudachi_dictionary_label, window.tokenization_sudachi_dictionary_combo)

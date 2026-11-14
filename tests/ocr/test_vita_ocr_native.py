@@ -149,7 +149,7 @@ def test_native_main_pipeline_keeps_model_metadata(runtime, monkeypatch):
     monkeypatch.setattr(
         ocr_runtime,
         "config",
-        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key)),
+        SimpleNamespace(get_general=lambda key: {"engine_color": "cyan"}.get(key)),
     )
     monkeypatch.setattr(ocr_runtime, "engine_instances", [engine], raising=False)
     monkeypatch.setattr(ocr_runtime, "engine_index", 0, raising=False)

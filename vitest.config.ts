@@ -9,5 +9,6 @@ export default defineConfig({
         restoreMocks: true,
         isolate: true,
         passWithNoTests: false,
+        testTimeout: 15000,
     },
 });

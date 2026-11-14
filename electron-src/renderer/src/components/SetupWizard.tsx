@@ -1,348 +1,290 @@
-import { useCallback, useEffect, useState } from "react";
-import { useTranslation } from "../i18n";
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SUPPORTED_LOCALES, useLocale, useTranslation } from '../i18n';
+import { invokeIpc } from '../lib/ipc';
+import { retainEqual, startVisiblePolling } from '../lib/visiblePolling';
+import { WorkspaceIcon } from './Workspace';
+import {
+  ONBOARDING_STEPS, ONBOARDING_VERSION,
+  type DictionarySetupStatus, type OnboardingSnapshot, type OnboardingStep, type SudachiSetupStatus,
+} from '../../../shared/onboarding';
+import './SetupWizard.css';
 
 interface SetupWizardProps {
   onComplete: () => void;
+  onAction: (action: 'game' | 'capture' | 'settings') => void;
 }
 
-type WizardStep = "welcome" | "input-source" | "anki" | "finish";
+const LEARNING_LANGUAGES = ['ja', 'zh', 'ko', 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'uk', 'ar', 'hi', 'tr', 'nl', 'sv', 'fi', 'da', 'no'];
+const STEP_ICONS = ['general', 'search', 'play', 'capture', 'check'];
 
-const STEPS: WizardStep[] = ["welcome", "input-source", "anki", "finish"];
-
-interface ConnectivityStatus {
-  anki: "checking" | "connected" | "failed";
-  obs: "checking" | "connected" | "failed";
-}
-
-export function SetupWizard({ onComplete }: SetupWizardProps) {
+export function SetupWizard({ onComplete, onAction }: SetupWizardProps) {
   const t = useTranslation();
-  const [step, setStep] = useState<WizardStep>("welcome");
-  const [connectivity, setConnectivity] = useState<ConnectivityStatus>({
-    anki: "checking",
-    obs: "checking"
-  });
+  const [locale, setLocale] = useLocale();
+  const [step, setStep] = useState<OnboardingStep>('language');
+  const [language, setLanguage] = useState('ja');
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState(false);
+  const [docked, setDocked] = useState(false);
+  const [dictionary, setDictionary] = useState<DictionarySetupStatus | null>(null);
+  const [dictionaryError, setDictionaryError] = useState(false);
+  const [sudachi, setSudachi] = useState<SudachiSetupStatus | null>(null);
+  const [sudachiEdition, setSudachiEdition] = useState('small');
+  const sudachiEditionLoaded = useRef(false);
+  const [readerChanging, setReaderChanging] = useState(false);
+  const [hasGame, setHasGame] = useState(false);
+  const card = useRef<HTMLDivElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const index = ONBOARDING_STEPS.indexOf(step);
 
-  const stepIndex = STEPS.indexOf(step);
-  const isFirst = stepIndex === 0;
-  const isLast = stepIndex === STEPS.length - 1;
+  const load = useCallback(async () => {
+    setError(false);
+    try {
+      const snapshot = await invokeIpc<OnboardingSnapshot>('settings.onboarding.get');
+      setStep(snapshot.progress.status === 'completed' ? 'language' : snapshot.progress.step);
+      setLanguage(snapshot.targetLanguage);
+      setLoaded(true);
+    } catch { setError(true); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
 
-  const goNext = useCallback(() => {
-    if (isLast) {
-      window.ipcRenderer.invoke("settings.saveSettings", {
-        setupWizardVersion: 1,
-        hasCompletedSetup: true
-      });
+  useEffect(() => {
+    if (docked) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const background = Array.from(document.querySelectorAll<HTMLElement>('.app-root > main, .app-root > .tab-bar'));
+    const inert = background.map(element => element.inert);
+    background.forEach(element => { element.inert = true; });
+    heading.current?.focus();
+    return () => {
+      background.forEach((element, i) => { element.inert = inert[i]; });
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [docked]);
+  useEffect(() => { if (!docked) heading.current?.focus(); }, [step, loaded, docked]);
+
+  const saveProgress = useCallback(async (next: OnboardingStep, status: 'active' | 'paused' | 'completed' = 'active') => {
+    const result = await invokeIpc<{ success: boolean }>('settings.onboarding.save', { version: ONBOARDING_VERSION, step: next, status });
+    if (result?.success !== true) throw new Error('Setup progress was not saved.');
+    setStep(next);
+  }, []);
+  const run = async (action: () => Promise<void>) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(false);
+    try { await action(); } catch { setError(true); }
+    finally { busyRef.current = false; setBusy(false); }
+  };
+
+  useEffect(() => {
+    if (!loaded || step !== 'dictionary' || readerChanging) return;
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const next = await invokeIpc<DictionarySetupStatus>('settings.onboarding.dictionary', { action: 'status' });
+        if (!disposed) { setDictionary(before => retainEqual(before, next)); setDictionaryError(false); }
+      } catch { if (!disposed) setDictionaryError(true); }
+    };
+    const stop = startVisiblePolling(refresh, 2000);
+    return () => { disposed = true; stop(); };
+  }, [loaded, step, readerChanging]);
+
+  useEffect(() => {
+    if (!loaded || step !== 'dictionary' || language !== 'ja') return;
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const next = await invokeIpc<SudachiSetupStatus>('settings.onboarding.sudachi', { action: 'status' });
+        if (!disposed) {
+          setSudachi(before => retainEqual(before, next));
+          if (next.dictionary && !sudachiEditionLoaded.current) { setSudachiEdition(next.dictionary); sudachiEditionLoaded.current = true; }
+        }
+      } catch { if (!disposed) setSudachi({ state: 'error' }); }
+    };
+    const stop = startVisiblePolling(refresh, 2000);
+    return () => { disposed = true; stop(); };
+  }, [loaded, step, language]);
+
+  useEffect(() => {
+    if (!loaded || !['game', 'capture'].includes(step)) return;
+    let disposed = false;
+    const refresh = async () => {
+      try {
+        const scenes = await invokeIpc<Array<{ name: string }>>('obs.getScenes');
+        if (!disposed) setHasGame(Array.isArray(scenes) && scenes.some(scene => !/^GSM[ _-]+HELPER/i.test(scene.name)));
+      } catch { if (!disposed) setHasGame(false); }
+    };
+    const stop = startVisiblePolling(refresh, 2000);
+    return () => { disposed = true; stop(); };
+  }, [loaded, step]);
+
+  const next = (skip = false) => run(async () => {
+    if (step === 'language' && !skip) {
+      const result = await invokeIpc<{ success: boolean }>('settings.saveSettings', { locale });
+      if (result?.success !== true) throw new Error('App language could not be saved.');
+      const saved = await invokeIpc<{ success: boolean }>('settings.onboarding.language', language);
+      if (saved?.success !== true) throw new Error('Learning language could not be saved.');
+    }
+    if (step === 'finish') {
+      await saveProgress(step, 'completed');
       onComplete();
     } else {
-      setStep(STEPS[stepIndex + 1]);
+      await saveProgress(ONBOARDING_STEPS[index + 1]);
+      setDocked(false);
     }
-  }, [stepIndex, isLast, onComplete]);
-
-  const goBack = useCallback(() => {
-    if (!isFirst) {
-      setStep(STEPS[stepIndex - 1]);
-    }
-  }, [stepIndex, isFirst]);
-
-  const skipWizard = useCallback(() => {
-    window.ipcRenderer.invoke("settings.saveSettings", {
-      setupWizardVersion: 1,
-      hasCompletedSetup: true
-    });
+  });
+  const pause = () => run(async () => {
+    if (loaded) await saveProgress(step, 'paused');
     onComplete();
-  }, [onComplete]);
-
-  // Check connectivity when we hit the anki step
-  useEffect(() => {
-    if (step !== "anki") return;
-    setConnectivity({ anki: "checking", obs: "checking" });
-
-    // Check Anki
-    fetch("http://127.0.0.1:8765", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "version", version: 6 })
-    })
-      .then((r) => r.json())
-      .then(() => setConnectivity((prev) => ({ ...prev, anki: "connected" })))
-      .catch(() => setConnectivity((prev) => ({ ...prev, anki: "failed" })));
-
-    // Check OBS
-    // OBS websocket check is tricky from renderer; just show informational status
-    setConnectivity((prev) => ({ ...prev, obs: "checking" }));
-    // We'll try a simple websocket probe
+  });
+  const explore = (action: 'game' | 'capture' | 'settings') => run(async () => {
+    await saveProgress(step);
+    setDocked(true);
+    onAction(action);
+  });
+  const dictionaryAction = (action: 'open' | 'install') => run(async () => {
+    setDictionary(await invokeIpc<DictionarySetupStatus>('settings.onboarding.dictionary', { action }));
+  });
+  const selectReader = (reader: 'yomitan' | 'hachidori') => run(async () => {
+    if (dictionary?.reader === reader) return;
+    setReaderChanging(true);
     try {
-      const ws = new WebSocket("ws://127.0.0.1:4455");
-      ws.onopen = () => {
-        setConnectivity((prev) => ({ ...prev, obs: "connected" }));
-        ws.close();
-      };
-      ws.onerror = () => {
-        setConnectivity((prev) => ({ ...prev, obs: "failed" }));
-      };
-      // Timeout after 3s
-      setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) {
-          ws.close();
-          setConnectivity((prev) =>
-            prev.obs === "checking" ? { ...prev, obs: "failed" } : prev
-          );
-        }
-      }, 3000);
-    } catch {
-      setConnectivity((prev) => ({ ...prev, obs: "failed" }));
-    }
-  }, [step]);
+      await invokeIpc('settings.onboarding.dictionary', { action: 'select', reader });
+      for (let attempt = 0; attempt < 25; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        try {
+          const state = await invokeIpc<DictionarySetupStatus>('settings.onboarding.dictionary', { action: 'status' });
+          if (state.reader === reader) { setDictionary(state); return; }
+        } catch { /* The previous reader closes its connection during restart. */ }
+      }
+      throw new Error('Dictionary reader did not restart.');
+    } finally { setReaderChanging(false); }
+  });
+
+  const sudachiReady = (sudachi?.state === 'ready' || sudachi?.state === 'installed') && sudachi.dictionary === sudachiEdition;
+  const ready = step === 'dictionary' ? (dictionary?.installed.length ?? 0) > 0 && (language !== 'ja' || sudachiReady) : step === 'game' ? hasGame : true;
+  const languageNames = new Intl.DisplayNames([locale === 'ukr' ? 'uk' : locale], { type: 'language' });
+  const languages = [...new Set([...LEARNING_LANGUAGES, language])];
+  if (docked) return (
+    <aside className="setup-guide" aria-label={t('onboarding.title')}>
+      <WorkspaceIcon name={STEP_ICONS[index]} />
+      <div><strong>{t(`onboarding.steps.${step}`)}</strong><span>{t(`onboarding.${step}Guide`)}</span></div>
+      <button type="button" onClick={() => setDocked(false)}>{t('onboarding.return')}</button>
+      <button type="button" disabled={busy} onClick={pause}>{t('onboarding.pause')}</button>
+      {error && <span role="alert">{t('onboarding.error')}</span>}
+    </aside>
+  );
 
   return (
-    <div className="wizard-overlay">
-      <div className="wizard-card">
-        <div className="wizard-progress">
-          {STEPS.map((s, i) => (
-            <div
-              key={s}
-              className={`wizard-progress-dot ${i <= stepIndex ? "active" : ""} ${i === stepIndex ? "current" : ""}`}
-            />
-          ))}
-        </div>
-
-        <div className="wizard-content">
-          {step === "welcome" && <WelcomeStep />}
-          {step === "input-source" && <InputSourceStep />}
-          {step === "anki" && <AnkiStep connectivity={connectivity} />}
-          {step === "finish" && <FinishStep />}
-        </div>
-
-        <div className="wizard-footer">
-          <button
-            className="wizard-btn wizard-btn-skip"
-            onClick={skipWizard}
-          >
-            {t("wizard.skip")}
-          </button>
-          <div className="wizard-footer-right">
-            {!isFirst && (
-              <button className="wizard-btn wizard-btn-back" onClick={goBack}>
-                {t("wizard.back")}
-              </button>
-            )}
-            <button className="wizard-btn wizard-btn-next" onClick={goNext}>
-              {isLast ? t("wizard.getStarted") : t("wizard.next")}
-            </button>
+    <div className="setup-overlay">
+      <div className="setup-card" role="dialog" aria-modal="true" aria-labelledby="setup-heading" ref={card}
+        onKeyDown={event => {
+          if (event.key === 'Escape' && !busy) { event.preventDefault(); void pause(); }
+          if (event.key !== 'Tab') return;
+          const controls = Array.from(card.current?.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled), a[href]') ?? []);
+          const first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && (document.activeElement === first || document.activeElement === heading.current)) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+        }}>
+        <aside className="setup-sidebar">
+          <span className="setup-brand">{t('onboarding.brand')}</span>
+          <h2>{t('onboarding.title')}</h2><p>{t('onboarding.subtitle')}</p>
+          <ol aria-label={t('onboarding.progress')}>
+            {ONBOARDING_STEPS.map((item, i) => <li key={item} aria-current={item === step ? 'step' : undefined} data-past={i < index}>
+              <span className="setup-step-number">{i < index ? <WorkspaceIcon name="check" /> : i + 1}</span>{t(`onboarding.steps.${item}`)}
+            </li>)}
+          </ol>
+          <span className="setup-sidebar-note">{t('onboarding.savedHint')}</span>
+        </aside>
+        <div className="setup-main">
+          <div className="setup-content" aria-busy={busy}>
+            <span className="setup-eyebrow">{t('onboarding.stepOf', { step: index + 1, total: ONBOARDING_STEPS.length })}</span>
+            <h1 id="setup-heading" tabIndex={-1} ref={heading}>{t(`onboarding.${step}Title`)}</h1>
+            <p className="setup-lede">{t(`onboarding.${step}Description`)}</p>
+            {!loaded ? <button type="button" onClick={() => void load()}>{t(error ? 'onboarding.retry' : 'onboarding.loading')}</button> : <>
+              {step === 'language' && <div className="setup-fields">
+                <label htmlFor="setup-locale">{t('onboarding.appLanguage')}</label>
+                <select id="setup-locale" value={locale} disabled={busy} onChange={event => setLocale(event.target.value)}>
+                  {SUPPORTED_LOCALES.map(item => <option key={item.code} value={item.code}>{item.label}</option>)}
+                </select>
+                <label htmlFor="setup-language">{t('onboarding.learningLanguage')}</label>
+                <select id="setup-language" value={language} disabled={busy} onChange={event => setLanguage(event.target.value)}>
+                  {languages.map(value => <option key={value} value={value}>{languageNames.of(value) ?? value}</option>)}
+                </select><p className="setup-note">{t('onboarding.languageHint')}</p>
+              </div>}
+              {step === 'dictionary' && <>
+                {language === 'ja' && <div className="setup-info">
+                  <h3>{t('onboarding.sudachiTitle')}</h3>
+                  <p>{t('onboarding.sudachiDescription')}</p>
+                  <label htmlFor="sudachi-edition">{t('onboarding.sudachiEdition')}</label>
+                  <select id="sudachi-edition" value={sudachiEdition} disabled={busy || sudachi?.state === 'installing'}
+                    onChange={event => setSudachiEdition(event.target.value)}>
+                    {['small', 'core', 'full'].map(edition => <option key={edition} value={edition}>{t(`onboarding.sudachi${edition}`)}</option>)}
+                  </select>
+                  <button type="button" disabled={busy || sudachi?.state === 'installing'} onClick={() => void run(async () => {
+                    setSudachi(await invokeIpc<SudachiSetupStatus>('settings.onboarding.sudachi', { action: 'install', dictionary: sudachiEdition }));
+                  })}>{t(sudachi?.state === 'error' ? 'onboarding.retry' : 'onboarding.sudachiInstall')}</button>
+                  <p role="status">{t(sudachiReady ? 'onboarding.sudachiReady' : sudachi?.state === 'installing' ? 'onboarding.installing' : 'onboarding.sudachiRequired')}</p>
+                  {sudachi?.state === 'error' && <p role="alert">{t('onboarding.sudachiError')} {sudachi.error}</p>}
+                </div>}
+                <div className="setup-choices" role="group" aria-label={t('onboarding.reader')}>
+                  {(['yomitan', 'hachidori'] as const).map(reader => <button type="button" key={reader} aria-pressed={dictionary?.reader === reader}
+                    disabled={busy || !dictionary || dictionary.busy} onClick={() => void selectReader(reader)}>
+                    <strong>{t(`onboarding.${reader}`)}</strong><span>{t(`onboarding.${reader}Hint`)}</span>
+                  </button>)}
+                </div>
+                <div className="setup-dictionary" aria-live="polite"><WorkspaceIcon name="search" />
+                  <div><strong>{dictionary?.recommended?.name ?? t('onboarding.chooseDictionary')}</strong>
+                    <p>{t(dictionary?.recommended ? 'onboarding.dictionaryHint' : 'onboarding.manualDictionary')}</p>
+                    {dictionary?.recommended && <button type="button" className="setup-link" onClick={() => void run(async () => {
+                      const result = await invokeIpc<{ success: boolean }>('open-external', dictionary.recommended!.homepage);
+                      if (result?.success === false) throw new Error('Could not open dictionary website.');
+                    })}>{t('onboarding.dictionarySource')}</button>}
+                  </div>
+                </div>
+                <div className="setup-actions">
+                  {dictionary?.recommended && <button type="button" className="setup-primary" disabled={busy || dictionary.busy} onClick={() => void dictionaryAction('install')}>
+                    {t(dictionary.busy ? 'onboarding.installing' : 'onboarding.installDictionary', { name: dictionary.recommended.name })}
+                  </button>}
+                  <button type="button" disabled={busy || dictionary?.busy} onClick={() => void dictionaryAction('open')}>{t('onboarding.dictionarySettings')}</button>
+                </div>
+                <p className="setup-status" role="status">{t(readerChanging ? 'onboarding.switching' : dictionary?.busy ? 'onboarding.installing' : ready ? 'onboarding.dictionaryReady' : 'onboarding.dictionaryWaiting')}</p>
+                {(dictionaryError || dictionary?.error) && <p className="setup-error" role="alert">{t('onboarding.dictionaryError')}{dictionary?.error && <span>{dictionary.error}</span>}</p>}
+              </>}
+              {step === 'game' && <>
+                <ol className="setup-instructions"><li>{t('onboarding.gameStart')}</li><li>{t('onboarding.gameSelect')}</li><li>{t('onboarding.gamePreview')}</li></ol>
+                <button type="button" className="setup-primary" disabled={busy} onClick={() => void explore('game')}>{t('onboarding.addGame')}</button>
+                <p className="setup-status" role="status">{t(hasGame ? 'onboarding.gameReady' : 'onboarding.gameWaiting')}</p>
+              </>}
+              {step === 'capture' && <>
+                <div className="setup-info"><h3>{t('onboarding.hookTitle')}</h3><p>{t('onboarding.hookDescription')}</p></div>
+                <div className="setup-info"><h3>{t('onboarding.ocrTitle')}</h3><p>{t('onboarding.ocrDescription')}</p></div>
+                <button type="button" className="setup-primary" disabled={busy || !hasGame} onClick={() => void explore('capture')}>{t('onboarding.configureCapture')}</button>
+                <p className="setup-note">{t('onboarding.captureHint')}</p>
+              </>}
+              {step === 'finish' && <>
+                <ol className="setup-instructions"><li>{t('onboarding.tourHome')}</li><li>{t('onboarding.tourLookup')}</li><li>{t('onboarding.tourText')}</li></ol>
+                <div className="setup-info"><h3>{t('onboarding.ankiTitle')}</h3><p>{t('onboarding.ankiDescription')}</p>
+                  <button type="button" disabled={busy} onClick={() => void explore('settings')}>{t('onboarding.openSettings')}</button>
+                </div>
+                <button type="button" className="setup-link" disabled={busy} onClick={() => void run(async () => { await invokeIpc('openTexthooker'); })}>{t('onboarding.openText')}</button>
+              </>}
+            </>}
+            {error && <p className="setup-error" role="alert">{t('onboarding.error')}</p>}
           </div>
+          <footer className="setup-footer">
+            <button type="button" className="setup-link" disabled={busy} onClick={pause}>{t('onboarding.pause')}</button>
+            <div>
+              {index > 0 && <button type="button" disabled={busy || !loaded} onClick={() => void run(() => saveProgress(ONBOARDING_STEPS[index - 1]))}>{t('onboarding.back')}</button>}
+              {step !== 'finish' && <button type="button" className="setup-link" disabled={busy || !loaded} onClick={() => void next(true)}>{t('onboarding.skip')}</button>}
+              <button type="button" className="setup-primary" disabled={busy || !loaded || !ready} onClick={() => void next()}>
+                {t(busy ? 'onboarding.saving' : step === 'finish' ? 'onboarding.finish' : 'onboarding.next')}
+              </button>
+            </div>
+          </footer>
         </div>
       </div>
     </div>
-  );
-}
-
-function WelcomeStep() {
-  const t = useTranslation();
-  return (
-    <>
-      <h2 className="wizard-title">{t("wizard.welcome.title")}</h2>
-      <p className="wizard-text">
-        {t("wizard.welcome.description")}
-      </p>
-      <div className="wizard-info-box">
-        <h3>{t("wizard.welcome.whatYouNeed")}</h3>
-        <ul>
-          <li>
-            <strong>{t("wizard.welcome.ankiLabel")}</strong> {t("wizard.welcome.ankiWith")}{" "}
-            <a
-              href="#"
-              onClick={(e) => {
-                e.preventDefault();
-                window.ipcRenderer.invoke(
-                  "open-external",
-                  "https://ankiweb.net/shared/info/2055492159"
-                );
-              }}
-            >
-              {t("wizard.welcome.ankiConnect")}
-            </a>{" "}
-            {t("wizard.welcome.ankiAddonRunning")}
-          </li>
-          <li>
-            <strong>{t("wizard.welcome.textSourceLabel")}</strong> {t("wizard.welcome.textSourceDesc")}
-          </li>
-          <li>
-            <strong>{t("wizard.welcome.obsLabel")}</strong> {t("wizard.welcome.obsDesc")}
-          </li>
-        </ul>
-      </div>
-      <p className="wizard-text-muted">
-        {t("wizard.welcome.hint")}
-      </p>
-    </>
-  );
-}
-
-function InputSourceStep() {
-  const t = useTranslation();
-  return (
-    <>
-      <h2 className="wizard-title">{t("wizard.textSources.title")}</h2>
-      <p className="wizard-text">
-        {t("wizard.textSources.description")}
-      </p>
-      <div className="wizard-options">
-        <div className="wizard-option">
-          <h3>{t("wizard.textSources.agentTitle")}</h3>
-          <p>
-            {t("wizard.textSources.agentDesc")}
-          </p>
-          <a
-            href="#"
-            onClick={(e) => {
-              e.preventDefault();
-              window.ipcRenderer.invoke(
-                "open-external",
-                "https://github.com/0xDC00/agent"
-              );
-            }}
-          >
-            {t("wizard.textSources.agentLink")}
-          </a>
-        </div>
-        <div className="wizard-option">
-          <h3>{t("wizard.textSources.ocrTitle")}</h3>
-          <p>
-            {t("wizard.textSources.ocrDesc")}
-          </p>
-        </div>
-        <div className="wizard-option">
-          <h3>{t("wizard.textSources.clipboardTitle")}</h3>
-          <p>
-            {t("wizard.textSources.clipboardDesc")}
-          </p>
-        </div>
-      </div>
-      <p className="wizard-text-muted">
-        {t("wizard.textSources.hint")}
-      </p>
-    </>
-  );
-}
-
-function AnkiStep({ connectivity }: { connectivity: ConnectivityStatus }) {
-  const t = useTranslation();
-  const statusIcon = (status: "checking" | "connected" | "failed") => {
-    if (status === "checking") return "⏳";
-    if (status === "connected") return "✅";
-    return "❌";
-  };
-
-  return (
-    <>
-      <h2 className="wizard-title">{t("wizard.connectivity.title")}</h2>
-      <p className="wizard-text">
-        {t("wizard.connectivity.description")}
-      </p>
-      <div className="wizard-connectivity">
-        <div
-          className={`wizard-conn-item ${connectivity.anki}`}
-        >
-          <span className="wizard-conn-icon">
-            {statusIcon(connectivity.anki)}
-          </span>
-          <div>
-            <strong>{t("wizard.connectivity.ankiLabel")}</strong>
-            <p>
-              {connectivity.anki === "checking" && t("wizard.connectivity.checking")}
-              {connectivity.anki === "connected" &&
-                t("wizard.connectivity.ankiConnected")}
-              {connectivity.anki === "failed" && (
-                <>
-                  {t("wizard.connectivity.ankiFailedPre")}{" "}
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      window.ipcRenderer.invoke(
-                        "open-external",
-                        "https://ankiweb.net/shared/info/2055492159"
-                      );
-                    }}
-                  >
-                    {t("wizard.connectivity.ankiConnectAddon")}
-                  </a>{" "}
-                  {t("wizard.connectivity.ankiFailedPost")}
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-        <div
-          className={`wizard-conn-item ${connectivity.obs}`}
-        >
-          <span className="wizard-conn-icon">
-            {statusIcon(connectivity.obs)}
-          </span>
-          <div>
-            <strong>{t("wizard.connectivity.obsLabel")}</strong>
-            <p>
-              {connectivity.obs === "checking" && t("wizard.connectivity.checking")}
-              {connectivity.obs === "connected" &&
-                t("wizard.connectivity.obsConnected")}
-              {connectivity.obs === "failed" &&
-                t("wizard.connectivity.obsFailed")}
-            </p>
-          </div>
-        </div>
-      </div>
-      <p className="wizard-text-muted">
-        {t("wizard.connectivity.hint")}
-      </p>
-    </>
-  );
-}
-
-function FinishStep() {
-  const t = useTranslation();
-  return (
-    <>
-      <h2 className="wizard-title">{t("wizard.finish.title")}</h2>
-      <p className="wizard-text">
-        {t("wizard.finish.description")}
-      </p>
-      <div className="wizard-info-box">
-        <ul>
-          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipHome") }} />
-          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipGameSettings") }} />
-          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipSettings") }} />
-          <li dangerouslySetInnerHTML={{ __html: t("wizard.finish.tipConsole") }} />
-        </ul>
-      </div>
-      <p className="wizard-text">
-        {t("wizard.finish.guidePre")}{" "}
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            window.ipcRenderer.invoke(
-              "open-external",
-              "https://github.com/bpwhelan/GameSentenceMiner/wiki"
-            );
-          }}
-        >
-          {t("wizard.finish.guideWikiLink")}
-        </a>
-        {" "}{t("wizard.finish.guideOr")}{" "}
-        <a
-          href="#"
-          onClick={(e) => {
-            e.preventDefault();
-            window.ipcRenderer.invoke(
-              "open-external",
-              "https://discord.gg/yP8Qse6bb8"
-            );
-          }}
-        >
-          {t("wizard.finish.guideDiscordLink")}
-        </a>
-        .
-      </p>
-    </>
   );
 }

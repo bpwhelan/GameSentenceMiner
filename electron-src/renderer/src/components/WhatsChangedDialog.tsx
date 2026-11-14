@@ -12,7 +12,7 @@ function formatPercent(value: number): string {
 }
 
 function isAbsoluteAssetUrl(value: string): boolean {
-  return /^(?:https?:|data:|blob:|gsm-changelog:)/i.test(value);
+  return /^(?:https?:|data:|blob:|gsm-changelog:|gsm:)/i.test(value);
 }
 
 function resolveAssetUrl(src: string | undefined, assetBaseUrl: string): string {

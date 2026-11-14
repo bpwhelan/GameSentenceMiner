@@ -117,7 +117,9 @@ function resolveInputServerExecutable(): string | null {
         ? process.resourcesPath
         : path.resolve(moduleDir, '..', '..', '..');
     const overlayDirName = `gsm_overlay-${process.platform}-${process.arch}`;
-    const overlayResourcesDir = app.isPackaged
+    const overlayResourcesDir = process.env.GSM_NATIVE_SERVICE
+        ? path.join(resourcesDir, 'GSM_Overlay')
+        : app.isPackaged
         ? path.join(process.resourcesPath, 'GSM_Overlay', overlayDirName, 'resources')
         : path.join(resourcesDir, 'GSM_Overlay', 'out', overlayDirName, 'resources');
     const candidates = getInputServerExecutableCandidates({
@@ -249,6 +251,8 @@ export async function startInputServer(): Promise<boolean> {
                 env: {
                     ...process.env,
                     GSM_OVERLAY_DATA_PATH: path.join(getBaseDir(), 'gsm_overlay'),
+                    GSM_SUDACHI_DATA_PATH: getBaseDir(),
+                    GSM_SUDACHI_USER_DICTS_PATH: path.join(getBaseDir(), 'dictionaries', 'sudachi'),
                     // Tokenizer data uses the service directory above, but the
                     // listener preferences live with the overlay's settings.
                     GSM_GAMEPAD_SETTINGS_PATH: path.join(getOverlayDataPath(), 'settings.json'),

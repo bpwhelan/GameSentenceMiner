@@ -32,6 +32,7 @@ import { USE_IN_PROCESS_OVERLAY } from '../overlay_runtime_config.js';
 import { getWindowsSystemExecutable } from '../runtime/windows_tools.js';
 import {
     isInProcessOverlayRunning,
+    isInProcessOverlayTransitioning,
     startInProcessOverlay,
     stopInProcessOverlay,
     waitForInProcessOverlayShutdown,
@@ -41,6 +42,10 @@ const OCR_CONFIG_DIR = path.join(BASE_DIR, 'ocr_config');
 let overlayProcess: ChildProcess | null = null;
 export type OverlayLaunchSource = 'manual' | 'startup' | 'auto-launcher';
 let overlayLaunchSource: OverlayLaunchSource | null = null;
+// A manual off lasts until the next manual enable or desktop restart. Saved
+// startup/game automation preferences must not immediately undo the switch.
+let overlayManuallyDisabled = false;
+let overlayControlGeneration = 0;
 let overlayLaunchId: string | null = null;
 let overlayExitPromise: Promise<void> | null = null;
 let overlayStopRequested = false;
@@ -136,11 +141,23 @@ export function registerFrontPageIPC() {
     });
 
     ipcMain.handle('runOverlay', async () => {
-        await runOverlay();
+        return runOverlay();
+    });
+
+    ipcMain.handle('setOverlayEnabled', async (_event, enabled: boolean) => {
+        return setOverlayEnabled(enabled);
     });
 
     ipcMain.handle('getOverlayStatus', () => {
         return getOverlayRuntimeState();
+    });
+
+    ipcMain.handle('front.autoOverlaySync', async (_event, shouldRun: boolean) => {
+        if (shouldRun) {
+            adoptStartupOverlayForAutomation();
+            return runOverlayWithSource('auto-launcher');
+        }
+        return stopOverlay({ onlyIfSource: 'auto-launcher' });
     });
 }
 
@@ -148,11 +165,25 @@ export async function runOverlay() {
     return runOverlayWithSource('manual');
 }
 
+export async function setOverlayEnabled(enabled: boolean): Promise<OverlayRuntimeState & { success: boolean }> {
+    if (typeof enabled !== 'boolean') throw new TypeError('Overlay enabled must be a boolean.');
+    overlayManuallyDisabled = !enabled;
+    let success = true;
+    if (enabled) {
+        success = await runOverlay();
+    } else {
+        stopOverlay();
+        await waitForOverlayShutdown();
+    }
+    const state = getOverlayRuntimeState();
+    return { ...state, success: success && state.isRunning === enabled };
+}
+
 export function getOverlayRuntimeState(): OverlayRuntimeState {
     const isRunning = USE_IN_PROCESS_OVERLAY
         ? isInProcessOverlayRunning()
         : Boolean(overlayProcess && overlayProcess.exitCode === null);
-    if (!isRunning) {
+    if (!isRunning && !(USE_IN_PROCESS_OVERLAY && isInProcessOverlayTransitioning())) {
         overlayLaunchSource = null;
     }
     return {
@@ -163,17 +194,12 @@ export function getOverlayRuntimeState(): OverlayRuntimeState {
 
 export function stopOverlay(options: StopOverlayOptions = {}): boolean {
     if (USE_IN_PROCESS_OVERLAY) {
-        if (!isInProcessOverlayRunning()) {
-            overlayLaunchSource = null;
-            return false;
-        }
         if (options.onlyIfSource && overlayLaunchSource !== options.onlyIfSource) {
             return false;
         }
+        overlayControlGeneration += 1;
         const stopRequested = stopInProcessOverlay();
-        if (stopRequested) {
-            overlayLaunchSource = null;
-        }
+        overlayLaunchSource = null;
         return stopRequested;
     }
 
@@ -334,13 +360,15 @@ function spawnSharedOverlayRuntime(spawn: typeof import('child_process').spawn, 
 export async function runOverlayWithSource(
     source: OverlayLaunchSource = 'manual'
 ): Promise<boolean> {
+    if (source === 'manual') overlayManuallyDisabled = false;
+    else if (overlayManuallyDisabled) return false;
     if (USE_IN_PROCESS_OVERLAY) {
-        if (isInProcessOverlayRunning()) {
-            console.log('Overlay is already running.');
-            return true;
-        }
+        const generation = overlayControlGeneration;
+        overlayLaunchSource ??= source;
         const started = await startInProcessOverlay();
-        overlayLaunchSource = started ? source : null;
+        if (generation !== overlayControlGeneration) return false;
+        if (started) overlayLaunchSource ??= source;
+        else overlayLaunchSource = null;
         return started;
     }
 

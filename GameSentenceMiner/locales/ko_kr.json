@@ -137,41 +137,6 @@
             "tooltip": "애플리케이션의 언어를 선택합니다. 인터페이스 언어가 변경됩니다."
           }
         },
-        "text_processing": {
-          "title": "텍스트 처리",
-          "string_replacement": {
-            "group_title": "문자열 교체",
-            "group_tooltip": "들어오는 모든 텍스트에 순서대로 교체 규칙을 적용합니다.",
-            "enabled": {
-              "label": "문자열 교체 활성화:",
-              "tooltip": "로깅 또는 오버레이 전에 들어오는 모든 텍스트에 문자열 교체 규칙을 적용합니다."
-            },
-            "rules": {
-              "label": "규칙:",
-              "tooltip": "교체 규칙 목록을 편집합니다."
-            },
-            "edit_rules": {
-              "label": "규칙 편집",
-              "tooltip": "문자열 교체 규칙 편집기를 엽니다."
-            },
-            "rules_count": "{count}개 규칙",
-            "dialog": {
-              "title": "문자열 교체 규칙",
-              "add": "규칙 추가",
-              "remove": "규칙 제거",
-              "move_up": "위로 이동",
-              "move_down": "아래로 이동",
-              "enabled": "활성화",
-              "mode": "모드",
-              "find": "찾기",
-              "replace": "교체",
-              "case_sensitive": "대소문자 구분",
-              "whole_word": "전체 단어",
-              "mode_plain": "일반 텍스트",
-              "mode_regex": "정규식"
-            }
-          }
-        },
         "paths": {
           "title": "경로",
           "folder_to_watch": {
@@ -457,10 +422,6 @@
         },
         "features": {
           "title": "기능",
-          "notify_on_update": {
-            "label": "Anki 카드 생성 또는 업데이트 시 알림:",
-            "tooltip": "GSM이 Anki 카드를 생성하거나 업데이트할 때 알립니다."
-          },
           "open_anki_edit": {
             "label": "편집 보기에서 Anki 노트 열기:",
             "tooltip": "업데이트 후 Anki를 자동으로 편집 모드로 엽니다."
@@ -484,31 +445,6 @@
           "generate_longplay": {
             "label": "롱플레이 생성:",
             "tooltip": "OBS 녹화로 롱플레이 영상을 만들고 GSM에 입력되는 텍스트를 SRT 자막 파일로 기록합니다. 다시 시작해야 합니다."
-          },
-          "notifications_title": "바탕 화면 알림",
-          "notify_on_audio_generated": {
-            "label": "오디오 생성 시 알림:",
-            "tooltip": "GSM이 오디오 생성 또는 자르기를 마치면 알립니다."
-          },
-          "notify_on_screenshot_saved": {
-            "label": "스크린샷 저장 시 알림:",
-            "tooltip": "GSM이 스크린샷을 디스크에 저장하면 알립니다."
-          },
-          "notify_on_anki_enhancement_failed": {
-            "label": "Anki 카드 보강 실패 시 알림:",
-            "tooltip": "오디오 누락 또는 생성 실패를 포함해 Anki 카드 보강을 완료하지 못하면 알립니다."
-          },
-          "notify_on_errors": {
-            "label": "GSM 오류 알림:",
-            "tooltip": "주의가 필요한 오류가 GSM에서 발생하면 알립니다."
-          },
-          "notify_on_obs_warning": {
-            "label": "OBS 리플레이를 사용할 수 없을 때 알림:",
-            "tooltip": "GSM이 OBS 리플레이 버퍼를 사용할 수 없으면 알립니다."
-          },
-          "notify_on_text_intake_state": {
-            "label": "텍스트 입력 일시 중지 또는 재개 시 알림:",
-            "tooltip": "수신 텍스트 처리가 일시 중지되거나 재개되면 알립니다."
           }
         },
         "screenshot": {

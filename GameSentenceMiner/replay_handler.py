@@ -51,13 +51,13 @@ def _handle_texthooker_button(video_path: str) -> None:
     handle_texthooker_button(video_path)
 
 
-def _notify_anki_enhancement_failure(reason: str) -> None:
+def _report_card_error(reason: str) -> None:
     message = str(reason or "").strip()
     if not message:
         message = "Anki card enhancement failed. Check console for reason."
-    from GameSentenceMiner.util.platform import notification
+    from GameSentenceMiner.util.communication import desktop_events
 
-    notification.send_anki_enhancement_failed(message)
+    desktop_events.card_error(message)
 
 
 @dataclass
@@ -596,7 +596,7 @@ class ReplayAudioExtractor:
                                 f"{resolved_audio_output}"
                             )
                             logger.warning(reason)
-                            _notify_anki_enhancement_failure(reason)
+                            _report_card_error(reason)
                             resolved_audio_output = ""
                         if (
                             context.vad_result
@@ -605,7 +605,7 @@ class ReplayAudioExtractor:
                         ):
                             reason = f"VAD output audio path does not exist: {context.vad_result.output_audio}"
                             logger.warning(reason)
-                            _notify_anki_enhancement_failure(reason)
+                            _report_card_error(reason)
                             context.vad_result.output_audio = ""
                         if resolved_audio_output != context.final_audio_output:
                             context.audio_result.final_audio_output = resolved_audio_output
@@ -661,10 +661,10 @@ class ReplayAudioExtractor:
                             timing_context=context.timing_context,
                         )
                     )
-            elif get_config().features.notify_on_audio_generated and context.vad_result and context.vad_result.success:
-                from GameSentenceMiner.util.platform import notification
+            elif context.vad_result and context.vad_result.success:
+                from GameSentenceMiner.util.communication import desktop_events
 
-                notification.send_audio_generated_notification(context.vad_trimmed_audio)
+                desktop_events.audio_generated(context.vad_trimmed_audio)
         except Exception as e:
             reason = f"Failed processing replay for Anki note enhancement: {e}"
             if context.mined_line:
@@ -674,7 +674,7 @@ class ReplayAudioExtractor:
                 f"Some error was hit catching to allow further work to be done: {e}",
                 exc_info=True,
             )
-            _notify_anki_enhancement_failure(reason)
+            _report_card_error(reason)
         finally:
             if context.word_being_processed and not context.background_update_started:
                 gsm_status.remove_word_being_processed(context.word_being_processed)
@@ -789,9 +789,7 @@ class ReplayAudioExtractor:
             )
             final_audio_output = trimmed_audio if os.path.exists(trimmed_audio) else ""
             if not final_audio_output:
-                _notify_anki_enhancement_failure(
-                    f"Failed to create trimmed audio for the Anki card from replay: {trimmed_audio}"
-                )
+                _report_card_error(f"Failed to create trimmed audio for the Anki card from replay: {trimmed_audio}")
             return ReplayAudioResult(
                 final_audio_output=final_audio_output,
                 vad_result=VADResult(
@@ -826,6 +824,9 @@ class ReplayAudioExtractor:
         if timing_only:
             return vad_result
 
+        if not vad_result.success and getattr(vad_result, "error", ""):
+            _report_card_error(vad_result.error)
+
         if not vad_result.success:
             # Store the trimmed audio path so it can be offered to the user in the confirmation dialog
             if overlay_only or (
@@ -844,7 +845,7 @@ class ReplayAudioExtractor:
                 else:
                     reason = f"Expected trimmed audio file does not exist: {trimmed_audio}"
                     logger.warning(reason)
-                    _notify_anki_enhancement_failure(reason)
+                    _report_card_error(reason)
             elif get_config().vad.use_tts_as_fallback:
                 try:
                     logger.info("No voice activity detected, using TTS as fallback.")
@@ -871,11 +872,9 @@ class ReplayAudioExtractor:
                     logger.exception(f"Failed to fetch TTS audio: {e}")
                     vad_result.success = False
                     vad_result.output_audio = ""
-                    _notify_anki_enhancement_failure(f"Failed to fetch TTS fallback audio for the Anki card: {e}")
+                    _report_card_error(f"Failed to fetch TTS fallback audio for the Anki card: {e}")
             else:
-                _notify_anki_enhancement_failure(
-                    "No voice activity detected for the Anki card audio, and no fallback audio was configured."
-                )
+                logger.info("No voice activity detected; continuing with an unvoiced card.")
         else:
             logger.info(vad_result.trim_successful_string())
 
@@ -891,11 +890,11 @@ class ReplayAudioExtractor:
             if vad_reported_output:
                 reason = f"VAD reported an output audio path, but the file does not exist: {vad_reported_output}"
                 logger.warning(reason)
-                _notify_anki_enhancement_failure(reason)
+                _report_card_error(reason)
             elif vad_result and getattr(vad_result, "success", False):
                 reason = "VAD reported success but no usable audio file was produced; continuing without audio."
                 logger.warning(reason)
-                _notify_anki_enhancement_failure(reason)
+                _report_card_error(reason)
             vad_trimmed_audio = ""
 
         if final_audio_output and not os.path.isfile(final_audio_output):

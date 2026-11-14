@@ -1,6 +1,4 @@
 import path from 'node:path';
-import type { SpawnOptions } from 'node:child_process';
-import type { EventEmitter } from 'node:events';
 import { splitWindowsCommandLine } from '../windows_command_line.js';
 import { normalizeGameLaunchOptions, type GameLaunchOptions, type GameLaunchErrorCode } from '../../shared/game_launcher.js';
 
@@ -24,9 +22,14 @@ export function chooseGameExecutable(windows: GameLaunchWindow[], executableName
     return unique.size === 1 ? [...unique.values()][0] : null;
 }
 
-export function buildGameLaunchCommand(options: GameLaunchOptions): { executable: string; args: string[]; cwd: string } {
+export interface GameLaunchCommand { executable: string; args: string[]; cwd: string; }
+
+export function buildGameLaunchCommand(options: GameLaunchOptions): GameLaunchCommand {
     if (Object.values(options).some(value => value.includes('\0'))) throw new GameLaunchError('invalidArguments');
-    const gameArgs = splitWindowsCommandLine(options.arguments);
+    const gameArgs = [
+        ...(options.mode === 'yuzu' ? ['-g', options.romPath] : []),
+        ...splitWindowsCommandLine(options.arguments),
+    ];
     const args = options.launcherPath ? splitWindowsCommandLine(options.launcherArguments).flatMap(argument => {
         if (argument === '{args}') return gameArgs;
         if (argument.includes('{args}')) throw new GameLaunchError('invalidArguments');
@@ -39,15 +42,15 @@ export function buildGameLaunchCommand(options: GameLaunchOptions): { executable
     };
 }
 
-interface LaunchChild extends EventEmitter { unref(): void; }
 interface Dependencies {
     platform: string;
     load(sceneId: string): unknown;
     save(sceneId: string, options: GameLaunchOptions): void;
     detect(sceneId: string): Promise<string | null>;
+    defaults?(sceneId: string): Promise<Partial<GameLaunchOptions> | null>;
     isFile(filename: string): Promise<boolean>;
     isDirectory(filename: string): Promise<boolean>;
-    spawn(executable: string, args: string[], options: SpawnOptions): LaunchChild;
+    launch(command: GameLaunchCommand): Promise<unknown>;
 }
 
 export class GameLauncherService {
@@ -61,6 +64,12 @@ export class GameLauncherService {
 
     async getOptions(sceneId: string): Promise<GameLaunchOptions> {
         this.checkScene(sceneId);
+        if (!this.deps.load(sceneId) && this.deps.defaults) {
+            const defaults = await this.deps.defaults(sceneId);
+            if (!this.deps.load(sceneId) && defaults) {
+                this.deps.save(sceneId, normalizeGameLaunchOptions(defaults));
+            }
+        }
         let options = normalizeGameLaunchOptions(this.deps.load(sceneId));
         if (!options.executablePath) {
             const detected = await this.deps.detect(sceneId);
@@ -87,6 +96,9 @@ export class GameLauncherService {
         if ((requireExecutable || options.executablePath) &&
             (!path.win32.isAbsolute(options.executablePath) || !await this.deps.isFile(options.executablePath)))
             throw new GameLaunchError('missingExecutable');
+        if (options.mode === 'yuzu' && (requireExecutable || options.romPath) &&
+            (!path.win32.isAbsolute(options.romPath) || !await this.deps.isFile(options.romPath)))
+            throw new GameLaunchError('missingRom');
         if (options.launcherPath && (!path.win32.isAbsolute(options.launcherPath) || !await this.deps.isFile(options.launcherPath)))
             throw new GameLaunchError('missingLauncher');
         const command = buildGameLaunchCommand(options);
@@ -111,14 +123,7 @@ export class GameLauncherService {
             const options = await this.getOptions(sceneId);
             await this.validate(options, true);
             const command = buildGameLaunchCommand(options);
-            // Wait for spawn/error: having a ChildProcess object does not mean Windows started it.
-            await new Promise<void>((resolve, reject) => {
-                const child = this.deps.spawn(command.executable, command.args, {
-                    cwd: command.cwd, shell: false, detached: true, stdio: 'ignore', windowsHide: false,
-                });
-                child.once('error', reject);
-                child.once('spawn', () => { child.unref(); resolve(); });
-            });
+            await this.deps.launch(command);
         } finally { this.launching.delete(sceneId); }
     }
 }

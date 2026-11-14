@@ -7,6 +7,7 @@ const sendStopOverlayMock = vi.fn();
 const startInProcessOverlayMock = vi.fn();
 const stopInProcessOverlayMock = vi.fn();
 const isInProcessOverlayRunningMock = vi.fn();
+const isInProcessOverlayTransitioningMock = vi.fn();
 const waitForInProcessOverlayShutdownMock = vi.fn();
 let isDevValue = false;
 let useInProcessOverlayValue = false;
@@ -37,6 +38,7 @@ vi.mock('../overlay_runtime.js', () => ({
     startInProcessOverlay: startInProcessOverlayMock,
     stopInProcessOverlay: stopInProcessOverlayMock,
     isInProcessOverlayRunning: isInProcessOverlayRunningMock,
+    isInProcessOverlayTransitioning: isInProcessOverlayTransitioningMock,
     waitForInProcessOverlayShutdown: waitForInProcessOverlayShutdownMock,
 }));
 
@@ -118,6 +120,7 @@ describe('runOverlayWithSource', () => {
         startInProcessOverlayMock.mockReset();
         stopInProcessOverlayMock.mockReset();
         isInProcessOverlayRunningMock.mockReset();
+        isInProcessOverlayTransitioningMock.mockReset().mockReturnValue(false);
         waitForInProcessOverlayShutdownMock.mockReset();
         Object.defineProperty(process, 'platform', {
             value: originalPlatform,
@@ -191,6 +194,65 @@ describe('runOverlayWithSource', () => {
         expect(stopInProcessOverlayMock).toHaveBeenCalledTimes(1);
         await waitForOverlayShutdown();
         expect(waitForInProcessOverlayShutdownMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('turns the overlay off, waits for cleanup, and respects manual off during automation', async () => {
+        useInProcessOverlayValue = true;
+        isInProcessOverlayRunningMock.mockReturnValue(false);
+        startInProcessOverlayMock.mockImplementation(async () => {
+            isInProcessOverlayRunningMock.mockReturnValue(true);
+            return true;
+        });
+        stopInProcessOverlayMock.mockImplementation(() => {
+            isInProcessOverlayRunningMock.mockReturnValue(false);
+            return true;
+        });
+        const front = await loadFrontModule();
+        await expect(front.setOverlayEnabled(true)).resolves.toMatchObject({ success: true, isRunning: true });
+        let finishStop!: () => void;
+        waitForInProcessOverlayShutdownMock.mockReturnValueOnce(new Promise<void>(resolve => { finishStop = resolve; }));
+        let finished = false;
+        const stopping = front.setOverlayEnabled(false).then(result => { finished = true; return result; });
+        await Promise.resolve();
+        expect(finished).toBe(false);
+        finishStop();
+        await expect(stopping).resolves.toMatchObject({ success: true, isRunning: false });
+        await expect(front.runOverlayWithSource('auto-launcher')).resolves.toBe(false);
+        expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
+        await expect(front.setOverlayEnabled(true)).resolves.toMatchObject({ success: true, isRunning: true });
+        expect(startInProcessOverlayMock).toHaveBeenCalledTimes(2);
+        expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it('reports failed enables and rejects invalid toggle payloads', async () => {
+        useInProcessOverlayValue = true;
+        isInProcessOverlayRunningMock.mockReturnValue(false);
+        startInProcessOverlayMock.mockResolvedValue(false);
+        const front = await loadFrontModule();
+        await expect(front.setOverlayEnabled(true)).resolves.toMatchObject({ success: false, isRunning: false });
+        await expect(front.setOverlayEnabled('false' as unknown as boolean)).rejects.toThrow();
+        expect(startInProcessOverlayMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes repeated stops through to cancel a queued in-process restart', async () => {
+        useInProcessOverlayValue = true;
+        isInProcessOverlayRunningMock.mockReturnValue(false);
+        const front = await loadFrontModule();
+        front.stopOverlay();
+        expect(stopInProcessOverlayMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('retains automation ownership during an internal dictionary-reader restart', async () => {
+        useInProcessOverlayValue = true;
+        startInProcessOverlayMock.mockResolvedValue(true);
+        isInProcessOverlayRunningMock.mockReturnValue(true);
+        const front = await loadFrontModule();
+        await front.runOverlayWithSource('auto-launcher');
+        isInProcessOverlayRunningMock.mockReturnValue(false);
+        isInProcessOverlayTransitioningMock.mockReturnValue(true);
+        expect(front.getOverlayRuntimeState().source).toBe('auto-launcher');
+        front.stopOverlay({ onlyIfSource: 'auto-launcher' });
+        expect(stopInProcessOverlayMock).toHaveBeenCalledOnce();
     });
 
     it('stops the whole Windows process tree for source-launched overlays', async () => {

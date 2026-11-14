@@ -36,7 +36,6 @@ class OCRConfig:
                 ";engine_color = cyan",
                 "websocket_port = 7331",
                 ";delay_secs = 0.5",
-                ";notifications = False",
                 ";ignore_flag = False",
                 ";delete_images = False",
                 ";note: this specifies a combo to wait on for pausing the program. As an example: <ctrl>+<shift>+p. The list of keys can be found here: https://pynput.readthedocs.io/en/latest/keyboard.html#pynput.keyboard.Key",

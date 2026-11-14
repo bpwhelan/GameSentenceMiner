@@ -154,6 +154,17 @@ app
     assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
     assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), false,
       'a disabled profile choice must remain disabled in both views');
+    await run("GSMSettingsNavigation.navigate('interaction-reveal')");
+    for (const key of ['showManualModeRecommendations', 'showExclusiveFullscreenRecommendations']) {
+      assert.equal(await run(`document.getElementById('${key}').checked`), true);
+      saved.length = 0;
+      await run(`document.getElementById('${key}').click()`);
+      await run("new Promise(resolve => setTimeout(resolve, 0))");
+      assert.deepEqual(saved, [{ key, value: false }]);
+      view.webContents.send('settings-updated', { [key]: true });
+      await run("new Promise(resolve => setTimeout(resolve, 0))");
+      assert.equal(await run(`document.getElementById('${key}').checked`), true);
+    }
     saved.length = 0;
     // Exercise the conditional Home rows and the same settings in full pages.
     view.webContents.send("settings-updated", {
@@ -251,7 +262,7 @@ app
         assert.deepEqual(layout.clipped, [], `${page} clips controls at ${width}px`);
         assert.ok(layout.controls > 0, `${page} has no visible controls`);
       }
-      for (const page of ["overview-start", "reading-readings", "capture-source", "gamepad-bindings", "tools-guide", "tools-translation", "system-tokenizer"]) {
+      for (const page of ["overview-start", "reading-readings", "capture-source", "interaction-reveal", "gamepad-bindings", "tools-guide", "tools-translation", "system-tokenizer"]) {
         await run(`GSMSettingsNavigation.navigate(${JSON.stringify(page)})`);
         if (page === "overview-start") {
           await run(`document.querySelectorAll('#settingsHome details').forEach(details => { details.open = false; })`);
@@ -350,6 +361,27 @@ app
     );
     await run(`GSMSettingsNavigation.navigate('reading-readings')`);
     assert.equal(await run(`document.getElementById('pinyinToneColorsGroup').getClientRects().length > 0`), true);
+    // Verify both popup buttons use the same persistent setting as the switches.
+    for (const [page, key] of [
+      ['manual-mode-recommendation', 'showManualModeRecommendations'],
+      ['fullscreen-mode-recommendation', 'showExclusiveFullscreenRecommendations'],
+    ]) {
+      view.setContentSize(800, 800);
+      await view.loadFile(path.join(__dirname, `../${page}.html`));
+      view.webContents.send(`preload-${page}`, { game: 'Test game', initial: {} });
+      await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+      assert.equal(await run(`(() => {
+        const button = document.getElementById('btn-disable');
+        button.scrollIntoView();
+        const rect = button.getBoundingClientRect();
+        return rect.width > 0 && rect.left >= 0 && rect.right <= innerWidth;
+      })()`), true);
+      fs.writeFileSync(path.join(directory, `${page}.png`), (await view.webContents.capturePage()).toPNG());
+      saved.length = 0;
+      await run("document.getElementById('btn-disable').click()");
+      await run("new Promise(resolve => setTimeout(resolve, 0))");
+      assert.deepEqual(saved, [{ key, value: false }]);
+    }
     assert.deepEqual(errors, []);
     console.log(
       `Settings: 6 live themes and ${pages.length} pages checked at ${sizes.length} sizes; scrolling, search, help, save and profile updates passed. Screenshots: ${directory}`,

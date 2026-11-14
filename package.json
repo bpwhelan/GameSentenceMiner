@@ -3,13 +3,14 @@
   "productName": "GameSentenceMiner",
   "version": "2026.11.0",
   "description": "GameSentenceMiner",
-  "main": "dist/main/bootstrap.js",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
   "scripts": {
-    "start": "npm run build && node scripts/electron-start.cjs",
+    "start": "npm run build:tauri && node scripts/start-tauri.mjs",
+    "build:tauri": "npm run build && node scripts/build-native-dev.mjs",
+    "start:tauri": "node scripts/start-tauri.mjs",
     "agent:restart": "node scripts/restart-gsm.mjs",
     "agent:status": "node scripts/restart-gsm.mjs --status",
-    "build": "npm run sync:version && npm run sync:theme && npm run sync:legacy && npm run build:main && npm run build:renderer",
+    "build": "npm run sync:version && npm run sync:theme && npm run sync:legacy && npm run build:renderer",
     "build:main": "tsc -p tsconfig.electron.json",
     "build:renderer": "vite build --config electron-src/renderer/vite.config.ts",
     "build:windows-audio": "node scripts/build-windows-audio-helper.mjs",
@@ -17,120 +18,33 @@
     "build:windows-helpers": "node scripts/build-windows-helpers.mjs",
     "build:game-background": "node scripts/build-game-background-hooks.mjs",
     "test:game-background": "node scripts/test-game-background-hooks.mjs && node scripts/test-direct-input-background-hooks.mjs",
-    "dev": "npm run sync:theme && npm run sync:legacy && concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
-    "dev:chaos-update": "npm run build:main && node scripts/run-update-chaos.cjs",
+    "dev": "npm run build:tauri && concurrently -k \"npm:dev:renderer\" \"npm:dev:desktop\"",
     "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
     "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
-    "dev:electron": "wait-on tcp:5173 dist/main/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 nodemon --exitcrash --watch dist/main --watch dist/preload --ext js,mjs,cjs --exec \"node scripts/electron-dev-once.cjs\"",
     "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
     "sync:theme": "node scripts/sync-overlay-theme.mjs",
     "test:ts": "vitest run --config vitest.config.ts",
     "test:ts:watch": "vitest --config vitest.config.ts",
-    "build:native": "python -m pip install --disable-pip-version-check --no-deps -e .",
-    "app:dir": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --dir",
+    "build:native": "node scripts/build-native.mjs",
+    "app:dir": "npm run app:prepare && node scripts/build-native-desktop.mjs --no-bundle",
     "sync:version": "node scripts/sync-version.mjs",
     "changelog:validate": "node scripts/validate-changelog.mjs",
     "changelog:export": "node scripts/export-changelog-release-asset.mjs",
-    "stage:overlay": "node scripts/stage-overlay-build.mjs",
-    "verify:overlay-package": "node scripts/verify-overlay-package.mjs",
     "verify:vocr-package": "node scripts/verify-vocr-package.mjs",
     "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
-    "app:dist": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=never",
-    "app:deploy": "npm run build:native && npm run build && npm run build:windows-helpers && npm run stage:overlay && electron-builder --publish=always"
+    "app:dist": "npm run app:prepare && node scripts/build-native-desktop.mjs && node scripts/collect-native-assets.mjs",
+    "stage:native": "node scripts/stage-native-desktop.mjs",
+    "build:input-server": "cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml",
+    "test:native": "node scripts/check-native-desktop.mjs",
+    "dev:desktop": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 GSM_NATIVE_WATCH=1 nodemon --exitcrash --watch src-tauri/src --watch src-tauri/Cargo.toml --watch native/gsm-settings/src --watch native/gsm-settings/Cargo.toml --watch native/gsm-packages/src --watch native/gsm-packages/Cargo.toml --watch native/gsm-runtime/src --watch native/gsm-runtime/Cargo.toml --watch native/gsm-agent/src --watch native/gsm-agent/assets --watch native/gsm-agent/Cargo.toml --watch native/gsm-agent/build.rs --watch native/gsm-overlay/src --watch native/gsm-overlay/Cargo.toml --watch native/gsm-native/src --ext rs,toml --exec \"node scripts/build-native-dev.mjs && node scripts/start-tauri.mjs\"",
+    "app:prepare": "npm run build:native && npm run build && npm run build:windows-helpers && npm run build:input-server && npm run stage:native",
+    "app:dist:signed": "npm run app:prepare && node scripts/build-native-desktop.mjs --signed && node scripts/collect-native-assets.mjs"
   },
   "type": "module",
   "engines": {
     "node": ">=22.22.2"
   },
   "tsc": {},
-  "build": {
-    "asar": true,
-    "afterPack": "scripts/verify-vocr-package.mjs",
-    "appId": "com.beangate.gamesentenceminer",
-    "files": [
-      "dist/main/**/*",
-      "dist/preload/**/*",
-      "dist/shared/**/*",
-      "dist/renderer/**/*",
-      "!dist/renderer/legacy/changelog/**/*",
-      "assets/*"
-    ],
-    "extraFiles": [
-      {
-        "from": "electron-src/assets",
-        "to": "resources/assets",
-        "filter": [
-          "**/*",
-          "!texthook/**"
-        ]
-      },
-      {
-        "from": "GameSentenceMiner",
-        "to": "resources/GameSentenceMiner"
-      },
-      {
-        "from": "pyproject.toml",
-        "to": "resources/pyproject.toml"
-      },
-      {
-        "from": "build/overlay",
-        "to": "resources/GSM_Overlay",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "uv.lock",
-        "to": "resources/uv.lock"
-      },
-      {
-        "from": ".python-version",
-        "to": "resources/.python-version"
-      },
-      {
-        "from": "native",
-        "to": "resources/native",
-        "filter": [
-          "**/bin/x64/*.exe",
-          "!game-background-hooks/**"
-        ]
-      }
-    ],
-    "win": {
-      "target": "nsis",
-      "icon": "assets/gsm.ico",
-      "artifactName": "${productName}-Setup-${version}.${ext}",
-      "extraFiles": [
-        {
-          "from": "build/game-background-hooks",
-          "to": "resources/native/game-background-hooks"
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "build/installer.nsh",
-      "menuCategory": "GameSentenceMiner",
-      "runAfterFinish": true
-    },
-    "mac": {
-      "target": "dmg",
-      "icon": "assets/gsm.png"
-    },
-    "linux": {
-      "target": "AppImage",
-      "executableName": "com.beangate.gamesentenceminer"
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "bpwhelan",
-        "repo": "GameSentenceMiner",
-        "releaseType": "release"
-      }
-    ]
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/bpwhelan/GameSentenceMiner.git"
@@ -140,49 +54,48 @@
   "devDependencies": {
     "@electron/asar": "^3.4.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/archiver": "^7.0.0",
     "@types/node": "^26.1.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.7.1",
     "@types/ws": "^8.18.1",
+    "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.0.4",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "concurrently": "^10.0.6",
     "cross-env": "^10.0.0",
     "daisyui": "^5.7.4",
     "electron": "^43.8.1",
     "electron-builder": "^26.18.0",
-    "jsdom": "^30.0.0",
-    "nodemon": "^3.1.14",
-    "png-to-ico": "^3.0.2",
-    "sharp": "^0.35.5",
-    "tailwindcss": "^4.3.1",
-    "typescript": "^6.0.3",
-    "vite": "^8.2.4",
-    "vitest": "^4.1.12",
-    "wait-on": "^9.1.0",
-    "@types/yauzl": "^3.4.0"
-  },
-  "dependencies": {
-    "@xterm/addon-fit": "^0.11.0",
-    "@xterm/xterm": "^6.0.0",
-    "archiver": "^7.0.1",
-    "archiver-utils": "^5.0.2",
-    "axios": "^1.18.1",
-    "detect-port": "^2.1.0",
     "electron-log": "^5.4.3",
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "frida": "^17.16.4",
-    "fuse.js": "^7.5.0",
-    "node-window-manager": "^2.2.4",
-    "nodejs-file-downloader": "^4.13.0",
-    "obs-websocket-js": "^5.0.8",
+    "jsdom": "^30.0.0",
+    "nodemon": "^3.1.14",
+    "png-to-ico": "^3.0.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
+    "sharp": "^0.35.5",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.4",
+    "vitest": "^4.1.12",
+    "wait-on": "^9.1.0"
+  },
+  "dependencies": {
+    "acorn": "^8.19.0",
+    "archiver": "^7.0.1",
+    "axios": "^1.18.1",
+    "fuse.js": "^7.5.0",
+    "koffi": "^3.1.2",
+    "pinyin-pro": "^3.28.2",
     "semver": "^7.8.5",
     "tar": "^7.5.22",
     "ws": "^8.21.1",

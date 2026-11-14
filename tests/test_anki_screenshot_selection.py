@@ -155,7 +155,7 @@ def test_background_note_update_is_atomic_for_selected_collection(tmp_path, monk
     monkeypatch.setattr(
         anki, "_update_anki_note", lambda last, note, tags, assets, **kwargs: updates.append(note.copy()) or []
     )
-    monkeypatch.setattr(anki, "_notify_anki_enhancement_failure", errors.append)
+    monkeypatch.setattr(anki, "_report_card_error", errors.append)
     monkeypatch.setattr(anki, "_perform_post_update_actions", lambda *args: None)
     monkeypatch.setattr(anki, "_trigger_incremental_anki_cache_sync", lambda *args: None)
     assets = anki.MediaAssets(selected_screenshots=_result(tmp_path, ["one.avif", "two.avif"]))

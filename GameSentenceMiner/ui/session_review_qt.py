@@ -159,6 +159,8 @@ class ReviewEditor(AnkiConfirmationDialog):
 
     def populate_review(self, entry, prepared):
         self.review_profile = prepared.config
+        # Playback follows the current preference, rather than the mining snapshot.
+        self.review_profile.anki.autoplay_audio = get_config().anki.autoplay_audio
         with use_profile_config(prepared.config):
             self.populate_ui(
                 entry.data["expression"],
@@ -176,8 +178,6 @@ class ReviewEditor(AnkiConfirmationDialog):
         self.disable_session_checkbox.hide()
         self._stop_dialogue_watchers()
         self._cancel_auto_accept()
-        if prepared.config.anki.autoplay_audio:
-            self._queue_autoplay(require_enabled=True)
 
 
 class SessionReviewWindow(QDialog):
@@ -209,6 +209,13 @@ class SessionReviewWindow(QDialog):
         self.status = QLabel("Choose a card. Saving applies your edits to its existing Anki note.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+        self.context_warning = QLabel(
+            "Extra dialogue is unavailable due to file permissions. If it was saved while GSM ran as "
+            "administrator, reopen GSM as administrator before finishing this card to view it."
+        )
+        self.context_warning.setWordWrap(True)
+        self.context_warning.hide()
+        layout.addWidget(self.context_warning)
         self.save_status = QLabel()
         self.save_status.setWordWrap(True)
         self.save_status.hide()
@@ -270,11 +277,11 @@ class SessionReviewWindow(QDialog):
         self.close_button.clicked.connect(self.close)
         apply_compact_theme(self)
         window_state_manager.restore_geometry(self, WindowId.SESSION_REVIEW)
-        self.refresh()
         self.refresh_timer = QTimer(self)
         self.refresh_timer.setInterval(2000)
         self.refresh_timer.timeout.connect(self._append_new_entries)
         self.refresh_timer.start()
+        self.refresh()
 
     def _remember_draft(self):
         if self.current_entry and self.prepared and not self.busy and self.current_entry.id not in self.pending_saves:
@@ -347,6 +354,7 @@ class SessionReviewWindow(QDialog):
             for entry in self.entries:
                 self._add_entry(entry)
         self.current_entry = self.prepared = None
+        self.context_warning.hide()
         self._update_count()
         self._filter(self.search.text())
         self.editor.hide()
@@ -375,13 +383,14 @@ class SessionReviewWindow(QDialog):
         self._refresh_future_context(update_controls=True)
 
     def _refresh_future_context(self, *, update_controls=False):
-        if not self.prepared or self.prepared.future_clip is not None:
+        if not self.prepared or self.prepared.future_clip is not None or self.prepared.future_context_access_denied:
             return
         from GameSentenceMiner import session_review_context
 
-        self.prepared.future_clip = session_review_context.load_future_clip(
+        self.prepared.future_clip, self.prepared.future_context_access_denied = session_review_context.load_future_clip(
             self.current_entry, self.prepared.original_clip
         )
+        self.context_warning.setVisible(self.prepared.future_context_access_denied)
         if update_controls and self.prepared.future_clip is not None:
             with use_profile_config(self.prepared.config):
                 self.editor._update_dialogue_line_controls()
@@ -405,29 +414,71 @@ class SessionReviewWindow(QDialog):
         self.editor._cleanup_audio()
         self.editor._stop_dialogue_watchers()
         self.current_entry = entry
-        self.editor.show()
+        self.editor.hide()
+        self.context_warning.hide()
         self.prepared = None
         self.editor.setEnabled(False)
         self._run_work(lambda: session_review.load_review(entry), self._loaded)
 
     def _loaded(self, prepared):
+        if prepared is None:
+            self._skip_missing_entry()
+            return
         self.prepared = prepared
         entry = self.current_entry
         draft = self.drafts.get(entry.id)
         if draft:
             self.prepared = draft[0]
+            self.prepared.future_context_access_denied = prepared.future_context_access_denied
         self._refresh_future_context()
+        self.context_warning.setVisible(self.prepared.future_context_access_denied)
         self.editor.populate_review(entry, self.prepared)
         if draft:
-            self.editor._review_history.restore(draft[1])
+            # Switching cards restores edits without reverting the shared playback preference.
+            state = {
+                **draft[1],
+                "checks": {**draft[1]["checks"], "autoplay_checkbox": self.editor.autoplay_checkbox.isChecked()},
+            }
+            self.editor._review_history.restore(state)
         else:
             self.baselines[entry.id] = self.editor._review_history.capture()["key"]
+        self.editor.show()
         self.editor.setEnabled(True)
+        # Restoring a draft cancels pending playback, so queue it only after restoration.
+        if self.editor.autoplay_checkbox.isChecked():
+            self.editor._queue_autoplay(require_enabled=True)
         self.status.setText(
             f"{entry.data['scene']} · {entry.data['created_at'][:16].replace('T', ' ')} · edits save to Anki"
         )
         if error := self.save_errors.get(entry.id):
             self.status.setText(f"Could not save: {error}. Your edits are ready to retry.")
+
+    def _remove_entry(self, entry_id):
+        self._finished_any = True
+        self.drafts.pop(entry_id, None)
+        self.baselines.pop(entry_id, None)
+        self.save_errors.pop(entry_id, None)
+        self.entries = [entry for entry in self.entries if entry.id != entry_id]
+        item = self._item_for_entry(entry_id)
+        if item is not None:
+            selected = item is self.card_list.currentItem()
+            with QSignalBlocker(self.card_list):
+                self.card_list.takeItem(self.card_list.row(item))
+                if selected:
+                    self.card_list.setCurrentRow(-1)
+
+    def _skip_missing_entry(self):
+        entry, row = self.current_entry, self.card_list.currentRow()
+        self.editor._cleanup_audio()
+        self.editor._stop_dialogue_watchers()
+        self.editor._review_history.suspend()
+        self.current_entry = self.prepared = None
+        self.editor.hide()
+        self.context_warning.hide()
+        self._remove_entry(entry.id)
+        self.status.setText("Skipped a card that no longer exists in Anki.")
+        self._update_count()
+        self._select_next(row)
 
     def _run_work(self, function, done):
         self.busy = True
@@ -474,7 +525,14 @@ class SessionReviewWindow(QDialog):
         if self.busy or not self.current_entry:
             return
         entry = self.current_entry
-        self._run_work(lambda: session_review.open_in_anki(entry), self.status.setText)
+
+        def opened(message):
+            if message is None:
+                self._skip_missing_entry()
+            else:
+                self.status.setText(message)
+
+        self._run_work(lambda: session_review.open_in_anki(entry), opened)
 
     def _change_dialogue(self, selected_lines):
         if self.busy or not self.prepared or not selected_lines:
@@ -543,6 +601,7 @@ class SessionReviewWindow(QDialog):
         ):
             timer.stop()
         self.current_entry = self.prepared = None
+        self.context_warning.hide()
         with QSignalBlocker(self.card_list):
             self.card_list.setCurrentRow(-1)
             self._update_item(self._item_for_entry(entry.id))
@@ -582,16 +641,10 @@ class SessionReviewWindow(QDialog):
                 if self.current_entry is None and not self.busy:
                     self.card_list.setCurrentItem(item)
             else:
-                self._finished_any = True
-                self.drafts.pop(entry_id, None)
-                self.baselines.pop(entry_id, None)
-                self.save_errors.pop(entry_id, None)
-                self.entries = [entry for entry in self.entries if entry.id != entry_id]
                 # Finishing another card must not reload the editor or touch the
                 # draft/selection of the card the user is currently reviewing.
-                with QSignalBlocker(self.card_list):
-                    self.card_list.takeItem(self.card_list.row(item))
-                self.save_status.setText(message)
+                self._remove_entry(entry_id)
+                self.save_status.setText(message or "Skipped a card that no longer exists in Anki.")
             self.save_status.show()
             self._update_count()
             self._update_controls()

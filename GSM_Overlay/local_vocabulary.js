@@ -194,8 +194,8 @@ class LocalVocabulary {
 // A separate connection leases Sudachi while local mode is enabled. A reconnect
 // rejects outstanding work; it never replays a mutation or imports half a list.
 class VocabularyConnection {
-  constructor({ WebSocket, ensureServer, getPort }) {
-    Object.assign(this, { WebSocket, ensureServer, getPort });
+  constructor({ WebSocket, ensureServer, getPort, onDictionaryChanged }) {
+    Object.assign(this, { WebSocket, ensureServer, getPort, onDictionaryChanged });
     this.pending = new Map(); this.sequence = 0; this.socket = null; this.connecting = null;
     this.generation = 0;
   }
@@ -222,6 +222,10 @@ class VocabularyConnection {
               reject(new Error('The Rust input server needs to be rebuilt or updated for local vocabulary'));
               socket.close();
             } else { this.ready = true; resolve(socket); }
+            return;
+          }
+          if (message.type === 'sudachi_dictionary_changed') {
+            this.onDictionaryChanged?.();
             return;
           }
           if (message.type !== 'local_vocabulary') return;
@@ -252,8 +256,7 @@ class VocabularyConnection {
     const message = JSON.stringify({ type: 'local_vocabulary', requestId, request });
     if (Buffer.byteLength(message) > 32 * 1024 * 1024) throw new Error('Vocabulary request is too large');
     return new Promise((resolve, reject) => {
-      // First use may download Sudachi's verified dictionary.
-      const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error('Local vocabulary request timed out; check the Rust server version and dictionary download')); }, 180_000);
+      const timer = setTimeout(() => { this.pending.delete(requestId); reject(new Error('Local vocabulary request timed out; check Japanese dictionary setup and retry')); }, 180_000);
       this.pending.set(requestId, { resolve, reject, timer, socket });
       socket.send(message, error => {
         if (error) { clearTimeout(timer); this.pending.delete(requestId); reject(new Error('Input server send failed')); }

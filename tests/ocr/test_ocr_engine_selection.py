@@ -53,7 +53,7 @@ def engine_runtime(monkeypatch):
         ocr_runtime,
         "config",
         SimpleNamespace(
-            get_general=lambda key: {"engine_color": "cyan", "notifications": False}.get(key),
+            get_general=lambda key: {"engine_color": "cyan"}.get(key),
             get_engine=lambda _name: None,
         ),
     )

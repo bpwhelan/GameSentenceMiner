@@ -20,7 +20,7 @@ def test_replay_starts_audio_before_screenshot_probe_and_does_not_join_translati
         paths=SimpleNamespace(remove_video=False),
     )
     monkeypatch.setattr(replay_handler, "get_config", lambda: config)
-    monkeypatch.setattr(replay_handler, "_notify_anki_enhancement_failure", lambda *args: None)
+    monkeypatch.setattr(replay_handler, "_report_card_error", lambda *args: None)
     monkeypatch.setattr(
         replay_handler.anki, "get_initial_card_info", lambda card, *args, **kwargs: ({"fields": {}}, card)
     )

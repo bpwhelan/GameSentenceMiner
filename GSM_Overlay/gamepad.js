@@ -595,7 +595,6 @@ class GamepadHandler {
       focusOverlayOnEntry: options.focusOverlayOnEntry !== false,
 
       // Text processing backend
-      // "mecab": use gsm_overlay_server token/furigana via MeCab
       // "sudachi": use gsm_overlay_server token/furigana via Sudachi
       // "yomitan-bridge": call the in-overlay Yomitan bridge (no external API server)
       // "yomitan-api": call Yomitan API /tokenize directly
@@ -698,7 +697,7 @@ class GamepadHandler {
     this.tokens = []; // Array of tokens for current block {word, start, end, reading, headword}
     this.tokensBlockIndex = -1; // Block index these tokens belong to
     this.tokenMode = options.tokenMode === true; // Navigate by tokens (true) or characters (false)
-    this.mecabAvailable = false; // Whether MeCab is available on the server
+
     this.sudachiAvailable = false; // Whether Sudachi is available on the server
     this.yomitanBridgeReachable = false; // Whether in-overlay Yomitan bridge is reachable when selected
     this.yomitanApiReachable = false; // Whether Yomitan API is reachable when selected
@@ -927,7 +926,7 @@ class GamepadHandler {
 
   resetServerState() {
     this.wsConnected = false;
-    this.mecabAvailable = false;
+
     this.sudachiAvailable = false;
     this.cancelPendingTokenization('Input server disconnected');
     this.rejectPendingFuriganaRequests('Input server disconnected');
@@ -986,7 +985,7 @@ class GamepadHandler {
       this.config.localTokenizerFallbackBackend,
     ]) {
       const normalized = String(backend || '').trim().toLowerCase();
-      if (normalized === 'mecab' || normalized === 'sudachi') {
+      if (normalized === 'sudachi') {
         features.add(normalized);
       }
     }
@@ -1106,6 +1105,29 @@ class GamepadHandler {
         this.onAxisEvent(data);
         break;
         
+      case 'sudachi_dictionary_changed':
+        this.cancelPendingTokenization('Japanese dictionary changed');
+        if (data.dictionary) this.config.sudachiDictionary = data.dictionary;
+        this.tokenCacheByBlock.clear();
+        this.tokens = [];
+        this.dictionarySetupError = null;
+        this.sudachiAvailable = data.state === 'ready' || data.state === 'installed';
+        if (this.sudachiAvailable) {
+          window.dispatchEvent(new CustomEvent('gsm-sudachi-ready'));
+          this.prefetchTokenizationForAllBlocks();
+        } else {
+          this.reportDictionarySetup(data.error);
+        }
+        break;
+      case 'sudachi_configuration':
+        if (data.dictionary) this.config.sudachiDictionary = data.dictionary;
+        if (data.state === 'setup_required' || data.state === 'error') this.reportDictionarySetup(data.error);
+        else if (data.state === 'ready' || data.state === 'installed') {
+          this.dictionarySetupError = null;
+          this.sudachiAvailable = true;
+          window.dispatchEvent(new CustomEvent('gsm-sudachi-ready'));
+        }
+        break;
       case 'tokens':
         this.onTokensReceived(data);
         break;
@@ -1145,7 +1167,7 @@ class GamepadHandler {
     const {
       blockIndex,
       tokens,
-      mecabAvailable,
+
       sudachiAvailable,
       tokenSource,
       yomitanBridgeAvailable,
@@ -1155,11 +1177,12 @@ class GamepadHandler {
       text,
     } = data;
 
-    if (typeof mecabAvailable === 'boolean') {
-      this.mecabAvailable = mecabAvailable;
-    }
     if (typeof sudachiAvailable === 'boolean') {
       this.sudachiAvailable = sudachiAvailable;
+      if (sudachiAvailable && this.dictionarySetupError) {
+        this.dictionarySetupError = null;
+        window.dispatchEvent(new CustomEvent('gsm-sudachi-ready'));
+      }
     } else if (tokenSource === 'sudachi') {
       this.sudachiAvailable = true;
     }
@@ -1201,8 +1224,9 @@ class GamepadHandler {
       return;
     }
 
-    const tokenList = this.normalizeNavigationTokens(tokens, resolvedText, tokenSource);
-    this.tokenCacheByBlock.set(blockIndex, { text: resolvedText, tokens: tokenList });
+    const tokenList = data.setupRequired ? [] : this.normalizeNavigationTokens(tokens, resolvedText, tokenSource);
+    if (data.setupRequired) this.tokenCacheByBlock.delete(blockIndex);
+    else this.tokenCacheByBlock.set(blockIndex, { text: resolvedText, tokens: tokenList });
     if (blockIndex === this.currentBlockIndex) {
       const anchorCharIndex = Math.max(0, this.getCurrentAnchorCharIndex());
       this.tokens = tokenList;
@@ -1236,11 +1260,24 @@ class GamepadHandler {
     const pendingRequest = this.pendingFuriganaRequests.get(data.requestId);
     // A timed-out or cancelled reply must not repaint a newer text frame.
     if (data.requestId != null && !pendingRequest) return;
+    if (data.setupRequired || data.sudachiAvailable === false || data.error) {
+      if (pendingRequest) {
+        clearTimeout(pendingRequest.timeout);
+        this.pendingFuriganaRequests.delete(data.requestId);
+        pendingRequest.reject(new Error(data.error || 'Open Japanese dictionary setup and retry.'));
+      }
+      this.reportDictionarySetup(data.error);
+      return;
+    }
+    if (data.sudachiAvailable && this.dictionarySetupError) {
+      this.dictionarySetupError = null;
+      window.dispatchEvent(new CustomEvent('gsm-sudachi-ready'));
+    }
     // Handle furigana response from server
     const {
       lineIndex,
       segments,
-      mecabAvailable,
+
       sudachiAvailable,
       text,
       requestId,
@@ -1250,9 +1287,6 @@ class GamepadHandler {
       jpdbApiAvailable,
     } = data;
 
-    if (typeof mecabAvailable === 'boolean') {
-      this.mecabAvailable = mecabAvailable;
-    }
     if (typeof sudachiAvailable === 'boolean') {
       this.sudachiAvailable = sudachiAvailable;
     }
@@ -1285,14 +1319,14 @@ class GamepadHandler {
         lineIndex,
         text,
         segments: normalizedSegments,
-        mecabAvailable,
+
         sudachiAvailable,
       });
     }
     
     // Also dispatch an event for non-Promise based usage
     window.dispatchEvent(new CustomEvent('gsm-furigana-received', {
-      detail: { lineIndex, text, segments: normalizedSegments, mecabAvailable }
+      detail: { lineIndex, text, segments: normalizedSegments, sudachiAvailable }
     }));
 
     this.updateModeIndicatorText();
@@ -1300,13 +1334,13 @@ class GamepadHandler {
   
   /**
    * Request furigana readings for text.
-   * Uses the selected backend (MeCab server, Yomitan bridge/API, Jiten, or JPDB).
+   * Uses the selected backend (Sudachi service, Yomitan bridge/API, Jiten, or JPDB).
    * Returns a Promise that resolves with the furigana segments.
    * 
    * @param {string} text - The text to get furigana for
    * @param {number} lineIndex - Optional line index for tracking
    * @param {number} timeout - Timeout in ms (default 5000)
-   * @returns {Promise<{lineIndex: number, text: string, segments: Array, mecabAvailable: boolean}>}
+   * @returns {Promise<{lineIndex: number, text: string, segments: Array, sudachiAvailable: boolean}>}
    */
   async requestFurigana(text, lineIndex = 0, timeout = 5000) {
     if (!text || this.destroyed) {
@@ -1314,7 +1348,6 @@ class GamepadHandler {
         lineIndex,
         text: '',
         segments: [],
-        mecabAvailable: this.mecabAvailable,
         sudachiAvailable: this.sudachiAvailable,
       };
     }
@@ -1333,7 +1366,8 @@ class GamepadHandler {
     if (lastError) {
       console.warn(`[GamepadHandler] Furigana fallback exhausted for line ${lineIndex}: ${lastError.message}`);
     }
-    return this.buildFallbackFuriganaResponse(text, lineIndex);
+    this.reportDictionarySetup(lastError?.message);
+    throw lastError || new Error("Open Japanese dictionary setup and retry.");
   }
   
   /**
@@ -1363,44 +1397,42 @@ class GamepadHandler {
     if (primaryBackend === 'sudachi') {
       return this.isLocalTokenizerBackendReady('sudachi') || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
     }
-    return this.isLocalTokenizerBackendReady('mecab') || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
+    return this.isLocalTokenizerBackendReady('sudachi') || this.isLocalTokenizerBackendReady(this.config.localTokenizerFallbackBackend);
   }
 
   normalizeTokenizerBackend(value) {
     const normalized = String(value || 'sudachi').trim().toLowerCase();
-    if (normalized === 'mecab' || normalized === 'sudachi' || normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
+    if (normalized === 'sudachi' || normalized === 'yomitan-bridge' || normalized === 'yomitan-api' || normalized === 'jiten-api' || normalized === 'jpdb-api') {
       return normalized;
     }
     return 'sudachi';
   }
 
-  normalizeLocalTokenizerFallbackBackend(value) {
-    const normalized = String(value || 'sudachi').trim().toLowerCase();
-    return normalized === 'mecab' ? 'mecab' : 'sudachi';
+  normalizeLocalTokenizerFallbackBackend(_value) {
+    return 'sudachi';
   }
 
   isLocalTokenizerBackend(value) {
     const normalized = this.normalizeLocalTokenizerFallbackBackend(value);
-    return normalized === 'mecab' || normalized === 'sudachi';
+    return normalized === 'sudachi';
   }
 
-  isLocalTokenizerBackendReady(value) {
-    const normalized = this.normalizeLocalTokenizerFallbackBackend(value);
+  isLocalTokenizerBackendReady(_value) {
     if (!this.wsConnected || !this.ws) {
       return false;
     }
-    return normalized === 'sudachi' ? this.sudachiAvailable === true : this.mecabAvailable === true;
+    return true; // Requests retry after setup without requiring a reconnect.
   }
 
   getConfiguredLocalTokenizerBackends(preferredBackend = this.config.tokenizerBackend) {
     const backends = new Set();
     const primaryBackend = this.normalizeTokenizerBackend(preferredBackend);
-    if (primaryBackend === 'mecab' || primaryBackend === 'sudachi') {
+    if (primaryBackend === 'sudachi') {
       backends.add(primaryBackend);
     }
 
     const fallbackBackend = this.getConfiguredLocalTokenizerFallbackBackend();
-    if (fallbackBackend === 'mecab' || fallbackBackend === 'sudachi') {
+    if (fallbackBackend === 'sudachi') {
       backends.add(fallbackBackend);
     }
 
@@ -1413,9 +1445,6 @@ class GamepadHandler {
     }
 
     const localBackends = this.getConfiguredLocalTokenizerBackends();
-    if (localBackends.has('mecab')) {
-      this.mecabAvailable = true;
-    }
     if (localBackends.has('sudachi')) {
       this.sudachiAvailable = true;
     }
@@ -1440,7 +1469,7 @@ class GamepadHandler {
       lineIndex,
       text: String(text || ''),
       segments: this.normalizeFuriganaSegments([], text, backend || this.config.tokenizerBackend),
-      mecabAvailable: this.mecabAvailable,
+
       sudachiAvailable: this.sudachiAvailable,
     };
   }
@@ -1451,8 +1480,9 @@ class GamepadHandler {
       blockIndex,
       text,
       tokens: [],
+      setupRequired: Boolean(this.dictionarySetupError),
       tokenSource: tokenSource || this.normalizeTokenizerBackend(this.config.tokenizerBackend),
-      mecabAvailable: this.mecabAvailable,
+
       sudachiAvailable: this.sudachiAvailable,
       yomitanBridgeAvailable: this.yomitanBridgeReachable,
       yomitanApiAvailable: this.yomitanApiReachable,
@@ -1769,14 +1799,6 @@ class GamepadHandler {
         return;
       }
 
-      if (normalizedBackend === 'sudachi' && !this.sudachiAvailable) {
-        reject(new Error('Sudachi is unavailable'));
-        return;
-      }
-      if (normalizedBackend === 'mecab' && !this.mecabAvailable) {
-        reject(new Error('MeCab is unavailable'));
-        return;
-      }
 
       const requestId = ++this.furiganaRequestId;
 
@@ -1801,9 +1823,6 @@ class GamepadHandler {
           lineIndex,
           requestId,
           backend: normalizedBackend,
-          dictionary: normalizedBackend === 'sudachi'
-            ? (this.config.sudachiDictionary || 'small')
-            : undefined,
         }));
       } catch (error) {
         clearTimeout(timeoutId);
@@ -1848,7 +1867,6 @@ class GamepadHandler {
         lineIndex,
         text: '',
         segments: [],
-        mecabAvailable: false,
       };
     }
 
@@ -1863,7 +1881,6 @@ class GamepadHandler {
         lineIndex,
         text,
         segments,
-        mecabAvailable: false,
         yomitanBridgeAvailable: true,
       };
     } catch (error) {
@@ -1877,7 +1894,6 @@ class GamepadHandler {
         lineIndex,
         text: '',
         segments: [],
-        mecabAvailable: false,
       };
     }
 
@@ -1892,7 +1908,6 @@ class GamepadHandler {
         lineIndex,
         text,
         segments,
-        mecabAvailable: false,
         yomitanApiAvailable: true,
       };
     } catch (error) {
@@ -1906,7 +1921,6 @@ class GamepadHandler {
         lineIndex,
         text: '',
         segments: [],
-        mecabAvailable: false,
       };
     }
 
@@ -1925,7 +1939,6 @@ class GamepadHandler {
         lineIndex,
         text,
         segments,
-        mecabAvailable: false,
         jitenApiAvailable: true,
         jitenPayload: payload,
       };
@@ -1940,7 +1953,6 @@ class GamepadHandler {
         lineIndex,
         text: '',
         segments: [],
-        mecabAvailable: false,
       };
     }
 
@@ -1959,7 +1971,6 @@ class GamepadHandler {
         lineIndex,
         text,
         segments,
-        mecabAvailable: false,
         jpdbApiAvailable: true,
       };
     } catch (error) {
@@ -4574,6 +4585,7 @@ class GamepadHandler {
       if (lastError) {
         console.warn(`[GamepadHandler] Tokenization fallback exhausted for block ${blockIndex}: ${lastError.message}`);
       }
+      this.reportDictionarySetup(lastError?.message);
       this.emitFallbackTokenizationResult(blockIndex, text, null, request);
     } finally {
       // A superseded request must never clear the newer request's state.
@@ -4645,12 +4657,6 @@ class GamepadHandler {
     if (!this.wsConnected || !this.ws) {
       throw new Error('Not connected to server');
     }
-    if (normalizedBackend === 'sudachi' && !this.sudachiAvailable) {
-      throw new Error('Sudachi is unavailable');
-    }
-    if (normalizedBackend === 'mecab' && !this.mecabAvailable) {
-      throw new Error('MeCab is unavailable');
-    }
 
     const request = this.pendingTokenizationRequests?.get(blockIndex);
     if (!request || request.text !== text) throw new Error('Tokenization request cancelled');
@@ -4665,11 +4671,11 @@ class GamepadHandler {
       request.timeout = setTimeout(() => finish(new Error('Tokenization request timed out')), 5000);
       request.rejectServer = error => finish(error);
       request.resolveServer = result => {
-        const available = normalizedBackend === 'sudachi' ? result.sudachiAvailable : result.mecabAvailable;
+        const available = result.sudachiAvailable;
         if (available === false) {
           if (normalizedBackend === 'sudachi') this.sudachiAvailable = false;
-          else this.mecabAvailable = false;
-          finish(new Error(`${normalizedBackend} is unavailable`));
+          this.reportDictionarySetup(result.error);
+          finish(new Error(result.error || "Open Japanese dictionary setup and retry."));
         } else {
           finish(null, result);
         }
@@ -4678,7 +4684,6 @@ class GamepadHandler {
         this.ws.send(JSON.stringify({
           type: 'tokenize', blockIndex, text, requestId: request.id,
           backend: normalizedBackend,
-          dictionary: normalizedBackend === 'sudachi' ? (this.config.sudachiDictionary || 'small') : undefined,
         }));
       } catch (error) {
         finish(error);
@@ -6743,6 +6748,13 @@ class GamepadHandler {
     return true;
   }
   
+  reportDictionarySetup(error) {
+    this.dictionarySetupError = error || 'Open Settings > Furigana and Tokenization, set up the Japanese dictionary, and retry.';
+    this.sudachiAvailable = false;
+    window.dispatchEvent(new CustomEvent('gsm-sudachi-setup-required', { detail: { error: this.dictionarySetupError } }));
+    this.updateModeIndicatorText();
+  }
+
   updateModeIndicatorText() {
     if (this.modeIndicator) {
       const pausedSuffix = this.navigationPauseActive ? ' · ⏸ Paused' : '';
@@ -6750,7 +6762,7 @@ class GamepadHandler {
         this.setGeneratedText(this.modeIndicator, `Character Mode${pausedSuffix}`);
         return;
       }
-      let tokenBackendReady = (this.mecabAvailable && this.wsConnected) || this.tokens.length > 0;
+      let tokenBackendReady = (this.sudachiAvailable && this.wsConnected) || this.tokens.length > 0;
       if (this.isUsingSudachi()) {
         tokenBackendReady = (this.sudachiAvailable && this.wsConnected) || this.tokens.length > 0;
       } else if (this.isUsingYomitanBridge()) {
@@ -6761,6 +6773,10 @@ class GamepadHandler {
         tokenBackendReady = this.jitenApiReachable || this.tokens.length > 0;
       } else if (this.isUsingJpdbApi()) {
         tokenBackendReady = this.jpdbApiReachable || this.tokens.length > 0;
+      }
+      if (this.dictionarySetupError) {
+        this.setGeneratedText(this.modeIndicator, 'Japanese dictionary setup required - open Settings and retry');
+        return;
       }
       const modeText = this.tokenMode && tokenBackendReady ? 'Token Mode' : 'Character Mode';
       this.setGeneratedText(this.modeIndicator, `${modeText}${pausedSuffix}`);
@@ -6897,7 +6913,7 @@ class GamepadHandler {
       this.sendServiceFeatureConfiguration();
     }
     if (backendChanged) {
-      this.mecabAvailable = false;
+
       this.sudachiAvailable = false;
       this.primeConfiguredLocalTokenizerAvailability();
       this.yomitanBridgeReachable = false;
@@ -6995,7 +7011,7 @@ class GamepadHandler {
       tokenMode: this.tokenMode,
       autoConfirmSelection: this.config.autoConfirmSelection !== false,
       focusOverlayOnEntry: this.config.focusOverlayOnEntry !== false,
-      mecabAvailable: this.mecabAvailable,
+
       sudachiAvailable: this.sudachiAvailable,
       tokenizerBackend: this.config.tokenizerBackend,
       yomitanBridgeReachable: this.yomitanBridgeReachable,

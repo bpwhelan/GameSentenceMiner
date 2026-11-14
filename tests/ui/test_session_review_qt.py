@@ -1,3 +1,4 @@
+import builtins
 import copy
 import os
 import shutil
@@ -5,6 +6,8 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -61,10 +64,99 @@ def add_review(entry, *, suffix="b", expression="Second"):
     second.folder = entry.folder.parent / (suffix * 32)
     shutil.copytree(entry.folder, second.folder)
     second.data["note_id"] += 1
+    second.data["created_at"] = (datetime.fromisoformat(entry.data["created_at"]) + timedelta(seconds=1)).isoformat()
     second.data["expression"] = expression
     second.data["sentence"] = f"{expression} sentence"
     second.save()
     return second
+
+
+def test_missing_review_is_skipped_before_editor_opens(saved_review, monkeypatch):
+    from GameSentenceMiner import anki
+
+    entry, *_ = saved_review
+    second = add_review(entry)
+    mock_note_api(monkeypatch, second)
+    invoke = anki.invoke
+
+    def note_api(action, **kwargs):
+        if action == "notesInfo" and kwargs["notes"] == [entry.data["note_id"]]:
+            return [{}]
+        return invoke(action, **kwargs)
+
+    monkeypatch.setattr(anki, "invoke", note_api)
+    populated = []
+    populate = session_review_qt.ReviewEditor.populate_review
+
+    def record_populate(editor, item, prepared):
+        populated.append(item.id)
+        populate(editor, item, prepared)
+
+    monkeypatch.setattr(session_review_qt.ReviewEditor, "populate_review", record_populate)
+    app, window, _, _ = make_window(saved_review, monkeypatch)
+    try:
+        assert not entry.folder.exists()
+        assert [item.id for item in window.entries] == [second.id]
+        assert window.current_entry.id == second.id
+        assert window.editor.isEnabled()
+        assert populated == [second.id]
+        assert "Could not" not in window.status.text()
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_review_with_only_missing_notes_never_opens_an_editor(saved_review, monkeypatch):
+    from GameSentenceMiner import anki
+
+    entry, config, *_ = saved_review
+    second = add_review(entry)
+    config.features.review_after_session.auto_advance = False
+    monkeypatch.setattr(anki, "invoke", lambda action, **kwargs: "User 1" if action == "getActiveProfile" else [{}])
+    monkeypatch.setattr(
+        session_review_qt.ReviewEditor, "populate_review", lambda *args: pytest.fail("Opened a deleted card")
+    )
+    app, window, _, _ = make_window(saved_review, monkeypatch)
+    try:
+        assert not entry.folder.exists() and not second.folder.exists()
+        assert window.entries == []
+        assert window.current_entry is None and window.prepared is None
+        assert window.editor.isHidden()
+        assert not window.busy
+        assert "Could not" not in window.status.text()
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("action", ["save", "delete", "edit"])
+def test_note_deleted_while_editor_is_open_does_not_leave_failed_review(saved_review, monkeypatch, action):
+    from GameSentenceMiner import anki
+
+    app, window, entry, _ = make_window(saved_review, monkeypatch)
+    monkeypatch.setattr(anki, "invoke", lambda command, **kwargs: "User 1" if command == "getActiveProfile" else [{}])
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+    window.show()
+    try:
+        if action == "save":
+            window.editor.sentence_text.setPlainText("Edited sentence")
+            window.editor.no_voice_button.click()
+        elif action == "delete":
+            window.delete_button.click()
+        else:
+            window.edit_anki_button.click()
+        app.processEvents()
+        assert not entry.folder.exists()
+        assert window.card_list.count() == 0
+        assert not window.pending_saves
+        assert not window.save_errors
+        assert not window.isVisible()
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
 
 
 def test_review_embeds_confirmation_without_countdown(saved_review, monkeypatch):
@@ -84,6 +176,119 @@ def test_review_embeds_confirmation_without_countdown(saved_review, monkeypatch)
     assert entry.folder.exists()
     window.deleteLater()
     app.processEvents()
+
+
+def test_review_warns_when_extra_dialogue_is_inaccessible_and_clears_after_refresh(saved_review, monkeypatch):
+    from tests.test_session_review_context import save_future
+
+    entry, config, replay, *_ = saved_review
+    save_future(entry, config, replay, monkeypatch)
+    blocked = entry.folder / "future" / "manifest.json"
+    stat = Path.stat
+    open_file = builtins.open
+
+    def denied_stat(path, *args, **kwargs):
+        if path == blocked:
+            raise PermissionError(13, "Access is denied", str(path))
+        return stat(path, *args, **kwargs)
+
+    def denied_open(file, *args, **kwargs):
+        if isinstance(file, (str, Path)) and Path(file) == blocked:
+            raise PermissionError(13, "Access is denied", str(file))
+        return open_file(file, *args, **kwargs)
+
+    app = window = None
+    try:
+        with monkeypatch.context() as restricted:
+            restricted.setattr(Path, "stat", denied_stat)
+            restricted.setattr(builtins, "open", denied_open)
+            app, window, _, _ = make_window(saved_review, monkeypatch)
+            window.show()
+            app.processEvents()
+            assert window.editor.isEnabled()
+            assert window.editor.sentence_text.toPlainText() == "Sentence"
+            assert not window.context_warning.isHidden()
+            assert "administrator" in window.context_warning.text()
+
+        window.refresh()
+        assert window.context_warning.isHidden()
+        assert window.prepared.future_clip is not None
+    finally:
+        if window:
+            window.close()
+            window.deleteLater()
+        if app:
+            app.processEvents()
+
+
+@pytest.mark.parametrize("autoplay", [False, True])
+def test_review_uses_current_autoplay_setting_instead_of_mining_snapshot(saved_review, monkeypatch, autoplay):
+    entry, config, *_ = saved_review
+    entry.data["anki_config"]["autoplay_audio"] = not autoplay
+    entry.save()
+    config.anki.autoplay_audio = autoplay
+    played = []
+    monkeypatch.setattr(session_review_qt.ReviewEditor, "_play_range", lambda self: played.append(self.audio_path))
+    app, window, _, _ = make_window(saved_review, monkeypatch)
+    try:
+        window.show()
+        QTest.qWait(150)
+        assert window.editor.autoplay_checkbox.isChecked() is autoplay
+        assert played == ([window.editor.audio_path] if autoplay else [])
+        assert entry.data["anki_config"]["autoplay_audio"] is not autoplay
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+
+
+@pytest.mark.parametrize("autoplay", [False, True])
+def test_review_autoplay_toggle_applies_to_next_card_and_restored_draft(saved_review, monkeypatch, autoplay):
+    from GameSentenceMiner.util.config import configuration
+
+    entry, config, *_ = saved_review
+    config.anki.autoplay_audio = not autoplay
+    entry.data["anki_config"]["autoplay_audio"] = not autoplay
+    entry.save()
+    second = add_review(entry)
+    # Keep the active preference separate from the captured media configuration.
+    monkeypatch.setattr(configuration, "config_instance", SimpleNamespace(get_config=lambda: config))
+    saved_configs = []
+    monkeypatch.setattr(anki_confirmation_qt, "save_current_config", saved_configs.append)
+    played = []
+    monkeypatch.setattr(session_review_qt.ReviewEditor, "_play_range", lambda self: played.append(self.audio_path))
+    app, window, _, _ = make_window(saved_review, monkeypatch)
+    try:
+        window.show()
+        QTest.qWait(150)
+        original_row = window.card_list.currentRow()
+        other_row = 1 - original_row
+        window.editor.sentence_text.setPlainText("Unsaved draft")
+        window.card_list.setCurrentRow(other_row)
+        QTest.qWait(150)
+        window.editor.autoplay_checkbox.setChecked(autoplay)
+        QTest.qWait(150)
+        assert config.anki.autoplay_audio is autoplay
+        assert saved_configs == [config]
+        played.clear()
+        window.card_list.setCurrentRow(original_row)
+        QTest.qWait(150)
+        assert window.editor.sentence_text.toPlainText() == "Unsaved draft"
+        assert window.editor.autoplay_checkbox.isChecked() is autoplay
+        assert config.anki.autoplay_audio is autoplay
+        assert played == ([window.editor.audio_path] if autoplay else [])
+        played.clear()
+        window.card_list.setCurrentRow(other_row)
+        QTest.qWait(150)
+        assert window.editor.autoplay_checkbox.isChecked() is autoplay
+        assert played == ([window.editor.audio_path] if autoplay else [])
+        assert {item.id for item in window.entries} == {entry.id, second.id}
+        assert saved_configs == [config]
+    finally:
+        monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+        window.close()
+        window.deleteLater()
+        app.processEvents()
 
 
 def test_review_keeps_editor_and_queue_on_save_failure(saved_review, monkeypatch):

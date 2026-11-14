@@ -88,7 +88,6 @@ def scan_loop(monkeypatch):
         )
         monkeypatch.setattr(runtime, "inspect", SimpleNamespace(getmembers=lambda *_a: [("TestEngine", Engine)]))
         monkeypatch.setattr(runtime, "OBSScreenshotThread", lambda *_a, **_k: SimpleNamespace(start=lambda: None))
-        monkeypatch.setattr(runtime, "_create_notifier", lambda: None)
         monkeypatch.setattr(runtime, "TextFiltering", lambda: None)
         monkeypatch.setattr(runtime, "get_ocr_ocr1", lambda: engine_name)
         monkeypatch.setattr(runtime, "get_ocr_ocr2", lambda: engine_name)
@@ -114,7 +113,6 @@ def scan_loop(monkeypatch):
             "just_unpaused",
             "first_pressed",
             "auto_pause_handler",
-            "notifier",
             "websocket_server_thread",
         ):
             monkeypatch.setattr(runtime, name, getattr(runtime, name, None), raising=False)

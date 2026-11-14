@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { VitaModelSize, VitaModelStatus } from "../../../../shared/vita_ocr";
 import { useTranslation } from "../../i18n";
 import { invokeIpc } from "../../lib/ipc";
+import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 
-export function VitaOcrModel() {
+export function VitaOcrModel({ active = true }: { active?: boolean }) {
   const t = useTranslation();
   const [status, setStatus] = useState<VitaModelStatus | null>(null);
   const [pending, setPending] = useState<VitaModelSize | null>(null);
@@ -18,7 +19,7 @@ export function VitaOcrModel() {
     try {
       const next = await invokeIpc<VitaModelStatus | null>("ocr.vita-model", {});
       if (mounted.current && !changing.current && started === generation.current && next) {
-        setStatus(next);
+        setStatus(before => retainEqual(before, next));
         setError(next.error || "");
       }
     } catch (cause) {
@@ -26,16 +27,16 @@ export function VitaOcrModel() {
     }
   }, []);
   useEffect(() => {
+    if (!active) return;
     mounted.current = true;
-    void refresh();
-    const timer = setInterval(() => void refresh(), 3000);
+    const stop = startVisiblePolling(refresh, 3000);
     window.addEventListener("focus", refresh);
     return () => {
       mounted.current = false;
-      clearInterval(timer);
+      stop();
       window.removeEventListener("focus", refresh);
     };
-  }, [refresh]);
+  }, [active, refresh]);
   useEffect(() => {
     if (status && !status.available && !status.busy && status.supported !== false && !attemptedSetup.current) {
       attemptedSetup.current = true;

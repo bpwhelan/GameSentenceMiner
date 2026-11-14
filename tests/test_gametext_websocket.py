@@ -412,6 +412,38 @@ def test_v2_ingress_does_not_run_background_integrations_before_admission(monkey
     assert integration_calls == []
 
 
+@pytest.mark.parametrize("source", ["texthook", "ocr", "ocr_manual", "secondary", "screen_cropper"])
+@pytest.mark.parametrize("raw, expected", [("<b>日本語</b>", "日本語"), ("<br>", "")])
+def test_ingress_returns_the_shared_filter_result_for_hook_and_ocr(monkeypatch, source, raw, expected):
+    from GameSentenceMiner.text_pipeline.models import IngressAck, IngressResult, IngressStatus
+    from GameSentenceMiner.util.config.configuration import TextProcessing
+
+    observations = []
+
+    class Runtime:
+        def ingest(self, observation):
+            observations.append(observation)
+            status = IngressStatus.ACCEPTED if observation.processed_text else IngressStatus.REJECTED
+            return IngressResult(IngressAck(status, observation.observation_id))
+
+    config = SimpleNamespace(
+        text_processing=TextProcessing.from_dict({"remove_angle_brackets": True}),
+        general=SimpleNamespace(texthook_max_buffer_size=3000),
+        hotkeys=SimpleNamespace(relay_outputs_when_text_intake_paused=True),
+    )
+    monkeypatch.setattr(gametext, "get_config", lambda: config)
+    monkeypatch.setattr(gametext, "is_sentence_excluded", lambda *_args: False)
+    monkeypatch.setattr(gametext, "is_text_intake_paused", lambda: False)
+    monkeypatch.setattr(gametext.ocr_benchmark.recorder, "observe", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: Runtime())
+    result = gametext.ingest_text_v2_payload({"text": raw, "source": source, "observationId": "preview"})
+
+    assert result["raw_text"] == raw
+    assert result["processed_text"] == expected
+    assert observations[0].raw_text == raw
+    assert observations[0].processed_text == expected
+
+
 def test_notify_discord_activity_uses_master_discord_config(monkeypatch):
     submitted = []
     profile_config = SimpleNamespace()
@@ -470,10 +502,8 @@ def test_repeated_ocr_hook_echoes_warn_once(monkeypatch):
     assert [fn for fn, _ in sent] == ["ocr_hook_redundant"]
 
 
-def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
+def test_set_text_intake_paused_announces_state_and_updates_overlay(monkeypatch):
     announced_states = []
-    paused_notifications = []
-    resumed_notifications = []
     overlay_updates = []
 
     from GameSentenceMiner.web.gsm_websocket import websocket_manager
@@ -491,13 +521,13 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     monkeypatch.setattr(gametext, "announce_text_intake_state", lambda paused: announced_states.append(paused))
     monkeypatch.setattr(
         gametext,
-        "send_text_intake_paused_notification",
-        lambda relay_enabled: paused_notifications.append(relay_enabled),
+        "text_intake_paused",
+        lambda _relay_enabled: None,
     )
     monkeypatch.setattr(
         gametext,
-        "send_text_intake_resumed_notification",
-        lambda: resumed_notifications.append(True),
+        "text_intake_resumed",
+        lambda: None,
     )
     monkeypatch.setattr(gametext.gsm_state, "text_input_paused", False, raising=False)
 
@@ -506,8 +536,6 @@ def test_set_text_intake_paused_announces_state_and_notifies(monkeypatch):
     assert gametext.set_text_intake_paused(False) is False
 
     assert announced_states == [True, False]
-    assert paused_notifications == [True]
-    assert resumed_notifications == [True]
     assert [(payload["reason"], payload["text_intake_paused"]) for payload in overlay_updates] == [
         ("intake_paused", True),
         ("intake_resumed", False),

@@ -2,17 +2,17 @@
 //
 // Text Hooking integration for GameSentenceMiner.
 //
-// Spawns the bundled Textractor or Luna Hook CLI to attach to a running game
-// process (auto-detected from the active OBS scene capture), enumerates hook
-// candidates, and forwards text from a selected hook to the Python backend
-// over the existing GSMSTDIN/GSMMSG IPC channel.
+// Coordinates app settings and Agent/Frida hooks. LunaHook/Textractor live
+// sessions are owned by Rust (native/gsm-texthook), including processes,
+// decoding, buffering, selection, architecture recovery and target lifetime.
+// Native output is forwarded unchanged to the existing Python text ingress.
 //
 // Inspired by the Sugoi Hook project (https://github.com/sugoi-toolkit-official/sugoi-hook),
 // rewritten from scratch to fit the GSM Electron architecture. Bundled
 // Textractor and Luna Hook binaries are GPL-3.0; see assets/texthook/NOTICE.md.
 
-import { spawn, ChildProcessWithoutNullStreams, execFile, exec } from 'child_process';
-import { promisify } from 'util';
+import { settingsSync } from '../runtime/native_settings.js';
+import { configureNativeTextHookEvents, nativeTextHook, nativeTextHookSync } from './native_texthook.js';
 import * as path from 'path';
 import * as fs from 'node:fs';
 import { ipcMain, dialog, BrowserWindow } from 'electron';
@@ -24,30 +24,19 @@ import {
     sanitizeFilename,
 } from '../util.js';
 import { resolveWineLaunch, findLinuxGamePid, type WineLaunchContext } from './linux_wine.js';
-import { startWineFridaConnection, type WineProcessConnection } from './wine_frida.js';
 import { getConfiguredTargetLanguage, gsmBackendUrl } from '../gsm_config.js';
-import { rememberHookSample } from '../../shared/texthook_quality.js';
 import {
     getGameExePathForScene,
     setGameExePathForScene,
-    getAutoUpdateTexthook,
-    setAutoUpdateTexthook,
 } from '../store.js';
 import { mainWindow, sendReloadSettings, sendTextHookLine, sendTextHookStatus } from '../main.js';
 import {
     getTexthookRuntimeDir,
     FORCE_TEXTHOOK_DOWNLOAD,
     downloadTexthookEngines,
-    getEngineStatus,
-    getLocalEngineStatus,
     isTexthookInstalled,
-    prepareTexthookUpdate,
-    activateTexthookUpdate,
-    discardTexthookUpdate,
-    type PreparedTexthookUpdate,
 } from './texthook_downloader.js';
-import { TextHookUpdateManager } from '../services/texthook_updates.js';
-import { appendHookFragment } from './text_hook_buffer.js';
+import { nativeHookUpdates, reserveHookAttachment, releaseHookAttachment } from '../runtime/native_hook_updates.js';
 import { gamePrivilegeMonitor } from '../services/game_privileges.js';
 import {
     getCurrentScene,
@@ -93,19 +82,8 @@ import {
     sanitizeTextHookText,
     setRuntimeTextHookMaxBufferSize,
 } from './text_hook_sanitize.js';
-import {
-    advanceEngineHookSession,
-    getEngineHookRuntimeStatus,
-    isEngineHookRunning,
-    listEngineHooks,
-    setEngineHookCopyToClipboard,
-    setEngineHookFlushDelayMs,
-    startEngineHookSession,
-    stopEngineHookSession,
-} from '../engine_hooks/session.js';
-import { loadEngineHookCatalog } from '../engine_hooks/support.js';
 
-const execFileAsync = promisify(execFile);
+
 
 export type TextHookEngine = 'textractor' | 'luna' | 'agent' | 'mages';
 type CliTextHookEngine = Exclude<TextHookEngine, 'agent' | 'mages'>;
@@ -139,81 +117,39 @@ export interface TextHookProfile {
     lastUsed: number;
 }
 
-interface HookEntry {
-    id: string;
-    function: string;
-    preview: string;
-    samples: string[];
+interface NativeCliStatus {
+    running: boolean; engine?: CliTextHookEngine; arch?: TextHookArchitecture;
+    pid?: number; exeName?: string; source?: TextHookStartSource;
+    selectedHookId?: string | null; hookCount?: number; flushDelayMs?: number;
+    copyToClipboard?: boolean;
 }
-
-interface ActiveSession {
-    proc: ChildProcessWithoutNullStreams;
-    engine: CliTextHookEngine;
-    arch: TextHookArchitecture;
-    architectureFallbackAttempted: boolean;
-    recoveringArchitectureMismatch: boolean;
-    pid: number;
-    exeName: string;
-    source: TextHookStartSource;
-    selectedHookId: string | null;
-    /** Last selected-hook input, before truncation, to suppress unchanged redraws. */
-    lastSelectedHookText: string | null;
-    hooks: Map<string, HookEntry>;
-    /** Hook id we will auto-select when it shows up (loaded from a profile). */
-    autoSelectHookId: string | null;
-    /** Function name we will auto-select if id no longer matches. */
-    autoSelectHookFunction: string | null;
-    /** Manual hook code to attach once after process attach (from saved profile). */
-    pendingManualHookCode: string | null;
-    /** Pending raw stdout bytes (UTF-16LE half-character carry over). */
-    stdoutCarry: Buffer;
-    /** Pending UTF-16 decoded line carry. */
-    lineCarry: string;
-    /** Whether the pending unterminated output line was truncated. */
-    lineCarryTruncated: boolean;
-    /** Last hook line, used for multiline hook text continuations. */
-    lastHookForContinuation: { id: string; function: string; ignored: boolean } | null;
-    /** Legacy collector retained only for profile/session compatibility. */
-    outputCollector: TextHookOutputPayload[];
-    outputFlushTimer: NodeJS.Timeout | null;
-    /** Debounced detected-hook preview text waiting to be shown in the hook list. */
-    hookPreviewCollectors: Map<string, HookPreviewCollector>;
-    flushDelayMs: number;
-    copyToClipboard: boolean;
-    /** Frida server/device used to map and attach to the Windows process under Wine. */
-    wineConnection?: WineProcessConnection;
-    pidWatcher?: NodeJS.Timeout;
-}
-
-let session: ActiveSession | null = null;
-let hookStartInProgress = false;
-let engineUpdates: TextHookUpdateManager<PreparedTexthookUpdate> | null = null;
-
-function getEngineUpdates(): TextHookUpdateManager<PreparedTexthookUpdate> {
-    engineUpdates ??= new TextHookUpdateManager({
-        localStatus: getLocalEngineStatus,
-        remoteStatus: getEngineStatus,
-        prepare: prepareTexthookUpdate,
-        activate: activateTexthookUpdate,
-        discard: discardTexthookUpdate,
-        version: (prepared) => prepared.manifest.version,
-        isBusy: () => hookStartInProgress || getRuntimeStatus().running,
-        automaticEnabled: getAutoUpdateTexthook,
-        setAutomatic: setAutoUpdateTexthook,
-        onState: (state) => emitToRenderer('texthook.engineUpdateState', state),
+let nativeEventsConfigured = false;
+let startGeneration = 0;
+function forwardTextHookLine(payload: Parameters<typeof sendTextHookLine>[0] & { nativeIngress?: boolean }): void {
+    if (payload.nativeIngress) return;
+    const generation = startGeneration;
+    const sessionId = payload.sessionId ?? (payload.engine === 'agent' ? getAgentHookRuntimeStatus()?.sessionId : undefined);
+    sendTextHookLine({ ...payload, ...(sessionId ? { sessionId } : {}) }, (line) => {
+        if (generation === startGeneration) emitToRenderer('texthook.processed', line);
     });
-    return engineUpdates;
 }
+function ensureNativeEvents(): void {
+    if (nativeEventsConfigured) return;
+    configureNativeTextHookEvents((channel, payload) => {
+        if (channel === 'texthook.output') forwardTextHookLine(payload);
+        else if (channel === 'texthook.status') {
+            emitStatus();
+        } else emitToRenderer(channel, payload);
+    });
+    nativeEventsConfigured = true;
+}
+function nativeCliStatus(): NativeCliStatus {
+    return nativeTextHookSync<NativeCliStatus>('status');
+}
+let hookStartInProgress = false;
+const engineUpdates = nativeHookUpdates;
+function getEngineUpdates() { return nativeHookUpdates; }
 
-const TEXTRACTOR_HOOK_LINE = /^\[([0-9a-fA-F]+):([^:]+):([^:]+):([^:]+):([^:]+):([^:]+):([^\]]+)\] (.*)$/;
-const LUNA_HOOK_LINE = /^\[#([0-9a-fA-F]+)\|([^\]]+)\] (.*)$/;
-const LUNA_HOOK_CREATED_LINE = /^\[Hook #([0-9a-fA-F]+) created\] Handle: ([0-9a-fA-F]+)$/;
-const CONSOLE_LINE = /^\[Console\] (.+)$/;
-const TEXT_HOOK_ERASE_PATTERNS = [
-    /%D\$vl\d+;/g,
-];
-
-const PROFILES_FILE = path.join(BASE_DIR, 'texthook', 'profiles.json');
 const DEFAULT_FLUSH_DELAY_MS = 100;
 const MAX_FLUSH_DELAY_MS = 5000;
 const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE = DEFAULT_MAX_BUFFER_SIZE;
@@ -231,14 +167,6 @@ interface TextHookOutputPayload {
     capturedAt?: number;
     revisionWindowMs?: number;
     mergeFragments?: boolean;
-}
-
-interface HookPreviewCollector {
-    hookId: string;
-    hookFunction: string;
-    pending: string[];
-    pendingLength: number;
-    timer: NodeJS.Timeout | null;
 }
 
 type TextHookRuntimeStatus = ReturnType<typeof getRuntimeStatus>;
@@ -285,28 +213,12 @@ function emitLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): vo
     emitToRenderer('texthook.log', { message, level, ts: Date.now() });
 }
 
-function emitEngineLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
-    const trimmed = message.trim();
-    emitLog(trimmed.startsWith('[Engine]') ? trimmed : `[Engine] ${trimmed}`, level);
-}
-
 function emitHooks(): void {
-    if (isEngineHookRunning()) {
-        emitToRenderer('texthook.hooks', listEngineHooks());
-        return;
-    }
     if (isAgentHookRunning()) {
         emitToRenderer('texthook.hooks', listAgentHooks());
         return;
     }
-    if (!session) {
-        emitToRenderer('texthook.hooks', { hooks: [], selectedHookId: null });
-        return;
-    }
-    emitToRenderer('texthook.hooks', {
-        hooks: Array.from(session.hooks.values()),
-        selectedHookId: session.selectedHookId,
-    });
+    emitToRenderer('texthook.hooks', nativeTextHookSync('hooks'));
 }
 
 function isAgentHookRunning(): boolean {
@@ -393,7 +305,7 @@ function getEngineCliPath(engine: CliTextHookEngine, arch: TextHookArchitecture)
 }
 
 // ---------------------------------------------------------------------------
-// Process detection (Windows-first via tasklist)
+// Process detection (native Windows metadata)
 // ---------------------------------------------------------------------------
 
 interface ProcessEntry {
@@ -416,18 +328,6 @@ interface RawProcess {
 // than the game itself. Many games ship a tiny launcher .exe that spawns the
 // real engine under a .bin/.log image; we look past those to find the heavy one.
 const LAUNCHER_MEMORY_FLOOR = 20 * 1024 * 1024;
-
-function normalizeDetectedArchitecture(value: string): DetectedTextHookArchitecture {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'x86' || normalized === 'x64') return normalized;
-    return 'unknown';
-}
-
-function chooseEngineArchitecture(arch: DetectedTextHookArchitecture, pid: number): TextHookArchitecture {
-    if (arch === 'x86' || arch === 'x64') return arch;
-    emitLog(`Could not determine architecture for PID ${pid}; trying x64 first.`, 'warn');
-    return 'x64';
-}
 
 /** Read the PE header from disk to determine bitness. */
 function readPortableExecutableBitness(executablePath: string): DetectedTextHookArchitecture {
@@ -452,109 +352,18 @@ function readPortableExecutableBitness(executablePath: string): DetectedTextHook
     }
 }
 
-async function detectProcessArchWithWindowsApi(pid: number): Promise<DetectedTextHookArchitecture> {
-    if (!isWindows() || pid <= 0) return 'unknown';
-    const cmd = `
-$ErrorActionPreference = "SilentlyContinue"
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-
-public static class NativeProcessBitness {
-    [DllImport("kernel32.dll", SetLastError=true)]
-    public static extern IntPtr OpenProcess(UInt32 dwDesiredAccess, bool bInheritHandle, UInt32 dwProcessId);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool CloseHandle(IntPtr hObject);
-
-    [DllImport("kernel32.dll", SetLastError=true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool IsWow64Process(IntPtr hProcess, out bool wow64Process);
-
-    [DllImport("kernel32.dll", SetLastError=true, EntryPoint="IsWow64Process2")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    public static extern bool IsWow64Process2(IntPtr hProcess, out UInt16 processMachine, out UInt16 nativeMachine);
-}
-"@
-$h = [NativeProcessBitness]::OpenProcess(0x1000, $false, [uint32]${pid})
-if ($h -eq [IntPtr]::Zero) { "unknown"; exit }
-try {
-    $processMachine = [uint16]0
-    $nativeMachine = [uint16]0
-    try {
-        if ([NativeProcessBitness]::IsWow64Process2($h, [ref]$processMachine, [ref]$nativeMachine)) {
-            if ($processMachine -eq 0x14c) { "x86"; exit }
-            if ($processMachine -eq 0x8664) { "x64"; exit }
-            if ($processMachine -eq 0 -and $nativeMachine -eq 0x14c) { "x86"; exit }
-            if ($processMachine -eq 0 -and $nativeMachine -eq 0x8664) { "x64"; exit }
-            "unknown"; exit
-        }
-    } catch {}
-
-    $wow64 = $false
-    if ([NativeProcessBitness]::IsWow64Process($h, [ref]$wow64)) {
-        if ($wow64) { "x86" }
-        elseif ([Environment]::Is64BitOperatingSystem) { "x64" }
-        else { "x86" }
-    } else {
-        "unknown"
-    }
-} finally {
-    [void][NativeProcessBitness]::CloseHandle($h)
-}
-`;
-    try {
-        const { stdout } = await execFileAsync(
-            'powershell',
-            ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', cmd],
-            { windowsHide: true, timeout: 4000, encoding: 'utf8' },
-        );
-        const lines = stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-        return normalizeDetectedArchitecture(lines[lines.length - 1] ?? '');
-    } catch {
-        return 'unknown';
-    }
-}
-
-/** Resolve the on-disk path for a running PID via PowerShell process metadata. */
 async function getProcessExecutablePath(pid: number): Promise<string | null> {
-    if (!isWindows() || pid <= 0) return null;
-    const cmd = `
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue
-if ($p -and $p.Path) { $p.Path; exit }
-$c = Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" -ErrorAction SilentlyContinue
-if ($c -and $c.ExecutablePath) { $c.ExecutablePath; exit }
-`;
-    try {
-        const { stdout } = await execFileAsync(
-            'powershell',
-            ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', cmd],
-            { windowsHide: true, timeout: 4000, encoding: 'utf8' },
-        );
-        const p = stdout.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-        return p && p.length > 0 ? p : null;
-    } catch {
-        return null;
-    }
+    try { return (await nativeTextHook<{ path: string | null }>('processInfo', { pid })).path; }
+    catch { return null; }
 }
-
-/**
- * Detect process architecture from the running process first, then fall back to
- * the executable PE header. Reading the live process avoids treating inaccessible
- * executable paths as x64.
- */
 async function detectProcessArch(pid: number): Promise<TextHookArchitecture> {
-    if (!isWindows()) return 'x64';
-    const liveArch = await detectProcessArchWithWindowsApi(pid);
-    if (liveArch !== 'unknown') return liveArch;
+    try {
+        const info = await nativeTextHook<{ arch: string }>('processInfo', { pid });
+        if (info.arch === 'x86' || info.arch === 'x64') return info.arch;
+    } catch { /* PE fallback for inaccessible process metadata. */ }
     const exePath = await getProcessExecutablePath(pid);
-    if (exePath) {
-        const peArch = readPortableExecutableBitness(exePath);
-        if (peArch !== 'unknown') return peArch;
-    }
-    return chooseEngineArchitecture('unknown', pid);
+    if (exePath && readPortableExecutableBitness(exePath) === 'x86') return 'x86';
+    return 'x64';
 }
 
 /** Lower-cased image name with its final extension stripped (e.g. "game.bin" -> "game"). */
@@ -643,36 +452,9 @@ function selectGameProcess(processes: RawProcess[], exeName: string): RawProcess
  * Explicit UTF-8 output keeps Unicode (e.g. Japanese) names intact.
  */
 async function listWindowsProcesses(): Promise<RawProcess[] | null> {
-    try {
-        const { stdout } = await execFileAsync(
-            'powershell',
-            [
-                '-NoProfile', '-NonInteractive', '-Command',
-                '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ' +
-                'Get-CimInstance Win32_Process | ' +
-                'Select-Object ProcessId,ParentProcessId,Name,WorkingSetSize | ConvertTo-Json -Compress',
-            ],
-            { windowsHide: true, maxBuffer: 16 * 1024 * 1024, encoding: 'utf8' },
-        );
-        const raw: unknown = JSON.parse(stdout);
-        const list = Array.isArray(raw) ? raw : [raw];
-        const out: RawProcess[] = [];
-        for (const p of list as Array<Record<string, unknown>>) {
-            const pid = Number(p['ProcessId']);
-            const ppid = Number(p['ParentProcessId']);
-            const name = String(p['Name'] ?? '');
-            const memory = Number(p['WorkingSetSize']);
-            if (!Number.isFinite(pid) || pid <= 0 || !name) continue;
-            out.push({
-                pid,
-                ppid: Number.isFinite(ppid) ? ppid : 0,
-                name,
-                memory: Number.isFinite(memory) ? memory : 0,
-            });
-        }
-        return out;
-    } catch (err) {
-        emitLog(`Process lookup failed: ${(err as Error).message}`, 'error');
+    try { return await nativeTextHook<RawProcess[]>('processes'); }
+    catch (error) {
+        emitLog(`Process lookup failed: ${(error as Error).message}`, 'error');
         return null;
     }
 }
@@ -695,36 +477,6 @@ async function findProcessByExeName(exeName: string): Promise<ProcessEntry | nul
     }
     const arch = await detectProcessArch(chosen.pid);
     return { pid: chosen.pid, exeName: chosen.name, arch };
-}
-
-async function isPidAlive(pid: number): Promise<boolean> {
-    // process.kill(pid, 0) is unreliable on Windows when the target process runs
-    // under a different security context or with different privileges.  Use
-    // tasklist /FI "PID eq ..." instead — the same approach used in auto_launcher.ts.
-    if (isWindows()) {
-        return new Promise((resolve) => {
-            exec(
-                `tasklist /FI "PID eq ${pid}" /FO CSV /NH`,
-                { windowsHide: true, encoding: 'utf8' },
-                (error, stdout) => {
-                    if (error) { resolve(false); return; }
-                    const out = stdout.trim().toLowerCase();
-                    if (out.includes('no tasks are running') || out.length === 0) {
-                        resolve(false);
-                        return;
-                    }
-                    // A matching line contains the PID quoted, e.g. "foo.exe","108800",...
-                    resolve(out.includes(`"${pid}"`));
-                },
-            );
-        });
-    }
-    try {
-        process.kill(pid, 0);
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -872,32 +624,13 @@ function setTextHookMaxBufferSize(value: unknown): {
     textHookMaxBufferSize = maxBufferSize;
     setRuntimeTextHookMaxBufferSize(maxBufferSize);
     setDetachedAgentMaxBufferSize(maxBufferSize);
+    nativeTextHookSync('configure', { maxBufferSize });
     sendReloadSettings();
     return { success: true, maxBufferSize };
 }
 
-function ensureProfilesDir(): void {
-    fs.mkdirSync(path.dirname(PROFILES_FILE), { recursive: true });
-}
-
 function loadAllProfiles(): Record<string, TextHookProfile> {
-    try {
-        if (!fs.existsSync(PROFILES_FILE)) return {};
-        const raw = fs.readFileSync(PROFILES_FILE, 'utf-8');
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return {};
-        const out: Record<string, TextHookProfile> = {};
-        for (const [key, value] of Object.entries(parsed)) {
-            const profile = normalizeProfile(value);
-            if (profile) {
-                out[key.toLowerCase()] = profile;
-            }
-        }
-        return out;
-    } catch (err) {
-        emitLog(`Failed to load text hook profiles: ${(err as Error).message}`, 'error');
-        return {};
-    }
+    return settingsSync('profiles.list');
 }
 
 function normalizeProfile(value: unknown): TextHookProfile | null {
@@ -938,46 +671,16 @@ function normalizeFlushDelayMs(value: unknown): number {
     return Math.min(MAX_FLUSH_DELAY_MS, Math.max(0, Math.round(parsed)));
 }
 
-function saveAllProfiles(profiles: Record<string, TextHookProfile>): void {
-    try {
-        ensureProfilesDir();
-        fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), 'utf-8');
-    } catch (err) {
-        emitLog(`Failed to write text hook profiles: ${(err as Error).message}`, 'error');
-    }
-}
-
 export function getProfileFor(exeName: string, sceneId?: string | null): TextHookProfile | null {
-    const profiles = loadAllProfiles();
-    const normalizedSceneId = sceneId?.trim().toLowerCase();
-    if (normalizedSceneId) {
-        return profiles[`scene:${normalizedSceneId}`] ?? null;
-    }
-    return exeName ? profiles[exeName.toLowerCase()] ?? null : null;
+    return settingsSync('profiles.get', { exeName, sceneId });
 }
 
 export function upsertProfile(profile: TextHookProfile): TextHookProfile {
-    const all = loadAllProfiles();
-    const normalized: TextHookProfile = {
-        ...profile,
-        exeName: profile.exeName.toLowerCase(),
-        flushDelayMs: normalizeFlushDelayMs(profile.flushDelayMs),
-        lastUsed: Date.now(),
-    };
-    const key = normalized.sceneId?.trim()
-        ? `scene:${normalized.sceneId.trim().toLowerCase()}`
-        : normalized.exeName;
-    all[key] = normalized;
-    saveAllProfiles(all);
-    return normalized;
+    return settingsSync('profiles.upsert', profile);
 }
 
 export function deleteProfile(exeName: string, sceneId?: string | null): void {
-    const all = loadAllProfiles();
-    const key = sceneId?.trim() ? `scene:${sceneId.trim().toLowerCase()}` : exeName.toLowerCase();
-    if (delete all[key]) {
-        saveAllProfiles(all);
-    }
+    settingsSync('profiles.delete', { exeName, sceneId });
 }
 
 // ---------------------------------------------------------------------------
@@ -989,379 +692,6 @@ function isValidHookCode(code: string): boolean {
     if (!/^[HhRr]/.test(code)) return false;
     if (!code.includes('@')) return false;
     return true;
-}
-
-function isIgnorableEngineLine(line: string): boolean {
-    return (
-        line.startsWith('Usage:') ||
-        line.startsWith('After attaching,') ||
-        line.startsWith('After 10 texts,') ||
-        line === 'Commands:' ||
-        line.startsWith('attach -P') ||
-        line.startsWith('detach -P') ||
-        line.startsWith('select <handle>') ||
-        line.startsWith('showall') ||
-        line === '=== HOOK SELECTION ===' ||
-        line === "You've seen text from multiple hooks above." ||
-        line.startsWith('To select specific hooks') ||
-        line.startsWith('Example: select') ||
-        line.startsWith('To see all hooks') ||
-        line.startsWith('To continue with current selection') ||
-        line === '======================' ||
-        line === 'Now showing text from all hooks.' ||
-        line === 'Now showing text only from selected hook.' ||
-        /^Now showing text only from \d+ selected hook\(s\)\.$/.test(line) ||
-        // Support both CLI acknowledgement formats, including joined status lines.
-        /^Selected hook(?: #[0-9a-fA-F]+(?: \(Handle: [0-9a-fA-F]+\))?|: [0-9a-fA-F]+)(?:\s*Now showing text only from (?:selected hook|\d+ selected hook\(s\))\.)?$/.test(line)
-    );
-}
-
-function isIgnoredTextractorHook(fn: string, hookCode: string): boolean {
-    // Textractor exposes host internals as normal text threads. Console lines
-    // are status messages, and Clipboard often echoes unrelated copied text.
-    return fn === 'Console' || fn === 'Clipboard' || hookCode === 'HB0@0';
-}
-
-function getRequiredArchitectureFromMismatchMessage(message: string): TextHookArchitecture | null {
-    const match = /\barchitecture mismatch:\s*only\s+(?:[A-Za-z0-9_.-]+\s+)*(x86|x64)\s+can inject\b/i.exec(
-        message,
-    );
-    if (!match) return null;
-    return match[1].toLowerCase() as TextHookArchitecture;
-}
-
-function handleArchitectureMismatchMessage(
-    message: string,
-    currentSession: ActiveSession | null = session,
-): boolean {
-    const requiredArch = getRequiredArchitectureFromMismatchMessage(message);
-    if (!requiredArch) return false;
-
-    emitEngineLog(message, 'warn');
-    if (!currentSession || session !== currentSession) return true;
-    currentSession.lastHookForContinuation = null;
-    if (currentSession.arch === requiredArch) {
-        emitLog(
-            `Ignoring stale architecture mismatch message because ${currentSession.engine} is already running as ${requiredArch}.`,
-            'warn',
-        );
-        return true;
-    }
-    if (currentSession.architectureFallbackAttempted || currentSession.recoveringArchitectureMismatch) {
-        emitLog('Hook engine architecture recovery already ran once for this session.', 'error');
-        return true;
-    }
-
-    const failedSession = currentSession;
-    failedSession.recoveringArchitectureMismatch = true;
-    emitLog(`Restarting ${failedSession.engine} as ${requiredArch} for PID ${failedSession.pid}.`, 'warn');
-    void restartSessionWithArchitecture(failedSession, requiredArch);
-    return true;
-}
-
-function parseLunaContext(hookNumber: string, context: string): { id: string; function: string } {
-    // Luna context layout:
-    //   handle:pid:address:ctx:ctx2:name:hookcode[:module[:function]]
-    // Two hooks can share the same name, hook code and module while differing
-    // only in their ctx/ctx2 address (e.g. "Pal" at 6BF80:0 vs 6C1C5:0). The
-    // hook number (#1/#3) is reassigned per attach, so neither the number nor
-    // the bare name uniquely identify a hook across sessions. Fold ctx:ctx2 into
-    // the label so duplicates stay distinguishable in the UI and so the saved
-    // profile's hookFunction matches the exact hook on the next run.
-    const parts = context.split(':');
-    if (parts.length >= 6) {
-        const ctx = parts[3] || '';
-        const ctx2 = parts[4] || '';
-        const name = parts[5] || 'Unknown';
-        const contextSig = ctx2 ? `${ctx}:${ctx2}` : ctx;
-        const label = contextSig ? `${name} (${contextSig})` : name;
-        return { id: hookNumber, function: label || 'Unknown' };
-    }
-    const functionName = parts.length > 1 ? parts[parts.length - 2] : parts[0];
-    return { id: hookNumber, function: functionName || 'Unknown' };
-}
-
-// Strip the " (ctx:ctx2)" suffix that parseLunaContext now appends so we can
-// compare against older profiles that were saved with only the bare hook name.
-function hookFunctionBaseName(label: string): string {
-    const match = /^(.*?)\s*\([^()]*\)\s*$/.exec(label);
-    return (match ? match[1] : label).trim();
-}
-
-// True when a saved profile's hookFunction identifies this hook entry. New
-// profiles store the full "name (ctx:ctx2)" label and match exactly. Profiles
-// saved before that change stored only the bare name, so fall back to comparing
-// against the entry's base name for backward compatibility (no re-select needed).
-function hookFunctionMatches(saved: string | null | undefined, entryFunction: string): boolean {
-    if (!saved) return false;
-    if (saved === entryFunction) return true;
-    return saved === hookFunctionBaseName(entryFunction);
-}
-
-function eraseTextHookNoise(text: string): string {
-    let cleaned = text;
-    for (const pattern of TEXT_HOOK_ERASE_PATTERNS) {
-        cleaned = cleaned.replace(pattern, '');
-    }
-    return cleaned;
-}
-
-// ---------------------------------------------------------------------------
-// Output parsing (UTF-16LE)
-// ---------------------------------------------------------------------------
-
-function decodeStdout(currentSession: ActiveSession, chunk: Buffer): string {
-    const buf = Buffer.concat([currentSession.stdoutCarry, chunk]);
-    // Keep a trailing odd byte for the next round so we never split a UTF-16 unit.
-    const usableLen = buf.length - (buf.length % 2);
-    const decoded = buf.slice(0, usableLen).toString('utf16le');
-    currentSession.stdoutCarry = buf.slice(usableLen);
-    return decoded;
-}
-
-function consumeLines(currentSession: ActiveSession, text: string): string[] {
-    const combined = currentSession.lineCarry + text;
-    const lines = combined.split(/\r?\n/);
-    currentSession.lineCarry = lines.pop() ?? '';
-    // Keep enough of an unterminated engine line to determine whether its text
-    // payload breaches the hard rejection limit. The prior configurable cap
-    // could truncate a huge payload before validation and accidentally admit it.
-    const rawLineBufferLimit = Math.max(
-        textHookMaxBufferSize,
-        HARD_TEXT_HOOK_REJECTION_LIMIT + 4096,
-    );
-    if (currentSession.lineCarry.length > rawLineBufferLimit) {
-        currentSession.lineCarry = currentSession.lineCarry.slice(0, rawLineBufferLimit + 1);
-        if (!currentSession.lineCarryTruncated) {
-            currentSession.lineCarryTruncated = true;
-            emitLog(
-                'Discarding an oversized unterminated hook output line.',
-                'warn',
-            );
-        }
-    } else if (currentSession.lineCarry.length === 0) {
-        currentSession.lineCarryTruncated = false;
-    }
-    return lines.map((l) => l.replace(/\u0000+$/, ''));
-}
-
-function handleStdoutChunk(chunk: Buffer, currentSession: ActiveSession): void {
-    if (session !== currentSession) return;
-    const decoded = decodeStdout(currentSession, chunk);
-    if (!decoded) return;
-    const lines = consumeLines(currentSession, decoded);
-    for (const raw of lines) {
-        if (session !== currentSession) return;
-        const line = raw.trim();
-        if (!line) continue;
-        handleLine(line, currentSession);
-    }
-}
-
-function handleLine(line: string, currentSession: ActiveSession): void {
-    if (session !== currentSession) return;
-    if (isIgnorableEngineLine(line)) {
-        currentSession.lastHookForContinuation = null;
-        return;
-    }
-    if (handleArchitectureMismatchMessage(line, currentSession)) return;
-
-    const consoleMatch = CONSOLE_LINE.exec(line);
-    if (consoleMatch) {
-        const message = consoleMatch[1];
-        if (handleArchitectureMismatchMessage(message, currentSession)) return;
-        emitEngineLog(message);
-        currentSession.lastHookForContinuation = null;
-        return;
-    }
-
-    if (currentSession.engine === 'textractor') {
-        const m = TEXTRACTOR_HOOK_LINE.exec(line);
-        if (!m) {
-            if (currentSession.lastHookForContinuation && !line.startsWith('[')) {
-                const last = currentSession.lastHookForContinuation;
-                if (!last.ignored) {
-                    recordHookEvent(last.id, last.function, line);
-                }
-                return;
-            }
-            // Log raw unmatched output so format issues can be diagnosed.
-            emitLog(`[raw] ${line}`);
-            currentSession.lastHookForContinuation = null;
-            return;
-        }
-        const fn = m[6];
-        const hookCode = m[7];
-        const text = m[8];
-        if (fn === 'Console') {
-            if (handleArchitectureMismatchMessage(text, currentSession)) return;
-            emitEngineLog(text);
-            currentSession.lastHookForContinuation = null;
-            return;
-        }
-        const ignored = isIgnoredTextractorHook(fn, hookCode);
-        currentSession.lastHookForContinuation = { id: m[1], function: fn, ignored };
-        if (!ignored) {
-            recordHookEvent(m[1], fn, text);
-        }
-    } else {
-        const created = LUNA_HOOK_CREATED_LINE.exec(line);
-        if (created) {
-            recordHookEvent(created[1], `Hook #${created[1]}`, '');
-            currentSession.lastHookForContinuation = null;
-            return;
-        }
-        const m = LUNA_HOOK_LINE.exec(line);
-        if (!m) {
-            if (currentSession.lastHookForContinuation && !line.startsWith('[')) {
-                const last = currentSession.lastHookForContinuation;
-                recordHookEvent(last.id, last.function, line);
-                return;
-            }
-            emitLog(`[raw] ${line}`);
-            currentSession.lastHookForContinuation = null;
-            return;
-        }
-        const parsed = parseLunaContext(m[1], m[2]);
-        currentSession.lastHookForContinuation = { id: parsed.id, function: parsed.function, ignored: false };
-        recordHookEvent(parsed.id, parsed.function, m[3]);
-    }
-}
-
-function getOrCreateHookEntry(hookId: string, fn: string): HookEntry | null {
-    if (!session) return null;
-    let entry = session.hooks.get(hookId);
-    if (!entry) {
-        entry = {
-            id: hookId,
-            function: fn,
-            preview: '',
-            samples: [],
-        };
-        session.hooks.set(hookId, entry);
-    } else if (fn && entry.function !== fn && /^Hook #/.test(entry.function)) {
-        entry.function = fn;
-    }
-    return entry;
-}
-
-function applyHookPreviewText(hookId: string, fn: string, text: string): void {
-    const entry = getOrCreateHookEntry(hookId, fn);
-    if (!entry || !text) return;
-    entry.preview = text.length > 80 ? text.slice(0, 80) + '…' : text;
-    entry.samples = rememberHookSample(entry.samples, text);
-    emitHooks();
-}
-
-function flushHookPreviewText(hookId: string): void {
-    if (!session) return;
-    const collector = session.hookPreviewCollectors.get(hookId);
-    if (!collector) return;
-    if (collector.timer) {
-        clearTimeout(collector.timer);
-        collector.timer = null;
-    }
-    session.hookPreviewCollectors.delete(hookId);
-    if (collector.pending.length === 0) return;
-    applyHookPreviewText(hookId, collector.hookFunction, collector.pending.join('\n'));
-}
-
-function flushAllHookPreviewText(): void {
-    if (!session) return;
-    for (const hookId of Array.from(session.hookPreviewCollectors.keys())) {
-        flushHookPreviewText(hookId);
-    }
-}
-
-function queueHookPreviewText(hookId: string, fn: string, text: string): void {
-    if (!session || !text) return;
-    const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
-    if (delayMs <= 0) {
-        applyHookPreviewText(hookId, fn, text);
-        return;
-    }
-
-    let collector = session.hookPreviewCollectors.get(hookId);
-    if (!collector) {
-        collector = {
-            hookId,
-            hookFunction: fn,
-            pending: [],
-            pendingLength: 0,
-            timer: null,
-        };
-        session.hookPreviewCollectors.set(hookId, collector);
-    }
-    collector.hookFunction = fn;
-    const remaining = textHookMaxBufferSize - collector.pendingLength;
-    if (remaining <= 0) return;
-    const bufferedText = text.slice(0, remaining);
-    collector.pending.push(bufferedText);
-    collector.pendingLength += bufferedText.length;
-    if (collector.timer) {
-        clearTimeout(collector.timer);
-    }
-    collector.timer = setTimeout(() => {
-        flushHookPreviewText(hookId);
-    }, delayMs);
-}
-
-function recordHookEvent(hookId: string, fn: string, text: string): void {
-    if (!session) return;
-    const cleanedInput = eraseTextHookNoise(text);
-    const sanitizedText = sanitizeTextHookText(cleanedInput);
-    if (!sanitizedText) {
-        if (cleanedInput.length <= HARD_TEXT_HOOK_REJECTION_LIMIT) {
-            emitLog(
-                `Blocked text from hook #${hookId}: more than ${MAX_JAPANESE_QUOTE_PAIRS} Japanese quote pairs.`,
-                'warn',
-            );
-        }
-        return;
-    }
-    const entry = getOrCreateHookEntry(hookId, fn);
-    if (!entry) return;
-    const cleanedText = sanitizedText.text;
-    if (session.selectedHookId === hookId) {
-        // Rendering hooks can emit the same displayed subtitle hundreds of times
-        // in one stdout chunk. Drop repeats before preview or backend delivery;
-        // the backend's spam filter runs before its duplicate detection.
-        if (cleanedText && session.lastSelectedHookText === cleanedInput) return;
-        if (!cleanedText) session.lastSelectedHookText = null;
-    }
-    if (cleanedText) {
-        queueHookPreviewText(hookId, fn, cleanedText);
-    } else {
-        emitHooks();
-    }
-
-    if (!session.selectedHookId) {
-        const functionMatches =
-            !session.autoSelectHookFunction ||
-            hookFunctionMatches(session.autoSelectHookFunction, entry.function);
-        const idMatches = Boolean(session.autoSelectHookId && hookId === session.autoSelectHookId);
-        const functionFallbackMatches = Boolean(
-            session.autoSelectHookFunction &&
-                hookFunctionMatches(session.autoSelectHookFunction, entry.function) &&
-                (!session.autoSelectHookId || !idMatches),
-        );
-
-        if ((idMatches && functionMatches) || functionFallbackMatches) {
-            void selectHook(hookId, { silent: true });
-        }
-    }
-
-    if (session.selectedHookId === hookId && cleanedText) {
-        session.lastSelectedHookText = cleanedInput;
-        queueSelectedHookText({
-            text: cleanedText,
-            hookId,
-            hookFunction: fn,
-            engine: session.engine,
-            exeName: session.exeName,
-            copyToClipboard: session.copyToClipboard,
-        });
-    }
 }
 
 function sendSelectedHookText(
@@ -1382,83 +712,13 @@ function sendSelectedHookText(
         text: sanitizedText.text,
         copyToClipboard: payload.copyToClipboard,
     };
-    sendTextHookLine(guardedPayload);
+    forwardTextHookLine(guardedPayload);
     emitToRenderer('texthook.text', {
         hookId: guardedPayload.hookId,
         text: guardedPayload.text,
         ts: Date.now(),
     });
     return sanitizedText;
-}
-
-function flushSelectedHookText(): void {
-    if (!session) return;
-    if (session.outputFlushTimer) {
-        clearTimeout(session.outputFlushTimer);
-        session.outputFlushTimer = null;
-    }
-    if (session.outputCollector.length === 0) return;
-
-    const pending = session.outputCollector;
-    session.outputCollector = [];
-    const merged = mergeTextHookOutput(pending);
-    if (merged) sendSelectedHookText(merged);
-}
-
-function mergeTextHookOutput(pending: TextHookOutputPayload[]): TextHookOutputPayload | null {
-    if (pending.length === 0) return null;
-    if (pending.length === 1) return pending[0];
-    const last = pending[pending.length - 1];
-    return {
-        ...last,
-        ...(pending[0].capturedAt !== undefined ? { capturedAt: pending[0].capturedAt } : {}),
-        text: pending.map((item) => item.text).join('\n'),
-    };
-}
-
-function queueSelectedHookText(payload: TextHookOutputPayload): void {
-    if (!session) return;
-    const delayMs = normalizeFlushDelayMs(session.flushDelayMs);
-    const completedPayload = {
-        ...payload,
-        capturedAt: Date.now(),
-        revisionWindowMs: 0,
-        mergeFragments: false,
-    };
-    if (delayMs <= 0) {
-        sendSelectedHookText(completedPayload);
-        return;
-    }
-    appendHookFragment(session.outputCollector, completedPayload);
-    if (session.outputCollector.reduce((size, item) => size + item.text.length + 1, 0) >= textHookMaxBufferSize) {
-        flushSelectedHookText();
-        return;
-    }
-    if (session.outputFlushTimer) clearTimeout(session.outputFlushTimer);
-    session.outputFlushTimer = setTimeout(flushSelectedHookText, delayMs);
-}
-
-// ---------------------------------------------------------------------------
-// Session lifecycle
-// ---------------------------------------------------------------------------
-
-function writeEngineCommand(
-    proc: ChildProcessWithoutNullStreams,
-    command: string,
-): Promise<Error | null> {
-    return new Promise((resolve) => {
-        proc.stdin.write(Buffer.from(command, 'utf16le'), (err) => resolve(err ?? null));
-    });
-}
-
-function queueEngineCommand(
-    proc: ChildProcessWithoutNullStreams,
-    command: string,
-    onError: (err: Error) => void,
-): void {
-    proc.stdin.write(Buffer.from(command, 'utf16le'), (err) => {
-        if (err) onError(err);
-    });
 }
 
 export interface StartHookOptions {
@@ -1488,26 +748,34 @@ export interface StartHookResult {
 }
 
 export async function startHookSession(options: StartHookOptions = {}): Promise<StartHookResult> {
-    if (engineUpdates?.isInstalling() || (engineUpdates?.isPreparing() && !isTexthookInstalled())) {
-        return { success: false, error: 'Hook engines are being prepared. Try attaching again when they are ready.' };
-    }
     if (hookStartInProgress) {
         return { success: false, error: 'A text hook session is already starting.' };
     }
+    let reservation: string;
+    try { reservation = reserveHookAttachment(); }
+    catch (error) { return { success: false, error: (error as Error).message }; }
     // Reserve the start before any asynchronous target discovery. Manual updates
     // must not replace the CLI/DLLs while an auto-launcher attachment is starting.
     hookStartInProgress = true;
+    const generation = ++startGeneration;
     try {
-        return await startHookSessionInternal(options);
+        ensureNativeEvents();
+        const result = await startHookSessionInternal(options, generation);
+        return generation === startGeneration ? result : { success: false, error: 'Text hook start was cancelled.' };
+    } catch (error) {
+        return { success: false, error: (error as Error).message };
     } finally {
         hookStartInProgress = false;
-        engineUpdates?.notifyIdle();
+        releaseHookAttachment(reservation);
+        engineUpdates.notifyIdle();
     }
 }
 
-async function startHookSessionInternal(options: StartHookOptions): Promise<StartHookResult> {
+async function startHookSessionInternal(options: StartHookOptions, generation: number): Promise<StartHookResult> {
+    // Preserve saved experimental profiles, but never silently run another engine for them.
+    if (options.engine === 'mages') return { success: false, error: 'Built-in engine hooks are currently unavailable. Choose LunaHook, Textractor, or Agent.' };
     await reconnectDetachedAgentHookSession();
-    if (session || isAgentHookRunning() || isEngineHookRunning()) {
+    if (nativeCliStatus().running || isAgentHookRunning()) {
         return { success: false, error: 'A text hook session is already running.' };
     }
     const onLinux = isLinux();
@@ -1516,7 +784,7 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
     }
 
     const engine: TextHookEngine =
-        options.engine === 'textractor' || options.engine === 'agent' || options.engine === 'mages'
+        options.engine === 'textractor' || options.engine === 'agent'
             ? options.engine
             : 'luna';
     const source: TextHookStartSource =
@@ -1527,8 +795,6 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
     let exeName = (options.exeName ?? '').trim();
     // The Wine/Proton launch context the hooker must spawn inside (Linux only).
     let wineLaunch: WineLaunchContext | null = null;
-    let wineExePath: string | null = null;
-    let wineConnection: WineProcessConnection | null = null;
     let target: { pid: number; exeName: string; arch: TextHookArchitecture } | null;
 
     if (onLinux) {
@@ -1536,7 +802,6 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
         // executable the user pointed GSM at (Home tab → Game executable).
         const capture = await getActiveCapture();
         const exePath = getGameExePathForScene(capture.sceneName).trim();
-        wineExePath = exePath;
         if (!exePath) {
             return {
                 success: false,
@@ -1599,60 +864,13 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
     gamePrivilegeMonitor.setTarget('texthook', { exeName: target.exeName, pid: target.pid });
     void gamePrivilegeMonitor.check();
 
-    let wineConnectionError = '';
-    const connectWineTarget = async (): Promise<WineProcessConnection | null> => {
-        if (!onLinux || !wineLaunch) return null;
-        try {
-            return await startWineFridaConnection(wineLaunch, exeName, target.arch, emitLog);
-        } catch (err) {
-            wineConnectionError = (err as Error).message;
-            emitLog(`Could not start Wine Frida bridge: ${wineConnectionError}`, 'error');
-            return null;
-        }
-    };
-    const wineConnectionFailure = (): StartHookResult => ({
-        success: false,
-        error: wineConnectionError
-            ? `Could not start Frida inside the game Wine prefix: ${wineConnectionError}`
-            : 'Could not start Frida inside the game Wine prefix.',
-    });
-
     let sceneId = options.sceneId?.trim() ?? '';
     if (!sceneId) {
         sceneId = (await getCurrentScene())?.id ?? '';
     }
     const profile = getProfileFor(exeName, sceneId);
     const flushDelayMs = normalizeFlushDelayMs(options.flushDelayMs ?? profile?.flushDelayMs);
-    if (engine === 'mages') {
-        wineConnection = await connectWineTarget();
-        if (onLinux && !wineConnection) {
-            return wineConnectionFailure();
-        }
-        const executablePath = isWindows() ? await getProcessExecutablePath(target.pid) : wineExePath;
-        return startEngineHookSession({
-            pid: target.pid,
-            exeName,
-            executablePath,
-            arch: target.arch,
-            source,
-            flushDelayMs,
-            copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
-            onText: (payload) => {
-                sendTextHookLine(payload);
-                emitToRenderer('texthook.text', {
-                    hookId: payload.hookId,
-                    text: payload.text,
-                    ts: payload.capturedAt,
-                });
-            },
-            onLog: emitEngineLog,
-            onStateChanged: () => {
-                emitStatus();
-                emitHooks();
-            },
-            wineConnection: wineConnection ?? undefined,
-        });
-    }
+    if (generation !== startGeneration) return { success: false, error: 'Text hook start was cancelled.' };
     if (engine === 'agent') {
         const scriptPath =
             typeof options.agentScriptPath === 'string' && options.agentScriptPath.trim().length > 0
@@ -1660,10 +878,6 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
                 : profile?.engine === 'agent'
                     ? profile.agentScriptPath ?? ''
                     : '';
-        wineConnection = await connectWineTarget();
-        if (onLinux && !wineConnection) {
-            return wineConnectionFailure();
-        }
         const agentOptions = {
             pid: target.pid,
             exeName,
@@ -1673,13 +887,12 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
             copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
             source,
             maxBufferSize: textHookMaxBufferSize,
-            wineConnection: wineConnection ?? undefined,
+            wineLaunch: wineLaunch ?? undefined,
         };
         const runDetached =
             isWindows() &&
             (options.agentDetached ?? (profile?.engine === 'agent' ? profile.agentDetached !== false : true));
         if (runDetached) {
-            await wineConnection?.close();
             return startDetachedAgentHookSession({
                 pid: agentOptions.pid,
                 exeName: agentOptions.exeName,
@@ -1713,220 +926,38 @@ async function startHookSessionInternal(options: StartHookOptions): Promise<Star
         }
     }
 
-    wineConnection = await connectWineTarget();
-    if (onLinux && !wineConnection) {
-        return wineConnectionFailure();
-    }
-
-    const cliDir = path.dirname(cliPath);
-    let proc: ChildProcessWithoutNullStreams;
+    if (generation !== startGeneration) return { success: false, error: 'Text hook start was cancelled.' };
     try {
-        if (onLinux && wineLaunch) {
-            // Launch the Windows hooker CLI inside the game's Wine/Proton prefix.
-            proc = spawn(wineLaunch.launcherPath, [cliPath], {
-                cwd: cliDir,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                env: wineLaunch.env,
-            });
-        } else {
-            proc = spawn(cliPath, [], {
-                cwd: cliDir,
-                stdio: ['pipe', 'pipe', 'pipe'],
-                windowsHide: true,
-                env: { ...process.env, PATH: `${cliDir};${process.env.PATH ?? ''}` },
-            });
-        }
-    } catch (err) {
-        await wineConnection?.close();
-        return { success: false, error: `Failed to spawn hook engine: ${(err as Error).message}` };
-    }
-
-    if (!proc.pid) {
-        await wineConnection?.close();
-        return { success: false, error: 'Failed to spawn hook engine (no pid).' };
-    }
-
-    session = {
-        proc,
-        engine,
-        arch: target.arch,
-        architectureFallbackAttempted: options.architectureFallbackAttempted === true,
-        recoveringArchitectureMismatch: false,
-        pid: target.pid,
-        exeName,
-        source,
-        selectedHookId: null,
-        lastSelectedHookText: null,
-        hooks: new Map(),
-        autoSelectHookId: profile && profile.engine === engine && profile.autoHook ? profile.hookId ?? null : null,
-        autoSelectHookFunction:
-            profile && profile.engine === engine && profile.autoHook ? profile.hookFunction ?? null : null,
-        pendingManualHookCode:
-            profile && profile.engine === engine && profile.autoHook ? profile.manualHookCode ?? null : null,
-        stdoutCarry: Buffer.alloc(0),
-        lineCarry: '',
-        lineCarryTruncated: false,
-        lastHookForContinuation: null,
-        outputCollector: [],
-        outputFlushTimer: null,
-        hookPreviewCollectors: new Map(),
-        flushDelayMs,
-        copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
-        wineConnection: wineConnection ?? undefined,
-    };
-
-    proc.stdout.on('data', (chunk: Buffer) => {
-        const currentSession = session;
-        if (!currentSession || currentSession.proc !== proc) return;
-        handleStdoutChunk(chunk, currentSession);
-    });
-    proc.stderr.on('data', (data: Buffer) => {
-        const currentSession = session;
-        if (!currentSession || currentSession.proc !== proc) return;
-        const message = data.toString('utf-8').trim();
-        if (message && handleArchitectureMismatchMessage(message, currentSession)) return;
-        emitLog(`[stderr] ${message}`, 'warn');
-    });
-    proc.on('exit', (code, signal) => {
-        if (!session || session.proc !== proc) return;
-        emitLog(`Hook engine exited (code=${code ?? 'null'} signal=${signal ?? 'null'}).`);
-        teardownSession();
-    });
-    proc.on('error', (err) => {
-        if (!session || session.proc !== proc) return;
-        emitLog(`Hook engine error: ${err.message}`, 'error');
-    });
-
-    // Attach to the target PID. These CLI builds read stdin as UTF-16LE wide
-    // text, matching Sugoi Hook's subprocess encoding.
-    const attachPid = wineConnection?.windowsPid ?? target.pid;
-    const attachErr = await writeEngineCommand(proc, `attach -P${attachPid}\n`);
-    if (attachErr) {
-        teardownSession();
-        return { success: false, error: `Failed to attach: ${attachErr.message}` };
-    }
-    if (!session) return { success: false, error: 'Session torn down during attach.' };
-
-    // If a saved manual hook code exists, queue it after a short delay so the engine
-    // has time to finish attaching before we push the H-/R-code in.
-    if (session.pendingManualHookCode) {
-        const code = session.pendingManualHookCode;
-        setTimeout(() => {
-            if (session && session.proc === proc) {
-                try {
-                    queueEngineCommand(proc, `${code} -P${attachPid}\n`, (err) => {
-                        emitLog(`Failed to push manual hook code: ${err.message}`, 'error');
-                    });
-                    emitLog(`Auto-applied saved manual hook: ${code}`);
-                } catch (err) {
-                    emitLog(`Failed to push manual hook code: ${(err as Error).message}`, 'error');
-                }
-            }
-        }, 1500);
-    }
-
-    if (engine === 'luna') {
-        setTimeout(() => {
-            if (session && session.proc === proc) {
-                queueEngineCommand(proc, 'showall\n', (err) => {
-                    emitLog(`Failed to enable all Luna hooks: ${err.message}`, 'warn');
-                });
-            }
-        }, 1000);
-    }
-
-    // Watch the target process; tear down if it dies.
-    session.pidWatcher = setInterval(() => {
-        void (async () => {
-            if (!session) return;
-            const alive = await isPidAlive(session.pid);
-            if (!alive) {
-                emitLog(`Target PID ${session.pid} (${session.exeName}) is no longer running.`);
-                stopHookSession();
-            }
-        })();
-    }, 4000);
-
-    const pidDescription = wineConnection
-        ? `Linux PID ${target.pid}, Windows PID ${wineConnection.windowsPid}`
-        : `PID ${target.pid}`;
-    emitLog(`Attached ${engine} (${target.arch}) to ${exeName} (${pidDescription}).`);
-    emitStatus();
-    emitHooks();
-    return { success: true, pid: target.pid, exeName, arch: target.arch };
-}
-
-async function restartSessionWithArchitecture(
-    failedSession: ActiveSession,
-    arch: TextHookArchitecture,
-): Promise<void> {
-    const { engine, exeName, pid, flushDelayMs, source } = failedSession;
-    if (session !== failedSession) return;
-
-    teardownSession();
-    const result = await startHookSession({
-        engine,
-        exeName,
-        pidOverride: pid,
-        flushDelayMs,
-        source,
-        archOverride: arch,
-        architectureFallbackAttempted: true,
-    });
-    if (result.success) {
-        emitLog(`Recovered by attaching ${engine} (${arch}) to ${exeName} (PID ${pid}).`);
-    } else {
-        emitLog(
-            `Failed to recover with ${engine} (${arch}) for ${exeName} (PID ${pid}): ${
-                result.error ?? 'unknown error'
-            }`,
-            'error',
-        );
+        return await nativeTextHook<StartHookResult>('start', {
+            engine, cliPath, cliPaths: { x86: getEngineCliPath(engine, 'x86'), x64: getEngineCliPath(engine, 'x64') },
+            arch: target.arch, pid: target.pid, attachPid: target.pid,
+            exeName, source, flushDelayMs, maxBufferSize: textHookMaxBufferSize,
+            copyToClipboard: options.copyToClipboard ?? profile?.copyToClipboard ?? false,
+            autoSelectHookId: profile?.engine === engine && profile.autoHook ? profile.hookId : null,
+            autoSelectHookFunction: profile?.engine === engine && profile.autoHook ? profile.hookFunction : null,
+            manualHookCode: profile?.engine === engine && profile.autoHook ? profile.manualHookCode : null,
+            architectureFallbackAttempted: options.architectureFallbackAttempted === true,
+            launcherPath: wineLaunch?.launcherPath, env: wineLaunch?.env, wineLaunch, baseDir: BASE_DIR,
+        });
+    } catch (error) {
+        return { success: false, error: (error as Error).message };
     }
 }
 
 function teardownSession(): void {
-    if (!session) return;
-    flushAllHookPreviewText();
-    flushSelectedHookText();
-    if (session.pidWatcher) {
-        clearInterval(session.pidWatcher);
-        session.pidWatcher = undefined;
-    }
-    if (session.outputFlushTimer) {
-        clearTimeout(session.outputFlushTimer);
-        session.outputFlushTimer = null;
-    }
-    for (const collector of session.hookPreviewCollectors.values()) {
-        if (collector.timer) {
-            clearTimeout(collector.timer);
-        }
-    }
-    session.hookPreviewCollectors.clear();
-    try {
-        if (!session.proc.killed) {
-            session.proc.kill();
-        }
-    } catch {
-        // ignore
-    }
-    void session.wineConnection?.close();
-    session = null;
-    emitStatus();
-    emitHooks();
+    ++startGeneration;
+    nativeTextHookSync('stop');
 }
 
 export function stopHookSession(): void {
     gamePrivilegeMonitor.setTarget('texthook', null);
     teardownSession();
-    stopEngineHookSession();
     stopAgentHookSession();
 }
 
 export async function stopHookSessionAndWait(): Promise<{ success: boolean; error?: string }> {
     gamePrivilegeMonitor.setTarget('texthook', null);
     teardownSession();
-    stopEngineHookSession();
     return stopAgentHookSessionAndWait();
 }
 
@@ -1935,129 +966,46 @@ export interface SelectHookOptions {
 }
 
 export async function selectHook(hookId: string, options: SelectHookOptions = {}): Promise<boolean> {
-    if (isEngineHookRunning()) {
-        return listEngineHooks().selectedHookId === hookId;
-    }
     if (isAgentHookRunning()) {
         return listAgentHooks().selectedHookId === hookId;
     }
-    if (!session) return false;
-    if (!session.hooks.has(hookId)) return false;
-    flushSelectedHookText();
-    try {
-        queueEngineCommand(session.proc, `select ${hookId}\n`, (err) => {
-            emitLog(`Failed to select hook ${hookId}: ${err.message}`, 'error');
-        });
-    } catch (err) {
-        emitLog(`Failed to select hook ${hookId}: ${(err as Error).message}`, 'error');
-        return false;
-    }
-    session.selectedHookId = hookId;
-    session.lastSelectedHookText = null;
-    if (!options.silent) {
-        const entry = session.hooks.get(hookId);
-        emitLog(`Selected hook ${hookId}${entry ? ` (${entry.function})` : ''}.`);
-    }
-    emitHooks();
-    return true;
+    const result = await nativeTextHook<boolean>('select', { hookId });
+    if (result && !options.silent) emitLog(`Selected hook ${hookId}.`);
+    return result;
 }
 
 export function attachManualHookCode(code: string): { success: boolean; error?: string } {
-    if (isEngineHookRunning()) {
-        return { success: false, error: 'Manual H/R-code hooks are not used by built-in engine hooks.' };
-    }
     if (isAgentHookRunning()) {
         return { success: false, error: 'Manual H/R-code hooks are not used by Agent sessions.' };
     }
-    if (!session) return { success: false, error: 'No active text hook session.' };
-    const trimmed = code.trim();
-    if (!isValidHookCode(trimmed)) {
-        return {
-            success: false,
-            error: 'Invalid hook code. Expected H- or R-code, e.g. "HB4@0" or "RS@401000".',
-        };
-    }
-    try {
-        queueEngineCommand(session.proc, `${trimmed} -P${session.pid}\n`, (err) => {
-            emitLog(`Failed to push manual hook code: ${err.message}`, 'error');
-        });
-        emitLog(`Pushed manual hook code: ${trimmed}`);
-        return { success: true };
-    } catch (err) {
-        return { success: false, error: (err as Error).message };
-    }
+    try { return nativeTextHookSync('manual', { code }); }
+    catch (error) { return { success: false, error: (error as Error).message }; }
 }
 
 export function getRuntimeStatus() {
-    const engineHookStatus = getEngineHookRuntimeStatus();
-    if (engineHookStatus) {
-        return engineHookStatus;
-    }
     const agentStatus = getAgentHookRuntimeStatus();
     if (agentStatus) {
         return agentStatus;
     }
-    if (!session) {
-        return { running: false as const };
-    }
-    return {
-        running: true as const,
-        engine: session.engine,
-        arch: session.arch,
-        pid: session.pid,
-        exeName: session.exeName,
-        source: session.source,
-        selectedHookId: session.selectedHookId,
-        hookCount: session.hooks.size,
-        flushDelayMs: session.flushDelayMs,
-        copyToClipboard: session.copyToClipboard,
-    };
+    return nativeCliStatus();
 }
 
 export function setFlushDelayMs(value: number): { success: boolean; flushDelayMs?: number; error?: string } {
     const normalizedValue = normalizeFlushDelayMs(value);
-    const engineHookResult = setEngineHookFlushDelayMs(normalizedValue);
-    if (engineHookResult) return engineHookResult;
     if (isAgentHookRunning()) {
         return setAgentFlushDelayMs(normalizedValue);
     }
-    if (!session) return { success: false, error: 'No active text hook session.' };
-    const flushDelayMs = normalizeFlushDelayMs(value);
-    session.flushDelayMs = flushDelayMs;
-    if (flushDelayMs <= 0) {
-        flushAllHookPreviewText();
-        flushSelectedHookText();
-    } else if (session.outputCollector.length > 0) {
-        if (session.outputFlushTimer) {
-            clearTimeout(session.outputFlushTimer);
-        }
-        session.outputFlushTimer = setTimeout(() => {
-            flushSelectedHookText();
-        }, flushDelayMs);
-    }
-    if (flushDelayMs > 0 && session.hookPreviewCollectors.size > 0) {
-        for (const collector of session.hookPreviewCollectors.values()) {
-            if (collector.timer) {
-                clearTimeout(collector.timer);
-            }
-            collector.timer = setTimeout(() => {
-                flushHookPreviewText(collector.hookId);
-            }, flushDelayMs);
-        }
-    }
-    emitStatus();
-    return { success: true, flushDelayMs };
+    if (!nativeCliStatus().running) return { success: false, error: 'No active text hook session.' };
+    nativeTextHookSync('configure', { flushDelayMs: normalizedValue });
+    return { success: true, flushDelayMs: normalizedValue };
 }
 
 export function setCopyToClipboard(value: boolean): { success: boolean; copyToClipboard?: boolean; error?: string } {
-    const engineHookResult = setEngineHookCopyToClipboard(value);
-    if (engineHookResult) return engineHookResult;
     if (isAgentHookRunning()) {
         return setAgentCopyToClipboard(value);
     }
-    if (!session) return { success: false, error: 'No active text hook session.' };
-    session.copyToClipboard = value;
-    emitStatus();
+    if (!nativeCliStatus().running) return { success: false, error: 'No active text hook session.' };
+    nativeTextHookSync('configure', { copyToClipboard: value });
     return { success: true, copyToClipboard: value };
 }
 
@@ -2090,13 +1038,14 @@ function notifyTextHookUserStop(status: TextHookRuntimeStatus): void {
 // ---------------------------------------------------------------------------
 
 export function registerTextHookIPC(): void {
+    ensureNativeEvents();
     setRuntimeTextHookMaxBufferSize(textHookMaxBufferSize);
     configureAgentHookCallbacks({
         onEvent: (channel, payload) => {
             if (channel === 'texthook.status') emitStatus();
             else emitToRenderer(channel, payload);
         },
-        onText: sendTextHookLine,
+        onText: forwardTextHookLine,
     });
     configureDetachedAgentCallbacks({
         onEvent: (channel, payload) => {
@@ -2104,7 +1053,7 @@ export function registerTextHookIPC(): void {
             else emitToRenderer(channel, payload);
         },
         onText: (payload) =>
-            sendTextHookLine(payload as Parameters<typeof sendTextHookLine>[0]),
+            forwardTextHookLine(payload as Parameters<typeof sendTextHookLine>[0]),
     });
     void reconnectDetachedAgentHookSession().then((connected) => {
         if (connected) {
@@ -2173,31 +1122,13 @@ export function registerTextHookIPC(): void {
     );
 
     ipcMain.handle('texthook.listHooks', async () => {
-        if (isEngineHookRunning()) return listEngineHooks();
         if (isAgentHookRunning()) return listAgentHooks();
-        if (!session) return { hooks: [], selectedHookId: null };
-        return {
-            hooks: Array.from(session.hooks.values()),
-            selectedHookId: session.selectedHookId,
-        };
+        return nativeTextHook('hooks');
     });
 
-    ipcMain.handle('texthook.builtInHookTargets', async () => {
-        try {
-            return loadEngineHookCatalog(path.join(getAssetsDir(), 'engine_hooks')).map(
-                (support) => ({
-                    id: support.manifest.id,
-                    name: support.manifest.name,
-                    details: support.manifest.display?.details ?? {},
-                }),
-            );
-        } catch (error) {
-            console.error('[texthook] Could not read the engine-hook catalog:', error);
-            return [];
-        }
-    });
-
-    ipcMain.handle('texthook.advance', async () => advanceEngineHookSession());
+    // The experimental runtime is retired; its sources, support scripts and documentation remain.
+    ipcMain.handle('texthook.builtInHookTargets', async () => []);
+    ipcMain.handle('texthook.advance', async () => ({ success: false, error: 'Built-in engine hooks are unavailable.' }));
 
     ipcMain.handle('texthook.showAgentUi', async () => showAgentScriptUi());
 
@@ -2370,14 +1301,12 @@ export function checkForTexthookUpdates(): void {
 export function shutdownTextHook(): void {
     engineUpdates?.dispose();
     teardownSession();
-    stopEngineHookSession();
     shutdownAgentHookSession();
 }
 
 export async function shutdownTextHookForUpdate(): Promise<void> {
     engineUpdates?.dispose();
     teardownSession();
-    stopEngineHookSession();
     stopLocalAgentHookSession();
     await shutdownDetachedAgentHostForUpdate();
 }
@@ -2387,16 +1316,10 @@ export const __test = {
     normalizeProfile,
     sanitizeFilename,
     isValidHookCode,
-    isIgnorableEngineLine,
-    getRequiredArchitectureFromMismatchMessage,
     readPortableExecutableBitness,
-    eraseTextHookNoise,
     normalizeFlushDelayMs,
     normalizeTextHookMaxBufferSize,
     sanitizeTextHookText,
-    mergeTextHookOutput,
-    parseLunaContext,
-    hookFunctionMatches,
     selectGameProcess,
     collectDescendants,
     processBaseName,
@@ -2406,7 +1329,4 @@ export const __test = {
     DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE,
     HARD_TEXT_HOOK_REJECTION_LIMIT,
     MAX_JAPANESE_QUOTE_PAIRS,
-    TEXTRACTOR_HOOK_LINE,
-    LUNA_HOOK_LINE,
-    LUNA_HOOK_CREATED_LINE,
 };

@@ -75,6 +75,28 @@ describe("TextProcessingTab workspace", () => {
     return invoke.mock.calls.filter(([channel]) => channel === "textprocess.save");
   }
 
+  it("offers a retry after loading fails without saving defaults over the existing profile", async () => {
+    invoke.mockRejectedValueOnce(Error('GSM service request timed out'));
+    await render();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Could not load');
+    expect(container.querySelector('.processor-list')).toBeNull();
+    expect(saveCalls()).toHaveLength(0);
+    await act(async () => container.querySelector<HTMLButtonElement>('.text-processing-loading button')!.click());
+    expect(container.querySelector('.processor-list')).not.toBeNull();
+  });
+
+  it("defaults control-character removal on and keeps an explicit opt-out", async () => {
+    await render();
+    const toggle = container.querySelectorAll<HTMLInputElement>(".processor-toggle input")[3];
+    expect(toggle.checked).toBe(true);
+    await act(async () => toggle.click());
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    expect(saveCalls().at(-1)![1].remove_control_chars).toBe(false);
+    await render(false);
+    await render();
+    expect(container.querySelectorAll<HTMLInputElement>(".processor-toggle input")[3].checked).toBe(false);
+  });
+
   it("enables repeated-line removal for a legacy config and keeps a later opt-out saved", async () => {
     const implementation = invoke.getMockImplementation()!;
     invoke.mockImplementation((channel: string, payload: any) => {

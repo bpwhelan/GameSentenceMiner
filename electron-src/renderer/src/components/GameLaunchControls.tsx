@@ -3,6 +3,7 @@ import { normalizeGameLaunchOptions, type GameLaunchOptions, type GameLaunchResu
 import { useTranslation } from '../i18n';
 import { invokeIpc } from '../lib/ipc';
 import { WorkspaceIcon } from './Workspace';
+import { retainEqual, startVisiblePolling } from '../lib/visiblePolling';
 
 export function GameLaunchControls({ sceneId, active }: { sceneId: string; active: boolean }) {
     const t = useTranslation();
@@ -17,12 +18,12 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
     const working = useRef(false);
     const generation = useRef(0);
     const executableInput = useRef<HTMLInputElement>(null);
+    const romInput = useRef<HTMLInputElement>(null);
     const focusExecutable = useRef(false);
 
     useEffect(() => {
         const current = ++generation.current;
         if (!active) return;
-        let timer: ReturnType<typeof setTimeout>;
         working.current = false;
         setBusy(false);
         const refresh = async () => {
@@ -30,8 +31,8 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
                 try {
                     const next = normalizeGameLaunchOptions(await invokeIpc('game-launcher.getOptions', sceneId));
                     if (current === generation.current && !dirty.current && !working.current) {
-                        setOptions(next);
-                        setDraft(next);
+                        setOptions(before => retainEqual(before, next));
+                        setDraft(before => retainEqual(before, next));
                         setLoading(false);
                     }
                 } catch {
@@ -41,15 +42,14 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
                     }
                 }
             }
-            if (current === generation.current) timer = setTimeout(refresh, 5000);
         };
-        void refresh();
-        return () => { ++generation.current; clearTimeout(timer); };
+        const stop = startVisiblePolling(refresh, 5000);
+        return () => { ++generation.current; stop(); };
     }, [sceneId, active]);
 
     useEffect(() => {
         if (open && focusExecutable.current) {
-            executableInput.current?.focus();
+            (draft.executablePath && draft.mode === 'yuzu' ? romInput : executableInput).current?.focus();
             focusExecutable.current = false;
         }
     }, [open]);
@@ -90,11 +90,11 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
     };
 
     const launch = () => {
-        if (!draft.executablePath.trim()) {
+        if (!draft.executablePath.trim() || (draft.mode === 'yuzu' && !draft.romPath.trim())) {
             focusExecutable.current = true;
             setOpen(true);
-            executableInput.current?.focus();
-            setMessage('gameLauncher.chooseExecutable');
+            (draft.executablePath && draft.mode === 'yuzu' ? romInput : executableInput).current?.focus();
+            setMessage(draft.executablePath ? 'gameLauncher.chooseRom' : 'gameLauncher.chooseExecutable');
             return;
         }
         void perform(async current => {
@@ -107,20 +107,21 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
         });
     };
 
-    const browse = (field: 'executablePath' | 'launcherPath' | 'workingDirectory') => void perform(async current => {
-        const selected = await invokeIpc<string | null>('game-launcher.browse', field === 'workingDirectory' ? 'directory' : 'executable');
+    const browse = (field: 'executablePath' | 'launcherPath' | 'workingDirectory' | 'romPath') => void perform(async current => {
+        const selected = await invokeIpc<string | null>('game-launcher.browse', field === 'workingDirectory' ? 'directory' : field === 'romPath' ? 'rom' : 'executable');
         if (current === generation.current && selected) edit({ [field]: selected });
     });
 
-    const field = (name: 'executablePath' | 'launcherPath' | 'workingDirectory', id: string) => <div className="home-row">
-        <label className="home-row__label" htmlFor={id}>{t(`gameLauncher.${name}`)}</label>
+    const fieldLabel = (name: string) => t(`gameLauncher.${name === 'executablePath' && draft.mode === 'yuzu' ? 'yuzuPath' : name}`);
+    const field = (name: 'executablePath' | 'launcherPath' | 'workingDirectory' | 'romPath', id: string) => <div className="home-row">
+        <label className="home-row__label" htmlFor={id}>{fieldLabel(name)}</label>
         <div className="home-row__controls">
-            <input ref={name === 'executablePath' ? executableInput : undefined} className="home-input" id={id}
+            <input ref={name === 'executablePath' ? executableInput : name === 'romPath' ? romInput : undefined} className="home-input" id={id}
                 type="text" autoComplete="off" spellCheck={false} value={draft[name]}
                 placeholder={name === 'workingDirectory' ? t('gameLauncher.gameFolder') : undefined}
                 onChange={event => edit({ [name]: event.target.value })} />
             <button type="button" className="home-text-btn" data-browse={name} onClick={() => browse(name)}
-                aria-label={t('gameLauncher.browseField', { field: t(`gameLauncher.${name}`) })}>{t('gameLauncher.browse')}</button>
+                aria-label={t('gameLauncher.browseField', { field: fieldLabel(name) })}>{t('gameLauncher.browse')}</button>
         </div>
     </div>;
 
@@ -138,7 +139,20 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
         }}>
             <fieldset disabled={busy || !active}>
                 <p className="home-section-hint">{t('gameLauncher.help')}</p>
+                <p className="home-section-hint">{t('gameLauncher.userLaunchHelp')}</p>
+                <div className="home-row">
+                    <label className="home-row__label" htmlFor="game-launch-mode">{t('gameLauncher.mode')}</label>
+                    <div className="home-row__controls">
+                        <select className="home-select" id="game-launch-mode" value={draft.mode}
+                            onChange={event => edit({ mode: event.target.value as GameLaunchOptions['mode'] })}>
+                            <option value="executable">{t('gameLauncher.modeExecutable')}</option>
+                            <option value="yuzu">{t('gameLauncher.modeYuzu')}</option>
+                        </select>
+                    </div>
+                </div>
+                {draft.mode === 'yuzu' && <p className="home-section-hint">{t('gameLauncher.yuzuHelp')}</p>}
                 {field('executablePath', 'game-launch-executable')}
+                {draft.mode === 'yuzu' && field('romPath', 'game-launch-rom')}
                 <div className="home-row">
                     <span className="home-row__label" />
                     <div className="home-row__controls">
@@ -151,7 +165,7 @@ export function GameLaunchControls({ sceneId, active }: { sceneId: string; activ
                     </div>
                 </div>
                 <div className="home-row">
-                    <label className="home-row__label" htmlFor="game-launch-arguments">{t('gameLauncher.arguments')}</label>
+                    <label className="home-row__label" htmlFor="game-launch-arguments">{t(draft.mode === 'yuzu' ? 'gameLauncher.yuzuArguments' : 'gameLauncher.arguments')}</label>
                     <div className="home-row__controls">
                         <input className="home-input" id="game-launch-arguments" type="text" autoComplete="off" spellCheck={false}
                             value={draft.arguments} onChange={event => edit({ arguments: event.target.value })} />

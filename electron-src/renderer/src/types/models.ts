@@ -1,3 +1,5 @@
+import type { CaptureWindow } from '../../../shared/capture';
+
 export interface ObsScene {
   name: string;
   id: string;
@@ -7,10 +9,12 @@ export type ObsCaptureMode = "window_capture" | "game_capture";
 export type ObsSetupTargetKind = "window" | "capture_card" | "monitor" | "wayland_pipewire";
 
 export interface ObsWindow {
+  captureSource?: CaptureWindow;
   title: string;
   value: string;
   /** Cleaned game name parsed from the raw window title, used as the default scene name. */
   suggestedSceneName?: string;
+  lastFocusedAt?: number;
   targetKind?: ObsSetupTargetKind;
   captureValues?: Partial<Record<ObsCaptureMode, string>>;
   captureMode?: ObsCaptureMode;
@@ -82,9 +86,6 @@ export interface AppSettings {
   iconStyle: string;
   startConsoleMinimized: boolean;
   customPythonPackage: string;
-  windowTransparencyToolHotkey: string;
-  windowTransparencyTarget: string;
-  runWindowTransparencyToolOnStartup: boolean;
   runOverlayOnStartup: boolean;
   runOverlayWithActiveGame: boolean;
   quitOnWindowClose: boolean;

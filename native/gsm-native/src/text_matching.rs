@@ -71,6 +71,23 @@ pub fn match_metrics(reference: &str, candidate: &str, minimum: usize) -> MatchM
     if a.is_empty() || b.is_empty() {
         return metrics;
     }
+    for (_, _, size) in matching_blocks(reference, candidate) {
+        metrics.matched += size;
+        metrics.longest = metrics.longest.max(size);
+        if size >= minimum {
+            metrics.covered += size;
+        }
+    }
+    metrics
+}
+
+/// Difflib-compatible matching spans, shared by retries and character correction.
+pub fn matching_blocks(reference: &str, candidate: &str) -> Vec<(usize, usize, usize)> {
+    let a: Vec<char> = reference.chars().collect();
+    let b: Vec<char> = candidate.chars().collect();
+    if a.is_empty() || b.is_empty() {
+        return Vec::new();
+    }
     let mut positions: HashMap<char, Vec<usize>> = HashMap::new();
     for (j, ch) in b.iter().enumerate() {
         positions.entry(*ch).or_default().push(j);
@@ -101,14 +118,7 @@ pub fn match_metrics(reference: &str, candidate: &str, minimum: usize) -> MatchM
         }
         merged.push(block);
     }
-    for (_, _, size) in merged {
-        metrics.matched += size;
-        metrics.longest = metrics.longest.max(size);
-        if size >= minimum {
-            metrics.covered += size;
-        }
-    }
-    metrics
+    merged
 }
 
 #[cfg(test)]

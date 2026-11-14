@@ -166,6 +166,10 @@ ipcRenderer.on(
     updateOverlayProfileState(profileState);
     updateWebSocketStatus("ws1", websocketStates.ws1);
     updateWebSocketStatus("ws2", websocketStates.ws2);
+    // Reveal only after saved values and the requested tab have painted.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      ipcRenderer.send('overlay-settings-painted');
+    }));
   },
 );
 
@@ -533,3 +537,33 @@ function updateControllerActivationFieldState() {
   }
   refreshAllResetButtons();
 }
+
+// Status requests never download; only this explicit setup/retry action does.
+let sudachiSetupBusy = false;
+async function refreshSudachiSetup(action = 'status') {
+  const statusEl = document.getElementById('sudachiSetupStatus');
+  const button = document.getElementById('sudachiSetupRetry');
+  if (!statusEl || !button || sudachiSetupBusy) return;
+  sudachiSetupBusy = true;
+  try {
+    const state = await ipcRenderer.invoke('sudachi-setup', {
+      action,
+      dictionary: action === 'install' ? settingBindingState.get('gamepadSudachiDictionary') : undefined,
+    });
+    button.disabled = state.state === 'installing';
+    const labels = { ready: 'Japanese dictionary ready.', installed: 'Japanese dictionary ready.',
+      installing: 'Downloading and preparing the shared Japanese dictionary...',
+      setup_required: 'Japanese dictionary setup required. Choose an edition and click Download / Retry.',
+      error: 'Dictionary setup failed. Check your connection and retry.' };
+    statusEl.textContent = (labels[state.state] || labels.setup_required)
+      + (state.dictionary ? ` Shared edition: ${state.dictionary}.` : '')
+      + (state.error ? ` ${state.error}` : '');
+  } catch (error) {
+    button.disabled = false;
+    statusEl.textContent = `Could not reach Japanese dictionary setup. Start GSM and retry. ${error.message}`;
+  } finally { sudachiSetupBusy = false; }
+}
+document.getElementById('sudachiSetupRetry')?.addEventListener('click', () => refreshSudachiSetup('install'));
+void refreshSudachiSetup();
+const sudachiSetupTimer = setInterval(() => refreshSudachiSetup(), 3000);
+window.addEventListener('unload', () => clearInterval(sudachiSetupTimer));

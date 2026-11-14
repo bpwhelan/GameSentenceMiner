@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { startVisiblePolling } from '../../lib/visiblePolling';
 import { DOCS_URLS } from "../../../../shared/docs";
 import type {
   GameSettings,
@@ -416,7 +417,11 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
     try {
       const fetchedScenes = await invokeIpc<unknown>("obs.getScenes");
       const nextScenes = toObsScenes(fetchedScenes);
-      setObsScenes(nextScenes);
+      // Keep scene identity stable: polling must not cancel an in-flight profile
+      // request or replace unsaved controls when OBS reports the same catalog.
+      setObsScenes(current => current.length === nextScenes.length && current.every(
+        (scene, index) => scene.id === nextScenes[index].id && scene.name === nextScenes[index].name
+      ) ? current : nextScenes);
       setConfiguredSceneId((current) => {
         if (current && nextScenes.some((scene) => scene.id === current)) {
           return current;
@@ -434,17 +439,8 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
     }
 
     void loadSharedSettings();
-    void loadObsScenes();
-    void refreshActiveScene();
-
-    const scenesTimer = setInterval(() => {
-      void loadObsScenes();
-    }, 5000);
-
-    return () => {
-      clearInterval(scenesTimer);
-    };
-  }, [active, loadObsScenes, loadSharedSettings, refreshActiveScene]);
+    return startVisiblePolling(loadObsScenes, 5000);
+  }, [active, loadObsScenes, loadSharedSettings]);
 
   useEffect(() => {
     if (!active) {
@@ -474,13 +470,11 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
       });
     });
 
-    const sceneTimer = setInterval(() => {
-      void refreshActiveScene();
-    }, 1000);
+    const stop = startVisiblePolling(refreshActiveScene, 1000);
 
     return () => {
       removeStateListener();
-      clearInterval(sceneTimer);
+      stop();
     };
   }, [active, refreshActiveScene]);
 

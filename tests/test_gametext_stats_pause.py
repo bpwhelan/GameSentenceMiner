@@ -204,8 +204,8 @@ def test_explicit_pause_is_excluded_from_live_and_saved_reading_time(text_pipeli
     monkeypatch.setattr(live_stats, "publish_live_stats_update", lambda *args, **kwargs: False)
     monkeypatch.setattr(gametext, "publish_live_stats_update", lambda *args, **kwargs: False)
     monkeypatch.setattr(gametext, "announce_text_intake_state", lambda *args: None)
-    monkeypatch.setattr(gametext, "send_text_intake_paused_notification", lambda *args: None)
-    monkeypatch.setattr(gametext, "send_text_intake_resumed_notification", lambda *args: None)
+    monkeypatch.setattr(gametext, "text_intake_paused", lambda *args: None)
+    monkeypatch.setattr(gametext, "text_intake_resumed", lambda *args: None)
     now = [1020.0]
     monkeypatch.setattr(gametext.time, "time", lambda: now[0])
     timestamps = [1000.0, 1010.0, 1130.0, 1140.0]

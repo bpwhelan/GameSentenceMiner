@@ -246,6 +246,19 @@ describe("overlay settings window lifecycle", () => {
       window.foreground = true;
       return true;
     });
+    const ipcListeners = new Map<string, Array<(event: any) => void>>();
+    const ipcMain = {
+      on: (channel: string, listener: (event: any) => void) => {
+        const list = ipcListeners.get(channel) ?? [];
+        list.push(listener);
+        ipcListeners.set(channel, list);
+      },
+      removeListener: (channel: string, listener: (event: any) => void) => {
+        const list = ipcListeners.get(channel);
+        if (!list) return;
+        ipcListeners.set(channel, list.filter((item) => item !== listener));
+      },
+    };
     const module = { exports: {} as any };
     const context = {
       module,
@@ -260,7 +273,14 @@ describe("overlay settings window lifecycle", () => {
       getOverlayAppIconPath: () => "icon.png",
       getOverlayProfileState: () => ({}),
       isDev: false,
-      loadOverlayPage: () => {},
+      ipcMain,
+      process: { env: {} },
+      loadOverlayPage: (window: FakeBrowserWindow) => {
+        for (const listener of ipcListeners.get("overlay-settings-painted") ?? []) {
+          listener({ sender: window.webContents });
+        }
+        return Promise.resolve();
+      },
       refreshOverlayTransportSettingsFromGSM: () => {},
       setTimeout: (callback: () => void) => callback(),
       syncGsmOwnedOverlaySettingsFromGSM: () => {},

@@ -1953,15 +1953,11 @@ class GSMApplication:
         logger.success("GSM Loaded. Happy Mining! がんばれ！")
         logger.info("-" * 84)
         from GameSentenceMiner import session_review
-        from GameSentenceMiner.util.platform import notification
+        from GameSentenceMiner.util.communication import desktop_events
 
         if session_review.notify_pending_on_startup():
             return
-        notification.send_notification(
-            "GSM Ready",
-            "GSM Loaded. Happy Mining! がんばれ！",
-            5,
-        )
+        desktop_events.ready("GSM Loaded. Happy Mining! がんばれ！")
 
     async def check_if_script_is_running(self) -> bool:
         pid_path = os.path.join(get_app_directory(), "current_pid.txt")
@@ -1974,11 +1970,9 @@ class GSMApplication:
                     logger.info(f"Script is already running with PID: {pid}")
                     psutil.Process(pid).terminate()
                     logger.info("Sent SIGTERM to the existing process.")
-                    from GameSentenceMiner.util.platform import notification
+                    from GameSentenceMiner.util.communication import desktop_events
 
-                    notification.send_error_notification(
-                        "Script was already running. Terminating the existing process."
-                    )
+                    desktop_events.app_error("Script was already running. Terminating the existing process.")
                     return True
         return False
 

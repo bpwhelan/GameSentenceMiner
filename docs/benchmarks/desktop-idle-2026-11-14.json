@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-14",
+  "command": "node scripts/benchmark-desktop-idle.cjs dist/renderer 5",
+  "method": "Production React renderer in isolated Chromium, with deterministic IPC responses, an idle reader stream, and either zero or 1000 saved lines. Three-second warmup; five-second samples. Hidden samples explicitly change document.visibilityState. No live GSM profile or game capture is used.",
+  "limits": "Renderer task duration is not system CPU percent. JS heap is a point-in-time measurement affected by garbage collection, not total WebView2 RAM. The live application must be restarted to measure the resulting whole-process CPU and RAM.",
+  "before": [
+    { "lines": 0, "hidden": false, "rendererTaskMs": 9, "scriptMs": 7, "heapMB": 12, "domNodes": 1838, "terminals": 2 },
+    { "lines": 0, "hidden": true, "rendererTaskMs": 7, "scriptMs": 5, "heapMB": 10, "domNodes": 1838, "terminals": 2 },
+    { "lines": 1000, "hidden": false, "rendererTaskMs": 677, "scriptMs": 612, "heapMB": 42, "domNodes": 25836, "terminals": 2 },
+    { "lines": 1000, "hidden": true, "rendererTaskMs": 715, "scriptMs": 606, "heapMB": 25, "domNodes": 25836, "terminals": 2 }
+  ],
+  "after": [
+    { "lines": 0, "hidden": false, "rendererTaskMs": 3, "scriptMs": 1, "heapMB": 8, "domNodes": 988, "terminals": 0 },
+    { "lines": 0, "hidden": true, "rendererTaskMs": 0, "scriptMs": 0, "heapMB": 8, "domNodes": 988, "terminals": 0 },
+    { "lines": 1000, "hidden": false, "rendererTaskMs": 2, "scriptMs": 0, "heapMB": 17, "domNodes": 24986, "terminals": 0 },
+    { "lines": 1000, "hidden": true, "rendererTaskMs": 0, "scriptMs": 0, "heapMB": 17, "domNodes": 24986, "terminals": 0 }
+  ],
+  "hiddenUiIpcCallsBeforePerFiveSeconds": {
+    "reader.dictionaryTransfers": 5,
+    "get_gsm_status": 5,
+    "getOverlayStatus": 5,
+    "obs.getScenes": 2,
+    "obs.getActiveScene": 2,
+    "obs.getWindows": 2,
+    "settings.listGSMProfiles": 2,
+    "reader.request": 2,
+    "game-launcher.getOptions": 1,
+    "game-background.getState": 2
+  },
+  "hiddenUiIpcCallsAfterPerFiveSeconds": {}
+}

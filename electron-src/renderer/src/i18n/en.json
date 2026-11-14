@@ -1,5 +1,102 @@
 {
+  "onboarding": {
+    "brand": "GSM · QUICK START",
+    "title": "Your first game, step by step",
+    "subtitle": "A few essentials, then straight to reading.",
+    "progress": "Setup progress",
+    "steps": {
+      "language": "Languages",
+      "dictionary": "Dictionary",
+      "game": "Add a game",
+      "capture": "Capture text",
+      "finish": "Start reading"
+    },
+    "savedHint": "You can pause at any point. Continue from Settings → Setup guide.",
+    "stepOf": "STEP {step} OF {total}",
+    "pause": "Set up later",
+    "skip": "Skip this step",
+    "back": "Back",
+    "next": "Continue",
+    "finish": "Finish setup",
+    "saving": "Saving…",
+    "loading": "Loading…",
+    "retry": "Try again",
+    "return": "Return to guide",
+    "error": "This step could not be saved or opened. Check that GSM is running and try again.",
+    "languageTitle": "What are you learning?",
+    "languageDescription": "Choose the language for GSM’s menus and the language you want to read.",
+    "appLanguage": "App language",
+    "learningLanguage": "Learning language",
+    "languageHint": "The learning language controls text recognition and the starter dictionary. You can change it later.",
+    "dictionaryTitle": "Look up words as you play",
+    "dictionaryDescription": "Choose a popup dictionary reader. GSM keeps these dictionaries separate from your browser.",
+    "reader": "Dictionary reader",
+    "yomitan": "Yomitan",
+    "hachidori": "Hachidori",
+    "yomitanHint": "A familiar reader with dictionaries for many languages.",
+    "hachidoriHint": "An alternative reader with its own dictionary library.",
+    "chooseDictionary": "Choose your dictionary",
+    "dictionaryHint": "A starter word dictionary for your learning language. Definitions are in English. Downloads may take a few minutes.",
+    "manualDictionary": "Open dictionary settings to choose a language pack or import your own dictionary.",
+    "dictionarySource": "About this dictionary",
+    "installDictionary": "Install or enable {name}",
+    "installing": "Downloading and importing…",
+    "switching": "Switching dictionary reader…",
+    "dictionarySettings": "Dictionary settings",
+    "dictionaryReady": "An enabled dictionary is ready.",
+    "dictionaryWaiting": "Waiting for an enabled dictionary. You can also set this up later.",
+    "dictionaryError": "Dictionary setup needs attention. Retry installation or open dictionary settings.",
+    "gameTitle": "Bring your game into GSM",
+    "gameDescription": "Start with one game. GSM will remember its capture and text settings.",
+    "gameStart": "Start your game and leave it at a scene with dialogue. Windowed or borderless mode is easiest to begin with.",
+    "gameSelect": "Choose Add game, select its window, and give it a name.",
+    "gamePreview": "Check the capture preview. The text setup guide opens after you add the game.",
+    "addGame": "Add my first game",
+    "gameReady": "A game has been added. Continue to set up its text.",
+    "gameWaiting": "Waiting for your first game.",
+    "gameGuide": "Select the game window, then follow its text setup. Return here when you’re ready.",
+    "captureTitle": "Get your first line of text",
+    "captureDescription": "Use the guided capture setup to choose a text hook or OCR and check real dialogue.",
+    "hookTitle": "Text hook",
+    "hookDescription": "Reads text directly from supported games. Try the recommended hook, advance the dialogue, then select the matching text.",
+    "ocrTitle": "OCR",
+    "ocrDescription": "Reads text from the screen. Select the dialogue area, run a scan, and check the result before enabling automatic scans.",
+    "configureCapture": "Open text setup",
+    "captureHint": "The capture guide lets you test text and save automatic startup for this game. If you already completed it after adding the game, continue.",
+    "captureGuide": "Advance the dialogue and check the text in the capture guide. Save the game’s settings, then return here.",
+    "finishTitle": "Make GSM part of your play session",
+    "finishDescription": "Here’s where to go next. Any steps you skipped remain available in Settings.",
+    "tourHome": "Home is your game library. Select a game to launch it and manage its capture, overlay, and automatic tools.",
+    "tourLookup": "Start the overlay from Home. Use its activation hotkey, then point at a word to look it up. Hotkeys are in Overlay settings.",
+    "tourText": "Open the text log from Home to review captured sentences and check that new dialogue is arriving.",
+    "ankiTitle": "Optional: save words to Anki",
+    "ankiDescription": "When you’re ready to make cards, open Settings → Anki and use its guided setup to choose a deck and note type.",
+    "openSettings": "Explore Settings",
+    "openText": "Open text log",
+    "finishGuide": "Explore the settings you need, then return to finish the guide.",
+    "openSetup": "Open setup guide",
+    "settingsHint": "Choose languages and a dictionary, add a game, and learn to capture text. Resume or replay the guide.",
+    "sudachiTitle": "Japanese readings and word selection",
+    "sudachiDescription": "One Sudachi dictionary is shared by furigana, readings, word statistics, gamepad selection, and user dictionaries. It downloads during setup. Existing vocabulary history is preserved.",
+    "sudachiEdition": "Sudachi dictionary",
+    "sudachismall": "Small (default)",
+    "sudachicore": "Core",
+    "sudachifull": "Full (more proper nouns)",
+    "sudachiInstall": "Download / use selected dictionary",
+    "sudachiReady": "Japanese analysis is ready.",
+    "sudachiRequired": "Set up the Japanese dictionary to enable readings and word selection.",
+    "sudachiError": "Dictionary setup failed. Check your connection and retry."
+  },
   "gameLauncher": {
+    "mode": "Launch with",
+    "modeExecutable": "Game executable",
+    "modeYuzu": "Yuzu",
+    "yuzuPath": "Yuzu executable",
+    "romPath": "Game ROM",
+    "yuzuArguments": "Yuzu arguments",
+    "yuzuHelp": "Choose Yuzu and the ROM to boot. GSM passes the ROM with -g. Existing Yuzu scene settings are reused when available.",
+    "chooseRom": "Choose the game ROM below, then save or launch.",
+    "userLaunchHelp": "Games and custom launchers run as the desktop user, even when GSM runs as administrator.",
     "title": "Game launching",
     "launch": "Launch game",
     "working": "Working…",
@@ -23,6 +120,7 @@
     "saved": "Launch options saved.",
     "launched": "Launch request sent.",
     "errors": {
+      "missingRom": "Choose an existing game ROM.",
       "unsupported": "Game launching is available on Windows only.",
       "invalidScene": "Select a game first.",
       "missingExecutable": "Choose an existing game executable.",
@@ -71,6 +169,16 @@
     }
   },
   "home": {
+    "capturePicker": {
+      "search": "Search windows and devices…",
+      "recentOrder": "Recently focused first",
+      "recent": "Recently focused",
+      "loadingPreview": "Loading preview…",
+      "previewUnavailable": "Preview unavailable",
+      "noMatches": "No matching windows or devices.",
+      "selected": "Selected: {title}",
+      "snapshotHint": "Previews refresh when you open this dialog or refresh the list."
+    },
     "workspace": {
       "library": "Your games",
       "savedGames": "Saved games",
@@ -188,6 +296,10 @@
     },
     "overlay": {
       "title": "Overlay",
+      "enabled": "Enable overlay",
+      "changing": "Updating…",
+      "toggleTooltip": "Turn GSM's overlay on or off. Turning it off pauses automatic overlay startup until you enable it again or restart GSM.",
+      "toggleError": "Could not change the overlay. Try again.",
       "statusRunning": "Running",
       "statusStopped": "Not running",
       "guide": "Setup Guide",
@@ -626,6 +738,61 @@
     }
   },
   "settings": {
+    "notifications": {
+      "title": "Notifications & sounds",
+      "description": "Choose how four groups of notifications announce themselves. Quiet confirmations work while GSM is in the tray.",
+      "volume": "Sound volume",
+      "volumeValue": "{volume}%",
+      "quietDefaults": "Use quiet defaults",
+      "delivery": "Delivery",
+      "sound": "Sound",
+      "preview": "Preview",
+      "deliveryFor": "Delivery for {event}",
+      "soundFor": "Sound for {event}",
+      "previewFor": "Preview {event}",
+      "loading": "Loading notification settings…",
+      "saving": "Saving…",
+      "autoSave": "Changes save automatically. Volume only affects GSM's confirmation sounds.",
+      "retry": "Retry",
+      "loadError": "Could not load notification settings.",
+      "saveError": "Could not save notification settings.",
+      "previewError": "Could not play the sound preview.",
+      "modes": {
+        "off": "Off",
+        "sound": "Sound only",
+        "banner": "Silent banner",
+        "both": "Banner + sound"
+      },
+      "sounds": {
+        "soft-ping": "Soft ping",
+        "bell": "Soft bell",
+        "bubble": "Bubble",
+        "wood": "Wood tap",
+        "glass": "Glass",
+        "success": "Success",
+        "ascending": "Rising tones",
+        "descending": "Falling tones",
+        "double-tap": "Double tap",
+        "chime": "Chime",
+        "pause-resume": "Falling / rising",
+        "marimba": "Marimba",
+        "sparkle": "Sparkle",
+        "low-knock": "Low knock"
+      },
+      "categories": {
+        "confirmation": "Confirmations",
+        "cardError": "Card errors",
+        "pauseResume": "Pause / resume",
+        "appAlert": "App alerts"
+      },
+      "categoryDescriptions": {
+        "confirmation": "Cards updated, audio or screenshots saved, and GSM ready. Unvoiced cards are normal.",
+        "cardError": "Card processing, media generation, or Anki upload failures. No voice detected is not an error.",
+        "pauseResume": "Pause or resume OCR and stats collection.",
+        "appAlert": "Other app errors, OBS warnings, and pending-review reminders."
+      },
+      "globalHint": "Applies to every game and profile. Configure notification sounds and banners here."
+    },
     "python": {
       "title": "Python & debug",
       "description": "Environment details and recovery tools for troubleshooting GSM.",
@@ -775,7 +942,6 @@
       "themeHighContrast": "High Contrast",
       "language": "Display Language (AI):",
       "startMinimized": "Start Console Minimized:",
-      "runTransparencyOnStartup": "Run Window Transparency Tool on Startup:",
       "runOverlayOnStartup": "Run Overlay on Startup:",
       "quitOnWindowClose": "Exit GSM when closing the window:",
       "textCaptureWizard": "Show Text Capture Wizard after capture setup:"
@@ -789,13 +955,6 @@
       "tabPython": "Python",
       "tabConsole": "Console",
       "statsTarget": "Stats Target:"
-    },
-    "transparency": {
-      "title": "Transparency Tool (Deprecated)",
-      "toolHotkey": "Tool Hotkey:",
-      "windowTarget": "Window Target:",
-      "windowTargetPlaceholder": "Leave empty to target focused window",
-      "runTool": "Run Window Transparency Tool"
     },
     "updates": {
       "title": "Updates",
@@ -911,6 +1070,11 @@
       }
     },
     "catalog": {
+      "openTextProcessing": "Open Text Processing",
+      "desktopNotifications": {
+        "label": "Notifications & sounds",
+        "description": "Choose quiet sounds, silent banners, or no notification for each event."
+      },
       "desktopPython": {
         "label": "Python & debug",
         "description": "Inspect the Python environment, reset dependencies, or install a package for debugging."
@@ -932,11 +1096,6 @@
       "desktopTabs": {
         "label": "Desktop tabs and stats",
         "description": "Show or hide desktop tabs, including Windows Speech, and choose the default stats page."
-      },
-      "desktopTransparency": {
-        "label": "Window transparency tool",
-        "description": "Configure and run the Windows window-transparency helper.",
-        "notes": "Available on Windows."
       },
       "desktopUpdates": {
         "label": "Updates and beta releases",
@@ -1079,7 +1238,7 @@
       },
       "overlayFuriganaTokenization": {
         "label": "Furigana, pinyin, and tokenization",
-        "description": "Style readings and choose the MeCab, Sudachi, Yomitan, Jiten, or JPDB tokenizer backend.",
+        "description": "Style readings and choose the Sudachi, Yomitan, Jiten, or JPDB tokenizer backend.",
         "notes": "Found under Reading, Stats & Jiten in Overlay Settings."
       },
       "overlayTranslation": {
@@ -1601,6 +1760,12 @@
       "events": {
         "captured": "Text captured",
         "noText": "No text detected",
+        "scanning": "Scanning for text",
+        "waitingForContext": "Waiting for the backend to respond",
+        "waitingForTarget": "Waiting for the game window or OBS source",
+        "noCaptureArea": "No usable capture area",
+        "stabilizing": "Waiting for text to settle",
+        "furiganaFiltered": "The Furigana Filter removed all text. Lower it in Recognition.",
         "unchanged": "Waiting for screen changes",
         "menu": "Menu text skipped",
         "ignored": "Text in an ignored area skipped",
@@ -1762,7 +1927,7 @@
         "tools": "Manage OCR packages, diagnostics, and configuration files.",
         "console": "Live OCR output and diagnostics. Logs are kept while you use other pages."
       },
-      "shortcutHelp": "Select a binding and press a key combination. Press Escape to clear it.",
+      "shortcutHelp": "Select a binding and press a key combination. Escape clears it. All OCR shortcuts, including F13–F24, work while the captured game window is visible, even when another app has focus. Hiding or minimizing the game disables them. Keys still reach the app you are using.",
       "openAreaSelector": "Open Area Selector",
       "editor": {
         "edit": "Edit areas in preview",
@@ -1959,7 +2124,9 @@
     "output": {
       "title": "Selected Hook Output",
       "copyLine": "Copy line",
-      "checkHint": "Check that this matches the text in your game.",
+      "original": "Original text",
+      "filteredOut": "Filtered out",
+      "checkHint": "Showing text after your filters. Hover the eye icon to see the original.",
       "waiting": "Waiting for text from the selected hook…",
       "selectHook": "Select a hook from the list to preview its text."
     },
@@ -2129,6 +2296,8 @@
     }
   },
   "textProcessing": {
+    "loadFailed": "Could not load text processing settings. Your saved settings have not been changed.",
+    "retry": "Retry",
     "title": "Text Preprocessing",
     "subtitle": "Configure text processing rules applied to captured game text before it reaches Anki. Drag to reorder processing pipeline.",
     "loading": "Loading text processing configuration...",
@@ -2265,5 +2434,67 @@
       "validating": "Checking the updated OBS connection…",
       "error": "OBS update failed"
     }
+  },
+  "reader": {
+    "gameOptions": "Game options",
+    "title": "Textfeed",
+    "connection": {
+      "connecting": "Connecting",
+      "live": "Live",
+      "offline": "Reconnecting"
+    },
+    "search": "Find in textfeed",
+    "smaller": "Smaller reading text",
+    "larger": "Larger reading text",
+    "smallerSymbol": "A−",
+    "largerSymbol": "A+",
+    "focus": "Focus on reading",
+    "showControls": "Show Home controls",
+    "browser": "Open browser textfeed",
+    "close": "Close",
+    "closeLibrary": "Back to reading",
+    "dismiss": "Dismiss",
+    "intakePaused": "Text intake is paused. Your reading history is still available.",
+    "emptyTitle": "Your next sentence starts here",
+    "emptyHint": "Start OCR, text hooking, or clipboard capture. Your game text will appear here as you read.",
+    "noMatches": "No matching sentences",
+    "noMatchesHint": "Try a different word or clear the search.",
+    "currentSession": "Current session",
+    "previousSession": "Previous session",
+    "selectLine": "Select for mining: {text}",
+    "historyOnly": "Text only · replay expired",
+    "stop": "Stop audio",
+    "preparingAudio": "Preparing audio",
+    "replay": "Replay audio",
+    "translate": "Show or hide translation",
+    "lookup": "Look up text",
+    "lookupHint": "Look up selected text. Shift-click a word to look up from that point.",
+    "screenshot": "Use this screenshot",
+    "saveClip": "Save clip for later",
+    "copy": "Copy sentence",
+    "copied": "Sentence copied.",
+    "dictionary": "Dictionary",
+    "lookingUp": "Looking up…",
+    "transfer": {
+      "reading": "Preparing your {name} dictionaries… {count} records read. Your original data is preserved.",
+      "importing": "Restoring your {name} dictionaries… {count} records restored.",
+      "failed": "Your {name} dictionaries could not be restored. Your original data is preserved. Restart GSM to retry."
+    },
+    "noDefinition": "No definition found. Select a word or open your dictionary to search.",
+    "openDictionary": "Open dictionary and mine",
+    "selected": "{count} selected for mining",
+    "clearSelection": "Clear",
+    "createMedia": "Create media",
+    "lineCount": "{count} lines",
+    "characterCount": "{count} characters",
+    "following": "Following latest",
+    "follow": "Follow latest",
+    "newLines": "{count} new lines",
+    "requested": "Request sent to GSM.",
+    "clipSaved": "Clip saved for later.",
+    "audioError": "The audio could not be played. Try again while the line is in the replay buffer.",
+    "audioTimeout": "Audio preparation took too long. Check that OBS replay recording is running.",
+    "actionFailed": "The action could not be completed.",
+    "historyUnavailable": "Reading history could not be saved on this device."
   }
 }

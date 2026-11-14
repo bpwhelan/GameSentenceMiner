@@ -63,6 +63,13 @@ async function openGameMenu(container: HTMLElement, sceneId: string) {
   return document.querySelector<HTMLElement>("#home-game-menu")!;
 }
 
+function selectCaptureTarget(container: HTMLElement, value: string) {
+  const button = Array.from(container.querySelectorAll<HTMLButtonElement>('[data-window-value]'))
+    .find(button => button.dataset.windowValue === value);
+  expect(button).toBeInstanceOf(HTMLButtonElement);
+  button!.click();
+}
+
 describe("HomeTab", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -164,11 +171,8 @@ describe("HomeTab", () => {
     });
 
     await openAddGameDialog(container);
-    const windowSelect = container.querySelector("#home-window-select");
-    expect(windowSelect).toBeInstanceOf(HTMLSelectElement);
-
     await act(async () => {
-      setElementValue(windowSelect as HTMLSelectElement, "window-1", "change");
+      selectCaptureTarget(container, "window-1");
       await flushAsyncWork();
     });
 
@@ -193,6 +197,70 @@ describe("HomeTab", () => {
     expect((overrideInputAfterRefresh as HTMLInputElement).value).toBe("My Custom Scene");
   });
 
+  it("does not enumerate capture windows until the picker is open", async () => {
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    await advanceTimers(10000);
+    expect(windowFetchCount).toBe(0);
+    await openAddGameDialog(container);
+    expect(windowFetchCount).toBe(1);
+    await advanceTimers(3000);
+    expect(windowFetchCount).toBe(2);
+  });
+
+  it("probes game background controls only while their disclosure is open", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === 'obs.getScenes') return [{ id: 'game', name: 'Saved game' }];
+      if (channel === 'obs.getActiveScene') return { id: 'game', name: 'Saved game' };
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    await advanceTimers(10000);
+    expect(invokeMock).not.toHaveBeenCalledWith('game-background.getState');
+    const disclosure = container.querySelector<HTMLDetailsElement>('.home-game-details')!;
+    await act(async () => { disclosure.open = true; disclosure.dispatchEvent(new Event('toggle')); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith('game-background.getState');
+    await act(async () => { disclosure.open = false; disclosure.dispatchEvent(new Event('toggle')); });
+    invokeMock.mockClear();
+    await advanceTimers(10000);
+    expect(invokeMock).not.toHaveBeenCalledWith('game-background.getState');
+  });
+
+  it("refreshes immediately on opening and does not let background polling replace the pending list", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let resolveWindows!: (value: ObsWindow[]) => void;
+    invokeMock.mockImplementation(async (channel: string, payload?: { refresh?: boolean }) => {
+      if (channel === "obs.getWindows" && payload?.refresh) {
+        return new Promise<ObsWindow[]>(resolve => { resolveWindows = resolve; });
+      }
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    expect(invokeMock).not.toHaveBeenCalledWith("obs.getWindowPreviews");
+    await openAddGameDialog(container);
+    expect(invokeMock).toHaveBeenCalledWith("obs.getWindows", { quick: true, refresh: true });
+    const requests = invokeMock.mock.calls.filter(([channel]) => channel === "obs.getWindows").length;
+    await advanceTimers(3000);
+    expect(invokeMock.mock.calls.filter(([channel]) => channel === "obs.getWindows")).toHaveLength(requests);
+    await act(async () => resolveWindows([{ title: "Just opened game", value: "new", targetKind: "window" }]));
+    expect(container.querySelector('[data-window-value="new"]')?.textContent).toContain("Just opened game");
+    expect(invokeMock).toHaveBeenCalledWith("obs.getWindowPreviews");
+  });
+
+  it("clears the selected capture when its window disappears from an empty refresh", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let list: ObsWindow[] = [{ title: "Game", value: "game", targetKind: "window", captureValues: { window_capture: "Game:Class:game.exe" } }];
+    invokeMock.mockImplementation(async (channel: string) => channel === "obs.getWindows" ? list : fallback(channel));
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    await openAddGameDialog(container);
+    await act(async () => selectCaptureTarget(container, "game"));
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false);
+    list = [];
+    await advanceTimers(3000);
+    expect(container.querySelector("#home-scene-name-override")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(true);
+  });
+
   it("keeps the overlay, utilities, and connection controls available on Home", async () => {
     await act(async () => {
       root.render(<HomeTab active />);
@@ -210,7 +278,7 @@ describe("HomeTab", () => {
     expect(statusCard).not.toBeNull();
 
     expect(overlayCard?.textContent).toContain("Overlay");
-    expect(overlayCard?.textContent).toContain("Run Overlay");
+    expect(overlayCard?.querySelector('[role="switch"]')).not.toBeNull();
     expect(overlayCard?.textContent).toContain("Run on startup");
     expect(utilities?.textContent).toContain("Text feed");
     expect(utilities?.textContent).not.toContain("Run Overlay");
@@ -237,7 +305,7 @@ describe("HomeTab", () => {
       root.render(<HomeTab active />);
       await flushAsyncWork();
     });
-    const statuses = container.querySelector<HTMLElement>(".home-library .home-status-card")!;
+    const statuses = container.querySelector<HTMLElement>(".home-session .home-status-card")!;
     expect(statuses.querySelector("[aria-expanded]")).toBeNull();
     expect(statuses.querySelector(".home-status-grid")?.closest("[hidden]")).toBeNull();
     expect(statuses.querySelector(".home-last-line")).toBeNull();
@@ -305,11 +373,11 @@ describe("HomeTab", () => {
     const setup = await openAddGameDialog(container);
     expect(setup.getAttribute("role")).toBe("dialog");
     expect(setup.getAttribute("aria-modal")).toBe("true");
-    expect(document.activeElement).toBe(container.querySelector("#home-window-select"));
+    expect(document.activeElement).toBe(container.querySelector("#home-window-search"));
     expect(container.querySelector<HTMLElement>(".home-current-game")?.hidden).toBe(false);
     expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("Saved Game");
     await act(async () => {
-      setElementValue(container.querySelector<HTMLSelectElement>("#home-window-select")!, "window-1", "change");
+      selectCaptureTarget(container, "window-1");
     });
     await act(async () => {
       setElementValue(container.querySelector<HTMLInputElement>("#home-scene-name-override")!, "My Capture", "input");
@@ -409,7 +477,7 @@ describe("HomeTab", () => {
     });
     await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
     const dialog = await openAddGameDialog(container);
-    await act(async () => setElementValue(dialog.querySelector<HTMLSelectElement>("select")!, "example-window", "change"));
+    await act(async () => selectCaptureTarget(dialog, "example-window"));
     await act(async () => setElementValue(dialog.querySelector<HTMLInputElement>("#home-scene-name-override")!, "My Game", "input"));
     const submit = dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     await act(async () => submit.click());
@@ -595,6 +663,57 @@ describe("HomeTab", () => {
       "settings.saveSettings",
       { runOverlayOnStartup: true },
     );
+  });
+
+  it("toggles the integrated overlay in both directions and keeps settings separate", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let running = false;
+    invokeMock.mockImplementation(async (channel: string, enabled?: boolean) => {
+      if (channel === "getOverlayStatus") return { isRunning: running };
+      if (channel === "setOverlayEnabled") {
+        running = enabled === true;
+        return { success: true, isRunning: running };
+      }
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const toggle = container.querySelector<HTMLInputElement>('#home-overlay-toggle')!;
+    const settings = container.querySelector<HTMLButtonElement>('.home-overlay-primary-btn')!;
+    expect(toggle).not.toBeNull();
+    expect(toggle.checked).toBe(false);
+    expect(settings.disabled).toBe(true);
+    await act(async () => { toggle.click(); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith("setOverlayEnabled", true);
+    expect(toggle.checked).toBe(true);
+    expect(settings.disabled).toBe(false);
+    await act(async () => { settings.click(); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith("settings.openOverlaySettings");
+    await act(async () => { toggle.click(); await flushAsyncWork(); });
+    expect(invokeMock).toHaveBeenCalledWith("setOverlayEnabled", false);
+    expect(toggle.checked).toBe(false);
+    expect(settings.disabled).toBe(true);
+    expect(invokeMock).not.toHaveBeenCalledWith("runOverlay");
+  });
+
+  it("disables the overlay switch while changing and shows failed enables without claiming it is on", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let finish!: (value: unknown) => void;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "getOverlayStatus") return { isRunning: false };
+      if (channel === "setOverlayEnabled") return new Promise(resolve => { finish = resolve; });
+      return fallback(channel);
+    });
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const toggle = container.querySelector<HTMLInputElement>('#home-overlay-toggle')!;
+    expect(toggle).not.toBeNull();
+    await act(async () => { toggle.click(); await flushAsyncWork(); });
+    expect(toggle.disabled).toBe(true);
+    await advanceTimers(STATUS_POLL_MS);
+    expect(toggle.disabled).toBe(true);
+    await act(async () => { finish({ success: false, isRunning: false }); await flushAsyncWork(); });
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(false);
+    expect(container.querySelector('.home-overlay-card [role="alert"]')?.textContent).toContain("Could not");
   });
 
   it("starts the AnkiBeacon nudge delay only after Anki connects", async () => {
@@ -843,13 +962,12 @@ describe("HomeTab", () => {
     });
 
     await openAddGameDialog(container);
-    const select = container.querySelector<HTMLSelectElement>("#home-window-select")!;
-    const monitorGroup = select.querySelector('optgroup[label="Monitor Capture"]');
+    const monitorGroup = container.querySelector('[aria-labelledby="home-capture-monitors"]');
     expect(monitorGroup?.textContent).toContain(monitor.title);
-    expect(select.querySelector('optgroup[label="Windows / Games"]')?.textContent).not.toContain(monitor.title);
+    expect(container.querySelector('[aria-labelledby="home-capture-windows"]')?.textContent).not.toContain(monitor.title);
 
     await act(async () => {
-      setElementValue(select, monitor.value, "change");
+      selectCaptureTarget(container, monitor.value);
       await flushAsyncWork();
     });
 
@@ -907,11 +1025,8 @@ describe("HomeTab", () => {
     });
 
     await openAddGameDialog(container);
-    const windowSelect = container.querySelector("#home-window-select");
-    expect(windowSelect).toBeInstanceOf(HTMLSelectElement);
-
     await act(async () => {
-      setElementValue(windowSelect as HTMLSelectElement, "example-window", "change");
+      selectCaptureTarget(container, "example-window");
       await flushAsyncWork();
     });
 

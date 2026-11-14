@@ -1,11 +1,5 @@
-import { randomUUID } from 'node:crypto';
-
-import { bus } from './bus_client.js';
-
-const TEXT_INGRESS_TOPIC = 'text.ingress.v2';
-const MAX_UNACKED = 256;
-const RETRY_DELAYS_MS = [50, 100, 200, 400];
-
+/** Text acknowledgement/retry storage belongs to Rust. This only delivers UI callbacks. */
+import { runtimeCall, runtimeSync, runtimeEvents } from './native_runtime.js';
 export interface TextIngressPayload {
     text: string;
     source: string;
@@ -28,71 +22,25 @@ export interface TextIngressAck {
     stream_sequence?: number | null;
     revision?: number | null;
     reason?: string;
+    raw_text?: string;
+    processed_text?: string;
 }
 
-interface PendingObservation {
-    payload: TextIngressPayload;
-    retryIndex: number;
-    timer: NodeJS.Timeout | null;
-}
 
-const pending = new Map<string, PendingObservation>();
-
-function scheduleRetry(observationId: string): void {
-    const entry = pending.get(observationId);
-    if (!entry) return;
-    const delay = RETRY_DELAYS_MS[Math.min(entry.retryIndex, RETRY_DELAYS_MS.length - 1)];
-    entry.retryIndex += 1;
-    entry.timer = setTimeout(() => void deliver(observationId), delay);
-}
-
-async function deliver(observationId: string): Promise<void> {
-    const entry = pending.get(observationId);
-    if (!entry) return;
-    if (!bus.isConnected('backend')) {
-        scheduleRetry(observationId);
-        return;
+const callbacks = new Map<string, (ack: TextIngressAck) => void>();
+let listening = false;
+export function submitTextObservation(payload: TextIngressPayload, onAck?: (ack: TextIngressAck) => void): string {
+    if (!listening) {
+        listening = true;
+        runtimeEvents((event, data) => {
+            if (event !== 'text.ack') return;
+            const callback = callbacks.get(data.id); callbacks.delete(data.id);
+            try { callback?.(data.ack); } catch (error) { console.warn('[TextIngress] preview callback failed:', error); }
+        });
     }
-    try {
-        const ack = await bus.request<TextIngressAck>('backend', TEXT_INGRESS_TOPIC, entry.payload, 350);
-        if (ack.status === 'backpressured') {
-            scheduleRetry(observationId);
-            return;
-        }
-        pending.delete(observationId);
-    } catch {
-        scheduleRetry(observationId);
-    }
+    const id = runtimeSync<string>('text.submit', payload);
+    if (onAck) callbacks.set(id, onAck);
+    return id;
 }
-
-export function submitTextObservation(payload: TextIngressPayload): string {
-    const observationId = payload.observationId || randomUUID();
-    const now = Date.now();
-    if (pending.size >= MAX_UNACKED) {
-        console.warn(`[TextIngress] rejected observation ${observationId}: unacknowledged outbox is full`);
-        return observationId;
-    }
-    pending.set(observationId, {
-        payload: {
-            ...payload,
-            observationId,
-            emittedAt: payload.emittedAt ?? now,
-            capturedAt: payload.capturedAt ?? now,
-        },
-        retryIndex: 0,
-        timer: null,
-    });
-    void deliver(observationId);
-    return observationId;
-}
-
-export function clearPendingTextObservations(): void {
-    for (const entry of pending.values()) {
-        if (entry.timer) clearTimeout(entry.timer);
-    }
-    pending.clear();
-}
-
-export function getPendingTextObservationCount(): number {
-    return pending.size;
-}
+export function clearPendingTextObservations(): void { callbacks.clear(); runtimeSync('text.clear'); }
+export function getPendingTextObservationCount(): number { return runtimeSync('text.count'); }

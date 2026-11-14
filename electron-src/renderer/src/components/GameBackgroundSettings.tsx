@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { GameBackgroundOptions, GameBackgroundState } from '../../../shared/game_background';
 import { useTranslation } from '../i18n';
 import { invokeIpc } from '../lib/ipc';
+import { retainEqual, startVisiblePolling } from '../lib/visiblePolling';
 
 export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; active: boolean }) {
     const t = useTranslation();
@@ -14,21 +15,19 @@ export function GameBackgroundSettings({ sceneId, active }: { sceneId: string; a
         setState(null);
         setError('');
         let cancelled = false;
-        let timer: ReturnType<typeof setTimeout>;
         const refresh = async () => {
             if (!savingRef.current) {
                 const current = ++revision.current;
                 try {
                     const next = await invokeIpc<GameBackgroundState>('game-background.getState');
-                    if (!cancelled && current === revision.current) setState(next);
+                    if (!cancelled && current === revision.current) setState(before => retainEqual(before, next));
                 } catch (problem) {
                     if (!cancelled && current === revision.current) setError(String(problem));
                 }
             }
-            if (!cancelled) timer = setTimeout(refresh, 2500);
         };
-        if (active) void refresh();
-        return () => { cancelled = true; ++revision.current; clearTimeout(timer); };
+        const stop = active ? startVisiblePolling(refresh, 2500) : () => {};
+        return () => { cancelled = true; ++revision.current; stop(); };
     }, [sceneId, active]);
 
     const matches = state?.sceneId === sceneId;

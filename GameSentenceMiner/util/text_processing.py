@@ -167,7 +167,9 @@ def _normalize_regex_replacement(replacement: str) -> str:
 
 
 def remove_control_chars(text: str) -> str:
-    return "".join(c for c in text if not (ord(c) < 32 and c not in ("\n", "\r", "\t")))
+    # Only ASCII control codes: preserve line breaks/tabs and Unicode format
+    # characters used by real text (e.g. emoji joiners and bidirectional marks).
+    return "".join(c for c in text if c in ("\n", "\r", "\t") or (ord(c) >= 32 and c != "\x7f"))
 
 
 # --- Remove Non-Japanese (non-Shift-JIS) Characters ---

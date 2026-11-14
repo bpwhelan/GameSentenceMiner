@@ -53,6 +53,21 @@ describe("GameAutomationTab overlay automation", () => {
     return container.querySelector<HTMLInputElement>("#scene-launch-overlay-scene-1")!;
   }
 
+  it("keeps a pending scene profile load when polling returns the same scene", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let finish!: (profile: unknown) => void;
+    invokeMock.mockImplementation((channel: string) => {
+      if (channel === 'settings.getSceneLaunchProfile') return new Promise(resolve => { finish = resolve; });
+      return original(channel);
+    });
+    await render();
+    const resolveOriginal = finish;
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+    await act(async () => { resolveOriginal({launchOverlay:true}); });
+    expect(container.querySelector<HTMLInputElement>('#scene-launch-overlay-scene-1')?.checked).toBe(true);
+    expect(invokeMock.mock.calls.filter(([channel]) => channel === 'settings.getSceneLaunchProfile')).toHaveLength(1);
+  });
+
   it("disables scene overlay automation when the Home startup option is enabled without clearing the saved choice", async () => {
     runOverlayOnStartup = true;
     const toggle = await render();

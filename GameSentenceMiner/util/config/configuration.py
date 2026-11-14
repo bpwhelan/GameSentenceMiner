@@ -760,7 +760,7 @@ class TextProcessing:
     remove_repeated_chars_config: RemoveRepeatCharsConfig = field(default_factory=RemoveRepeatCharsConfig)
     remove_repeated_lines_v2: bool = True  # Give existing profiles the new default once; later opt-outs stay saved.
     remove_repeated_lines_config: RemoveRepeatLinesConfig = field(default_factory=RemoveRepeatLinesConfig)
-    remove_control_chars: bool = False
+    remove_control_chars: bool = True
     language_filter: bool = False
     language_filter_config: LanguageFilterConfig = field(default_factory=LanguageFilterConfig)
     remove_non_japanese: bool = False
@@ -1068,20 +1068,12 @@ class ReviewAfterSession:
     delete_local_after_review: bool = True
     cleanup_anki_media: bool = True
     max_future_context_lines: int = 3
-    notify_on_startup: bool = True
 
 
 @dataclass_json
 @dataclass
 class Features:
     full_auto: bool = True
-    notify_on_update: bool = True
-    notify_on_audio_generated: bool = True
-    notify_on_screenshot_saved: bool = True
-    notify_on_anki_enhancement_failed: bool = True
-    notify_on_errors: bool = True
-    notify_on_obs_warning: bool = True
-    notify_on_text_intake_state: bool = True
     open_anki_edit: bool = False
     open_anki_in_browser: bool = False
     browser_query: str = ""
@@ -1098,6 +1090,10 @@ class Experimental:
     tokenization_backend: str = "sudachi"
     tokenization_sudachi_dictionary: str = "small"
     tokenize_low_performance: bool = False
+
+    def __post_init__(self):
+        # Migrate the selection only; historical word IDs and occurrences stay intact.
+        self.tokenization_backend = "sudachi"
 
 
 @dataclass_json
@@ -1847,23 +1843,6 @@ class ProfileConfig:
         self.anki.sentence_field_overwrite = legacy_overwrite_sentence
 
         self.features.full_auto = config_data["features"].get("do_vosk_postprocessing", self.features.full_auto)
-        self.features.notify_on_update = config_data["features"].get("notify_on_update", self.features.notify_on_update)
-        self.features.notify_on_audio_generated = config_data["features"].get(
-            "notify_on_audio_generated", self.features.notify_on_update
-        )
-        self.features.notify_on_screenshot_saved = config_data["features"].get(
-            "notify_on_screenshot_saved", self.features.notify_on_screenshot_saved
-        )
-        self.features.notify_on_anki_enhancement_failed = config_data["features"].get(
-            "notify_on_anki_enhancement_failed", self.features.notify_on_anki_enhancement_failed
-        )
-        self.features.notify_on_errors = config_data["features"].get("notify_on_errors", self.features.notify_on_errors)
-        self.features.notify_on_obs_warning = config_data["features"].get(
-            "notify_on_obs_warning", self.features.notify_on_obs_warning
-        )
-        self.features.notify_on_text_intake_state = config_data["features"].get(
-            "notify_on_text_intake_state", self.features.notify_on_text_intake_state
-        )
         self.features.open_anki_edit = config_data["features"].get("open_anki_edit", self.features.open_anki_edit)
 
         self.screenshot.width = config_data["screenshot"].get("width", self.screenshot.width)

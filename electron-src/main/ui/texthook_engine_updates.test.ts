@@ -19,6 +19,10 @@ vi.mock('../store.js', () => ({
     getAutoUpdateTexthook: mocks.automatic, setAutoUpdateTexthook: mocks.setAutomatic,
 }));
 vi.mock('./obs.js', () => ({}));
+vi.mock('./native_texthook.js', () => ({
+    configureNativeTextHookEvents: vi.fn(), nativeTextHook: vi.fn(),
+    nativeTextHookSync: () => ({ running: false }),
+}));
 vi.mock('./texthook_downloader.js', () => ({
     getTexthookRuntimeDir: () => 'C:\\test-gsm\\texthook', FORCE_TEXTHOOK_DOWNLOAD: true,
     downloadTexthookEngines: vi.fn(), getEngineStatus: mocks.remote, getLocalEngineStatus: mocks.local,
@@ -37,80 +41,38 @@ vi.mock('../engine_hooks/session.js', () => ({
     getEngineHookRuntimeStatus: () => null, isEngineHookRunning: () => false,
 }));
 
-describe('text hook engine update integration', () => {
-    const handler = (name: string): ((...args: unknown[]) => any) =>
-        mocks.handle.mock.calls.find(([channel]) => channel === name)![1];
-
+vi.mock('../runtime/native_hook_updates.js', () => ({
+    nativeHookUpdates: {
+        getState: mocks.local, check: mocks.remote, download: mocks.prepare,
+        downloadVersion: mocks.activate, setAutomatic: mocks.setAutomatic,
+        notifyIdle: vi.fn(), start: vi.fn(), dispose: vi.fn(),
+    },
+    reserveHookAttachment: mocks.discard, releaseHookAttachment: vi.fn(),
+}));
+// Scheduling and package lifetimes are tested against the native updater.
+describe('native hook update compatibility commands', () => {
+    const handler = (name: string): ((...args: any[]) => any) => mocks.handle.mock.calls.find(([channel]) => channel === name)![1];
     beforeEach(async () => {
-        vi.resetModules();
-        vi.resetAllMocks();
+        vi.resetModules(); vi.resetAllMocks();
+        mocks.local.mockReturnValue({phase: 'waiting', automatic: false});
         mocks.reconnect.mockResolvedValue(false);
         mocks.runtime.mockReturnValue(null);
-        mocks.automatic.mockReturnValue(true);
-        mocks.setAutomatic.mockImplementation((enabled) => mocks.automatic.mockReturnValue(enabled));
-        mocks.local.mockReturnValue({ installed: true, version: '1.0.0', remoteVersion: null, updateAvailable: false });
-        mocks.remote.mockResolvedValue({ installed: true, version: '1.0.0', remoteVersion: '2.0.0', updateAvailable: true });
-        mocks.prepare.mockResolvedValue({ directory: 'prepared', manifest: { version: '2.0.0', files: [] } });
-        mocks.activate.mockResolvedValue(undefined);
-        mocks.discard.mockResolvedValue(undefined);
-        const { registerTextHookIPC } = await import('./texthook.js');
-        registerTextHookIPC();
+        const {registerTextHookIPC} = await import('./texthook.js'); registerTextHookIPC();
     });
-
-    it('prepares while attached, then applies when the runtime reports idle', async () => {
-        mocks.runtime.mockReturnValue({ running: true, engine: 'agent' });
-        expect(await handler('texthook.downloadEngines')()).toEqual({ success: true, deferred: true });
-        expect(mocks.prepare).toHaveBeenCalledOnce();
-        expect(mocks.activate).not.toHaveBeenCalled();
-        expect(handler('texthook.getEngineStatus')()).toMatchObject({ phase: 'waiting' });
-        mocks.runtime.mockReturnValue(null);
-        mocks.configureCallbacks.mock.calls[0][0].onEvent('texthook.status', {});
-        await handler('texthook.downloadEngines')();
-        expect(mocks.activate).toHaveBeenCalledOnce();
-    });
-
-    it('prevents an attachment during the final package switch', async () => {
-        let finish!: () => void;
-        mocks.activate.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
-        const updating = handler('texthook.downloadEngines')();
-        await Promise.resolve();
-        const { startHookSession } = await import('./texthook.js');
-        const blocked = await startHookSession();
-        finish();
-        await updating;
-        expect(blocked).toMatchObject({ success: false, error: expect.stringMatching(/being prepared/) });
-        expect(handler('texthook.getEngineStatus')()).toMatchObject({ phase: 'idle' });
-    });
-
-    it('checks manually without starting an automatic download', async () => {
-        await handler('texthook.checkEngineUpdates')();
-        await Promise.resolve();
-        await Promise.resolve();
-        expect(mocks.remote).toHaveBeenCalledOnce();
-        expect(mocks.prepare).not.toHaveBeenCalled();
-        expect(mocks.send).toHaveBeenCalledWith('texthook.engineUpdateState', expect.objectContaining({ phase: 'idle' }));
-    });
-
-    it('routes explicit version selections through the managed idle boundary and pins the choice', async () => {
-        mocks.runtime.mockReturnValue({ running: true, engine: 'agent' });
-        expect(await handler('texthook.installEngineVersion')({}, '0.9.0')).toEqual({ success: true, deferred: true });
-        expect(mocks.prepare).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), '0.9.0');
-        expect(mocks.setAutomatic).toHaveBeenCalledWith(false);
-        expect(mocks.activate).not.toHaveBeenCalled();
+    it('returns native state and forwards checks and explicit versions', async () => {
+        expect(handler('texthook.getEngineStatus')()).toEqual({phase: 'waiting', automatic: false});
+        await handler('texthook.checkEngineUpdates')(); expect(mocks.remote).toHaveBeenCalledWith(false);
+        await handler('texthook.installEngineVersion')({}, '1.0.0'); expect(mocks.activate).toHaveBeenCalledWith('1.0.0');
         expect(() => handler('texthook.installEngineVersion')({}, {})).toThrow(/version/);
     });
-
-    it('persists the automatic update preference and validates the IPC input', () => {
-        expect(handler('texthook.setAutomaticEngineUpdates')({}, false)).toMatchObject({ automatic: false });
+    it('persists update preferences through the native owner', () => {
+        expect(handler('texthook.setAutomaticEngineUpdates')({}, false)).toMatchObject({automatic: false});
         expect(mocks.setAutomatic).toHaveBeenCalledWith(false);
         expect(() => handler('texthook.setAutomaticEngineUpdates')({}, 'false')).toThrow(/preference/);
     });
-
-    it('reports a failed verification and allows retry without losing the installed status', async () => {
-        mocks.prepare.mockRejectedValueOnce(new Error('hash mismatch'));
-        expect(await handler('texthook.downloadEngines')()).toEqual({ success: false, error: 'hash mismatch' });
-        expect(handler('texthook.getEngineStatus')()).toMatchObject({ installed: true, version: '1.0.0', phase: 'error' });
-        expect(mocks.activate).not.toHaveBeenCalled();
-        expect(await handler('texthook.downloadEngines')()).toEqual({ success: true });
+    it('honors native attachment exclusion before target discovery', async () => {
+        mocks.discard.mockImplementation(() => {throw Error('Hook engines are being prepared.');});
+        const {startHookSession} = await import('./texthook.js');
+        expect(await startHookSession()).toMatchObject({success:false,error:expect.stringMatching(/being prepared/)});
     });
 });

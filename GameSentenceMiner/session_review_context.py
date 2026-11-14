@@ -6,7 +6,8 @@ import copy
 import json
 import os
 import shutil
-import tempfile
+import stat
+import uuid
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -137,8 +138,13 @@ def capture_replay(video_path, targets):
             continue
         # Stage outside the entry so confirmation can delete it while this copy is
         # in progress. Commit only if the durable review is still pending.
-        with tempfile.TemporaryDirectory(prefix="future-", dir=session_review.get_review_root()) as staging:
-            staged = Path(staging) / "future"
+        # tempfile's private Windows ACL can belong to Administrators when GSM
+        # is elevated. A renamed directory retains that ACL, so create staging
+        # with the same inherited permissions as the durable review queue.
+        staging = session_review.get_review_root() / f"future-{uuid.uuid4().hex}"
+        staging.mkdir()
+        try:
+            staged = staging / "future"
             staged.mkdir()
             destination = staged / ("replay" + Path(video_path).suffix)
             try:
@@ -166,6 +172,8 @@ def capture_replay(video_path, targets):
                 if not _still_pending(entry) or (entry.folder / "future").exists():
                     continue
                 staged.rename(entry.folder / "future")
+        finally:
+            shutil.rmtree(staging)
 
 
 def _still_pending(entry):
@@ -178,14 +186,14 @@ def _still_pending(entry):
 
 def load_future_clip(entry, original_clip):
     folder = entry.folder / "future"
-    if not (folder / "manifest.json").exists():
-        return None
     try:
         future = load_clip(str(folder))
-        if not Path(future.clip_path).is_file() or not Path(future.clip_path).resolve().is_relative_to(
-            folder.resolve()
-        ):
-            return None
+        replay = Path(future.clip_path)
+        if not replay.resolve().is_relative_to(folder.resolve()) or not stat.S_ISREG(replay.stat().st_mode):
+            return None, False
+        # Attribute checks alone may succeed even when the replay cannot be read.
+        with open(replay, "rb"):
+            pass
         pause_history.remember_pauses(future.manifest.get("pauses", []))
         # Give the original dialogue future neighbors without changing its replay,
         # timestamps, audio or screenshots. Future nodes retain their own clip.
@@ -197,10 +205,15 @@ def load_future_clip(entry, original_clip):
                 neighbor.clip = future
                 tail.next = neighbor
                 tail = neighbor
-        return future
+        return future, False
+    except FileNotFoundError:
+        return None, False
+    except PermissionError:
+        logger.warning("Could not access extra review context; using the original saved replay.")
+        return None, True
     except (OSError, ValueError, KeyError, TypeError):
         logger.exception("Could not load future review context; using the original saved replay.")
-        return None
+        return None, False
 
 
 def context_for_selection(prepared, selected_lines):

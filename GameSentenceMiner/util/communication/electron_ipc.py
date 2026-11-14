@@ -279,6 +279,10 @@ def start_ipc_listener_in_thread(
         from GameSentenceMiner.ocr.preview import PREVIEW_FRAME_TOPIC, handle_capture_preview
 
         client.handle(PREVIEW_FRAME_TOPIC, handle_capture_preview, concurrent=True)
+        from GameSentenceMiner.ocr.native_context import handle_context, handle_result
+
+        client.handle("ocr.native.context", handle_context)
+        client.handle("ocr.native.result", handle_result)
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
         client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)

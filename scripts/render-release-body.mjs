@@ -46,6 +46,7 @@ function renderDownloadTable({ repo, version }) {
   const windowsUnpackedFile = `GameSentenceMiner-${version}-win-unpacked.zip`;
   const linuxFile = `GameSentenceMiner-${version}.AppImage`;
   const macFile = `GameSentenceMiner-${version}-arm64.dmg`;
+  const macIntelFile = `GameSentenceMiner-${version}-x64.dmg`;
 
   return [
     "| OS | Download |",
@@ -54,6 +55,7 @@ function renderDownloadTable({ repo, version }) {
     `| Windows (unpacked) | [${windowsUnpackedFile}](${buildDownloadUrl(repo, version, windowsUnpackedFile)}) |`,
     `| Linux | [${linuxFile}](${buildDownloadUrl(repo, version, linuxFile)}) |`,
     `| macOS (Apple Silicon) | [${macFile}](${buildDownloadUrl(repo, version, macFile)}) |`,
+    `| macOS (Intel) | [${macIntelFile}](${buildDownloadUrl(repo, version, macIntelFile)}) |`,
   ];
 }
 
@@ -125,7 +127,7 @@ export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
     "",
     ...renderDownloadTable({ repo, version }),
     "",
-    "Intel Mac builds are no longer provided. If you need GSM on Intel Mac, run it from source.",
+    "macOS builds require macOS 14 or newer.",
     ...renderBundledChangelogSection(repo, version),
   ].join("\n");
 }

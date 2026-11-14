@@ -45,6 +45,10 @@ async function writeFixtureExtension(sourceRoot, marker) {
         // Exercise the real upstream hook surfaces, including already-generated copies.
         fs.copyFile(new URL('../GSM_Overlay/hachidori/content.js', import.meta.url), path.join(extensionDir, 'content.js')),
         fs.copyFile(new URL('../GSM_Overlay/hachidori/chrome-offscreen.js', import.meta.url), path.join(extensionDir, 'chrome-offscreen.js')),
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/search-shell.js', import.meta.url), path.join(extensionDir, 'search-shell.js')),
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/search-clipboard.js', import.meta.url), path.join(extensionDir, 'search-clipboard.js')),
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/search-frame.html', import.meta.url), path.join(extensionDir, 'search-frame.html')),
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/offscreen.js', import.meta.url), path.join(extensionDir, 'offscreen.js')),
     ]);
 }
 

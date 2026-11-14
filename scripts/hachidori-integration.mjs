@@ -14,6 +14,7 @@ const files = new Map([
 const engineHostFiles = new Map([
     ['integrations/hachidori/engine-host.html', 'gsm/engine-host.html'],
     ['integrations/hachidori/engine-host.js', 'gsm/engine-host.js'],
+    ['integrations/hachidori/native-search.js', 'gsm/native-search.js'],
 ]);
 const begin = '// GSM integration hook begin';
 const end = '// GSM integration hook end';
@@ -40,6 +41,10 @@ function replaceOnce(source, anchor, replacement) {
 
 export function patchContent(source) {
     source = source.replaceAll('\r\n', '\n');
+    const nativeOrigin = 'location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host';
+    source = source.replaceAll(nativeOrigin, 'location.protocol === EXTENSION_PROTOCOL');
+    if (source.split('location.protocol === EXTENSION_PROTOCOL').length !== 6) throw new Error('Hachidori extension-origin hook changed upstream');
+    source = source.replaceAll('location.protocol === EXTENSION_PROTOCOL', nativeOrigin);
     // Regeneration is idempotent: strip only our marked insertions first.
     source = source.replace(/  \/\/ GSM integration hook begin[\s\S]*?  \/\/ GSM integration hook end\n/gu, '');
     source = source.replace(/^.*\/\/ GSM hook\n/gmu, '');
@@ -60,6 +65,34 @@ export function patchContent(source) {
     return source;
 }
 
+export function patchSearchShell(source) {
+    source = source.replaceAll('\r\n', '\n').replace(/^  if \(!chrome\.permissions\).*\/\/ GSM hook\n/gmu, '');
+    // Electron has no permissions API. GSM already owns clipboard capture, so
+    // omit the extension's optional clipboard monitor while keeping search/mining.
+    const anchor = 'function clipboardMonitor(clipboardSwitch, search, language) {';
+    return replaceOnce(source, anchor, `${anchor}\n  if (!chrome.permissions) return { shown() {}, ready() {}, copied() {} }; // GSM hook`);
+}
+
+export function patchSearchFrame(source) {
+    const hook = '    <script type="module" src="gsm/native-search.js"></script> <!-- GSM native search -->\n';
+    source = source.replaceAll('\r\n', '\n').replace(hook, '');
+    return replaceOnce(source, '    <script type="module" src="search.js"></script>', `${hook}    <script type="module" src="search.js"></script>`);
+}
+
+export function patchClipboard(source) {
+    source = source.replaceAll('\r\n', '\n').replace(/^  if \(globalThis\.gsmEnv\?\.shell.*\/\/ GSM native clipboard\n/gmu, '');
+    const anchor = 'export async function readClipboardText({ document, navigator, firefox }) {';
+    return replaceOnce(source, anchor, `${anchor}\n  if (globalThis.gsmEnv?.shell === "tauri") return globalThis.clipboard.readText(); // GSM native clipboard`);
+}
+
+export function patchNativeEngine(source) {
+    source = source.replaceAll('\r\n', '\n').replace(/^  if \(globalThis\.location\?\.protocol === "gsm-hachidori:"\).*\/\/ GSM native engine\n/gmu, '');
+    // WebKit cannot import the engine's module workers from a custom scheme.
+    // Its existing local engine runs in our dedicated hidden offscreen page.
+    const anchor = 'async function selectEngine() {';
+    return replaceOnce(source, anchor, `${anchor}\n  if (globalThis.location?.protocol === "gsm-hachidori:") return "local"; // GSM native engine`);
+}
+
 export async function prepareIntegration(extensionDir) {
     const content = patchContent(await fs.readFile(path.join(extensionDir, 'content.js'), 'utf8'));
     const offscreen = await fs.readFile(path.join(extensionDir, 'chrome-offscreen.js'), 'utf8');
@@ -71,7 +104,10 @@ export async function prepareIntegration(extensionDir) {
     if (scripts?.length !== 1) throw new Error('Hachidori manifest must declare exactly one reader content script stack.');
     scripts[0].js = scripts[0].js.filter(file => ![...files.values()].includes(file));
     scripts[0].js.splice(scripts[0].js.indexOf('content.js'), 0, ...files.values());
-    const assets = new Map();
+    const assets = new Map([['search-shell.js', Buffer.from(patchSearchShell(await fs.readFile(path.join(extensionDir, 'search-shell.js'), 'utf8')))]]);
+    assets.set('search-frame.html', Buffer.from(patchSearchFrame(await fs.readFile(path.join(extensionDir, 'search-frame.html'), 'utf8'))));
+    assets.set('offscreen.js', Buffer.from(patchNativeEngine(await fs.readFile(path.join(extensionDir, 'offscreen.js'), 'utf8'))));
+    assets.set('search-clipboard.js', Buffer.from(patchClipboard(await fs.readFile(path.join(extensionDir, 'search-clipboard.js'), 'utf8'))));
     for (const [source, destination] of [...files, ...engineHostFiles]) {
         const text = await fs.readFile(path.join(overlayRoot, source), 'utf8');
         assets.set(destination, Buffer.from(text.replaceAll('\r\n', '\n')));

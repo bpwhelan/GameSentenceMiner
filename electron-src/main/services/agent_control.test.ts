@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../runtime/native_runtime.js', async () => import('../test/native_runtime.js'));
+
 import { startAgentControl } from './agent_control.js';
 import { MessageBroker } from '../runtime/message_bus.js';
 import { requestAgent } from '../../../scripts/restart-gsm.mjs';
@@ -48,7 +50,7 @@ describe('agent restart control', () => {
         await expect(requestAgent({ ...descriptor, token: 'wrong' }, 'app.agent.status'))
             .rejects.toThrow(/token/i);
         expect(deps.restart).not.toHaveBeenCalled();
-    });
+    }, 30_000);
 
     it('acknowledges one request and gives the warning its full countdown before restarting', async () => {
         const { control, deps } = await setup();

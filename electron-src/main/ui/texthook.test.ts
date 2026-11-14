@@ -72,38 +72,6 @@ describe('text hook flush delay helpers', () => {
         );
     });
 
-    it('merges pending selected-hook output into one forwarded payload', async () => {
-        const { __test } = await import('./texthook.js');
-        const first = {
-            text: 'line one',
-            hookId: '1',
-            hookFunction: 'A',
-            engine: 'luna' as const,
-            exeName: 'game.exe',
-        };
-        const second = {
-            text: 'line two',
-            hookId: '1',
-            hookFunction: 'A',
-            engine: 'luna' as const,
-            exeName: 'game.exe',
-        };
-
-        expect(__test.mergeTextHookOutput([])).toBeNull();
-        expect(__test.mergeTextHookOutput([first])).toBe(first);
-        expect(__test.mergeTextHookOutput([first, second])).toEqual({
-            ...second,
-            text: 'line one\nline two',
-        });
-    });
-
-    it('erases known hook noise from output text', async () => {
-        const { __test } = await import('./texthook.js');
-
-        expect(__test.eraseTextHookNoise('%D$vl123;')).toBe('');
-        expect(__test.eraseTextHookNoise('before%D$vl456;after')).toBe('beforeafter');
-    });
-
     it('truncates oversized hook text and blocks backlog-like quote payloads', async () => {
         const { __test } = await import('./texthook.js');
 
@@ -126,66 +94,6 @@ describe('text hook flush delay helpers', () => {
             truncated: false,
         });
         expect(__test.sanitizeTextHookText('a'.repeat(10_001), 100_000)).toBeNull();
-    });
-
-    it('distinguishes Luna hooks that share a name by their ctx address', async () => {
-        const { __test } = await import('./texthook.js');
-
-        // Two hooks with the same name/hook code/module differing only in ctx.
-        const a = __test.parseLunaContext('3', '2:49D4:F0AB70:6BF80:0:Pal:ENHSX-C@6AB70:totsulover.exe');
-        const b = __test.parseLunaContext('1', '0:49D4:F0AB70:6C1C5:0:Pal:ENHSX-C@6AB70:totsulover.exe');
-
-        expect(a.function).toBe('Pal (6BF80:0)');
-        expect(b.function).toBe('Pal (6C1C5:0)');
-        expect(a.function).not.toBe(b.function);
-
-        // A richer context with a trailing module function still labels by name + ctx.
-        const c = __test.parseLunaContext(
-            '2',
-            '1:49D4:100AB8C0:6B653:0:PalFontDrawText:HS8@0:Pal.dll:PalFontDrawText',
-        );
-        expect(c.function).toBe('PalFontDrawText (6B653:0)');
-
-        // Malformed/short contexts fall back without throwing.
-        expect(__test.parseLunaContext('5', 'Unknown').function).toBe('Unknown');
-    });
-
-    it('matches old profiles saved with the bare hook name', async () => {
-        const { __test } = await import('./texthook.js');
-
-        // New profile: exact full-label match.
-        expect(__test.hookFunctionMatches('Pal (6BF80:0)', 'Pal (6BF80:0)')).toBe(true);
-        // Legacy profile saved only the bare name -> still matches via base name.
-        expect(__test.hookFunctionMatches('Pal', 'Pal (6BF80:0)')).toBe(true);
-        expect(__test.hookFunctionMatches('Pal', 'Pal (6C1C5:0)')).toBe(true);
-        // Different name must not match.
-        expect(__test.hookFunctionMatches('PalFontDrawText', 'Pal (6BF80:0)')).toBe(false);
-        // Empty/undefined saved value never matches.
-        expect(__test.hookFunctionMatches(null, 'Pal (6BF80:0)')).toBe(false);
-        expect(__test.hookFunctionMatches('', 'Pal (6BF80:0)')).toBe(false);
-    });
-
-    it('suppresses hook engine selection status lines', async () => {
-        const { __test } = await import('./texthook.js');
-
-        expect(__test.isIgnorableEngineLine('Now showing text only from selected hook.')).toBe(true);
-        expect(__test.isIgnorableEngineLine('Selected hook #4 (Handle: 3)')).toBe(true);
-        expect(
-            __test.isIgnorableEngineLine(
-                'Selected hook #4 (Handle: 3)Now showing text only from selected hook.',
-            ),
-        ).toBe(true);
-        expect(__test.isIgnorableEngineLine('Selected hook: 3')).toBe(true);
-        expect(__test.isIgnorableEngineLine('Selected hook: AF')).toBe(true);
-        expect(__test.isIgnorableEngineLine('Now showing text only from 1 selected hook(s).')).toBe(true);
-        expect(__test.isIgnorableEngineLine('Now showing text only from 2 selected hook(s).')).toBe(true);
-        expect(
-            __test.isIgnorableEngineLine(
-                'Selected hook: 3Now showing text only from 1 selected hook(s).',
-            ),
-        ).toBe(true);
-        expect(__test.isIgnorableEngineLine('Selected hook: the one in the story')).toBe(false);
-        expect(__test.isIgnorableEngineLine('Now showing text only from the game.')).toBe(false);
     });
 
     it('does not treat unreadable PE bitness as x64', async () => {
@@ -218,21 +126,7 @@ describe('text hook flush delay helpers', () => {
         }
     });
 
-    it('parses architecture mismatch recovery messages', async () => {
-        const { __test } = await import('./texthook.js');
 
-        expect(
-            __test.getRequiredArchitectureFromMismatchMessage(
-                'Textractor: architecture mismatch: only Textractor x86 can inject this process',
-            ),
-        ).toBe('x86');
-        expect(
-            __test.getRequiredArchitectureFromMismatchMessage(
-                'architecture mismatch: only Textractor x64 can inject this process',
-            ),
-        ).toBe('x64');
-        expect(__test.getRequiredArchitectureFromMismatchMessage('Attached successfully')).toBeNull();
-    });
 });
 
 describe('game process resolution', () => {

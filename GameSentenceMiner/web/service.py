@@ -19,7 +19,8 @@ from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.media.screenshot_selection import ScreenshotSelectionResult
 from GameSentenceMiner.util.media.audio_player import AudioPlayer
 from GameSentenceMiner.util.media.ffmpeg import get_video_timings
-from GameSentenceMiner.util.platform import notification
+from GameSentenceMiner.util.communication import desktop_events
+from GameSentenceMiner.util import anki_actions
 from GameSentenceMiner.util.text_log import GameLine, TextSource
 
 
@@ -515,13 +516,13 @@ def handle_texthooker_button(video_path=""):
                     last_note = anki.get_last_anki_card()
                     if last_note:
                         anki.add_image_to_card(last_note, encoded_image)
-                        notification.send_screenshot_updated(last_note.get_field(get_config().anki.word_field))
+                        desktop_events.screenshot_updated(last_note.noteId)
                         if get_config().features.open_anki_edit:
-                            notification.open_anki_card(last_note.noteId)
+                            anki_actions.open_anki_card(last_note.noteId)
                     else:
-                        notification.send_screenshot_saved(display_path)
+                        desktop_events.screenshot_saved(display_path)
                 else:
-                    notification.send_screenshot_saved(display_path)
+                    desktop_events.screenshot_saved(display_path)
             else:
                 os.startfile(
                     screenshot.items[0].path if isinstance(screenshot, ScreenshotSelectionResult) else screenshot

@@ -1,4 +1,4 @@
-import { app, dialog, Notification } from 'electron';
+import { app, dialog } from 'electron';
 import electronUpdater, { type AppUpdater } from 'electron-updater';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -10,20 +10,12 @@ import {
     BASE_DIR,
     PACKAGE_NAME,
 } from '../util.js';
-import { getPullPreReleases, getPythonExtras, setPythonExtras } from '../store.js';
+import { getPullPreReleases, getPythonExtras } from '../store.js';
 import { checkForUpdates } from '../update_checker.js';
-import {
-    checkAndInstallUV,
-    cleanUvCache,
-    getBundledBackendSpecifier,
-    getInstalledPackageVersion,
-    installPackageNoDeps,
-    resolveRequestedExtras,
-    syncLockedEnvironment,
-} from './python_ops.js';
+import { getInstalledPackageVersion } from './python_ops.js';
+import {pythonCall} from '../runtime/native_python_install.js';
 import { devFaultInjector } from './dev_fault_injection.js';
 import Logger from 'electron-log';
-import { shouldAutoRebuildManagedPythonEnv } from './managed_python_repair.js';
 import { installSessionManager } from './install_session_state.js';
 import type { AppUpdateStatus } from '../../shared/app_update.js';
 
@@ -32,14 +24,12 @@ export type { AppUpdateStatus } from '../../shared/app_update.js';
 type EnsureAndRunFn = (pythonPath: string) => Promise<void>;
 type CloseAllFn = () => Promise<void>;
 type PythonPathGetter = () => string;
-type ReinstallPythonFn = () => Promise<void>;
 
 interface UpdateManagerDependencies {
     getPythonPath: PythonPathGetter;
     closeAllPythonProcesses: CloseAllFn;
     closeAllForAppUpdate: CloseAllFn;
     ensureAndRunGSM: EnsureAndRunFn;
-    reinstallPython: ReinstallPythonFn;
 }
 
 export interface BackendUpdateStatus {
@@ -64,13 +54,6 @@ function toErrorMessage(error: unknown): string {
     return String(error);
 }
 
-function emitUpdateProgress(current: number, total: number, label: string): void {
-    const safeTotal = Math.max(1, total);
-    const safeCurrent = Math.max(0, Math.min(current, safeTotal));
-    const text = label.trim();
-    console.log(`UpdateProgress: ${safeCurrent}/${safeTotal} ${text}`);
-}
-
 function updateInstallStage(
     stageId: 'prepare' | 'uv' | 'python' | 'venv' | 'verify_runtime' | 'lock_sync' | 'gsm_package' | 'backend_boot' | 'obs' | 'ffmpeg' | 'oneocr' | 'finalize',
     status: 'pending' | 'running' | 'completed' | 'skipped' | 'failed',
@@ -89,11 +72,12 @@ function updateInstallStage(
     });
 }
 
-function startBackendUpdateSession(retryHandler: () => Promise<void>): void {
-    installSessionManager.ensureSession('backend_update', retryHandler);
+function startBackendUpdateSession(retryHandler: () => Promise<void>) {
+    const session=installSessionManager.ensureSession('backend_update', retryHandler);
     updateInstallStage('prepare', 'completed', 'estimated', 1, 'Backend update session prepared.');
     updateInstallStage('python', 'skipped', 'indeterminate', 1, 'Managed Python runtime already installed.');
     updateInstallStage('venv', 'skipped', 'indeterminate', 1, 'Virtual environment already exists.');
+    return {sessionId:session.id,attempt:session.attempt ?? 1};
 }
 
 function getAutoUpdater(forceDev: boolean = false): AppUpdater {
@@ -318,378 +302,42 @@ export class UpdateManager {
         await this.gsmUpdatePromise;
     }
 
-    private async updateGSMInternal(
-        shouldRestart: boolean = false,
-        force: boolean = false,
-        autoRepairAttemptsRemaining: number = 1
-    ): Promise<void> {
-        startBackendUpdateSession(async () => {
-            await this.updateGSMInternal(shouldRestart, force, 1);
-        });
+    private async updateGSMInternal(shouldRestart=false, force=false): Promise<void> {
+        const lease=startBackendUpdateSession(() => this.updateGSM(shouldRestart, force));
         this.isUpdating = true;
         this.lastBackendUpdateSucceeded = false;
         this.lastBackendUpdateError = null;
-        this.backendStatusCache = {
-            ...this.backendStatusCache,
-            checking: true,
-            error: null,
-        };
-
-        const pythonPath = this.deps.getPythonPath();
-        if (!pythonPath) {
-            this.lastBackendUpdateError = 'pythonPath is not initialized';
-            this.backendStatusCache = {
-                ...this.backendStatusCache,
-                checkedAt: new Date().toISOString(),
-                error: this.lastBackendUpdateError,
-                updateAvailable: false,
-                checking: false,
-            };
-            log.warn('Skipping Python update because pythonPath is not initialized yet.');
-            updateInstallStage('finalize', 'failed', 'estimated', null, 'Backend update failed.', this.lastBackendUpdateError);
-            installSessionManager.finishActive('failed', 'Backend update failed.', this.lastBackendUpdateError);
-            this.isUpdating = false;
-            return;
-        }
-
-        log.info(
-            `Starting Python update internal process. force=${force}, restart=${shouldRestart}`
-        );
-
+        this.backendStatusCache = {...this.backendStatusCache,checking:true,error:null};
         try {
-            while (true) {
-                const totalSteps = shouldRestart ? 7 : 6;
-                emitUpdateProgress(1, totalSteps, 'Checking for backend updates');
-
-                const installedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-
-                devFaultInjector.maybeFail('update.check_for_updates');
-                const versionCheck = await checkForUpdates(false, installedVersion);
-                const updateAvailable = versionCheck.updateAvailable;
-                const latestVersion = versionCheck.latestVersion;
-
-                log.info(
-                    `Backend version check: installed=${installedVersion ?? 'not installed'}, ` +
-                        `bundled=${latestVersion ?? 'unknown'}, updateAvailable=${updateAvailable}, force=${force}`
-                );
-                this.backendStatusCache = {
-                    currentVersion: installedVersion,
-                    latestVersion,
-                    updateAvailable: updateAvailable || force,
-                    checkedAt: new Date().toISOString(),
-                    error: null,
-                    checking: true,
-                };
-
-                // Resolve extras once and warn about any unsupported ones.
-                const { selectedExtras, ignoredExtras, allowedExtras } = resolveRequestedExtras(
-                    getPythonExtras()
-                );
-                if (ignoredExtras.length > 0) {
-                    setPythonExtras(selectedExtras);
-                    log.warn(
-                        `Dropped unsupported extras (${ignoredExtras.join(', ')}). Allowed: ${
-                            allowedExtras && allowedExtras.length > 0 ? allowedExtras.join(', ') : 'none'
-                        }.`
-                    );
-                }
-
-                if (updateAvailable || force) {
-                    emitUpdateProgress(2, totalSteps, 'Stopping running backend processes');
-                    updateInstallStage(
-                        'verify_runtime',
-                        'running',
-                        'estimated',
-                        0.1,
-                        'Stopping running backend processes before updating...'
-                    );
-                    devFaultInjector.maybeFail('update.close_running_processes');
-                    await this.deps.closeAllPythonProcesses();
-                    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-                    emitUpdateProgress(3, totalSteps, 'Ensuring uv runtime tooling');
-                    devFaultInjector.maybeFail('update.ensure_uv');
-                    updateInstallStage(
-                        'verify_runtime',
-                        'running',
-                        'estimated',
-                        0.35,
-                        'Ensuring uv runtime tooling...'
-                    );
-                    await checkAndInstallUV(pythonPath);
-                    updateInstallStage(
-                        'verify_runtime',
-                        'completed',
-                        'estimated',
-                        1,
-                        'uv runtime tooling is ready.'
-                    );
-
-                    // Stable builds install the newest compatible base/post
-                    // release from PyPI; prerelease builds track their branch.
-                    const packageSpecifier = getBundledBackendSpecifier();
-
-                    log.info(
-                        `Syncing environment and installing ${packageSpecifier} with extras: ${
-                            selectedExtras.length > 0 ? selectedExtras.join(', ') : 'none'
-                        }`
-                    );
-
-                    try {
-                        emitUpdateProgress(4, totalSteps, 'Syncing dependencies from lockfile');
-                        devFaultInjector.maybeFail('update.sync_lockfile');
-                        updateInstallStage(
-                            'lock_sync',
-                            'running',
-                            'estimated',
-                            0.15,
-                            'Syncing dependencies from the lockfile...'
-                        );
-                        await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
-                            updateInstallStage(
-                                'lock_sync',
-                                'running',
-                                'estimated',
-                                event.progress,
-                                event.message
-                            );
-                        }, { deferValidation: true });
-                        updateInstallStage(
-                            'lock_sync',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Dependencies synced from the lockfile.'
-                        );
-                        devFaultInjector.maybeFail('update.install_package');
-                        updateInstallStage(
-                            'gsm_package',
-                            'running',
-                            'estimated',
-                            0.15,
-                            `Installing ${packageSpecifier}...`
-                        );
-                        await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
-                            updateInstallStage(
-                                'gsm_package',
-                                'running',
-                                'estimated',
-                                event.progress,
-                                event.message
-                            );
-                        }, selectedExtras);
-                        updateInstallStage(
-                            'gsm_package',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Backend package updated.'
-                        );
-                    } catch (err) {
-                        log.error('Sync failed, cleaning uv cache and retrying once.', err);
-                        emitUpdateProgress(4, totalSteps, 'Retrying sync after cache clean');
-                        devFaultInjector.maybeFail('update.retry.clean_uv_cache');
-                        updateInstallStage(
-                            'lock_sync',
-                            'running',
-                            'estimated',
-                            0.25,
-                            'Retrying dependency sync after cleaning the uv cache...'
-                        );
-                        await cleanUvCache(pythonPath);
-                        devFaultInjector.maybeFail('update.retry.sync_lockfile');
-                        await syncLockedEnvironment(pythonPath, selectedExtras, false, (event) => {
-                            updateInstallStage(
-                                'lock_sync',
-                                'running',
-                                'estimated',
-                                event.progress,
-                                event.message
-                            );
-                        }, { deferValidation: true });
-                        updateInstallStage(
-                            'lock_sync',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Dependencies synced from the lockfile.'
-                        );
-                        devFaultInjector.maybeFail('update.retry.install_package');
-                        updateInstallStage(
-                            'gsm_package',
-                            'running',
-                            'estimated',
-                            0.2,
-                            `Installing ${packageSpecifier} after retry...`
-                        );
-                        await installPackageNoDeps(pythonPath, packageSpecifier, true, (event) => {
-                            updateInstallStage(
-                                'gsm_package',
-                                'running',
-                                'estimated',
-                                event.progress,
-                                event.message
-                            );
-                        }, selectedExtras);
-                        updateInstallStage(
-                            'gsm_package',
-                            'completed',
-                            'estimated',
-                            1,
-                            'Backend package updated.'
-                        );
-                    }
-
-                    // Reclaim disk: drop any uv package cache (e.g. left by older
-                    // releases) now that the venv is synced. Best-effort.
-                    await cleanUvCache(pythonPath);
-
-                    const updatedVersion = await getInstalledPackageVersion(pythonPath, PACKAGE_NAME);
-                    log.info(
-                        `Backend version after update attempt: ${
-                            updatedVersion ?? 'unknown (pip show did not return a version)'
-                        }`
-                    );
-                    this.backendStatusCache = {
-                        currentVersion: updatedVersion,
-                        latestVersion,
-                        updateAvailable: false,
-                        checkedAt: new Date().toISOString(),
-                        error: null,
-                        checking: true,
-                    };
-
-                    emitUpdateProgress(5, totalSteps, 'Finalizing backend update');
-                    new Notification({
-                        title: 'Backend Synced',
-                        body: `${APP_NAME} backend has been synced successfully.`,
-                        timeoutType: 'default',
-                    }).show();
-
-                    if (shouldRestart) {
-                        emitUpdateProgress(6, totalSteps, 'Restarting backend process');
-                        devFaultInjector.maybeFail('update.restart_backend');
-                        updateInstallStage(
-                            'backend_boot',
-                            'running',
-                            'estimated',
-                            0.15,
-                            'Restarting the GSM backend process...'
-                        );
-                        void this.deps
-                            .ensureAndRunGSM(pythonPath)
-                            .then(() => {
-                                log.info('GSM backend process exited after update-triggered restart.');
-                            })
-                            .catch((restartError) => {
-                                log.error(
-                                    `Failed to restart GSM backend after update: ${toErrorMessage(
-                                        restartError
-                                    )}`
-                                );
-                            });
-                        log.info('GSM backend restart initiated after update.');
-                        emitUpdateProgress(7, totalSteps, 'Update complete');
-                    } else {
-                        updateInstallStage('backend_boot', 'skipped', 'indeterminate', 1, 'Backend restart was not requested.');
-                        updateInstallStage('obs', 'skipped', 'indeterminate', 1, 'OBS dependency checks were skipped.');
-                        updateInstallStage('ffmpeg', 'skipped', 'indeterminate', 1, 'FFmpeg dependency checks were skipped.');
-                        updateInstallStage('oneocr', 'skipped', 'indeterminate', 1, 'OneOCR dependency checks were skipped.');
-                        updateInstallStage('finalize', 'completed', 'estimated', 1, 'Backend update complete.');
-                        installSessionManager.finishActive('completed', 'Backend update complete.');
-                        emitUpdateProgress(6, totalSteps, 'Update complete');
-                    }
-                } else {
-                    log.info('Python backend is already up-to-date.');
-                    this.backendStatusCache = {
-                        currentVersion: installedVersion,
-                        latestVersion,
-                        updateAvailable: false,
-                        checkedAt: new Date().toISOString(),
-                        error: null,
-                        checking: true,
-                    };
-                    updateInstallStage('verify_runtime', 'skipped', 'indeterminate', 1, 'No backend update was required.');
-                    updateInstallStage('lock_sync', 'skipped', 'indeterminate', 1, 'Dependencies are already up to date.');
-                    updateInstallStage('gsm_package', 'skipped', 'indeterminate', 1, 'Backend package is already up to date.');
-                    updateInstallStage('backend_boot', 'skipped', 'indeterminate', 1, 'Backend restart was not required.');
-                    updateInstallStage('obs', 'skipped', 'indeterminate', 1, 'OBS dependency checks were skipped.');
-                    updateInstallStage('ffmpeg', 'skipped', 'indeterminate', 1, 'FFmpeg dependency checks were skipped.');
-                    updateInstallStage('oneocr', 'skipped', 'indeterminate', 1, 'OneOCR dependency checks were skipped.');
-                    updateInstallStage('finalize', 'completed', 'estimated', 1, 'Backend update complete.');
-                    installSessionManager.finishActive('completed', 'Backend update complete.');
-                    emitUpdateProgress(1, 1, 'Python backend is already up to date');
-                }
-
-                this.lastBackendUpdateSucceeded = true;
-                this.lastBackendUpdateError = null;
-                return;
-            }
-
-        } catch (error) {
-            if (
-                autoRepairAttemptsRemaining > 0 &&
-                shouldAutoRebuildManagedPythonEnv(error)
-            ) {
-                const originalErrorMessage = toErrorMessage(error);
-                log.warn(
-                    `Backend update hit a broken managed Python environment. Rebuilding python_venv and retrying once. Reason: ${originalErrorMessage}`
-                );
-
-                try {
-                    emitUpdateProgress(1, 1, 'Repairing managed Python environment');
-                    await this.deps.closeAllPythonProcesses();
-                    await this.deps.reinstallPython();
-                    log.info('Managed Python environment rebuilt successfully. Retrying backend update.');
-                    return await this.updateGSMInternal(
-                        shouldRestart,
-                        force,
-                        autoRepairAttemptsRemaining - 1
-                    );
-                } catch (repairError) {
-                    const repairMessage = toErrorMessage(repairError);
-                    error = new Error(
-                        `Automatic python_venv rebuild failed after update error "${originalErrorMessage}": ${repairMessage}`
-                    );
-                    log.error(String(error), repairError);
-                }
-            }
-
-            this.lastBackendUpdateSucceeded = false;
-            this.lastBackendUpdateError = toErrorMessage(error);
-            updateInstallStage('finalize', 'failed', 'estimated', null, 'Backend update failed.', this.lastBackendUpdateError);
-            installSessionManager.finishActive('failed', 'Backend update failed.', this.lastBackendUpdateError);
-            this.backendStatusCache = {
-                ...this.backendStatusCache,
-                checkedAt: new Date().toISOString(),
-                error: this.lastBackendUpdateError,
-                updateAvailable: false,
-            };
-            log.error(
-                `An error occurred during the Python update process: ${this.lastBackendUpdateError}`,
-                error
-            );
-            emitUpdateProgress(1, 1, 'Python backend update failed');
-            try {
-                new Notification({
-                    title: 'Backend Sync Failed',
-                    body: `${APP_NAME} backend sync failed. Check logs for details.`,
-                    timeoutType: 'default',
-                }).show();
-            } catch (notificationError) {
-                log.warn(
-                    `Failed to display update failure notification: ${toErrorMessage(
-                        notificationError
-                    )}`
-                );
-            }
-        } finally {
-            this.isUpdating = false;
-            this.backendStatusCache = {
-                ...this.backendStatusCache,
-                checking: false,
-            };
-            log.info('Finished Python update internal process.');
+            const pythonPath=this.deps.getPythonPath();
+            if(!pythonPath)throw new Error('pythonPath is not initialized');
+            devFaultInjector.maybeFail('update.check_for_updates');
+            const check=await pythonCall<{currentVersion:string|null;latestVersion:string;updateAvailable:boolean}>('updateCheck',{pythonPath,force});
+            this.backendStatusCache={...this.backendStatusCache,...check,checkedAt:new Date().toISOString()};
+            if(check.updateAvailable){
+                devFaultInjector.maybeFail('update.close_running_processes');
+                await this.deps.closeAllPythonProcesses();
+                const result=await pythonCall<{pythonPath:string;installedVersion:string|null;latestVersion:string}>('maintain',{mode:'update',pythonPath,force,extras:getPythonExtras()});
+                this.backendStatusCache={...this.backendStatusCache,currentVersion:result.installedVersion,latestVersion:result.latestVersion,updateAvailable:false};
+                if(shouldRestart){
+                    devFaultInjector.maybeFail('update.restart_backend');
+                    // This adapter still coordinates the application's launch.
+                    // Native session events report when initialization completes.
+                    void this.deps.ensureAndRunGSM(result.pythonPath).catch(error=>{
+                        log.error('Backend launch after update failed',error);
+                        installSessionManager.finishAttempt(lease,'failed','Backend restart failed.',toErrorMessage(error));
+                    });
+                }else installSessionManager.finishActive('completed','Backend update complete.');
+            }else installSessionManager.finishActive('completed','Python backend is already up to date.');
+            this.lastBackendUpdateSucceeded=true;
+        }catch(error){
+            this.lastBackendUpdateError=toErrorMessage(error);
+            this.backendStatusCache={...this.backendStatusCache,error:this.lastBackendUpdateError,updateAvailable:false,checkedAt:new Date().toISOString()};
+            installSessionManager.finishActive('failed','Backend update failed.',this.lastBackendUpdateError);
+            log.error('Python backend update failed',error);
+        }finally{
+            this.isUpdating=false;
+            this.backendStatusCache={...this.backendStatusCache,checking:false};
         }
     }
 

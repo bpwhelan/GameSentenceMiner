@@ -1,0 +1,3134 @@
+{
+  "date_local": "2026-11-11",
+  "timezone": "America/New_York",
+  "base_commit": "cc3e429e39c4cce0bf3341910ed53f495571961e",
+  "workspace": "Uncommitted implementation; base commit is not a release/build identifier.",
+  "worker_executable_sha256_prefix": "16ac736d831fe21dbca2",
+  "fixture_sha256": "bdbdf607d74ee7cb95d4b4a651b90a6a2dd3e8d662a6a4e10cc4bd87722f5f42",
+  "methodology": {
+    "capture": "Persistent Windows Graphics Capture of a separate 1920x1080 window displaying a real recorded game frame.",
+    "engine_configuration": "Japanese; full scale; furigana threshold 0; same locally installed ScreenAI / OneOCR models and DLLs.",
+    "area_xywh": [
+      480,
+      340,
+      530,
+      300
+    ],
+    "warm_samples_per_run": 20,
+    "sleep_after_each_scan_seconds": 0.5,
+    "warmup": "One cold scan excluded. Aggregate warm CPU/wall interval includes the sleep following warmup and 20 scan/sleep cycles.",
+    "cpu": "Process user+kernel CPU seconds / elapsed seconds; total_machine_percent additionally divides by 16 logical CPUs.",
+    "percentile": "Median is the arithmetic mean of the two middle samples; p95 uses nearest rank.",
+    "quality": "Normalized Japanese lines match between Python/Rust for each engine and crop. Whitespace, punctuation, paragraph markers and English-only UI lines are excluded from this comparison.",
+    "worker_scope": "Rust desktop parent process only; does not include Node service, Python backend, OBS, GPU or fixture processes.",
+    "limitations": "One machine, one Japanese game frame, normal desktop load. Worker additionally checks changing pixels, pause, manual scan, preview, and stop. Not a long continuous gameplay, mixed-DPI, or cross-platform benchmark."
+  },
+  "summary": {
+    "cpu": "AMD Ryzen 7 5800X 8-Core Processor",
+    "logical_cpus": 16,
+    "platform": "10.0.26300",
+    "source": "tests/assets/Replay_2025-12-19_22-24-52.mov at 5 seconds",
+    "results": [
+      {
+        "scenario": "full",
+        "runtime": "python",
+        "engine": "screenai",
+        "median_ms": 301.3609999907203,
+        "p95_ms": 332.94889994431287,
+        "median_capture_ms": 4.163900041021407,
+        "cpu_seconds": 7.765625,
+        "one_core_percent": 46.77562081727234,
+        "total_machine_percent": 2.9234763010795213,
+        "samples": 20,
+        "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる"
+      },
+      {
+        "scenario": "full",
+        "runtime": "rust",
+        "engine": "screenai",
+        "median_ms": 324.8557,
+        "p95_ms": 378.8695,
+        "median_capture_ms": 5.61165,
+        "cpu_seconds": 7.75,
+        "one_core_percent": 45.472670781108235,
+        "total_machine_percent": 2.8420419238192647,
+        "samples": 20,
+        "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+        "same_japanese_text": true
+      },
+      {
+        "scenario": "area",
+        "runtime": "python",
+        "engine": "screenai",
+        "median_ms": 221.8394000083208,
+        "p95_ms": 231.91850003786385,
+        "median_capture_ms": 3.6855999496765435,
+        "cpu_seconds": 6.375,
+        "one_core_percent": 42.66856101274676,
+        "total_machine_percent": 2.6667850632966723,
+        "samples": 20,
+        "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。"
+      },
+      {
+        "scenario": "area",
+        "runtime": "rust",
+        "engine": "screenai",
+        "median_ms": 221.45385,
+        "p95_ms": 228.7822,
+        "median_capture_ms": 5.0563,
+        "cpu_seconds": 5.953125,
+        "one_core_percent": 39.890888214529106,
+        "total_machine_percent": 2.493180513408069,
+        "samples": 20,
+        "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+        "same_japanese_text": true
+      },
+      {
+        "scenario": "full",
+        "runtime": "python",
+        "engine": "oneocr",
+        "median_ms": 215.88100004009902,
+        "p95_ms": 228.54230005759746,
+        "median_capture_ms": 3.7105000228621066,
+        "cpu_seconds": 23.046875,
+        "one_core_percent": 155.24915867009875,
+        "total_machine_percent": 9.703072416881172,
+        "samples": 20,
+        "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる"
+      },
+      {
+        "scenario": "full",
+        "runtime": "rust",
+        "engine": "oneocr",
+        "median_ms": 215.73360000000002,
+        "p95_ms": 224.9548,
+        "median_capture_ms": 5.09285,
+        "cpu_seconds": 20.125,
+        "one_core_percent": 135.5264614793122,
+        "total_machine_percent": 8.470403842457012,
+        "samples": 20,
+        "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+        "same_japanese_text": true
+      },
+      {
+        "scenario": "area",
+        "runtime": "python",
+        "engine": "oneocr",
+        "median_ms": 150.92255000490695,
+        "p95_ms": 154.61969992611557,
+        "median_capture_ms": 3.566449973732233,
+        "cpu_seconds": 12.15625,
+        "one_core_percent": 90.0798320166625,
+        "total_machine_percent": 5.629989501041406,
+        "samples": 20,
+        "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。"
+      },
+      {
+        "scenario": "area",
+        "runtime": "rust",
+        "engine": "oneocr",
+        "median_ms": 149.11149999999998,
+        "p95_ms": 155.02089999999998,
+        "median_capture_ms": 4.954699999999999,
+        "cpu_seconds": 11.515625,
+        "one_core_percent": 85.48635215607484,
+        "total_machine_percent": 5.342897009754678,
+        "samples": 20,
+        "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+        "same_japanese_text": true
+      }
+    ]
+  },
+  "runs": [
+    {
+      "runtime": "python",
+      "engine": "screenai",
+      "samples": [
+        {
+          "capture_ms": 4.532199935056269,
+          "total_ms": 332.94889994431287,
+          "cpu_ms": 406.25,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 5.605299957096577,
+          "total_ms": 342.9980999790132,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.958699991926551,
+          "total_ms": 314.79199999012053,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.320600022561848,
+          "total_ms": 292.93070000130683,
+          "cpu_ms": 359.375,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.928299993276596,
+          "total_ms": 287.4407999916002,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.638099995441735,
+          "total_ms": 287.4115000013262,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.271300043910742,
+          "total_ms": 311.6905000060797,
+          "cpu_ms": 406.25,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.80469998344779,
+          "total_ms": 289.7655999986455,
+          "cpu_ms": 359.375,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.348999937064946,
+          "total_ms": 304.2406999738887,
+          "cpu_ms": 343.75,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.339200095273554,
+          "total_ms": 297.5778999971226,
+          "cpu_ms": 390.625,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.153500078245997,
+          "total_ms": 296.77610006183386,
+          "cpu_ms": 390.625,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.637800040654838,
+          "total_ms": 304.4432000024244,
+          "cpu_ms": 343.75,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.355299985036254,
+          "total_ms": 300.81279994919896,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.9158000145107508,
+          "total_ms": 301.90920003224164,
+          "cpu_ms": 312.5,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.2522999681532383,
+          "total_ms": 310.5457000201568,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.174300003796816,
+          "total_ms": 299.6162000345066,
+          "cpu_ms": 375.0,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.379400004632771,
+          "total_ms": 313.9713999116793,
+          "cpu_ms": 406.25,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.3475000420585275,
+          "total_ms": 289.2693999456242,
+          "cpu_ms": 578.125,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.471800057217479,
+          "total_ms": 313.3242999901995,
+          "cpu_ms": 406.25,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.358999965712428,
+          "total_ms": 295.5504999263212,
+          "cpu_ms": 390.625,
+          "text": "登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n● 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "wall_seconds": 16.601864099968225,
+      "cpu_seconds": 7.765625,
+      "one_core_percent": 46.77562081727234,
+      "logical_cpus": 16,
+      "total_machine_percent": 2.9234763010795213,
+      "scenario": "full"
+    },
+    {
+      "cpu_seconds": 7.75,
+      "engine": "screenai",
+      "logical_cpus": 16,
+      "one_core_percent": 45.472670781108235,
+      "runtime": "rust",
+      "samples": [
+        {
+          "capture_ms": 4.6108,
+          "cpu_ms": 359.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 289.26800000000003
+        },
+        {
+          "capture_ms": 5.2889,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 276.2617
+        },
+        {
+          "capture_ms": 5.0205,
+          "cpu_ms": 343.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 286.6306
+        },
+        {
+          "capture_ms": 5.8708,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 300.4004
+        },
+        {
+          "capture_ms": 6.0920000000000005,
+          "cpu_ms": 359.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 370.4721
+        },
+        {
+          "capture_ms": 5.398,
+          "cpu_ms": 421.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 328.2744
+        },
+        {
+          "capture_ms": 5.1988,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 318.78000000000003
+        },
+        {
+          "capture_ms": 5.9314,
+          "cpu_ms": 421.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 372.19649999999996
+        },
+        {
+          "capture_ms": 6.5001,
+          "cpu_ms": 437.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 378.8695
+        },
+        {
+          "capture_ms": 7.082,
+          "cpu_ms": 375.0,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 335.82250000000005
+        },
+        {
+          "capture_ms": 5.1023,
+          "cpu_ms": 359.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 332.75300000000004
+        },
+        {
+          "capture_ms": 5.8253,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 327.2364
+        },
+        {
+          "capture_ms": 6.2447,
+          "cpu_ms": 406.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 313.9254
+        },
+        {
+          "capture_ms": 7.2837,
+          "cpu_ms": 421.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 332.22020000000003
+        },
+        {
+          "capture_ms": 5.9795,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 354.2311
+        },
+        {
+          "capture_ms": 5.275099999999999,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 322.475
+        },
+        {
+          "capture_ms": 6.4505,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 312.3606
+        },
+        {
+          "capture_ms": 5.3596,
+          "cpu_ms": 421.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 397.22220000000004
+        },
+        {
+          "capture_ms": 4.997599999999999,
+          "cpu_ms": 375.0,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 285.2543
+        },
+        {
+          "capture_ms": 5.1194999999999995,
+          "cpu_ms": 359.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "ACTIVETTME LOW\nRemote Play\n登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n● 閉じる",
+          "total_ms": 286.46700000000004
+        }
+      ],
+      "total_machine_percent": 2.8420419238192647,
+      "wall_seconds": 17.0432039,
+      "scenario": "full"
+    },
+    {
+      "runtime": "python",
+      "engine": "screenai",
+      "samples": [
+        {
+          "capture_ms": 3.737499937415123,
+          "total_ms": 204.43519996479154,
+          "cpu_ms": 390.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.908799961209297,
+          "total_ms": 202.5363000575453,
+          "cpu_ms": 218.75,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.396600019186735,
+          "total_ms": 219.9623000342399,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.2785000512376428,
+          "total_ms": 217.141899978742,
+          "cpu_ms": 281.25,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.379300051368773,
+          "total_ms": 218.35780004039407,
+          "cpu_ms": 312.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.172099939547479,
+          "total_ms": 235.484299948439,
+          "cpu_ms": 328.125,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.4404000034555793,
+          "total_ms": 227.7959999628365,
+          "cpu_ms": 312.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.3839999232441187,
+          "total_ms": 215.5835999874398,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.0030999332666397,
+          "total_ms": 224.32169993408024,
+          "cpu_ms": 250.0,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.8568000309169292,
+          "total_ms": 222.7299000369385,
+          "cpu_ms": 312.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.36449989117682,
+          "total_ms": 230.28419993352145,
+          "cpu_ms": 281.25,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.137400072067976,
+          "total_ms": 231.32600006647408,
+          "cpu_ms": 281.25,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.435300081036985,
+          "total_ms": 225.5388000048697,
+          "cpu_ms": 500.0,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.633699961937964,
+          "total_ms": 231.91850003786385,
+          "cpu_ms": 312.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.67439997009933,
+          "total_ms": 219.07740004826337,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 5.251100054010749,
+          "total_ms": 212.60119997896254,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.8913999451324344,
+          "total_ms": 223.29719993285835,
+          "cpu_ms": 484.375,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.941599978134036,
+          "total_ms": 228.9341000141576,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.178000031970441,
+          "total_ms": 220.94889997970313,
+          "cpu_ms": 281.25,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.1115999445319176,
+          "total_ms": 217.63660002034158,
+          "cpu_ms": 296.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        }
+      ],
+      "wall_seconds": 14.940742899896577,
+      "cpu_seconds": 6.375,
+      "one_core_percent": 42.66856101274676,
+      "logical_cpus": 16,
+      "total_machine_percent": 2.6667850632966723,
+      "scenario": "area"
+    },
+    {
+      "cpu_seconds": 5.953125,
+      "engine": "screenai",
+      "logical_cpus": 16,
+      "one_core_percent": 39.890888214529106,
+      "runtime": "rust",
+      "samples": [
+        {
+          "capture_ms": 5.0713,
+          "cpu_ms": 265.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 204.8361
+        },
+        {
+          "capture_ms": 5.8015,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 214.7194
+        },
+        {
+          "capture_ms": 5.2198,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 207.98510000000002
+        },
+        {
+          "capture_ms": 5.1272,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 222.6033
+        },
+        {
+          "capture_ms": 4.582400000000001,
+          "cpu_ms": 281.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 217.6834
+        },
+        {
+          "capture_ms": 5.041300000000001,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 222.5017
+        },
+        {
+          "capture_ms": 4.7726,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 223.6903
+        },
+        {
+          "capture_ms": 4.4089,
+          "cpu_ms": 328.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 228.7822
+        },
+        {
+          "capture_ms": 4.7855,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 214.8888
+        },
+        {
+          "capture_ms": 5.186299999999999,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 225.62699999999998
+        },
+        {
+          "capture_ms": 4.7405,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 216.49769999999998
+        },
+        {
+          "capture_ms": 4.777,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 216.4076
+        },
+        {
+          "capture_ms": 5.2745,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 230.9292
+        },
+        {
+          "capture_ms": 4.8195,
+          "cpu_ms": 250.0,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 226.5705
+        },
+        {
+          "capture_ms": 5.1203,
+          "cpu_ms": 312.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 228.0789
+        },
+        {
+          "capture_ms": 5.2053,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 217.2812
+        },
+        {
+          "capture_ms": 5.199,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 220.40599999999998
+        },
+        {
+          "capture_ms": 4.8249,
+          "cpu_ms": 281.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 215.0948
+        },
+        {
+          "capture_ms": 5.6823999999999995,
+          "cpu_ms": 296.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 228.3518
+        },
+        {
+          "capture_ms": 4.6714,
+          "cpu_ms": 281.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 226.7152
+        }
+      ],
+      "total_machine_percent": 2.493180513408069,
+      "wall_seconds": 14.9235208,
+      "scenario": "area"
+    },
+    {
+      "runtime": "python",
+      "engine": "oneocr",
+      "samples": [
+        {
+          "capture_ms": 4.373900010250509,
+          "total_ms": 205.9879000298679,
+          "cpu_ms": 1250.0,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.034599940292537,
+          "total_ms": 212.71959994919598,
+          "cpu_ms": 921.875,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.875700058415532,
+          "total_ms": 217.47939998749644,
+          "cpu_ms": 1031.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.728200030513108,
+          "total_ms": 218.7091000378132,
+          "cpu_ms": 1453.125,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.5360000329092145,
+          "total_ms": 211.07630000915378,
+          "cpu_ms": 1281.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.364900010637939,
+          "total_ms": 214.29389994591475,
+          "cpu_ms": 890.625,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.544099978171289,
+          "total_ms": 217.12490008212626,
+          "cpu_ms": 1109.375,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.162300028838217,
+          "total_ms": 210.47759999055415,
+          "cpu_ms": 1140.625,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.17520001064986,
+          "total_ms": 218.53600000031292,
+          "cpu_ms": 1234.375,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.0225999653339386,
+          "total_ms": 213.69969996158034,
+          "cpu_ms": 1156.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.3634999999776483,
+          "total_ms": 224.81339995283633,
+          "cpu_ms": 1234.375,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.2236999832093716,
+          "total_ms": 211.71860001049936,
+          "cpu_ms": 1453.125,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.4478999441489577,
+          "total_ms": 214.88380001392215,
+          "cpu_ms": 781.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.5273000141605735,
+          "total_ms": 230.8711000951007,
+          "cpu_ms": 1031.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.3770999871194363,
+          "total_ms": 216.8782000662759,
+          "cpu_ms": 1562.5,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.732900066301227,
+          "total_ms": 228.54230005759746,
+          "cpu_ms": 1281.25,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.545299987308681,
+          "total_ms": 212.22610003314912,
+          "cpu_ms": 796.875,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 3.8985999999567866,
+          "total_ms": 212.29840000160038,
+          "cpu_ms": 1062.5,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.154899972490966,
+          "total_ms": 222.51989995129406,
+          "cpu_ms": 1125.0,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        },
+        {
+          "capture_ms": 4.673599964007735,
+          "total_ms": 217.1556999674067,
+          "cpu_ms": 1218.75,
+          "text": "●登場人物\nBLANK_LINE\nトルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\nBLANK_LINE\n◎ 閉じる",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ]
+        }
+      ],
+      "wall_seconds": 14.845088499947451,
+      "cpu_seconds": 23.046875,
+      "one_core_percent": 155.24915867009875,
+      "logical_cpus": 16,
+      "total_machine_percent": 9.703072416881172,
+      "scenario": "full"
+    },
+    {
+      "cpu_seconds": 20.125,
+      "engine": "oneocr",
+      "logical_cpus": 16,
+      "one_core_percent": 135.5264614793122,
+      "runtime": "rust",
+      "samples": [
+        {
+          "capture_ms": 4.4158,
+          "cpu_ms": 1093.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 204.8457
+        },
+        {
+          "capture_ms": 5.4794,
+          "cpu_ms": 921.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 203.8178
+        },
+        {
+          "capture_ms": 4.731199999999999,
+          "cpu_ms": 1406.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 212.7618
+        },
+        {
+          "capture_ms": 4.476100000000001,
+          "cpu_ms": 1156.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 218.1698
+        },
+        {
+          "capture_ms": 4.3538,
+          "cpu_ms": 1359.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 211.514
+        },
+        {
+          "capture_ms": 5.7545,
+          "cpu_ms": 968.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 221.4438
+        },
+        {
+          "capture_ms": 4.6787,
+          "cpu_ms": 1218.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 231.8328
+        },
+        {
+          "capture_ms": 4.7909,
+          "cpu_ms": 890.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 213.10129999999998
+        },
+        {
+          "capture_ms": 4.8651,
+          "cpu_ms": 703.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 220.6685
+        },
+        {
+          "capture_ms": 5.4505,
+          "cpu_ms": 812.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 215.439
+        },
+        {
+          "capture_ms": 5.4407,
+          "cpu_ms": 796.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 218.84629999999999
+        },
+        {
+          "capture_ms": 5.2556,
+          "cpu_ms": 1078.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 211.5592
+        },
+        {
+          "capture_ms": 5.427099999999999,
+          "cpu_ms": 1093.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 221.9648
+        },
+        {
+          "capture_ms": 5.5642000000000005,
+          "cpu_ms": 1062.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 224.9548
+        },
+        {
+          "capture_ms": 4.983099999999999,
+          "cpu_ms": 1015.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 215.5661
+        },
+        {
+          "capture_ms": 5.2026,
+          "cpu_ms": 1078.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 215.9011
+        },
+        {
+          "capture_ms": 4.3905,
+          "cpu_ms": 828.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 214.1827
+        },
+        {
+          "capture_ms": 5.6783,
+          "cpu_ms": 765.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 221.9338
+        },
+        {
+          "capture_ms": 4.7858,
+          "cpu_ms": 906.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 210.34820000000002
+        },
+        {
+          "capture_ms": 5.3494,
+          "cpu_ms": 937.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            1920,
+            1080
+          ],
+          "text": "Remote Play\n●登場人物\nトルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。\n◎ 閉じる",
+          "total_ms": 220.07090000000002
+        }
+      ],
+      "total_machine_percent": 8.470403842457012,
+      "wall_seconds": 14.8494986,
+      "scenario": "full"
+    },
+    {
+      "runtime": "python",
+      "engine": "oneocr",
+      "samples": [
+        {
+          "capture_ms": 3.452999982982874,
+          "total_ms": 142.6305000204593,
+          "cpu_ms": 671.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.382900031283498,
+          "total_ms": 129.69680002424866,
+          "cpu_ms": 546.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.4938999451696873,
+          "total_ms": 151.4521000208333,
+          "cpu_ms": 500.0,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.203099990263581,
+          "total_ms": 153.33900006953627,
+          "cpu_ms": 671.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.2383999787271023,
+          "total_ms": 149.87329998984933,
+          "cpu_ms": 343.75,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.6593000404536724,
+          "total_ms": 149.76659999229014,
+          "cpu_ms": 765.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.639000002294779,
+          "total_ms": 154.61969992611557,
+          "cpu_ms": 671.875,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.8370999973267317,
+          "total_ms": 152.22419996280223,
+          "cpu_ms": 515.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.4169000573456287,
+          "total_ms": 146.1187000386417,
+          "cpu_ms": 515.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.154999973252416,
+          "total_ms": 151.4563999371603,
+          "cpu_ms": 937.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.024300025776029,
+          "total_ms": 144.51639994513243,
+          "cpu_ms": 687.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.218199941329658,
+          "total_ms": 148.20329996291548,
+          "cpu_ms": 609.375,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.033900098875165,
+          "total_ms": 152.68340008333325,
+          "cpu_ms": 609.375,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.094799933023751,
+          "total_ms": 152.02599996700883,
+          "cpu_ms": 515.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.7897999864071608,
+          "total_ms": 154.60659994278103,
+          "cpu_ms": 625.0,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.0851999763399363,
+          "total_ms": 157.58230001665652,
+          "cpu_ms": 750.0,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 2.9821000061929226,
+          "total_ms": 147.1934000728652,
+          "cpu_ms": 937.5,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.585999995470047,
+          "total_ms": 150.3929999889806,
+          "cpu_ms": 468.75,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 4.263899987563491,
+          "total_ms": 151.73130005132407,
+          "cpu_ms": 265.625,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        },
+        {
+          "capture_ms": 3.2843000954017043,
+          "total_ms": 147.60250004474074,
+          "cpu_ms": 531.25,
+          "text": "トルガル\nBLANK_LINE\n成長したトルガルの姿。\nBLANK_LINE\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ]
+        }
+      ],
+      "wall_seconds": 13.494974100030959,
+      "cpu_seconds": 12.15625,
+      "one_core_percent": 90.0798320166625,
+      "logical_cpus": 16,
+      "total_machine_percent": 5.629989501041406,
+      "scenario": "area"
+    },
+    {
+      "cpu_seconds": 11.515625,
+      "engine": "oneocr",
+      "logical_cpus": 16,
+      "one_core_percent": 85.48635215607484,
+      "runtime": "rust",
+      "samples": [
+        {
+          "capture_ms": 4.5516000000000005,
+          "cpu_ms": 609.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 137.3976
+        },
+        {
+          "capture_ms": 4.746700000000001,
+          "cpu_ms": 468.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 129.90570000000002
+        },
+        {
+          "capture_ms": 4.646800000000001,
+          "cpu_ms": 890.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 136.0036
+        },
+        {
+          "capture_ms": 5.1633000000000004,
+          "cpu_ms": 421.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 148.5234
+        },
+        {
+          "capture_ms": 5.829199999999999,
+          "cpu_ms": 687.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 149.7463
+        },
+        {
+          "capture_ms": 5.4148,
+          "cpu_ms": 546.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 152.1429
+        },
+        {
+          "capture_ms": 6.0612,
+          "cpu_ms": 453.125,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 153.6232
+        },
+        {
+          "capture_ms": 5.6742,
+          "cpu_ms": 734.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 155.143
+        },
+        {
+          "capture_ms": 4.424,
+          "cpu_ms": 390.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 145.4695
+        },
+        {
+          "capture_ms": 4.8069999999999995,
+          "cpu_ms": 687.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 143.9263
+        },
+        {
+          "capture_ms": 5.164000000000001,
+          "cpu_ms": 562.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 148.74009999999998
+        },
+        {
+          "capture_ms": 5.3451,
+          "cpu_ms": 687.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 154.8399
+        },
+        {
+          "capture_ms": 4.7446,
+          "cpu_ms": 406.25,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 146.6041
+        },
+        {
+          "capture_ms": 5.337599999999999,
+          "cpu_ms": 500.0,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 155.02089999999998
+        },
+        {
+          "capture_ms": 4.4621,
+          "cpu_ms": 671.875,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 147.9522
+        },
+        {
+          "capture_ms": 5.074999999999999,
+          "cpu_ms": 515.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 147.888
+        },
+        {
+          "capture_ms": 4.8121,
+          "cpu_ms": 640.625,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 150.16219999999998
+        },
+        {
+          "capture_ms": 4.8344,
+          "cpu_ms": 687.5,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 149.4829
+        },
+        {
+          "capture_ms": 5.9662999999999995,
+          "cpu_ms": 484.375,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 150.8517
+        },
+        {
+          "capture_ms": 4.831,
+          "cpu_ms": 468.75,
+          "image_size": [
+            1920,
+            1080
+          ],
+          "ocr_size": [
+            530,
+            300
+          ],
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "total_ms": 153.17720000000003
+        }
+      ],
+      "total_machine_percent": 5.342897009754678,
+      "wall_seconds": 13.4707175,
+      "scenario": "area"
+    }
+  ],
+  "worker": {
+    "phases": [
+      {
+        "phase": "stopped-before-start",
+        "wall_seconds": 5.000150699983351,
+        "cpu_seconds": 0,
+        "one_core_percent": 0,
+        "total_machine_percent": 0,
+        "rss_mib": 18.9609375
+      },
+      {
+        "phase": "automatic-steady-state",
+        "wall_seconds": 10.000219200039282,
+        "cpu_seconds": 0.09375,
+        "one_core_percent": 0.9374794504467635,
+        "total_machine_percent": 0.05859246565292272,
+        "rss_mib": 312.7421875
+      },
+      {
+        "phase": "paused",
+        "wall_seconds": 5.000384200015105,
+        "cpu_seconds": 0,
+        "one_core_percent": 0,
+        "total_machine_percent": 0,
+        "rss_mib": 300.23046875
+      },
+      {
+        "phase": "stopped-after-use",
+        "wall_seconds": 5.000546299968846,
+        "cpu_seconds": 0,
+        "one_core_percent": 0,
+        "total_machine_percent": 0,
+        "rss_mib": 301.55859375
+      }
+    ],
+    "events": [
+      {
+        "data": {
+          "capturedAt": 1794450561446,
+          "copyToClipboard": false,
+          "dict_from_ocr": {
+            "coordinate_space": {
+              "mode": "source",
+              "source_height": 1080,
+              "source_width": 1920
+            },
+            "lines": [
+              {
+                "bounding_rect": {
+                  "x1": 525,
+                  "x2": 615,
+                  "x3": 615,
+                  "x4": 525,
+                  "y1": 380,
+                  "y2": 380,
+                  "y3": 402,
+                  "y4": 402
+                },
+                "text": "トルガル",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 525,
+                      "x2": 615,
+                      "x3": 615,
+                      "x4": 525,
+                      "y1": 380,
+                      "y2": 380,
+                      "y3": 402,
+                      "y4": 402
+                    },
+                    "text": "トルガル",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 522,
+                  "x2": 760,
+                  "x3": 760,
+                  "x4": 522,
+                  "y1": 438,
+                  "y2": 438,
+                  "y3": 461,
+                  "y4": 461
+                },
+                "text": "成長したトルガルの姿。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 522,
+                      "x2": 760,
+                      "x3": 760,
+                      "x4": 522,
+                      "y1": 438,
+                      "y2": 438,
+                      "y3": 461,
+                      "y4": 461
+                    },
+                    "text": "成長したトルガルの姿。",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 525,
+                  "x2": 1004,
+                  "x3": 1004,
+                  "x4": 525,
+                  "y1": 505,
+                  "y2": 505,
+                  "y3": 531,
+                  "y4": 531
+                },
+                "text": "フェニックスゲートの襲撃以来、クライヴと生",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 525,
+                      "x2": 1004,
+                      "x3": 1004,
+                      "x4": 525,
+                      "y1": 505,
+                      "y2": 505,
+                      "y3": 531,
+                      "y4": 531
+                    },
+                    "text": "フェニックスゲートの襲撃以来、クライヴと生",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 527,
+                  "x2": 1006,
+                  "x3": 1006,
+                  "x4": 527,
+                  "y1": 538,
+                  "y2": 538,
+                  "y3": 565,
+                  "y4": 565
+                },
+                "text": "き別れになっていたが、ニサ峡谷にて再会を果",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 527,
+                      "x2": 1006,
+                      "x3": 1006,
+                      "x4": 527,
+                      "y1": 538,
+                      "y2": 538,
+                      "y3": 565,
+                      "y4": 565
+                    },
+                    "text": "き別れになっていたが、ニサ峡谷にて再会を果",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 525,
+                  "x2": 576,
+                  "x3": 576,
+                  "x4": 525,
+                  "y1": 574,
+                  "y2": 574,
+                  "y3": 596,
+                  "y4": 596
+                },
+                "text": "たす。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 525,
+                      "x2": 576,
+                      "x3": 576,
+                      "x4": 525,
+                      "y1": 574,
+                      "y2": 574,
+                      "y3": 596,
+                      "y4": 596
+                    },
+                    "text": "たす。",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 526,
+                  "x2": 803,
+                  "x3": 803,
+                  "x4": 526,
+                  "y1": 608,
+                  "y2": 608,
+                  "y3": 632,
+                  "y4": 632
+                },
+                "text": "シドと行動を共にしていた。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 526,
+                      "x2": 803,
+                      "x3": 803,
+                      "x4": 526,
+                      "y1": 608,
+                      "y2": 608,
+                      "y3": 632,
+                      "y4": 632
+                    },
+                    "text": "シドと行動を共にしていた。",
+                    "words": []
+                  }
+                ]
+              }
+            ],
+            "schema": "gsm_overlay_coords_v1"
+          },
+          "emittedAt": 1794450561884,
+          "exclusion_game": "FFXVI benchmark",
+          "metrics": {
+            "capture_ms": 4.3398,
+            "capturedAt": 1794450561446,
+            "engine": "screenai",
+            "first_pass_ms": 220.3379,
+            "ocr_ms": 432.2647,
+            "size": [
+              1920,
+              1080
+            ],
+            "total_ms": 437.2844
+          },
+          "observationId": "40365dda-7605-4d79-aecf-163f24149dab",
+          "ocr_engine": "screenai",
+          "ocr_model": null,
+          "ocr_scene": "FFXVI benchmark",
+          "process_path": null,
+          "sentence": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "source": "ocr",
+          "sourceDisplayName": "GSM OCR",
+          "sourceInstance": "gsm-native-ocr",
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。"
+        },
+        "event": "ocr_result",
+        "session": "native-ocr-smoke",
+        "type": "ocr-event"
+      },
+      {
+        "data": {
+          "capturedAt": 1794450580896,
+          "copyToClipboard": false,
+          "dict_from_ocr": {
+            "coordinate_space": {
+              "mode": "source",
+              "source_height": 1080,
+              "source_width": 1920
+            },
+            "lines": [
+              {
+                "bounding_rect": {
+                  "x1": 526,
+                  "x2": 613,
+                  "x3": 613,
+                  "x4": 526,
+                  "y1": 381,
+                  "y2": 381,
+                  "y3": 403,
+                  "y4": 403
+                },
+                "text": "トルガル",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 526,
+                      "x2": 613,
+                      "x3": 613,
+                      "x4": 526,
+                      "y1": 381,
+                      "y2": 381,
+                      "y3": 403,
+                      "y4": 403
+                    },
+                    "text": "トルガル",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 522,
+                  "x2": 761,
+                  "x3": 761,
+                  "x4": 522,
+                  "y1": 439,
+                  "y2": 439,
+                  "y3": 462,
+                  "y4": 462
+                },
+                "text": "成長したトルガルの姿。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 522,
+                      "x2": 761,
+                      "x3": 761,
+                      "x4": 522,
+                      "y1": 439,
+                      "y2": 439,
+                      "y3": 462,
+                      "y4": 462
+                    },
+                    "text": "成長したトルガルの姿。",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 523,
+                  "x2": 1007,
+                  "x3": 1007,
+                  "x4": 523,
+                  "y1": 506,
+                  "y2": 506,
+                  "y3": 532,
+                  "y4": 532
+                },
+                "text": "フェニックスゲートの襲撃以来、クライヴと生",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 523,
+                      "x2": 1007,
+                      "x3": 1007,
+                      "x4": 523,
+                      "y1": 506,
+                      "y2": 506,
+                      "y3": 532,
+                      "y4": 532
+                    },
+                    "text": "フェニックスゲートの襲撃以来、クライヴと生",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 524,
+                  "x2": 1008,
+                  "x3": 1008,
+                  "x4": 524,
+                  "y1": 539,
+                  "y2": 539,
+                  "y3": 565,
+                  "y4": 565
+                },
+                "text": "き別れになっていたが、ニサ峡谷にて再会を果",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 524,
+                      "x2": 1008,
+                      "x3": 1008,
+                      "x4": 524,
+                      "y1": 539,
+                      "y2": 539,
+                      "y3": 565,
+                      "y4": 565
+                    },
+                    "text": "き別れになっていたが、ニサ峡谷にて再会を果",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 525,
+                  "x2": 576,
+                  "x3": 576,
+                  "x4": 525,
+                  "y1": 574,
+                  "y2": 574,
+                  "y3": 596,
+                  "y4": 596
+                },
+                "text": "たす。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 525,
+                      "x2": 576,
+                      "x3": 576,
+                      "x4": 525,
+                      "y1": 574,
+                      "y2": 574,
+                      "y3": 596,
+                      "y4": 596
+                    },
+                    "text": "たす。",
+                    "words": []
+                  }
+                ]
+              },
+              {
+                "bounding_rect": {
+                  "x1": 526,
+                  "x2": 802,
+                  "x3": 802,
+                  "x4": 526,
+                  "y1": 607,
+                  "y2": 607,
+                  "y3": 631,
+                  "y4": 631
+                },
+                "text": "シドと行動を共にしていた。",
+                "words": [
+                  {
+                    "bounding_rect": {
+                      "x1": 526,
+                      "x2": 802,
+                      "x3": 802,
+                      "x4": 526,
+                      "y1": 607,
+                      "y2": 607,
+                      "y3": 631,
+                      "y4": 631
+                    },
+                    "text": "シドと行動を共にしていた。",
+                    "words": []
+                  }
+                ]
+              }
+            ],
+            "schema": "gsm_overlay_coords_v1"
+          },
+          "emittedAt": 1794450581316,
+          "exclusion_game": "FFXVI benchmark",
+          "metrics": {
+            "capture_ms": 204.9054,
+            "capturedAt": 1794450580896,
+            "engine": "screenai",
+            "first_pass_ms": 213.14649999999997,
+            "ocr_ms": 213.1596,
+            "size": [
+              1920,
+              1080
+            ],
+            "total_ms": 418.947
+          },
+          "observationId": "a99182dd-4c41-4a81-88ed-4a80a50b63f9",
+          "ocr_engine": "screenai",
+          "ocr_model": null,
+          "ocr_scene": "FFXVI benchmark",
+          "process_path": null,
+          "sentence": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。",
+          "source": "ocr_manual",
+          "sourceDisplayName": "GSM OCR",
+          "sourceInstance": "gsm-native-ocr",
+          "text": "トルガル\n成長したトルガルの姿。\nフェニックスゲートの襲撃以来、クライヴと生\nき別れになっていたが、ニサ峡谷にて再会を果\nたす。\nシドと行動を共にしていた。"
+        },
+        "event": "ocr_result",
+        "session": "native-ocr-smoke",
+        "type": "ocr-event"
+      }
+    ],
+    "preview": {
+      "boxes": [
+        {
+          "points": [
+            [
+              0.2734375,
+              0.35185185185185186
+            ],
+            [
+              0.3203125,
+              0.35185185185185186
+            ],
+            [
+              0.3203125,
+              0.37222222222222223
+            ],
+            [
+              0.2734375,
+              0.37222222222222223
+            ]
+          ],
+          "text": "トルガル"
+        },
+        {
+          "points": [
+            [
+              0.271875,
+              0.40555555555555556
+            ],
+            [
+              0.3958333333333333,
+              0.40555555555555556
+            ],
+            [
+              0.3958333333333333,
+              0.42685185185185187
+            ],
+            [
+              0.271875,
+              0.42685185185185187
+            ]
+          ],
+          "text": "成長したトルガルの姿。"
+        },
+        {
+          "points": [
+            [
+              0.2734375,
+              0.4675925925925926
+            ],
+            [
+              0.5229166666666667,
+              0.4675925925925926
+            ],
+            [
+              0.5229166666666667,
+              0.49166666666666664
+            ],
+            [
+              0.2734375,
+              0.49166666666666664
+            ]
+          ],
+          "text": "フェニックスゲートの襲撃以来、クライヴと生"
+        },
+        {
+          "points": [
+            [
+              0.27447916666666666,
+              0.4981481481481482
+            ],
+            [
+              0.5239583333333333,
+              0.4981481481481482
+            ],
+            [
+              0.5239583333333333,
+              0.5231481481481481
+            ],
+            [
+              0.27447916666666666,
+              0.5231481481481481
+            ]
+          ],
+          "text": "き別れになっていたが、ニサ峡谷にて再会を果"
+        },
+        {
+          "points": [
+            [
+              0.2734375,
+              0.5314814814814814
+            ],
+            [
+              0.3,
+              0.5314814814814814
+            ],
+            [
+              0.3,
+              0.5518518518518518
+            ],
+            [
+              0.2734375,
+              0.5518518518518518
+            ]
+          ],
+          "text": "たす。"
+        },
+        {
+          "points": [
+            [
+              0.27395833333333336,
+              0.562962962962963
+            ],
+            [
+              0.41822916666666665,
+              0.562962962962963
+            ],
+            [
+              0.41822916666666665,
+              0.5851851851851851
+            ],
+            [
+              0.27395833333333336,
+              0.5851851851851851
+            ]
+          ],
+          "text": "シドと行動を共にしていた。"
+        }
+      ],
+      "sceneName": "FFXVI benchmark",
+      "sourceHeight": 1080,
+      "sourceName": "game",
+      "sourceWidth": 1920
+    },
+    "steadyState": {
+      "current_engine": "screenai",
+      "force_stable": false,
+      "isRunning": true,
+      "manual": false,
+      "metrics": {
+        "capture_ms": 4.3398,
+        "capturedAt": 1794450561446,
+        "captured_frames": 21,
+        "engine": "screenai",
+        "first_pass_ms": 220.3379,
+        "inference_calls": 3,
+        "ocr_ms": 432.2647,
+        "size": [
+          1920,
+          1080
+        ],
+        "total_ms": 437.2844,
+        "unchanged_frames": 19
+      },
+      "paused": false,
+      "runtime": "rust",
+      "scan_rate": 0.5
+    },
+    "changed": {
+      "current_engine": "screenai",
+      "force_stable": false,
+      "isRunning": true,
+      "manual": false,
+      "metrics": {
+        "capture_ms": 4.3398,
+        "capturedAt": 1794450561446,
+        "captured_frames": 27,
+        "engine": "screenai",
+        "first_pass_ms": 220.3379,
+        "inference_calls": 7,
+        "ocr_ms": 432.2647,
+        "size": [
+          1920,
+          1080
+        ],
+        "total_ms": 437.2844,
+        "unchanged_frames": 22
+      },
+      "paused": false,
+      "runtime": "rust",
+      "scan_rate": 0.5
+    }
+  }
+}

@@ -167,3 +167,37 @@ test('leaving text cancels pending hover and hidden or removed controls release 
   f.controller.refresh();
   assert.deepEqual(f.ignores, [false, true]);
 });
+
+test('native passthrough samples scan text with either mouse policy and release ownership over popups', () => {
+  for (const clickThrough of [true, false]) {
+    const f = setup(clickThrough);
+    f.controller.forward({ x: 20, y: 20, shiftKey: true });
+    assert.deepEqual(f.ignores, [clickThrough]);
+    assert.ok(f.target.events.some(event => event.type === 'pointermove' && event.shiftKey));
+    const count = f.target.events.length;
+    f.controller.forward({ x: 20, y: 20, shiftKey: true });
+    assert.equal(f.target.events.length, count, 'stationary polling preserves the scan delay');
+    f.setTarget(target(['iframe.yomitan-popup']));
+    f.controller.forward({ x: 40, y: 40 });
+    assert.equal(f.ignores.at(-1), false);
+    assert.equal(f.target.events.length, 0, 'the popup receives its own native input');
+    f.setTarget(null);
+    f.move(800, 500);
+    assert.equal(f.ignores.at(-1), true, 'native input resumes without entering Magpie projection mode');
+  }
+});
+
+test('forwarding never takes a held click from the game and cannot override Magpie', () => {
+  const f = setup(false);
+  f.setTarget(null);
+  f.controller.forward({ x: 20, y: 20 });
+  f.setTarget(target(['.text-box']));
+  f.controller.forward({ x: 20, y: 20, buttons: 1 });
+  assert.deepEqual(f.ignores, [true]);
+  f.controller.forward({ x: 20, y: 20, buttons: 0 });
+  assert.deepEqual(f.ignores, [true, false]);
+  f.controller.project({ x: 25, y: 25, captured: true });
+  const count = f.target.events.length;
+  f.controller.forward({ x: 100, y: 100 });
+  assert.equal(f.target.events.length, count);
+});

@@ -46,6 +46,35 @@ describe('GameLaunchControls', () => {
         await act(async () => { root.render(<GameLaunchControls key={sceneId} sceneId={sceneId} active />); await flush(); });
     }
     async function click(text: string) { await act(async () => { button(text).click(); await flush(); }); }
+    async function selectMode(mode: string) {
+        await act(async () => {
+            const select = container.querySelector<HTMLSelectElement>('#game-launch-mode')!;
+            select.value = mode;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            await flush();
+        });
+    }
+
+    it('offers Yuzu ROM browsing and saves the emulator profile before launching', async () => {
+        const original = invoke.getMockImplementation()!;
+        invoke.mockImplementation(async (channel: string, ...args: unknown[]) => channel === 'game-launcher.browse'
+            ? 'D:\\ROMs\\月姫.nsp' : original(channel, ...args));
+        await render();
+        await click('Launch options');
+        await selectMode('yuzu');
+        expect(container.textContent).toContain('Yuzu executable');
+        await edit('game-launch-executable', 'C:\\Yuzu\\yuzu.exe');
+        await click('Launch game');
+        expect(document.activeElement?.id).toBe('game-launch-rom');
+        expect(invoke).not.toHaveBeenCalledWith('game-launcher.launch', 'scene-a');
+        await act(async () => { container.querySelector<HTMLButtonElement>('[data-browse="romPath"]')!.click(); await flush(); });
+        expect(invoke).toHaveBeenCalledWith('game-launcher.browse', 'rom');
+        await click('Launch game');
+        expect(invoke).toHaveBeenCalledWith('game-launcher.save', 'scene-a', expect.objectContaining({
+            mode: 'yuzu', executablePath: 'C:\\Yuzu\\yuzu.exe', romPath: 'D:\\ROMs\\月姫.nsp',
+        }));
+        expect(invoke).toHaveBeenCalledWith('game-launcher.launch', 'scene-a');
+    });
 
     it('launches the selected scene and keeps options collapsed initially', async () => {
         await render();

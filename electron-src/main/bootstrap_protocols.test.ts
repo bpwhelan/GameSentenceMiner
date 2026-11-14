@@ -47,6 +47,7 @@ function bootstrapHarness(inProcessOverlay: boolean) {
             case 'node:url': return { pathToFileURL: vi.fn() };
             case 'node:module': return { createRequire: () => () => ({ ensureDevElectron }) };
             case './services/startup_timing.js': return { markStartup: vi.fn() };
+            case './services/desktop_bridge.js': return { installDesktopHandlers: vi.fn() };
             case './linux_desktop_identity.js': return { configureLinuxDesktopIdentity: vi.fn() };
             case './overlay_runtime_config.js': return { USE_IN_PROCESS_OVERLAY: inProcessOverlay };
             case './data_dir.js': return { getBaseDir: () => 'C:\\GSM-data' };

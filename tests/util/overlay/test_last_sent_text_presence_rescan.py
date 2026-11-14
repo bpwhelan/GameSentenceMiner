@@ -267,3 +267,288 @@ def test_newer_overlay_event_supersedes_a_completed_presence_rescan(monkeypatch)
     asyncio.run(processor._monitor_last_sent_overlay_text("old-text", {"data": [_line()]}, 0))
 
     assert scans == [True]
+
+
+def test_presence_monitor_waits_to_capture_when_game_is_already_paused(monkeypatch):
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.005)
+    state = {"paused": True, "generation": 1}
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_game_process_pause_state",
+        lambda: (state["paused"], state["generation"]),
+        raising=False,
+    )
+    captured = asyncio.Event()
+    captures = []
+
+    def capture(_data):
+        captures.append(state["paused"])
+        captured.set()
+        return _frame(left=50), ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}
+
+    monkeypatch.setattr(processor, "_capture_last_sent_presence_frame", capture)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.sleep(0.03)
+            assert captures == []
+            state["paused"] = False
+            await asyncio.wait_for(captured.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    assert captures == [False]
+
+
+def test_presence_monitor_skips_paused_game_and_resets_misses_on_resume(monkeypatch):
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.01)
+    state = {"paused": False, "generation": 0}
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_game_process_pause_state",
+        lambda: (state["paused"], state["generation"]),
+        raising=False,
+    )
+    first_miss = asyncio.Event()
+    first_after_resume = asyncio.Event()
+    invalidated = asyncio.Event()
+    captures = []
+    scans = []
+    sends = []
+
+    def capture(_data):
+        captures.append(state["paused"])
+        if len(captures) == 2:
+            first_miss.set()
+        if len(captures) == 3:
+            first_after_resume.set()
+        frame = _frame(left=50) if len(captures) == 1 else _frame()
+        return frame, ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}
+
+    def scan(_image, _data):
+        scans.append(state["paused"])
+        return []
+
+    async def send(_channel, payload):
+        sends.append(payload)
+        invalidated.set()
+
+    monkeypatch.setattr(processor, "_capture_last_sent_presence_frame", capture)
+    monkeypatch.setattr(processor, "_rescan_last_sent_overlay_text", scan)
+    monkeypatch.setattr(get_overlay_coords.websocket_manager, "send", send)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.wait_for(first_miss.wait(), timeout=1)
+            state.update(paused=True, generation=1)
+            await asyncio.sleep(0.04)
+            assert captures == [False, False]
+            assert scans == []
+            assert sends == []
+            state["paused"] = False
+            await asyncio.wait_for(first_after_resume.wait(), timeout=1)
+            assert scans == []
+            assert sends == []
+            await asyncio.wait_for(invalidated.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    assert captures == [False] * 4
+    assert scans == [False]
+    assert [payload["type"] for payload in sends] == ["ocr_text_invalidated"]
+
+
+def test_presence_rescan_discards_results_if_a_pause_occurs_during_ocr(monkeypatch):
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.001)
+    state = {"paused": False, "generation": 0}
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_game_process_pause_state",
+        lambda: (state["paused"], state["generation"]),
+        raising=False,
+    )
+    frames = iter([_frame(left=50)] + [_frame()] * 4)
+    scans = []
+    sends = []
+    finished = asyncio.Event()
+    monkeypatch.setattr(
+        processor,
+        "_capture_last_sent_presence_frame",
+        lambda _data: (next(frames), ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}),
+    )
+
+    def scan(_image, _data):
+        scans.append(True)
+        if len(scans) == 1:
+            # A complete pause and resume can happen while OCR is running.
+            state["generation"] += 1
+        return []
+
+    async def send(_channel, payload):
+        sends.append((len(scans), payload))
+        finished.set()
+
+    monkeypatch.setattr(processor, "_rescan_last_sent_overlay_text", scan)
+    monkeypatch.setattr(get_overlay_coords.websocket_manager, "send", send)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.wait_for(finished.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    assert len(scans) == 2
+    assert [(count, payload["type"]) for count, payload in sends] == [(2, "ocr_text_invalidated")]
+
+
+def test_presence_reference_discards_a_frame_captured_during_pause(monkeypatch):
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.005)
+    state = {"paused": False, "generation": 0}
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_game_process_pause_state",
+        lambda: (state["paused"], state["generation"]),
+        raising=False,
+    )
+    interrupted = asyncio.Event()
+    recovered = asyncio.Event()
+    captures = []
+    signatures = []
+    prepare_candidate = get_overlay_coords.prepare_presence_candidate
+
+    def capture(_data):
+        captures.append(True)
+        if len(captures) == 1:
+            state.update(paused=True, generation=1)
+            interrupted.set()
+            frame = _frame()
+        else:
+            frame = _frame(left=50)
+            recovered.set()
+        return frame, ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}
+
+    def prepare(frame, *args, **kwargs):
+        signatures.append(frame)
+        return prepare_candidate(frame, *args, **kwargs)
+
+    monkeypatch.setattr(processor, "_capture_last_sent_presence_frame", capture)
+    monkeypatch.setattr(get_overlay_coords, "prepare_presence_candidate", prepare)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.wait_for(interrupted.wait(), timeout=1)
+            await asyncio.sleep(0.02)
+            assert len(captures) == 1
+            assert signatures == []
+            state["paused"] = False
+            await asyncio.wait_for(recovered.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    assert len(signatures) == 1
+
+
+@pytest.mark.parametrize("interrupted_capture", [1, 2])
+def test_presence_monitor_retries_capture_failures_caused_by_pause(monkeypatch, interrupted_capture):
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.005)
+    state = {"paused": False, "generation": 0}
+    monkeypatch.setattr(
+        get_overlay_coords,
+        "get_game_process_pause_state",
+        lambda: (state["paused"], state["generation"]),
+        raising=False,
+    )
+    interrupted = asyncio.Event()
+    recovered = asyncio.Event()
+    captures = []
+
+    def capture(_data):
+        captures.append(True)
+        if len(captures) == interrupted_capture:
+            state.update(paused=True, generation=1)
+            interrupted.set()
+            raise RuntimeError("game paused during capture")
+        if len(captures) > interrupted_capture:
+            recovered.set()
+        return _frame(left=50), ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}
+
+    monkeypatch.setattr(processor, "_capture_last_sent_presence_frame", capture)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.wait_for(interrupted.wait(), timeout=1)
+            await asyncio.sleep(0.02)
+            assert len(captures) == interrupted_capture
+            assert not task.done()
+            state["paused"] = False
+            await asyncio.wait_for(recovered.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+def test_presence_monitor_uses_tracked_game_pause_state(monkeypatch):
+    from GameSentenceMiner.util.platform import base_window_monitor
+
+    processor = _processor(monkeypatch, None)
+    monkeypatch.setattr(get_overlay_coords, "LAST_SENT_PRESENCE_SCAN_INTERVAL_SECONDS", 0.005)
+    monkeypatch.setattr(base_window_monitor, "_suspended_pids", {})
+    monkeypatch.setattr(base_window_monitor, "_process_pause_generation", 0)
+    monkeypatch.setattr(base_window_monitor, "_is_pid_allowed_to_suspend", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(base_window_monitor, "_get_process_creation_time", lambda _pid: 42)
+    monkeypatch.setattr(base_window_monitor, "_get_process_exe_name", lambda _pid: "game.exe")
+    monkeypatch.setattr(base_window_monitor, "_suspend_process", lambda _pid: True)
+    monkeypatch.setattr(base_window_monitor, "_process_matches_record", lambda _pid, _record: True)
+    monkeypatch.setattr(base_window_monitor, "_resume_and_record", lambda _pid, _record: True)
+    monkeypatch.setattr(base_window_monitor, "_save_suspended_pids", lambda: None)
+    monkeypatch.setattr(base_window_monitor, "_mark_process_pausing_activity", lambda: None)
+    monkeypatch.setattr(base_window_monitor, "_ensure_auto_resume_task", lambda: None)
+    reference_captured = asyncio.Event()
+    resumed_capture = asyncio.Event()
+    captures = []
+
+    def capture(_data):
+        captures.append(base_window_monitor.get_game_process_pause_state()[0])
+        if len(captures) == 1:
+            reference_captured.set()
+        else:
+            resumed_capture.set()
+        return _frame(left=50), ((240, 80), 0, 0, 240, 80, 240, 80, "test"), {"line_coords": [_line()]}
+
+    monkeypatch.setattr(processor, "_capture_last_sent_presence_frame", capture)
+
+    async def run():
+        task = asyncio.create_task(processor._monitor_last_sent_overlay_text("text", {"data": [_line()]}, 0))
+        try:
+            await asyncio.wait_for(reference_captured.wait(), timeout=1)
+            assert base_window_monitor._suspend_process_with_tracking(4242, "test") is True
+            await asyncio.sleep(0.03)
+            assert captures == [False]
+            assert base_window_monitor._resume_tracked_process(4242, "test") is True
+            await asyncio.wait_for(resumed_capture.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+    assert captures == [False, False]

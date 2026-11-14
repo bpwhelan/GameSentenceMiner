@@ -39,6 +39,16 @@ type Activity =
   | "excluded"
   | "error";
 
+const AUTO_ACTIVITY_KEYS = new Map([
+  ["scanning", "ocr.activity.events.scanning"],
+  ["waiting_for_context", "ocr.activity.events.waitingForContext"],
+  ["waiting_for_target", "ocr.activity.events.waitingForTarget"],
+  ["no_capture_area", "ocr.activity.events.noCaptureArea"],
+  ["no_text", "ocr.activity.events.noText"],
+  ["stabilizing", "ocr.activity.events.stabilizing"],
+  ["furigana_filtered", "ocr.activity.events.furiganaFiltered"]
+]);
+
 function isRecognitionLog(payload: unknown): boolean {
   return typeof payload === "string" && /OCR Run [12](?:\s*\(bypassed\))?: Text recognized|\d+ text boxes recognized in [\d.]+s using/i.test(payload);
 }
@@ -63,6 +73,7 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
   const [locale] = useLocale();
   const [captures, setCaptures] = useBufferedState<Capture[]>([], active);
   const [activity, setActivity] = useBufferedState<Activity | null>(null, active);
+  const [autoActivityKey, setAutoActivityKey] = useBufferedState<string | null>(null, active);
   const [starting, setStarting] = useBufferedState(false, active);
   const nextId = useRef(0);
   const [lineMenu, setLineMenu] = useState<{ capture: Capture; anchor: HTMLButtonElement } | null>(null);
@@ -126,10 +137,15 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
     });
     const offStarted = onIpc("ocr-started", () => {
       setActivity(null);
+      setAutoActivityKey(null);
       setStarting(true);
     });
     const offReady = onIpc("ocr-ipc-started", () => setStarting(false));
-    const offStatus = onIpc("ocr-ipc-status", () => setStarting(false));
+    const offStatus = onIpc("ocr-ipc-status", (_event, payload) => {
+      setStarting(false);
+      const nativeActivity = (payload as { auto_activity?: string } | null)?.auto_activity;
+      setAutoActivityKey(nativeActivity ? AUTO_ACTIVITY_KEYS.get(nativeActivity) ?? null : null);
+    });
     const offUnpaused = onIpc("ocr-ipc-unpaused", () => setActivity(null));
     const offError = onIpc("ocr-ipc-error", () => {
       setStarting(false);
@@ -154,6 +170,7 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
     : activity === "excluded" ? "excluded"
     : manual ? "manual"
     : "watching";
+  const autoStatusKey = state === "watching" && activity !== "error" ? autoActivityKey : null;
 
   return (
     <section className="desk-text-feed" aria-labelledby="ocr-text-title">
@@ -184,8 +201,8 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
         >
           <i aria-hidden="true" />
           <div>
-            <strong>{t("ocr.activity.states." + state)}</strong>
-            {running && !paused && activity ? <span>{t("ocr.activity.events." + activity)}</span> : null}
+            <strong>{t(autoStatusKey ?? `ocr.activity.states.${state}`)}</strong>
+            {running && !paused && activity && !autoStatusKey ? <span>{t(`ocr.activity.events.${activity}`)}</span> : null}
           </div>
         </div>
         <div

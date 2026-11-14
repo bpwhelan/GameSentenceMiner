@@ -72,6 +72,7 @@ def saved_review(tmp_path, monkeypatch):
         replay_context=None,
     )
     session_review.release_entry(entry)
+    mock_note_api(monkeypatch, entry)
     return entry, config, replay, audio
 
 
@@ -148,21 +149,90 @@ def test_open_review_in_anki_verifies_collection_and_only_opens_editor(saved_rev
     assert entry.folder.exists()
 
 
-def test_startup_notification_counts_pending_reviews_and_respects_preference(saved_review, monkeypatch):
-    from GameSentenceMiner.util.platform import notification
+@pytest.mark.parametrize("response", [[], [{}], [None]])
+def test_deleted_note_is_skipped_before_loading_review_media(saved_review, monkeypatch, response):
+    from GameSentenceMiner.util import clips
 
+    entry, config, replay, audio = saved_review
+    calls = []
+
+    def invoke(action, **kwargs):
+        calls.append(action)
+        return "User 1" if action == "getActiveProfile" else response
+
+    monkeypatch.setattr(anki, "invoke", invoke)
+    monkeypatch.setattr(clips, "load_clip", lambda *args: pytest.fail("Deleted note loaded review media"))
+    assert session_review.load_review(entry) is None
+    assert calls == ["getActiveProfile", "notesInfo"]
+    assert not session_review.list_pending_reviews(config)
+    assert replay.exists() and audio.exists()
+
+
+@pytest.mark.parametrize("action", ["save", "delete", "edit"])
+def test_note_deleted_during_review_is_finished_without_writes(saved_review, monkeypatch, action):
     entry, config, *_ = saved_review
-    sent = []
-    monkeypatch.setattr(notification, "send_pending_reviews_notification", lambda count: sent.append(count))
-    assert session_review.notify_pending_on_startup()
-    assert sent == [1]
-    config.features.review_after_session.notify_on_startup = False
-    assert not session_review.notify_pending_on_startup()
-    assert sent == [1]
-    config.features.review_after_session.notify_on_startup = True
-    session_review.finish_review(entry, config.features.review_after_session)
-    assert not session_review.notify_pending_on_startup()
-    assert sent == [1]
+    mock_note_api(monkeypatch, entry)
+    prepared = session_review.load_review(entry)
+    calls = []
+
+    def invoke(command, **kwargs):
+        calls.append(command)
+        return "User 1" if command == "getActiveProfile" else [{}]
+
+    monkeypatch.setattr(anki, "invoke", invoke)
+    forbid_media_work(monkeypatch)
+    if action == "save":
+        result = session_review.apply_review(entry, prepared, unchanged_result(entry, prepared, sentence="Edited"))
+    elif action == "delete":
+        result = session_review.discard_review(entry, delete_note=True)
+    else:
+        result = session_review.open_in_anki(entry)
+    assert result is None
+    assert not session_review.list_pending_reviews(config)
+    assert calls == ["getActiveProfile", "notesInfo"]
+
+
+@pytest.mark.parametrize("missing_on_read", [2, 3])
+def test_note_deleted_during_save_verification_is_skipped(saved_review, monkeypatch, missing_on_read):
+    entry, config, *_ = saved_review
+    prepared = session_review.load_review(entry)
+    _, calls = mock_note_api(monkeypatch, entry)
+    invoke, reads = anki.invoke, []
+
+    def note_api(action, **kwargs):
+        if action == "notesInfo":
+            reads.append(True)
+            if len(reads) == missing_on_read:
+                return [{}]
+        return invoke(action, **kwargs)
+
+    monkeypatch.setattr(anki, "invoke", note_api)
+    forbid_media_work(monkeypatch)
+    assert (
+        session_review.apply_review(entry, prepared, unchanged_result(entry, prepared, sentence="Edited", voice=False))
+        is None
+    )
+    assert len(reads) == missing_on_read
+    assert sum(action == "updateNoteFields" for action, _ in calls) == missing_on_read - 2
+    assert not session_review.list_pending_reviews(config)
+
+
+@pytest.mark.parametrize("failure", ["offline", "other-profile", "malformed"])
+def test_review_preflight_keeps_queue_when_note_absence_is_unconfirmed(saved_review, monkeypatch, failure):
+    entry, config, *_ = saved_review
+
+    def invoke(action, **kwargs):
+        if failure == "offline":
+            raise RuntimeError("offline")
+        if action == "getActiveProfile":
+            return "Other profile" if failure == "other-profile" else "User 1"
+        return None
+
+    monkeypatch.setattr(anki, "invoke", invoke)
+    with pytest.raises(TypeError if failure == "malformed" else RuntimeError):
+        session_review.load_review(entry)
+    assert entry.folder.exists()
+    assert [item.id for item in session_review.list_pending_reviews(config)] == [entry.id]
 
 
 def test_cleanup_keeps_shared_media_and_uses_ankiconnect(monkeypatch):
@@ -189,6 +259,8 @@ def test_cleanup_failure_keeps_media_for_retry(monkeypatch):
 
 def mock_note_api(monkeypatch, entry, *, fail_update=False):
     fields = dict(entry.data["fields"])
+    word_field = session_review.review_config(entry).anki.word_field
+    fields[word_field] = entry.data["expression"]
     calls = []
 
     def invoke(action, **kwargs):
@@ -196,14 +268,20 @@ def mock_note_api(monkeypatch, entry, *, fail_update=False):
         if action == "getActiveProfile":
             return "User 1"
         if action == "notesInfo":
+            data, note_fields = entry.data, fields
+            note_id = kwargs["notes"][0]
+            if note_id != entry.data["note_id"]:
+                other = next(item for item in session_review.list_pending_reviews() if item.data["note_id"] == note_id)
+                data, note_fields = other.data, dict(other.data["fields"])
+                note_fields[word_field] = data["expression"]
             return [
                 {
-                    "noteId": entry.data["note_id"],
-                    "modelName": "Basic",
+                    "noteId": data["note_id"],
+                    "modelName": data["model_name"],
                     "tags": [],
                     "cards": [],
                     "fields": {
-                        key: {"value": value, "order": index} for index, (key, value) in enumerate(fields.items())
+                        key: {"value": value, "order": index} for index, (key, value) in enumerate(note_fields.items())
                     },
                 }
             ]
@@ -481,7 +559,7 @@ def test_failed_media_upload_never_updates_note(saved_review, monkeypatch):
     _, calls = mock_note_api(monkeypatch, entry)
     prepared = session_review.load_review(entry)
     monkeypatch.setattr(anki, "_store_asset_media_file", lambda *args, **kwargs: None)
-    monkeypatch.setattr(anki, "_notify_anki_enhancement_failure", lambda *args: None)
+    monkeypatch.setattr(anki, "_report_card_error", lambda *args: None)
     with pytest.raises(RuntimeError, match="could not be uploaded"):
         session_review.apply_review(entry, prepared, (True, "Edit", "", "", "", False, prepared.audio_path, {}))
     assert not any(action == "updateNoteFields" for action, _ in calls)

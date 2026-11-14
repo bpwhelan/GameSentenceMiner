@@ -53,6 +53,8 @@ node --version
 - `npm run start` - Build and run the application
 - `npm run app:dist` - Create distribution build
 
+Distribution builds use the checkout's `.venv` Python to compile native Python modules; you do not need to activate it first. If `.venv` is absent, they use `python` from your system path (which must meet the Python version requirement in `pyproject.toml`). Set up the local environment with `uv sync --frozen --extra dev` as shown below.
+
 ### Recommended Development Flow
 
 1. **Fork and Clone**

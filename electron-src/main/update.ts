@@ -44,7 +44,6 @@
 // import { launchSteamGameID, openSteamWindow, registerSteamIPC } from './ui/steam.js';
 // import { webSocketManager } from './communication/websocket.js';
 // import { getOBSConnection, openOBSWindow, registerOBSIPC, setOBSScene } from './ui/obs.js';
-// import { registerSettingsIPC, window_transparency_process } from './ui/settings.js';
 // import { registerOCRUtilsIPC, startOCR } from './ui/ocr.js';
 // import * as fs from 'node:fs';
 // import archiver from 'archiver';

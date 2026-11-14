@@ -279,8 +279,8 @@ describe("overlay settings navigation", () => {
       expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "gamepadTokenizerBackend", value: "sudachi" });
       readings.closest(".setting-control-shell").querySelector(".setting-reset-button").click();
       await nextTick();
-      expect(readings.value).toBe("mecab");
-      expect(controller.value).toBe("mecab");
+      expect(readings.value).toBe("sudachi");
+      expect(controller.value).toBe("sudachi");
       page.listeners.get("settings-updated")?.(null, { gamepadTokenizerBackend: "yomitan-api" });
       await nextTick();
       page.dom.window.GSMSettingsNavigation.navigate("gamepad-navigation");

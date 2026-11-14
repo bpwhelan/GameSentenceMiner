@@ -87,7 +87,6 @@ from GameSentenceMiner.ui.config.tabs.paths import build_paths_tab
 from GameSentenceMiner.ui.config.tabs.profiles import build_profiles_tab
 from GameSentenceMiner.ui.config.tabs.required import build_required_tab
 from GameSentenceMiner.ui.config.tabs.screenshot import build_screenshot_tab
-from GameSentenceMiner.ui.config.tabs.text_processing import build_text_processing_tab
 from GameSentenceMiner.ui.config.tabs.vad import build_vad_tab
 from GameSentenceMiner.ocr.gsm_ocr_config import (
     get_overlay_minimum_character_size,
@@ -810,10 +809,14 @@ class ConfigWindow(QWidget):
                 ],
             )
 
+            current_profile_name = target_profile_name or self.settings.name or self.profile_combo.currentText()
+            saved_profile = Config.load().configs.get(current_profile_name)
+
             config = ProfileConfig(
                 scenes=selected_scenes,
                 general=copy.deepcopy(self.editor.profile.general),
-                text_processing=copy.deepcopy(self.editor.profile.text_processing),
+                # Desktop text-processing edits must survive saves from an older Python GUI snapshot.
+                text_processing=copy.deepcopy((saved_profile or self.editor.profile).text_processing),
                 paths=Paths(
                     folder_to_watch=self.folder_to_watch_edit.text(),
                     output_folder=self.output_folder_edit.text(),
@@ -959,13 +962,6 @@ class ConfigWindow(QWidget):
                 ),
                 features=Features(
                     full_auto=self.full_auto_check.isChecked(),
-                    notify_on_update=self.editor.profile.features.notify_on_update,
-                    notify_on_audio_generated=self.editor.profile.features.notify_on_audio_generated,
-                    notify_on_screenshot_saved=self.editor.profile.features.notify_on_screenshot_saved,
-                    notify_on_anki_enhancement_failed=(self.editor.profile.features.notify_on_anki_enhancement_failed),
-                    notify_on_errors=self.editor.profile.features.notify_on_errors,
-                    notify_on_obs_warning=self.editor.profile.features.notify_on_obs_warning,
-                    notify_on_text_intake_state=self.editor.profile.features.notify_on_text_intake_state,
                     open_anki_edit=self.editor.profile.features.open_anki_edit,
                     open_anki_in_browser=self.editor.profile.features.open_anki_in_browser,
                     browser_query=self.browser_query_edit.text(),
@@ -1204,7 +1200,6 @@ class ConfigWindow(QWidget):
                 preserve_synced_settings(baseline_default, edited_default, latest_default, sync_groups)
             prev_config = self.master_config.get_config()
             self.master_config.switch_to_default_if_not_found = self.switch_to_default_if_not_found_check.isChecked()
-            current_profile_name = target_profile_name or self.settings.name or self.profile_combo.currentText()
 
             if profile_change:
                 self.master_config.current_profile = current_profile_name
@@ -1523,18 +1518,6 @@ class ConfigWindow(QWidget):
         self.texthooker_port_edit = QLineEdit()
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
-        self.notify_on_update_check = QCheckBox()
-        self.notify_on_audio_generated_check = QCheckBox()
-        self.notify_on_screenshot_saved_check = QCheckBox()
-        self.notify_on_anki_enhancement_failed_check = QCheckBox()
-        self.notify_on_errors_check = QCheckBox()
-        self.notify_on_obs_warning_check = QCheckBox()
-        self.notify_on_text_intake_state_check = QCheckBox()
-
-        # Text Processing
-        self.string_replacement_enabled_check = QCheckBox()
-        self.string_replacement_edit_button = QPushButton()
-        self.string_replacement_rules_count_label = QLabel("")
 
         # Paths
         self.folder_to_watch_edit = QLineEdit()
@@ -1905,7 +1888,6 @@ class ConfigWindow(QWidget):
         self.enable_tokenization_check = QCheckBox()
         self.tokenization_backend_combo = QComboBox()
         self.tokenization_backend_combo.addItem("Sudachi", "sudachi")
-        self.tokenization_backend_combo.addItem("MeCab", "mecab")
         self.tokenization_sudachi_dictionary_combo = QComboBox()
         self.tokenization_sudachi_dictionary_combo.addItem("Small", "small")
         self.tokenization_sudachi_dictionary_combo.addItem("Core", "core")
@@ -2475,9 +2457,6 @@ class ConfigWindow(QWidget):
 
     def _create_tabs(self):
         tabs_i18n = self.i18n.get("tabs", {})
-        text_filter_title = tabs_i18n.get("text_processing", {}).get("title", "Text Filtering")
-        if text_filter_title == "Text Processing":
-            text_filter_title = "Text Filtering"
         self.tab_widget.setTabPosition(QTabWidget.TabPosition.West)
         self._settings_tab_indices["key_settings"] = self.tab_widget.addTab(
             self._wrap_tab_in_scroll_area(self._create_required_settings_tab()),
@@ -2497,11 +2476,6 @@ class ConfigWindow(QWidget):
                     tabs_i18n.get("paths", {}).get("title", "Paths"),
                 ),
                 ("discord", self._create_discord_tab(), "Discord"),
-                (
-                    "text_processing",
-                    self._create_text_processing_tab(),
-                    text_filter_title,
-                ),
             ],
             root_key="general",
         )
@@ -3103,9 +3077,6 @@ class ConfigWindow(QWidget):
     def _create_features_tab(self):
         return build_features_tab(self, self.binder, self.i18n)
 
-    def _create_text_processing_tab(self):
-        return build_text_processing_tab(self, self.binder, self.i18n)
-
     def _create_paths_tab(self):
         return build_paths_tab(self, self.i18n)
 
@@ -3187,8 +3158,6 @@ class ConfigWindow(QWidget):
             self.req_websocket_sources_editor.set_sources(s.general.websocket_sources)
         if hasattr(self, "general_websocket_sources_editor"):
             self.general_websocket_sources_editor.set_sources(s.general.websocket_sources)
-        self._update_string_replacement_rules_count(s.text_processing.string_replacement.rules)
-        self.string_replacement_edit_button.setEnabled(s.text_processing.string_replacement.enabled)
 
         # Paths
         self._set_text_value(self.folder_to_watch_edit, s.paths.folder_to_watch)
@@ -3830,21 +3799,6 @@ class ConfigWindow(QWidget):
 
         layout.addStretch()
         return container
-
-    def _update_string_replacement_rules_count(self, rules):
-        count = len(rules or [])
-        template = (
-            self.i18n.get("tabs", {})
-            .get("text_processing", {})
-            .get("string_replacement", {})
-            .get("rules_count", "{count} rules")
-        )
-        try:
-            text = template.format(count=count)
-        except Exception:
-            text = f"{count} rules"
-        self.string_replacement_rules_count_label.setText(text)
-        self.string_replacement_edit_button.setEnabled(self.string_replacement_enabled_check.isChecked())
 
     def _get_sub_tabs_style(self, min_width: int = 0, horizontal_padding: int = 10):
         return f"QTabBar#ConfigSubTabBar::tab {{padding: 8px {horizontal_padding}px; min-width: {min_width}px;}}"

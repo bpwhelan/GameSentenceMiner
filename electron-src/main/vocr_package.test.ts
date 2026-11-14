@@ -16,11 +16,12 @@ afterEach(async () => {
 });
 
 describe('bundled faithful VOCR packaging', () => {
-    it('ships intact graphs and notices and enforces verification on every Electron build', async () => {
+    it('ships intact graphs and notices and enforces verification before native packaging', async () => {
         expect(await verifyVocrBundle(source)).toEqual({ graphs: 4, bytes: 16968508 });
         const configuration = JSON.parse(await fs.readFile('package.json', 'utf8'));
-        expect(configuration.build.afterPack).toBe('scripts/verify-vocr-package.mjs');
-        expect(configuration.build.extraFiles).toContainEqual({ from: 'GameSentenceMiner', to: 'resources/GameSentenceMiner' });
+        expect(configuration.scripts['app:prepare']).toContain('stage:native');
+        const staging = await fs.readFile('scripts/stage-native-desktop.mjs', 'utf8');
+        expect(staging).toContain("await verifyVocrBundle(path.join(destination,'GameSentenceMiner/assets/vocr'))");
     });
 
     it.each(['missing', 'damaged', 'extra', 'attribution'])('rejects %s packaged assets', async failure => {

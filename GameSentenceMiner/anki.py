@@ -60,7 +60,8 @@ from GameSentenceMiner.util.gsm_utils import (
 from GameSentenceMiner.util.concurrency.work_pool import BoundedDeque, BoundedWorkPool, submit_background_work
 from GameSentenceMiner.util.media import ffmpeg
 from GameSentenceMiner.util.models.model import AnkiCard
-from GameSentenceMiner.util.platform import notification
+from GameSentenceMiner.util.communication import desktop_events
+from GameSentenceMiner.util import anki_actions
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker
 from GameSentenceMiner.util.text_log import (
     GameLine,
@@ -206,11 +207,11 @@ _HTML_VOID_TAGS = {
 }
 
 
-def _notify_anki_enhancement_failure(reason: str) -> None:
+def _report_card_error(reason: str) -> None:
     message = str(reason or "").strip()
     if not message:
         message = "Anki card enhancement failed. Check console for reason."
-    notification.send_anki_enhancement_failed(message)
+    desktop_events.card_error(message)
 
 
 def _mark_anki_update_failure(result_id: Optional[str], reason: str, word: str = "") -> None:
@@ -242,7 +243,7 @@ def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
     except Exception as e:
         reason = f"Failed to delete Anki note {note_id} after confirmation dialog exit: {e}"
         logger.exception(reason)
-        _notify_anki_enhancement_failure(reason)
+        _report_card_error(reason)
         return False
 
 
@@ -589,7 +590,7 @@ def _field_grouping_tags(source_note: "AnkiCard", generated_tags: List[str]) -> 
 
 def _release_note_from_browser(note_id: int):
     if note_id in (invoke("guiSelectedNotes") or []):
-        notification.open_browser_window(1)
+        anki_actions.open_browser_window(1)
 
 
 def _apply_field_grouping_merge(
@@ -1796,9 +1797,14 @@ def update_anki_card(
             )
         except Exception as exc:
             logger.exception("Could not preserve this card for session review; opening confirmation now.")
-            _notify_anki_enhancement_failure(f"Could not save this card for later review: {exc}")
+            _report_card_error(f"Could not save this card for later review: {exc}")
             show_confirmation = True
-    use_voice = update_audio_flag or assets.audio_in_anki
+    # Clips retained for manual review do not imply that VAD found speech.
+    # Successful processing includes configured raw-audio/TTS fallbacks; the
+    # confirmation dialog below can also explicitly choose to keep a preview.
+    use_voice = bool(
+        assets.audio_in_anki or (update_audio_flag and (vad_result is None or getattr(vad_result, "success", False)))
+    )
     if show_confirmation:
         from GameSentenceMiner.ui.qt_main import launch_anki_confirmation
 
@@ -2152,7 +2158,7 @@ def _process_screenshot(
         return
 
     if update_picture_flag and not assets.screenshot_path:
-        _notify_anki_enhancement_failure("Failed to generate screenshot for the Anki card.")
+        _report_card_error("Failed to generate screenshot for the Anki card.")
         return
 
     if not assets.screenshot_path:
@@ -2172,7 +2178,7 @@ def _process_screenshot(
         )
         logger.info(f"Stored screenshot in Anki media collection: {assets.screenshot_in_anki}")
         if not assets.screenshot_in_anki:
-            _notify_anki_enhancement_failure("Failed to upload screenshot to Anki media collection.")
+            _report_card_error("Failed to upload screenshot to Anki media collection.")
 
         if update_picture_flag and assets.screenshot_in_anki:
             _apply_field_policy(
@@ -2214,7 +2220,7 @@ def _process_previous_screenshot(
         )
         logger.info(f"Stored previous screenshot in Anki media collection: {assets.prev_screenshot_in_anki}")
         if not assets.prev_screenshot_in_anki:
-            _notify_anki_enhancement_failure("Failed to upload the previous screenshot to Anki media collection.")
+            _report_card_error("Failed to upload the previous screenshot to Anki media collection.")
 
         if assets.prev_screenshot_in_anki and config.anki.previous_image_field != config.anki.picture_field:
             _apply_field_policy(
@@ -2344,7 +2350,7 @@ def _process_animated_screenshot(
             )
             logger.info(f"<bold>Stored animated screenshot in Anki: {assets.screenshot_in_anki}</bold>")
             if not assets.screenshot_in_anki:
-                _notify_anki_enhancement_failure("Failed to upload animated screenshot to Anki media collection.")
+                _report_card_error("Failed to upload animated screenshot to Anki media collection.")
 
             if update_picture_flag and assets.screenshot_in_anki:
                 _apply_field_policy(
@@ -2367,10 +2373,10 @@ def _process_animated_screenshot(
             assets.animated = True
         else:
             logger.error("Failed to generate animated screenshot")
-            _notify_anki_enhancement_failure("Failed to generate animated screenshot for the Anki card.")
+            _report_card_error("Failed to generate animated screenshot for the Anki card.")
     except Exception as e:
         logger.exception(f"Error generating animated screenshot: {e}")
-        _notify_anki_enhancement_failure(f"Failed to generate animated screenshot for the Anki card: {e}")
+        _report_card_error(f"Failed to generate animated screenshot for the Anki card: {e}")
 
 
 def _process_video(
@@ -2410,7 +2416,7 @@ def _process_video(
             )
             logger.info(f"Stored video in Anki: {assets.video_in_anki}")
             if not assets.video_in_anki:
-                _notify_anki_enhancement_failure("Failed to upload replay video to Anki media collection.")
+                _report_card_error("Failed to upload replay video to Anki media collection.")
 
             if assets.video_in_anki:
                 _apply_field_policy(
@@ -2425,10 +2431,10 @@ def _process_video(
             assets.video = True
         else:
             logger.error("Failed to generate video")
-            _notify_anki_enhancement_failure("Failed to generate replay video for the Anki card.")
+            _report_card_error("Failed to generate replay video for the Anki card.")
     except Exception as e:
         logger.exception(f"Error generating video: {e}")
-        _notify_anki_enhancement_failure(f"Failed to generate replay video for the Anki card: {e}")
+        _report_card_error(f"Failed to generate replay video for the Anki card: {e}")
 
 
 def _process_audio(
@@ -2461,7 +2467,7 @@ def _process_audio(
 
     if not assets.audio_path or assets.audio_in_anki:
         if use_voice and not use_existing_files and not assets.audio_path and not assets.audio_in_anki:
-            _notify_anki_enhancement_failure("Failed to generate audio for the Anki card.")
+            _report_card_error("Failed to generate audio for the Anki card.")
         return
 
     user_audio_options = getattr(config.audio, "ffmpeg_reencode_options_to_use", "")
@@ -2487,7 +2493,7 @@ def _process_audio(
     )
     logger.info(f"Stored audio in Anki media collection: {assets.audio_in_anki}")
     if not assets.audio_in_anki:
-        _notify_anki_enhancement_failure("Failed to upload audio to Anki media collection.")
+        _report_card_error("Failed to upload audio to Anki media collection.")
 
     if assets.audio_in_anki:
         _apply_field_policy(
@@ -2519,7 +2525,7 @@ def _update_anki_note(
 
     selected_notes = invoke_with_optional_timing("guiSelectedNotes")
     if last_note.noteId in selected_notes:
-        notification.open_browser_window(1)
+        anki_actions.open_browser_window(1)
 
     for field_name in note["fields"]:
         if note["fields"][field_name] is None:
@@ -2561,13 +2567,12 @@ def _update_anki_note(
 
 def _perform_post_update_actions(last_note: AnkiCard, selected_notes, config: ProfileConfig):
     if last_note.noteId in selected_notes or config.features.open_anki_in_browser:
-        notification.open_browser_window(last_note.noteId, config.features.browser_query)
+        anki_actions.open_browser_window(last_note.noteId, config.features.browser_query)
 
     if config.features.open_anki_edit:
-        notification.open_anki_card(last_note.noteId)
+        anki_actions.open_anki_card(last_note.noteId)
 
-    if config.features.notify_on_update:
-        notification.send_note_updated(last_note.noteId)
+    desktop_events.card_updated(last_note.noteId)
 
 
 def _cleanup_assets(assets: MediaAssets):
@@ -2688,8 +2693,8 @@ def check_and_update_note(
         with time_anki_card_block(timing_context, "anki.background.post_update_actions"):
             if not deferred_review:
                 _perform_post_update_actions(completed_note, selected_notes, config)
-            elif config.features.notify_on_update:
-                notification.send_note_updated(completed_note.noteId)
+            else:
+                desktop_events.card_updated(completed_note.noteId)
         log_anki_card_timing(
             timing_context,
             "anki.background.user_visible_complete",
@@ -2730,7 +2735,7 @@ def check_and_update_note(
             error=str(e),
         )
         _mark_anki_update_failure(failure_result_id, reason, processing_word)
-        _notify_anki_enhancement_failure(reason)
+        _report_card_error(reason)
     finally:
         with time_anki_card_block(timing_context, "anki.background.cleanup_assets"):
             _cleanup_assets(assets)
@@ -3945,7 +3950,7 @@ def queue_card_for_processing(
         reason = f"Anki media queue is backpressured for note {last_card.noteId}: {error}"
         logger.error(reason)
         _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
-        _notify_anki_enhancement_failure(reason)
+        _report_card_error(reason)
         return
     reuse_key = _build_sentence_audio_key(last_mined_line, lines)
     previous_entry = sentence_audio_cache.get(reuse_key) if reuse_key else None
@@ -3982,7 +3987,7 @@ def queue_card_for_processing(
             error=str(e),
         )
         _mark_anki_update_failure(last_mined_line.id if last_mined_line else None, reason, current_word)
-        _notify_anki_enhancement_failure(reason)
+        _report_card_error(reason)
         return
 
 
@@ -4053,7 +4058,7 @@ def update_card_from_same_sentence(
     else:
         reason = getattr(anki_result, "failure_reason", "") or f"Anki update failed for card {last_card.noteId}."
         logger.error(reason)
-        _notify_anki_enhancement_failure(reason)
+        _report_card_error(reason)
 
 
 def sentence_is_same_as_previous(last_card, lines=None):

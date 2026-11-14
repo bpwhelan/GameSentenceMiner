@@ -8,13 +8,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BackendProcessError } from './services/managed_python_repair.js';
 
 function child() {
-    return Object.assign(new EventEmitter(), {
+    const proc = Object.assign(new EventEmitter(), {
         pid: 12564,
         exitCode: null as number | null,
         signalCode: null as string | null,
         killed: false,
+        beforeInitialization: true,
+        stop: vi.fn(async () => { exit(proc); }),
         kill: vi.fn(() => true),
     });
+    return proc;
 }
 
 function loadLifecycle() {
@@ -46,7 +49,6 @@ function loadLifecycle() {
         intentionalBackendStops: new WeakSet(),
         bus: { isConnected: vi.fn(() => true) },
         sendBackendCommand: vi.fn(),
-        stopScripts: vi.fn(async () => {}),
         clearManagedGSMProcessState: vi.fn(),
         ensureAndRunGSM: launch,
         execFileAsync: vi.fn(async () => {}),
@@ -64,7 +66,8 @@ function loadLifecycle() {
         APP_NAME: 'GameSentenceMiner',
         BASE_DIR: 'test-data',
         path,
-        spawn: vi.fn(() => proc),
+        NativePythonProcess: vi.fn(function () { return proc; }),
+        sendGSMCrashNotification: vi.fn(),
         writeManagedGSMProcessState: vi.fn(),
         resetStartupTrayState: vi.fn(),
         setTextIntakePausedState: vi.fn(),
@@ -88,47 +91,11 @@ function exit(proc: ReturnType<typeof child>) {
 afterEach(() => vi.useRealTimers());
 
 describe('Python backend restart', () => {
-    it('stops the process tree even after cleanup_complete, then waits before launching', async () => {
-        vi.useFakeTimers();
+    it('asks the native owner to perform the whole restart', async () => {
         const { context, proc, launch } = loadLifecycle();
-        context.sendBackendCommand.mockImplementation(() => { context.cleanupComplete = true; });
-
-        const restart = context.restartGSM();
-        await vi.advanceTimersByTimeAsync(20_000);
-        await restart;
-
-        expect(context.terminateProcessTree).toHaveBeenCalledWith(proc);
-        expect(proc.kill).not.toHaveBeenCalled();
-        expect(launch).toHaveBeenCalledOnce();
-        expect(proc.exitCode).toBe(0);
-    });
-
-    it('does not launch a replacement when the old process survives termination', async () => {
-        vi.useFakeTimers();
-        const { context, launch } = loadLifecycle();
-        context.sendBackendCommand.mockImplementation(() => { context.cleanupComplete = true; });
-        context.terminateProcessTree.mockRejectedValue(new Error('Access denied'));
-
-        const restart = context.restartGSM().catch(() => {});
-        await vi.advanceTimersByTimeAsync(20_000);
-        await restart;
-
-        expect(launch).not.toHaveBeenCalled();
-        expect(context.restartingGSM).toBe(false);
-    });
-
-    it('finishes a graceful restart on process exit without waiting for a cleanup acknowledgement', async () => {
-        vi.useFakeTimers();
-        const { context, proc, launch } = loadLifecycle();
-        const restart = context.restartGSM();
-        await vi.advanceTimersByTimeAsync(0);
-        exit(proc);
-        await vi.advanceTimersByTimeAsync(0);
-
-        expect(launch).toHaveBeenCalledOnce();
-        expect(context.execFileAsync).not.toHaveBeenCalled();
-        expect(proc.kill).not.toHaveBeenCalled();
-        await restart;
+        await context.restartGSM();
+        expect(proc.stop).not.toHaveBeenCalled();
+        expect(launch).toHaveBeenCalledWith('python.exe', 1, expect.objectContaining({ restart: true }));
     });
 
     it('coalesces restart requests while preparing a launch with no running backend', async () => {
@@ -177,19 +144,9 @@ describe('Python backend restart', () => {
         expect(launch).toHaveBeenCalledTimes(2);
     });
 
-    it('waits for worker cleanup even after the backend itself has exited', async () => {
-        const { context, proc } = loadLifecycle();
-        exit(proc);
-        let finish!: () => void;
-        context.terminateProcessTree.mockImplementation(() => new Promise<void>((resolve) => { finish = resolve; }));
-        const settled = vi.fn();
-        const stop = context.closeGSM().then(settled);
-        await Promise.resolve();
-        expect(settled).not.toHaveBeenCalled();
-        expect(context.clearManagedGSMProcessState).not.toHaveBeenCalled();
-        finish();
-        await stop;
-        expect(settled).toHaveBeenCalledOnce();
+    it('treats a native exit as proof that workers have already been reaped', async () => {
+        const { context, proc } = loadLifecycle(); exit(proc); await context.closeGSM();
+        expect(proc.stop).not.toHaveBeenCalled();
     });
 });
 
@@ -199,16 +156,17 @@ describe('backend process lifetime', () => {
         context.resetStartupTrayState.mockImplementation(() => { context.backendInitialized = false; });
         const run = context.runGSM('python.exe', []);
         context.backendInitialized = initialized;
+        proc.beforeInitialization = !initialized;
         proc.exitCode = 1;
         proc.emit('exit', 1);
         await expect(run).rejects.toMatchObject({ beforeInitialization: !initialized });
     });
 
-    it('isolates the Linux backend and its workers in an owned process group', async () => {
+    it('passes backend launch configuration to the native supervisor', async () => {
         const { context, proc } = loadLifecycle();
         context.isWindows = () => false;
         const run = context.runGSM('python', []);
-        expect(context.spawn).toHaveBeenCalledWith('python', [], expect.objectContaining({ detached: true }));
+        expect(context.NativePythonProcess).toHaveBeenCalledWith(expect.objectContaining({ pythonPath: 'python', restart: false }));
         exit(proc);
         await run;
     });
@@ -218,7 +176,7 @@ describe('backend process lifetime', () => {
         context.isQuitting = true;
         await context.runGSM('python', []);
         await context.restartGSM();
-        expect(context.spawn).not.toHaveBeenCalled();
+        expect(context.NativePythonProcess).not.toHaveBeenCalled();
         expect(launch).not.toHaveBeenCalled();
     });
 

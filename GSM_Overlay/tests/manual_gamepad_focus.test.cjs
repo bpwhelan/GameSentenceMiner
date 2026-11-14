@@ -50,6 +50,7 @@ function setup(t, settings = {}) {
     webContents: { focus() {}, send: (...args) => rendererMessages.push(args) },
   };
   const context = vm.createContext({
+    nativeOverlay: { receive: () => false },
     console: { log() {}, warn() {} }, Date, setTimeout, clearTimeout, ipcMain, mainWindow,
     userSettings: {
       manualMode: true, manualModeType: 'toggle',

@@ -27,6 +27,22 @@ interface OverlayHost {
     requestRestart(settingsTab?: string): Promise<boolean>;
 }
 
+interface OverlayHostCallbacks {
+    requestStop(): void;
+}
+
+let hostCallbacks: OverlayHostCallbacks | null = null;
+
+export function configureInProcessOverlayHost(callbacks: OverlayHostCallbacks): void {
+    hostCallbacks = callbacks;
+}
+
+export function openInProcessOverlaySettings(): boolean {
+    if (!isInProcessOverlayRunning() || !overlayModule?.openSettings) return false;
+    overlayModule.openSettings();
+    return true;
+}
+
 interface EnvironmentBackup {
     key: string;
     value: string | undefined;
@@ -116,7 +132,8 @@ function installOverlayHost(): void {
     const globals = globalThis as typeof globalThis & { [OVERLAY_HOST_SYMBOL]?: OverlayHost };
     globals[OVERLAY_HOST_SYMBOL] = {
         requestStop: () => {
-            stopInProcessOverlay();
+            if (hostCallbacks) hostCallbacks.requestStop();
+            else stopInProcessOverlay();
         },
         requestRestart: restartInProcessOverlay,
     };
@@ -137,15 +154,21 @@ export function isInProcessOverlayRunning(): boolean {
     return overlayModule.isOverlayRunning?.() ?? true;
 }
 
+export function isInProcessOverlayTransitioning(): boolean {
+    return Boolean(overlayStartPromise || overlayStopPromise || overlayRestartPromise);
+}
+
 export async function startInProcessOverlay(): Promise<boolean> {
+    const generation = overlayStopGeneration;
     if (overlayStopPromise) {
         await overlayStopPromise;
     }
-    if (isInProcessOverlayRunning()) {
-        return true;
-    }
+    if (generation !== overlayStopGeneration) return false;
     if (overlayStartPromise) {
         return overlayStartPromise;
+    }
+    if (isInProcessOverlayRunning()) {
+        return true;
     }
 
     overlayStartPromise = (async () => {
@@ -162,7 +185,8 @@ export async function startInProcessOverlay(): Promise<boolean> {
         try {
             overlayModule = validateOverlayModule(overlayRequire(resolved.entryPath));
             await overlayModule.startOverlayApp();
-            console.log('Overlay loaded successfully in the main Electron process.');
+            if (generation !== overlayStopGeneration) return false;
+            console.log('Overlay loaded in the desktop service.');
             return true;
         } catch (error) {
             console.error('Failed to load overlay in the main Electron process:', error);
@@ -189,11 +213,11 @@ export async function startInProcessOverlay(): Promise<boolean> {
 export function stopInProcessOverlay(): boolean {
     // Even a repeated stop cancels a queued restart (for example during app quit).
     overlayStopGeneration += 1;
-    if (!overlayModule && !overlayStartPromise) {
-        return false;
-    }
     if (overlayStopPromise) {
         return true;
+    }
+    if (!overlayModule && !overlayStartPromise) {
+        return false;
     }
 
     const runtime = overlayModule;
@@ -214,7 +238,7 @@ export function stopInProcessOverlay(): boolean {
             clearOverlayHost();
             restoreOverlayEnvironment();
             overlayStopPromise = null;
-            console.log('Overlay unloaded from the main Electron process.');
+            console.log('Overlay unloaded from the desktop service.');
         });
     return true;
 }

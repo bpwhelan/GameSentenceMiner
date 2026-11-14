@@ -35,7 +35,6 @@ use std::fs::File;
 use std::io::{BufWriter, Cursor, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::thread;
@@ -46,9 +45,7 @@ use sudachi::config::Config as SudachiConfig;
 use sudachi::dic::build::DictBuilder;
 use sudachi::dic::dictionary::JapaneseDictionary;
 use sudachi::dic::storage::{Storage as SudachiStorage, SudachiDicData};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time;
 use tokio_tungstenite::{accept_hdr_async, tungstenite::Message};
@@ -78,6 +75,8 @@ struct Args {
     enable_features: Vec<String>,
 }
 
+// sudachi.rs 0.6.10 reads V0 only. Releases >= 202610 are incompatible V1.
+// Keep release, engine and checksums together; never resolve "latest" at runtime.
 const SUDACHI_DICT_RELEASE: &str = "20260116";
 const SUDACHI_IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(5 * 60);
 const SUDACHI_IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(30);
@@ -132,14 +131,12 @@ impl SudachiDictionaryKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ServerTokenizerBackend {
-    Mecab,
     Sudachi,
 }
 
 impl ServerTokenizerBackend {
     fn from_value(value: Option<&str>) -> Self {
         match value.map(|v| v.trim().to_ascii_lowercase()) {
-            Some(v) if v == "mecab" => Self::Mecab,
             Some(v) if v == "sudachi" => Self::Sudachi,
             _ => Self::Sudachi,
         }
@@ -147,14 +144,12 @@ impl ServerTokenizerBackend {
 
     fn token_source(self) -> &'static str {
         match self {
-            Self::Mecab => "mecab",
             Self::Sudachi => "sudachi",
         }
     }
 
     fn service_feature(self) -> ServiceFeature {
         match self {
-            Self::Mecab => ServiceFeature::Mecab,
             Self::Sudachi => ServiceFeature::Sudachi,
         }
     }
@@ -390,7 +385,6 @@ impl Default for Config {
 
 type SharedStates = Mutex<HashMap<usize, GamepadState>>;
 type SharedDeviceBlacklist = Arc<StdMutex<HashSet<String>>>;
-type SharedMecab = Mutex<MecabService>;
 type SharedSudachi = Mutex<SudachiService>;
 type SharedVocabulary = Arc<StdMutex<Option<vocabulary::Store>>>;
 type SharedManualHotkey = Arc<StdMutex<ManualHotkeyState>>;
@@ -508,6 +502,9 @@ struct ManualHotkeyState {
     /// user types is seen by the hook for hotkey evaluation but never leaves the
     /// process. This is what keeps the server from behaving like a keylogger.
     capture_keys: HashSet<String>,
+    /// Independent passive subscriptions; removing OCR must not change the
+    /// overlay's allowlist, and disconnect automatically releases these keys.
+    capture_subscriptions: HashMap<u64, HashSet<String>>,
     /// When true, broadcast *every* keyboard/mouse transition regardless of the allowlist.
     /// Only used transiently while the settings UI is recording a new binding
     /// ("press a key..."), and reset to false as soon as capture ends.
@@ -522,7 +519,12 @@ struct ManualHotkeyState {
 /// `keyboard_event`/`mouse_event`. Default-deny: nothing is broadcast unless the input is on the
 /// client-supplied allowlist or an explicit capture-all recording session is active.
 fn should_broadcast_key(state: &ManualHotkeyState, key_name: &str) -> bool {
-    state.capture_all || state.capture_keys.contains(key_name)
+    state.capture_all
+        || state.capture_keys.contains(key_name)
+        || state
+            .capture_subscriptions
+            .values()
+            .any(|keys| keys.contains(key_name))
 }
 
 struct SudachiService {
@@ -532,6 +534,7 @@ struct SudachiService {
     dictionary: Option<Arc<JapaneseDictionary>>,
     loaded_signature: Option<String>,
     last_request_at: Option<Instant>,
+    last_error: Option<String>,
 }
 
 /// Emit a structured JSON progress message to stdout for Electron to parse.
@@ -557,6 +560,10 @@ impl SudachiService {
         user_dict_dir: PathBuf,
         dictionary_kind: SudachiDictionaryKind,
     ) -> Self {
+        let dictionary_kind = fs::read_to_string(data_dir.join("sudachi/selection.txt"))
+            .ok()
+            .map(|value| SudachiDictionaryKind::from_value(Some(&value)))
+            .unwrap_or(dictionary_kind);
         Self {
             data_dir,
             user_dict_dir,
@@ -564,6 +571,7 @@ impl SudachiService {
             dictionary: None,
             loaded_signature: None,
             last_request_at: None,
+            last_error: None,
         }
     }
 
@@ -608,6 +616,7 @@ impl SudachiService {
         }
         self.disable();
         self.dictionary_kind = dictionary_kind;
+        self.last_error = None;
         info!(
             "sudachi dictionary selection changed to {}",
             self.dictionary_kind.as_str()
@@ -615,7 +624,10 @@ impl SudachiService {
     }
 
     async fn ensure_tokenizer(&mut self) -> Result<(), String> {
-        let dict_path = self.ensure_dictionary().await?;
+        let dict_path = self.dictionary_path();
+        if !dict_path.is_file() {
+            return Err("Sudachi dictionary setup is required".to_string());
+        }
         let user_dict_dir = self.user_dict_dir.clone();
         let dict_path_for_user_dicts = dict_path.clone();
         let (user_dict_paths, signature) = tokio::task::spawn_blocking(move || {
@@ -635,16 +647,72 @@ impl SudachiService {
         .map_err(|e| format!("sudachi dictionary task failed: {e}"))??;
         self.dictionary = Some(dictionary);
         self.loaded_signature = Some(signature);
+        self.last_error = None;
+        Ok(())
+    }
+
+    fn dictionary_path(&self) -> PathBuf {
+        self.data_dir
+            .join("sudachi")
+            .join(format!(
+                "v{}-{}",
+                SUDACHI_DICT_RELEASE,
+                self.dictionary_kind.as_str()
+            ))
+            .join(format!("system_{}.dic", self.dictionary_kind.as_str()))
+    }
+
+    fn persist_selection(&self) -> Result<(), String> {
+        let root = self.data_dir.join("sudachi");
+        fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+        let temporary = root.join("selection.tmp");
+        fs::write(&temporary, self.dictionary_kind.as_str()).map_err(|e| e.to_string())?;
+        fs::rename(temporary, root.join("selection.txt")).map_err(|e| e.to_string())
+    }
+
+    fn status(&self) -> Value {
+        json!({
+            "type": "sudachi_status",
+            "dictionary": self.dictionary_kind.as_str(),
+            "release": SUDACHI_DICT_RELEASE,
+            "state": if self.last_error.is_some() { "error" } else if self.dictionary.is_some() { "ready" }
+                else if self.dictionary_path().is_file() { "installed" } else { "setup_required" },
+            "error": self.last_error,
+        })
+    }
+
+    async fn prepare(&mut self, dictionary: Option<&str>) -> Result<(), String> {
+        if let Some(kind) = dictionary {
+            if !matches!(kind, "small" | "core" | "full") {
+                return Err("Choose a valid Sudachi dictionary: small, core, or full".to_string());
+            }
+            self.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(kind)));
+        }
+        self.persist_selection()?;
+        self.last_error = None;
+        // Only explicit setup can replace an unreadable system dictionary.
+        let path = self.dictionary_path();
+        if path.is_file() {
+            let check_path = path.clone();
+            let valid = tokio::task::spawn_blocking(move || {
+                load_sudachi_dictionary(&check_path, &[]).is_ok()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            if !valid {
+                self.disable();
+                fs::remove_file(&path).map_err(|e| e.to_string())?;
+            }
+        }
+        self.ensure_dictionary().await?;
+        self.ensure_tokenizer().await?;
+        self.last_request_at = Some(Instant::now());
         Ok(())
     }
 
     async fn ensure_dictionary(&self) -> Result<PathBuf, String> {
-        let version_dir = self.data_dir.join("sudachi").join(format!(
-            "v{}-{}",
-            SUDACHI_DICT_RELEASE,
-            self.dictionary_kind.as_str()
-        ));
-        let dict_path = version_dir.join(format!("system_{}.dic", self.dictionary_kind.as_str()));
+        let dict_path = self.dictionary_path();
+        let version_dir = dict_path.parent().expect("dictionary parent");
         if dict_path.is_file() {
             emit_sudachi_progress("ready", 100, None, None);
             return Ok(dict_path);
@@ -662,6 +730,8 @@ impl SudachiService {
 
         let client = HttpClient::builder()
             .user_agent("gsm-overlay-server/0.1.0")
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(15 * 60))
             .build()
             .map_err(|e| {
                 let msg = format!("failed to build Sudachi HTTP client: {e}");
@@ -780,326 +850,16 @@ impl SudachiService {
     }
 }
 
-#[derive(Debug)]
-struct MecabBridge {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-}
-
-impl MecabBridge {
-    async fn request(&mut self, req: &Value) -> Result<Value, String> {
-        let encoded = serde_json::to_string(req).map_err(|e| e.to_string())?;
-        self.stdin
-            .write_all(encoded.as_bytes())
-            .await
-            .map_err(|e| e.to_string())?;
-        self.stdin
-            .write_all(b"\n")
-            .await
-            .map_err(|e| e.to_string())?;
-        self.stdin.flush().await.map_err(|e| e.to_string())?;
-
-        let mut line = String::new();
-        let read = self
-            .stdout
-            .read_line(&mut line)
-            .await
-            .map_err(|e| e.to_string())?;
-        if read == 0 {
-            return Err("mecab bridge closed stdout".to_string());
-        }
-
-        serde_json::from_str::<Value>(line.trim()).map_err(|e| e.to_string())
-    }
-}
-
-#[derive(Debug)]
-struct MecabService {
-    script_path: PathBuf,
-    bridge: Option<MecabBridge>,
-}
-
-impl MecabService {
-    fn new(script_path: PathBuf) -> Self {
-        Self {
-            script_path,
-            bridge: None,
-        }
-    }
-
-    fn disable(&mut self) {
-        if let Some(mut bridge) = self.bridge.take() {
-            let _ = bridge.child.start_kill();
-        }
-        info!("mecab capability released");
-    }
-
-    async fn ensure_bridge(&mut self) -> Result<(), String> {
-        if self.bridge.is_some() {
-            return Ok(());
-        }
-        self.spawn_bridge().await
-    }
-
-    async fn spawn_bridge(&mut self) -> Result<(), String> {
-        if !self.script_path.is_file() {
-            return Err(format!(
-                "mecab bridge script not found: {}",
-                self.script_path.display()
-            ));
-        }
-
-        let attempts = collect_python_attempts();
-
-        let mut last_error = "no python candidates attempted".to_string();
-        for (bin, args) in attempts {
-            let mut cmd = Command::new(&bin);
-            for arg in args {
-                cmd.arg(arg);
-            }
-            cmd.arg("-X").arg("utf8");
-            cmd.arg("-u")
-                .arg(&self.script_path)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::inherit())
-                .env("PYTHONUTF8", "1")
-                .env("PYTHONIOENCODING", "utf-8");
-            if let Some(script_dir) = self.script_path.parent() {
-                cmd.current_dir(script_dir);
-            }
-
-            match cmd.spawn() {
-                Ok(mut child) => {
-                    let stdin = match child.stdin.take() {
-                        Some(s) => s,
-                        None => {
-                            last_error = format!("{bin}: no stdin pipe");
-                            let _ = child.start_kill();
-                            continue;
-                        }
-                    };
-                    let stdout = match child.stdout.take() {
-                        Some(s) => s,
-                        None => {
-                            last_error = format!("{bin}: no stdout pipe");
-                            let _ = child.start_kill();
-                            continue;
-                        }
-                    };
-
-                    let mut bridge = MecabBridge {
-                        child,
-                        stdin,
-                        stdout: BufReader::new(stdout),
-                    };
-
-                    let health = time::timeout(
-                        Duration::from_secs(3),
-                        bridge.request(&json!({"op":"health"})),
-                    )
-                    .await;
-                    match health {
-                        Ok(Ok(resp)) => {
-                            let avail = resp
-                                .get("mecabAvailable")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false);
-                            info!("mecab bridge started with {bin} (mecabAvailable={avail})");
-                            self.bridge = Some(bridge);
-                            return Ok(());
-                        }
-                        Ok(Err(e)) => {
-                            last_error = format!("{bin}: health request failed: {e}");
-                            let _ = bridge.child.start_kill();
-                        }
-                        Err(_) => {
-                            last_error = format!("{bin}: health request timed out");
-                            let _ = bridge.child.start_kill();
-                        }
-                    }
-                }
-                Err(e) => {
-                    last_error = format!("{bin}: {e}");
-                }
-            }
-        }
-
-        Err(last_error)
-    }
-
-    async fn request(&mut self, req: Value) -> Result<Value, String> {
-        self.ensure_bridge().await?;
-
-        let result = {
-            let bridge = self
-                .bridge
-                .as_mut()
-                .ok_or_else(|| "mecab bridge unavailable".to_string())?;
-            time::timeout(Duration::from_secs(5), bridge.request(&req)).await
-        };
-
-        match result {
-            Ok(Ok(v)) => Ok(v),
-            Ok(Err(e)) => {
-                warn!("mecab bridge request failed: {e}");
-                if let Some(mut bridge) = self.bridge.take() {
-                    let _ = bridge.child.start_kill();
-                }
-                Err(e)
-            }
-            Err(_) => {
-                warn!("mecab bridge request timed out");
-                if let Some(mut bridge) = self.bridge.take() {
-                    let _ = bridge.child.start_kill();
-                }
-                Err("mecab bridge request timed out".to_string())
-            }
-        }
-    }
-}
-
-fn resolve_mecab_script_path() -> PathBuf {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    let mut seen: HashSet<PathBuf> = HashSet::new();
-    let mut push_candidate = |path: PathBuf| {
-        if seen.insert(path.clone()) {
-            candidates.push(path);
-        }
-    };
-
-    if let Ok(override_path) = std::env::var("GSM_MECAB_BRIDGE") {
-        let trimmed = override_path.trim();
-        if !trimmed.is_empty() {
-            push_candidate(PathBuf::from(trimmed));
-        }
-    }
-
-    if let Ok(exe_path) = std::env::current_exe() {
-        if let Some(exe_dir) = exe_path.parent() {
-            push_candidate(exe_dir.join("mecab_bridge.py"));
-            push_candidate(exe_dir.join("input_server").join("mecab_bridge.py"));
-
-            if let Some(parent) = exe_dir.parent() {
-                push_candidate(parent.join("mecab_bridge.py"));
-                push_candidate(parent.join("input_server").join("mecab_bridge.py"));
-
-                if let Some(grandparent) = parent.parent() {
-                    push_candidate(grandparent.join("mecab_bridge.py"));
-                    push_candidate(grandparent.join("input_server").join("mecab_bridge.py"));
-                    push_candidate(
-                        grandparent
-                            .join("GSM_Overlay")
-                            .join("input_server")
-                            .join("mecab_bridge.py"),
-                    );
-                }
-            }
-        }
-    }
-
-    if let Ok(cwd) = std::env::current_dir() {
-        push_candidate(cwd.join("mecab_bridge.py"));
-        push_candidate(cwd.join("input_server").join("mecab_bridge.py"));
-        push_candidate(
-            cwd.join("GSM_Overlay")
-                .join("input_server")
-                .join("mecab_bridge.py"),
-        );
-    }
-
-    let manifest_candidate = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mecab_bridge.py");
-    push_candidate(manifest_candidate.clone());
-
-    for candidate in &candidates {
-        if candidate.is_file() {
-            info!("resolved mecab bridge script: {}", candidate.display());
-            return candidate.clone();
-        }
-    }
-
-    let checked = candidates
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect::<Vec<_>>()
-        .join(" | ");
-    warn!("mecab bridge script not found; checked: {checked}");
-
-    manifest_candidate
-}
-
-fn collect_python_attempts() -> Vec<(String, Vec<String>)> {
-    let mut attempts: Vec<(String, Vec<String>)> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut push_attempt = |bin: String, args: Vec<String>| {
-        let key = format!("{bin}\x1f{}", args.join("\x1f"));
-        if seen.insert(key) {
-            attempts.push((bin, args));
-        }
-    };
-
-    if let Ok(custom) = std::env::var("GSM_PYTHON") {
-        let custom = custom.trim();
-        if !custom.is_empty() {
-            push_attempt(custom.to_string(), Vec::new());
-        }
-    }
-
-    if let Ok(custom) = std::env::var("PYTHON") {
-        let custom = custom.trim();
-        if !custom.is_empty() {
-            push_attempt(custom.to_string(), Vec::new());
-        }
-    }
-
-    if let Ok(venv) = std::env::var("VIRTUAL_ENV") {
-        let path = if cfg!(windows) {
-            PathBuf::from(&venv).join("Scripts").join("python.exe")
-        } else {
-            PathBuf::from(&venv).join("bin").join("python")
-        };
-        if path.is_file() {
-            push_attempt(path.display().to_string(), Vec::new());
-        }
-    }
-
-    if cfg!(windows) {
-        if let Ok(appdata) = std::env::var("APPDATA") {
-            let appdata_python = PathBuf::from(appdata)
-                .join("GameSentenceMiner")
-                .join("python_venv")
-                .join("Scripts")
-                .join("python.exe");
-            if appdata_python.is_file() {
-                push_attempt(appdata_python.display().to_string(), Vec::new());
-            }
-        }
-        if let Ok(localappdata) = std::env::var("LOCALAPPDATA") {
-            let local_python = PathBuf::from(localappdata)
-                .join("GameSentenceMiner")
-                .join("python_venv")
-                .join("Scripts")
-                .join("python.exe");
-            if local_python.is_file() {
-                push_attempt(local_python.display().to_string(), Vec::new());
-            }
-        }
-    }
-
-    push_attempt("python".to_string(), Vec::new());
-    push_attempt("py".to_string(), vec!["-3".to_string()]);
-    push_attempt("python3".to_string(), Vec::new());
-
-    attempts
-}
-
 fn sudachi_dictionary_kind_from_env() -> SudachiDictionaryKind {
     SudachiDictionaryKind::from_value(std::env::var("GSM_SUDACHI_DICT_KIND").ok().as_deref())
 }
 
 fn resolve_sudachi_data_dir() -> PathBuf {
-    default_gsm_app_data_dir()
+    std::env::var("GSM_SUDACHI_DATA_PATH")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default_gsm_app_data_dir)
 }
 
 fn default_gsm_app_data_dir() -> PathBuf {
@@ -1346,7 +1106,10 @@ fn prepare_sudachi_user_dictionaries(
     user_dict_dir: &Path,
 ) -> Result<(Vec<PathBuf>, String), String> {
     let csv_dir = user_dict_dir.join("csv");
-    let dic_dir = user_dict_dir.join("dic");
+    let system_signature = build_dictionary_signature(dict_path, &[])?;
+    let dic_dir = user_dict_dir
+        .join("dic")
+        .join(sha256_hex(system_signature.as_bytes()));
     let csv_paths = collect_sorted_paths(&csv_dir, "csv")?;
 
     if csv_paths.is_empty() {
@@ -1355,7 +1118,7 @@ fn prepare_sudachi_user_dictionaries(
 
     fs::create_dir_all(&dic_dir)
         .map_err(|e| format!("failed to create Sudachi user dictionary directory: {e}"))?;
-    let system_dictionary = load_sudachi_dictionary(dict_path, &[])?;
+    let mut system_dictionary = None;
     let mut compiled_paths = Vec::new();
 
     for csv_path in csv_paths {
@@ -1369,19 +1132,21 @@ fn prepare_sudachi_user_dictionaries(
         let dic_path = dic_dir.join(format!("{stem}.dic"));
         let rebuild = should_rebuild_user_dictionary(&csv_path, &dic_path)?;
         if rebuild {
+            if system_dictionary.is_none() {
+                system_dictionary = Some(load_sudachi_dictionary(dict_path, &[])?);
+            }
             if dic_path.exists() {
                 let _ = fs::remove_file(&dic_path);
             }
-            match compile_user_dictionary(&csv_path, &dic_path, &system_dictionary) {
+            match compile_user_dictionary(&csv_path, &dic_path, system_dictionary.as_ref().unwrap())
+            {
                 Ok(()) => info!(
                     "compiled Sudachi user dictionary {} -> {}",
                     csv_path.display(),
                     dic_path.display()
                 ),
                 Err(error) => {
-                    warn!("{error}");
-                    let _ = fs::remove_file(&dic_path);
-                    continue;
+                    return Err(error);
                 }
             }
         }
@@ -1941,6 +1706,14 @@ enum ClientMsg {
         dictionary: String,
     },
 
+    #[serde(rename = "sudachi_status")]
+    SudachiStatus,
+    #[serde(rename = "prepare_sudachi")]
+    PrepareSudachi {
+        #[serde(default)]
+        dictionary: Option<String>,
+    },
+
     #[serde(rename = "configure_manual_hotkey")]
     ConfigureManualHotkey {
         #[serde(default)]
@@ -1966,6 +1739,12 @@ enum ClientMsg {
         keys: Option<Vec<String>>,
         #[serde(default, rename = "captureAll")]
         capture_all: Option<bool>,
+    },
+
+    #[serde(rename = "configure_keyboard_subscription")]
+    ConfigureKeyboardSubscription {
+        #[serde(default)]
+        keys: Vec<String>,
     },
 
     /// Replace the full set of app-level hotkeys evaluated server-side. Each entry
@@ -2362,6 +2141,17 @@ fn handle_portal_hotkey_edge(
 
 /// Map an rdev key to a stable string identifier for the JavaScript client.
 /// Returns `None` for unknown/unmappable keys so we can silently skip them.
+fn foreground_window_id() -> Option<u64> {
+    #[cfg(windows)]
+    {
+        Some(unsafe { winapi::um::winuser::GetForegroundWindow() } as usize as u64)
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
 fn rdev_key_to_string(key: &KeyboardKey) -> Option<&'static str> {
     Some(match key {
         // Letters
@@ -2415,6 +2205,18 @@ fn rdev_key_to_string(key: &KeyboardKey) -> Option<&'static str> {
         KeyboardKey::F10 => "F10",
         KeyboardKey::F11 => "F11",
         KeyboardKey::F12 => "F12",
+        KeyboardKey::Unknown(124) => "F13",
+        KeyboardKey::Unknown(125) => "F14",
+        KeyboardKey::Unknown(126) => "F15",
+        KeyboardKey::Unknown(127) => "F16",
+        KeyboardKey::Unknown(128) => "F17",
+        KeyboardKey::Unknown(129) => "F18",
+        KeyboardKey::Unknown(130) => "F19",
+        KeyboardKey::Unknown(131) => "F20",
+        KeyboardKey::Unknown(132) => "F21",
+        KeyboardKey::Unknown(133) => "F22",
+        KeyboardKey::Unknown(134) => "F23",
+        KeyboardKey::Unknown(135) => "F24",
         // Arrow keys
         KeyboardKey::UpArrow => "ArrowUp",
         KeyboardKey::DownArrow => "ArrowDown",
@@ -2520,6 +2322,7 @@ fn handle_manual_keyboard_event(
                     "type": if is_mouse { "mouse_event" } else { "keyboard_event" },
                     "key": key_name,
                     "pressed": pressed,
+                    "foreground_window": foreground_window_id(),
                     "modifiers": {
                         "ctrl": mods.ctrl,
                         "alt": mods.alt,
@@ -2597,132 +2400,30 @@ fn handle_manual_keyboard_event(
     }
 }
 
-fn fallback_tokens(text: &str) -> Vec<Value> {
-    text.chars()
-        .enumerate()
-        .filter(|(_, ch)| !ch.is_whitespace())
-        .map(|(i, ch)| {
-            json!({
-                "word": ch.to_string(),
-                "start": i,
-                "end": i + 1,
-            })
-        })
-        .collect()
-}
-
-fn fallback_furigana(text: &str) -> Vec<Value> {
-    vec![json!({
-        "text": text,
-        "start": 0,
-        "end": text.chars().count(),
-        "hasReading": false,
-        "reading": Value::Null,
-    })]
-}
-
-async fn tokenize_via_mecab(mecab: &'static SharedMecab, text: &str) -> (Vec<Value>, bool) {
-    let req = json!({
-        "op": "tokenize",
-        "text": text,
-    });
-
-    let response = {
-        let mut bridge = mecab.lock().await;
-        bridge.request(req).await
-    };
-
-    match response {
-        Ok(resp) => {
-            let mecab_available = resp
-                .get("mecabAvailable")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let tokens = resp
-                .get("tokens")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_else(|| fallback_tokens(text));
-            (tokens, mecab_available)
-        }
-        Err(e) => {
-            warn!("tokenize via mecab failed: {e}");
-            (fallback_tokens(text), false)
-        }
-    }
-}
-
-async fn furigana_via_mecab(mecab: &'static SharedMecab, text: &str) -> (Vec<Value>, bool) {
-    let req = json!({
-        "op": "get_furigana",
-        "text": text,
-    });
-
-    let response = {
-        let mut bridge = mecab.lock().await;
-        bridge.request(req).await
-    };
-
-    match response {
-        Ok(resp) => {
-            let mecab_available = resp
-                .get("mecabAvailable")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let segments = resp
-                .get("segments")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_else(|| fallback_furigana(text));
-            (segments, mecab_available)
-        }
-        Err(e) => {
-            warn!("furigana via mecab failed: {e}");
-            (fallback_furigana(text), false)
-        }
-    }
-}
-
-async fn tokenize_via_sudachi(
+async fn analyze_with_sudachi(
     sudachi: &'static SharedSudachi,
     text: &str,
-    dictionary: Option<&str>,
-) -> (Vec<Value>, bool) {
-    let response = {
-        let mut service = sudachi.lock().await;
-        if let Some(dictionary) = dictionary {
-            service.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(dictionary)));
-        }
+    furigana: bool,
+) -> (Vec<Value>, Option<String>) {
+    let mut service = sudachi.lock().await;
+    let response = if furigana {
+        service.furigana(text).await
+    } else {
         service.tokenize(text).await
     };
-
     match response {
-        Ok(tokens) => (tokens, true),
-        Err(e) => {
-            warn!("tokenize via sudachi failed: {e}");
-            (fallback_tokens(text), false)
+        Ok(values) => {
+            service.last_error = None;
+            (values, None)
         }
-    }
-}
-
-async fn furigana_via_sudachi(
-    sudachi: &'static SharedSudachi,
-    text: &str,
-    dictionary: Option<&str>,
-) -> (Vec<Value>, bool) {
-    let response = {
-        let mut service = sudachi.lock().await;
-        if let Some(dictionary) = dictionary {
-            service.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(dictionary)));
-        }
-        service.furigana(text).await
-    };
-
-    match response {
-        Ok(segments) => (segments, true),
-        Err(e) => {
-            warn!("furigana via sudachi failed: {e}");
-            (fallback_furigana(text), false)
+        Err(error) => {
+            service.last_error = Some(error.clone());
+            (
+                Vec::new(),
+                Some(format!(
+                    "{error}. Open Japanese dictionary setup and retry."
+                )),
+            )
         }
     }
 }
@@ -2794,7 +2495,6 @@ async fn handle_socket(
     mut rx: broadcast::Receiver<String>,
     states: &'static SharedStates,
     device_blacklist: SharedDeviceBlacklist,
-    mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     vocabulary: SharedVocabulary,
     manual_hotkey: SharedManualHotkey,
@@ -3005,22 +2705,48 @@ async fn handle_socket(
                                     }
                                 }
                             }
-                            Ok(ClientMsg::ConfigureSudachi { dictionary }) => {
-                                let dictionary_kind =
-                                    SudachiDictionaryKind::from_value(Some(&dictionary));
-                                let mut service = sudachi.lock().await;
-                                service.set_dictionary_kind(dictionary_kind);
-                                let payload = json!({
-                                    "type": "sudachi_configuration",
-                                    "dictionary": dictionary_kind.as_str(),
-                                });
-                                if ws_sink
-                                    .send(Message::Text(payload.to_string()))
-                                    .await
-                                    .is_err()
-                                {
-                                    break;
+                            Ok(ClientMsg::SudachiStatus) => {
+                                let payload = match sudachi.try_lock() {
+                                    Ok(mut service) => {
+                                        // Validate an existing dictionary without downloading. Missing
+                                        // or incompatible installations must not be reported as ready.
+                                        if service.last_error.is_none() && service.dictionary_path().is_file() {
+                                            if let Err(error) = service.ensure_tokenizer().await {
+                                                service.last_error = Some(error);
+                                            }
+                                            service.last_request_at = Some(Instant::now());
+                                        }
+                                        service.status()
+                                    },
+                                    Err(_) => json!({"type": "sudachi_status", "state": "installing"}),
+                                };
+                                if ws_sink.send(Message::Text(payload.to_string())).await.is_err() { break; }
+                            }
+                            Ok(ClientMsg::PrepareSudachi { dictionary }) => {
+                                if browser_origin {
+                                    let payload = json!({"type": "sudachi_status", "state": "error", "error": "Use GSM Japanese dictionary setup to install dictionaries."});
+                                    if ws_sink.send(Message::Text(payload.to_string())).await.is_err() { break; }
+                                    continue;
                                 }
+                                let mut service = sudachi.lock().await;
+                                if let Err(error) = service.prepare(dictionary.as_deref()).await {
+                                    service.last_error = Some(error);
+                                }
+                                let payload = service.status();
+                                let mut changed = payload.clone();
+                                changed["type"] = json!("sudachi_dictionary_changed");
+                                let _ = _tx.send(changed.to_string());
+                                if ws_sink.send(Message::Text(payload.to_string())).await.is_err() { break; }
+                            }
+                            Ok(ClientMsg::ConfigureSudachi { dictionary }) => {
+                                let mut service = sudachi.lock().await;
+                                if !service.data_dir.join("sudachi/selection.txt").is_file() {
+                                    service.set_dictionary_kind(SudachiDictionaryKind::from_value(Some(&dictionary)));
+                                    if let Err(error) = service.persist_selection() { service.last_error = Some(error); }
+                                }
+                                let mut payload = service.status();
+                                payload["type"] = json!("sudachi_configuration");
+                                if ws_sink.send(Message::Text(payload.to_string())).await.is_err() { break; }
                             }
                             Ok(ClientMsg::ConfigureDeviceBlacklist { devices }) => {
                                 configure_device_blacklist(&device_blacklist, states, &_tx, devices).await;
@@ -3064,6 +2790,10 @@ async fn handle_socket(
                                     enabled_capture_all = capture_all;
                                 }
                             }
+                            Ok(ClientMsg::ConfigureKeyboardSubscription { keys }) => {
+                                manual_hotkey.lock().expect("manual hotkey mutex poisoned")
+                                    .capture_subscriptions.insert(feature_client_id, keys.into_iter().take(64).collect());
+                            }
                             Ok(ClientMsg::ConfigureAppHotkeys { hotkeys }) => {
                                 configure_app_hotkeys(&manual_hotkey, &_tx, hotkeys);
                                 if let Some(rebind) = &portal_rebind {
@@ -3075,35 +2805,18 @@ async fn handle_socket(
                                 block_index,
                                 request_id,
                                 backend,
-                                dictionary,
+                                dictionary: _,
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
                                 let feature_disabled =
                                     !features.is_enabled(selected_backend.service_feature());
-                                let (tokens, mecab_available, sudachi_available) = if text.is_empty() {
-                                    (Vec::new(), false, false)
-                                } else if feature_disabled {
-                                    (fallback_tokens(&text), false, false)
+                                let (tokens, analysis_error) = if feature_disabled {
+                                    (Vec::new(), Some("Sudachi is not enabled. Open Japanese dictionary setup and retry.".to_string()))
                                 } else {
-                                    match selected_backend {
-                                        ServerTokenizerBackend::Mecab => {
-                                            let (tokens, available) =
-                                                tokenize_via_mecab(mecab, &text).await;
-                                            (tokens, available, false)
-                                        }
-                                        ServerTokenizerBackend::Sudachi => {
-                                            let (tokens, available) =
-                                                tokenize_via_sudachi(
-                                                    sudachi,
-                                                    &text,
-                                                    dictionary.as_deref(),
-                                                )
-                                                .await;
-                                            (tokens, false, available)
-                                        }
-                                    }
+                                    analyze_with_sudachi(sudachi, &text, false).await
                                 };
+                                let sudachi_available = analysis_error.is_none();
 
                                 let mut msg = json!({
                                     "type": "tokens",
@@ -3111,7 +2824,8 @@ async fn handle_socket(
                                     "text": text,
                                     "tokens": tokens,
                                     "tokenSource": selected_backend.token_source(),
-                                    "mecabAvailable": mecab_available,
+                                    "error": analysis_error,
+                                    "setupRequired": !sudachi_available,
                                     "sudachiAvailable": sudachi_available,
                                     "featureDisabled": feature_disabled,
                                     "yomitanApiAvailable": false,
@@ -3128,42 +2842,26 @@ async fn handle_socket(
                                 line_index,
                                 request_id,
                                 backend,
-                                dictionary,
+                                dictionary: _,
                             }) => {
                                 let selected_backend =
                                     ServerTokenizerBackend::from_value(backend.as_deref());
                                 let feature_disabled =
                                     !features.is_enabled(selected_backend.service_feature());
-                                let (segments, mecab_available, sudachi_available) = if text.is_empty() {
-                                    (Vec::new(), false, false)
-                                } else if feature_disabled {
-                                    (fallback_furigana(&text), false, false)
+                                let (segments, analysis_error) = if feature_disabled {
+                                    (Vec::new(), Some("Sudachi is not enabled. Open Japanese dictionary setup and retry.".to_string()))
                                 } else {
-                                    match selected_backend {
-                                        ServerTokenizerBackend::Mecab => {
-                                            let (segments, available) =
-                                                furigana_via_mecab(mecab, &text).await;
-                                            (segments, available, false)
-                                        }
-                                        ServerTokenizerBackend::Sudachi => {
-                                            let (segments, available) =
-                                                furigana_via_sudachi(
-                                                    sudachi,
-                                                    &text,
-                                                    dictionary.as_deref(),
-                                                )
-                                                .await;
-                                            (segments, false, available)
-                                        }
-                                    }
+                                    analyze_with_sudachi(sudachi, &text, true).await
                                 };
+                                let sudachi_available = analysis_error.is_none();
 
                                 let mut msg = json!({
                                     "type": "furigana",
                                     "lineIndex": line_index,
                                     "text": text,
                                     "segments": segments,
-                                    "mecabAvailable": mecab_available,
+                                    "error": analysis_error,
+                                    "setupRequired": !sudachi_available,
                                     "sudachiAvailable": sudachi_available,
                                     "featureDisabled": feature_disabled,
                                     "yomitanApiAvailable": false,
@@ -3196,6 +2894,11 @@ async fn handle_socket(
         }
     }
 
+    manual_hotkey
+        .lock()
+        .expect("manual hotkey mutex poisoned")
+        .capture_subscriptions
+        .remove(&feature_client_id);
     // Fail safe: if this connection left capture-all on, turn it back off so a
     // crashed/closed settings window can't leave the server broadcasting all keys.
     if enabled_capture_all {
@@ -3228,7 +2931,6 @@ async fn websocket_server(
     tx: broadcast::Sender<String>,
     states: &'static SharedStates,
     device_blacklist: SharedDeviceBlacklist,
-    mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     vocabulary: SharedVocabulary,
     manual_hotkey: SharedManualHotkey,
@@ -3261,7 +2963,6 @@ async fn websocket_server(
             rx,
             states,
             device_blacklist_clone,
-            mecab,
             sudachi,
             vocabulary.clone(),
             manual_hotkey.clone(),
@@ -4101,7 +3802,6 @@ async fn sudachi_idle_unload_loop(sudachi: &'static SharedSudachi) {
 async fn optional_feature_lifecycle_loop(
     features: FeatureRegistry,
     tx: broadcast::Sender<String>,
-    mecab: &'static SharedMecab,
     sudachi: &'static SharedSudachi,
     manual_hotkey: SharedManualHotkey,
     wayland: bool,
@@ -4109,12 +3809,10 @@ async fn optional_feature_lifecycle_loop(
     let mut changes = features.subscribe();
     let mut keyboard_started = false;
     let mut keyboard_was_enabled = false;
-    let mut mecab_was_enabled = false;
     let mut sudachi_was_enabled = false;
 
     loop {
         let keyboard_enabled = features.is_enabled(ServiceFeature::Keyboard);
-        let mecab_enabled = features.is_enabled(ServiceFeature::Mecab);
         let sudachi_enabled = features.is_enabled(ServiceFeature::Sudachi);
 
         if keyboard_enabled && !keyboard_started {
@@ -4138,15 +3836,11 @@ async fn optional_feature_lifecycle_loop(
             set_manual_hotkey_listener_status(&manual_hotkey, &tx, true, None);
         }
 
-        if mecab_was_enabled && !mecab_enabled {
-            mecab.lock().await.disable();
-        }
         if sudachi_was_enabled && !sudachi_enabled {
             sudachi.lock().await.disable();
         }
 
         keyboard_was_enabled = keyboard_enabled;
-        mecab_was_enabled = mecab_enabled;
         sudachi_was_enabled = sudachi_enabled;
 
         if changes.changed().await.is_err() {
@@ -4190,9 +3884,6 @@ async fn main() {
     let states: &'static SharedStates = Box::leak(Box::new(Mutex::new(HashMap::new())));
     let device_blacklist: SharedDeviceBlacklist =
         Arc::new(StdMutex::new(gamepad_device_blacklist_from_env()));
-    let mecab_script = resolve_mecab_script_path();
-    let mecab: &'static SharedMecab =
-        Box::leak(Box::new(Mutex::new(MecabService::new(mecab_script))));
     let sudachi_data_dir = resolve_sudachi_data_dir();
     let sudachi_user_dict_dir = resolve_sudachi_user_dicts_dir();
     let sudachi_dictionary_kind = sudachi_dictionary_kind_from_env();
@@ -4241,7 +3932,6 @@ async fn main() {
         tx.clone(),
         states,
         device_blacklist.clone(),
-        mecab,
         sudachi,
         Arc::new(StdMutex::new(None)),
         manual_hotkey.clone(),
@@ -4258,7 +3948,6 @@ async fn main() {
     tokio::spawn(optional_feature_lifecycle_loop(
         features.clone(),
         tx.clone(),
-        mecab,
         sudachi,
         manual_hotkey.clone(),
         wayland,
@@ -4293,7 +3982,9 @@ mod tests {
                 request["requestId"] = value;
             }
             match serde_json::from_value::<ClientMsg>(request).unwrap() {
-                ClientMsg::Tokenize { request_id: actual, .. } => assert_eq!(actual, request_id),
+                ClientMsg::Tokenize {
+                    request_id: actual, ..
+                } => assert_eq!(actual, request_id),
                 _ => panic!("expected tokenization request"),
             }
         }
@@ -4326,6 +4017,130 @@ mod tests {
         assert!(!has_kanji("きんちょう"));
     }
 
+    #[tokio::test]
+    async fn missing_dictionary_is_setup_required_without_network_or_fallback() {
+        let root = std::env::temp_dir().join(format!("gsm-sudachi-missing-{}", std::process::id()));
+        let mut service = SudachiService::new(
+            root.clone(),
+            root.join("user"),
+            SudachiDictionaryKind::Small,
+        );
+        assert_eq!(service.status()["state"], "setup_required");
+        assert!(service
+            .tokenize("test")
+            .await
+            .unwrap_err()
+            .contains("setup"));
+        assert!(service
+            .furigana("test")
+            .await
+            .unwrap_err()
+            .contains("setup"));
+        assert!(
+            !root.exists(),
+            "ordinary analysis must not create download files"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_dictionary_is_not_replaced_by_ordinary_analysis() {
+        let root = std::env::temp_dir().join(format!("gsm-sudachi-invalid-{}", std::process::id()));
+        let mut service = SudachiService::new(
+            root.clone(),
+            root.join("user"),
+            SudachiDictionaryKind::Small,
+        );
+        let dictionary = service.dictionary_path();
+        fs::create_dir_all(dictionary.parent().unwrap()).unwrap();
+        fs::write(&dictionary, vec![0u8; 512]).unwrap();
+        assert!(service.ensure_tokenizer().await.is_err());
+        assert_eq!(fs::read(&dictionary).unwrap(), vec![0u8; 512]);
+        assert!(service.prepare(Some("unknown")).await.is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires GSM_TEST_SUDACHI_DICTIONARY pointing to an installed system dictionary"]
+    fn real_sudachi_user_dictionary_compiles_and_reuses_selected_system() {
+        let system = PathBuf::from(std::env::var("GSM_TEST_SUDACHI_DICTIONARY").unwrap());
+        let root = std::env::temp_dir().join(format!("gsm-sudachi-user-{}", std::process::id()));
+        fs::create_dir_all(root.join("csv")).unwrap();
+        let source = "試験辞書語,4787,4787,-10000,試験辞書語,名詞,固有名詞,人名,一般,*,*,シケンジショゴ,試験辞書語,*,A,*,*,*,*\n";
+        fs::write(root.join("csv/test.csv"), source).unwrap();
+        let (paths, signature) = prepare_sudachi_user_dictionaries(&system, &root).unwrap();
+        assert_eq!(paths.len(), 1);
+        let dictionary = load_sudachi_dictionary(&system, &paths).unwrap();
+        let tokens = tokenize_with_sudachi(&dictionary, "試験辞書語").unwrap();
+        assert_eq!(tokens[0]["reading"], "シケンジショゴ");
+        let (cached_paths, cached_signature) =
+            prepare_sudachi_user_dictionaries(&system, &root).unwrap();
+        assert_eq!(paths, cached_paths);
+        assert_eq!(signature, cached_signature);
+        assert_eq!(
+            fs::read_to_string(root.join("csv/test.csv")).unwrap(),
+            source
+        );
+        drop(dictionary);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn user_dictionary_cache_identity_changes_with_system_edition() {
+        let root = std::env::temp_dir().join(format!("gsm-sudachi-cache-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let small = root.join("system_small.dic");
+        let full = root.join("system_full.dic");
+        fs::write(&small, b"system").unwrap();
+        fs::write(&full, b"system").unwrap();
+        assert_ne!(
+            build_dictionary_signature(&small, &[]).unwrap(),
+            build_dictionary_signature(&full, &[]).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn selected_dictionary_survives_service_restart() {
+        let root =
+            std::env::temp_dir().join(format!("gsm-sudachi-selection-{}", std::process::id()));
+        let mut service = SudachiService::new(
+            root.clone(),
+            root.join("user"),
+            SudachiDictionaryKind::Small,
+        );
+        service.set_dictionary_kind(SudachiDictionaryKind::Full);
+        service.persist_selection().unwrap();
+        let restarted =
+            SudachiService::new(root.clone(), root.join("user"), SudachiDictionaryKind::Core);
+        assert_eq!(restarted.dictionary_kind, SudachiDictionaryKind::Full);
+        assert_eq!(restarted.status()["state"], "setup_required");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn pinned_dictionary_is_v0_and_downloads_are_checksummed_for_every_edition() {
+        assert!(SUDACHI_DICT_RELEASE < "202610");
+        for edition in [
+            SudachiDictionaryKind::Small,
+            SudachiDictionaryKind::Core,
+            SudachiDictionaryKind::Full,
+        ] {
+            assert_eq!(edition.zip_sha256().len(), 64);
+            assert!(edition.download_url().contains(SUDACHI_DICT_RELEASE));
+            assert!(edition
+                .download_url()
+                .ends_with(&format!("-{}.zip", edition.as_str())));
+        }
+        assert_eq!(
+            ServiceFeature::parse("mecab"),
+            Some(ServiceFeature::Sudachi)
+        );
+        assert!(!FeatureRegistry::new([])
+            .snapshot()
+            .capabilities
+            .contains(&"mecab"));
+    }
+
     #[test]
     fn tokenizer_backend_defaults_to_sudachi() {
         assert_eq!(
@@ -4334,7 +4149,7 @@ mod tests {
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("mecab")),
-            ServerTokenizerBackend::Mecab
+            ServerTokenizerBackend::Sudachi
         );
         assert_eq!(
             ServerTokenizerBackend::from_value(Some("unknown")),
@@ -4535,6 +4350,26 @@ mod tests {
         // capture-all (settings recording a binding) overrides the allowlist.
         state.capture_all = true;
         assert!(should_broadcast_key(&state, "KeyA"));
+    }
+
+    #[test]
+    fn keyboard_subscriptions_do_not_replace_other_consumers() {
+        let mut state = ManualHotkeyState::default();
+        state.capture_keys.insert("Enter".into());
+        state
+            .capture_subscriptions
+            .insert(1, HashSet::from(["Backquote".into()]));
+        state
+            .capture_subscriptions
+            .insert(2, HashSet::from(["Backquote".into(), "KeyA".into()]));
+        assert!(should_broadcast_key(&state, "Backquote"));
+        assert!(!should_broadcast_key(&state, "KeyB"));
+        state.capture_subscriptions.remove(&1);
+        assert!(should_broadcast_key(&state, "Backquote"));
+        state.capture_subscriptions.remove(&2);
+        assert!(!should_broadcast_key(&state, "Backquote"));
+        assert!(!should_broadcast_key(&state, "KeyA"));
+        assert!(should_broadcast_key(&state, "Enter"));
     }
 
     #[test]

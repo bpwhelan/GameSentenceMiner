@@ -50,11 +50,11 @@ export interface ThemeGroup {
 }
 
 // Ordered groups for the theme picker (<optgroup>s).
-export const THEME_GROUPS: ThemeGroup[] = [
+export const THEME_GROUPS: ThemeGroup[] = ([
   { category: "dark", labelKey: "settings.desktop.themeGroupDark" },
   { category: "light", labelKey: "settings.desktop.themeGroupLight" },
   { category: "highContrast", labelKey: "settings.desktop.themeGroupHighContrast" }
-].map((group) => ({
+] satisfies Omit<ThemeGroup, "themes">[]).map((group) => ({
   ...group,
   themes: THEMES.filter((theme) => theme.category === group.category)
 }));

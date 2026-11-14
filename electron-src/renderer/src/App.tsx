@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {invokeIpc, onIpc} from './lib/ipc';
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { GameAutomationTab } from "./components/tabs/GameAutomationTab";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
+import type { OnboardingHomeAction, OnboardingSnapshot } from '../../shared/onboarding';
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import { AppUpdateNotice } from "./components/AppUpdateNotice";
@@ -15,6 +17,8 @@ import { getDevPreviewTab } from "./lib/devPreview";
 import { TextHookTab } from "./components/tabs/TextHookTab";
 import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
+import { startVisiblePolling } from './lib/visiblePolling';
+import { DeferredPanel } from './components/DeferredPanel';
 import { SpeechRecognitionTab } from "./components/tabs/SpeechRecognitionTab";
 import { useTranslation } from "./i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
@@ -100,141 +104,52 @@ function LegacyFrame({
 }
 
 function StatsPanel({ active }: { active: boolean }) {
-  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
-  const [iframeReloadKey, setIframeReloadKey] = useState(0);
   const t = useTranslation();
-  const [loadingMessage, setLoadingMessage] = useState(
-    "app.stats.loading"
-  );
+  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const loadingRef = useRef(false);
-  const loadedUrlRef = useRef<string | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      clearInterval(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-  }, []);
+  useEffect(() => window.ipcRenderer.on('gsm-initialized', () => {
+    setIframeSrc(null);
+    setReloadKey(value => value + 1);
+  }), []);
 
-  const waitForStatsEndpoint = useCallback(async (url: string) => {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    try {
-      const response = await fetch(url, { signal: controller.signal });
-      return response.ok;
-    } catch {
-      return false;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }, []);
-
-  const loadStats = useCallback(async (forceReload = false) => {
-    if (loadingRef.current) {
-      return;
-    }
-
-    loadingRef.current = true;
-    try {
-      const settings = await window.ipcRenderer.invoke<{
-        statsEndpoint?: string;
-        singlePort?: number;
-      }>(
-        "settings.getSettings"
-      );
-      const statsEndpoint = settings?.statsEndpoint ?? "overview";
-      const singlePort =
-        typeof settings?.singlePort === "number" &&
-        Number.isFinite(settings.singlePort) &&
-        settings.singlePort > 0
-          ? Math.trunc(settings.singlePort)
-          : 7275;
-      const statsUrl = `http://localhost:${singlePort}/${statsEndpoint}`;
-
-      // If this URL already loaded, don't reset to a permanent loading state.
-      if (!forceReload && loadedUrlRef.current === statsUrl) {
-        setIsLoading(false);
-        setIframeSrc(statsUrl);
-        clearRetryTimer();
-        return;
+  useEffect(() => {
+    setIframeSrc(null);
+    if (!active) return;
+    let disposed = false;
+    let controller: AbortController | undefined;
+    let url: string | undefined;
+    let stop = () => {};
+    setIsLoading(true);
+    const refresh = async () => {
+      if (!url) {
+        const settings = await window.ipcRenderer.invoke<{ statsEndpoint?: string; singlePort?: number }>('settings.getSettings');
+        const port = typeof settings?.singlePort === 'number' && Number.isFinite(settings.singlePort) && settings.singlePort > 0
+          ? Math.trunc(settings.singlePort) : 7275;
+        url = `http://localhost:${port}/${settings?.statsEndpoint ?? 'overview'}`;
       }
-
-      setLoadingMessage("app.stats.loading");
-      setIsLoading(true);
-
-      const ready = await waitForStatsEndpoint(statsUrl);
-      if (ready) {
-        clearRetryTimer();
-        if (forceReload) {
-          setIframeReloadKey((current) => current + 1);
+      if (disposed) return;
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller?.abort(), 2000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!disposed && response.ok) {
+          setIframeSrc(url);
+          stop();
         }
-        setIframeSrc(statsUrl);
-        return;
-      }
-
-      clearRetryTimer();
-      retryTimerRef.current = setInterval(() => {
-        void (async () => {
-          const isReady = await waitForStatsEndpoint(statsUrl);
-          if (!isReady) {
-            return;
-          }
-          clearRetryTimer();
-          if (forceReload) {
-            setIframeReloadKey((current) => current + 1);
-          }
-          setIframeSrc(statsUrl);
-        })();
-      }, 2000);
-    } finally {
-      loadingRef.current = false;
-    }
-  }, [clearRetryTimer, waitForStatsEndpoint]);
-
-  useEffect(() => {
-    if (active) {
-      void loadStats();
-      return;
-    }
-    clearRetryTimer();
-  }, [active, clearRetryTimer, loadStats]);
-
-  useEffect(() => {
-    const offInitialized = window.ipcRenderer.on("gsm-initialized", () => {
-      loadedUrlRef.current = null;
-      if (active) {
-        void loadStats(true);
-      }
-    });
-    return () => offInitialized();
-  }, [active, loadStats]);
-
-  useEffect(() => clearRetryTimer, [clearRetryTimer]);
+      } finally { clearTimeout(timeout); }
+    };
+    stop = startVisiblePolling(refresh, 2000);
+    return () => { disposed = true; stop(); controller?.abort(); };
+  }, [active, reloadKey]);
 
   return (
-    <div className={`tab-panel ${active ? "active" : ""}`}>
+    <div className={`tab-panel ${active ? 'active' : ''}`}>
       <div className="stats-panel">
-        {isLoading ? (
-          <div className="stats-loading">
-            <div className="spinner" />
-            <div>{t(loadingMessage)}</div>
-          </div>
-        ) : null}
-        {iframeSrc ? (
-          <iframe
-            key={iframeReloadKey}
-            className="legacy-frame"
-            src={iframeSrc}
-            title="stats"
-            allow="clipboard-read; clipboard-write"
-            onLoad={() => {
-              loadedUrlRef.current = iframeSrc;
-              setIsLoading(false);
-            }}
-          />
-        ) : null}
+        {active && isLoading && <div className="stats-loading"><div className="spinner" /><div>{t('app.stats.loading')}</div></div>}
+        {active && iframeSrc && <iframe key={reloadKey} className="legacy-frame" src={iframeSrc} title="stats"
+          allow="clipboard-read; clipboard-write" onLoad={() => setIsLoading(false)} />}
       </div>
     </div>
   );
@@ -294,25 +209,36 @@ function ConsolePanel({
       return;
     }
 
-    const term = new Terminal({
-      scrollback: LOGS_TERMINAL_HISTORY_LIMIT,
-      fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
-      fontSize: 14,
-      cursorBlink: false,
-      allowProposedApi: true,
-      theme: {
-        ...getTerminalColors(),
-        cursor: "#CFF5DB"
-      }
-    });
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalRef.current);
-    fitAddon.fit();
-    termInstanceRef.current = term;
-    fitAddonRef.current = fitAddon;
+    const ensureTerminal = () => {
+      if (termInstanceRef.current) return termInstanceRef.current;
+      const term = new Terminal({
+        scrollback: LOGS_TERMINAL_HISTORY_LIMIT,
+        fontFamily: '"Noto Sans Mono", "IPA Gothic", "Courier New", monospace',
+        fontSize: 14,
+        cursorBlink: false,
+        allowProposedApi: true,
+        theme: {
+          ...getTerminalColors(),
+          cursor: "#CFF5DB"
+        }
+      });
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(terminalRef.current!);
+      fitAddon.fit();
+      termInstanceRef.current = term;
+      fitAddonRef.current = fitAddon;
+      term.attachCustomKeyEventHandler((event) => {
+        if (event.ctrlKey && event.code === 'KeyC' && event.type === 'keydown') {
+          const selection = term.getSelection();
+          if (selection) { window.clipboard.writeText(selection); return false; }
+        }
+        return true;
+      });
+      return term;
+    };
     const output = createBufferedTerminalWriter(
-      (data) => term.write(data),
+      (data) => ensureTerminal().write(data),
       () => activeRef.current && document.visibilityState !== "hidden",
       {
         maxLines: LOGS_TERMINAL_HISTORY_LIMIT,
@@ -549,33 +475,23 @@ function ConsolePanel({
       }
     );
 
-    term.attachCustomKeyEventHandler((event) => {
-      if (event.ctrlKey && event.code === "KeyC" && event.type === "keydown") {
-        const selection = term.getSelection();
-        if (selection) {
-          window.clipboard.writeText(selection);
-          return false;
-        }
-      }
-      return true;
-    });
-
-    const handleContextMenu = (event: MouseEvent) => {
+    const handleContextMenu = async (event: MouseEvent) => {
       event.preventDefault();
+      const term = ensureTerminal();
       if (term.hasSelection()) {
         window.clipboard.writeText(term.getSelection());
         term.select(0, 0, 0);
         return;
       }
-      window.ipcRenderer.send("terminal-data", window.clipboard.readText());
+      window.ipcRenderer.send("terminal-data", await window.clipboard.readText());
     };
 
     const handleResize = () => {
-      fitAddon.fit();
+      if (activeRef.current) fitAddonRef.current?.fit();
     };
 
     const handleThemeChange = () => {
-      term.options.theme = { ...getTerminalColors(), cursor: "#CFF5DB" };
+      if (termInstanceRef.current) termInstanceRef.current.options.theme = { ...getTerminalColors(), cursor: "#CFF5DB" };
     };
 
     terminalRef.current.addEventListener("contextmenu", handleContextMenu);
@@ -594,7 +510,7 @@ function ConsolePanel({
         clearTimeout(resizeTimerRef.current);
       }
       output.dispose();
-      term.dispose();
+      termInstanceRef.current?.dispose();
       termInstanceRef.current = null;
       fitAddonRef.current = null;
       terminalWriterRef.current = null;
@@ -656,7 +572,8 @@ export default function App() {
       : "obs";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [showWizard, setShowWizard] = useState(false);
-  const [wizardChecked, setWizardChecked] = useState(false);
+  const [wizardSession, setWizardSession] = useState(0);
+  const [onboardingAction, setOnboardingAction] = useState<OnboardingHomeAction | null>(null);
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
   const [desktopChangelog, setDesktopChangelog] =
     useState<DesktopUpdateChangelogSnapshot | null>(null);
@@ -742,12 +659,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const loadSettings = async () => {
-      const settings = await window.ipcRenderer.invoke<{
-        visibleTabs?: string[];
-      }>("settings.getSettings");
+    let disposed = false;
+    let receivedChange = false;
+    const applyVisibleTabs = (tabs?: string[]) => {
+      if (disposed) return;
       const configured =
-        settings?.visibleTabs?.filter((entry): entry is ControlledTab =>
+        tabs?.filter((entry): entry is ControlledTab =>
           CONTROLLABLE_TABS.includes(entry as ControlledTab)
         ) ?? DEFAULT_VISIBLE_TABS;
 
@@ -763,12 +680,15 @@ export default function App() {
       setVisibleControlledTabs(next);
     };
 
-    void loadSettings();
-    const timer = setInterval(() => {
-      void loadSettings();
-    }, 500);
-
-    return () => clearInterval(timer);
+    const off = window.ipcRenderer.on('settings.visibleTabsChanged', (_event, value) => {
+      if (!Array.isArray(value)) return;
+      receivedChange = true;
+      applyVisibleTabs(value as string[]);
+    });
+    void window.ipcRenderer.invoke<{visibleTabs?: string[]}>("settings.getSettings")
+      .then(settings => { if (!receivedChange) applyVisibleTabs(settings?.visibleTabs); })
+      .catch(error => console.error('Failed to load visible tabs:', error));
+    return () => { disposed = true; off(); };
   }, []);
 
   useEffect(() => {
@@ -853,8 +773,11 @@ export default function App() {
   useEffect(() => {
     let disposed = false;
     let receivedLiveSnapshot = false;
+    let revision = 0;
 
     const applySnapshot = (snapshot: InstallSessionSnapshot | null) => {
+      if (snapshot?.revision != null && snapshot.revision < revision) return;
+      revision = snapshot?.revision ?? revision;
       if (snapshot?.origin === "backend_update") {
         // Remember terminal results even if the changelog has not loaded yet.
         lastBackendUpdateStatusRef.current = snapshot.status;
@@ -868,17 +791,16 @@ export default function App() {
       receivedLiveSnapshot = true;
       applySnapshot(payload as InstallSessionSnapshot);
     };
-    const offSnapshot = window.ipcRenderer.on(
+    const offSnapshot = onIpc(
       "install-session.snapshot",
       onSnapshot
     );
-    const offFinished = window.ipcRenderer.on(
+    const offFinished = onIpc(
       "install-session.finished",
       onSnapshot
     );
 
-    void window.ipcRenderer
-      .invoke<InstallSessionSnapshot | null>("install-session.getActive")
+    void invokeIpc<InstallSessionSnapshot | null>("install-session.getActive")
       .then((snapshot) => {
         // A response captured before a finish/retry must not overwrite that event.
         if (!disposed && !receivedLiveSnapshot) applySnapshot(snapshot);
@@ -908,8 +830,8 @@ export default function App() {
   }, []);
 
   const retryInstallSession = useCallback(async () => {
-    await window.ipcRenderer.invoke("install-session.retry");
-  }, []);
+    if (installSession) await invokeIpc("install-session.retry", {sessionId:installSession.id, attempt:installSession.attempt ?? 1});
+  }, [installSession]);
 
   const openInstallLogs = useCallback(async () => {
     await window.ipcRenderer.invoke("logs.openFolder");
@@ -963,29 +885,16 @@ export default function App() {
     void window.ipcRenderer.invoke("state.set", "systemInfo", info);
   }, [platform]);
 
-  // // Check if setup wizard should show (first launch)
-  // useEffect(() => {
-  //   window.ipcRenderer
-  //     .invoke<{ hasCompletedSetup?: boolean; setupWizardVersion?: number }>(
-  //       "settings.getSettings"
-  //     )
-  //     .then((settings) => {
-  //       if (!settings?.hasCompletedSetup) {
-  //         setShowWizard(true);
-  //       }
-  //       setWizardChecked(true);
-  //     });
-  // }, []);
-
-  // const handleWizardComplete = useCallback(() => {
-  //   setShowWizard(false);
-  // }, []);
+  useEffect(() => {
+    let disposed = false;
+    void window.ipcRenderer.invoke<OnboardingSnapshot>('settings.onboarding.get')
+      .then(snapshot => { if (!disposed && snapshot.progress.status === 'active') setShowWizard(true); })
+      .catch(() => { /* Setup remains available from Settings if startup is interrupted. */ });
+    return () => { disposed = true; };
+  }, []);
 
   return (
     <div className="app-root">
-      {/* {wizardChecked && showWizard && (
-        <SetupWizard onComplete={handleWizardComplete} />
-      )} */}
       <header className="tab-bar">
         <div className="tab-buttons">
           {visibleTabs.map((tab) => (
@@ -1002,7 +911,6 @@ export default function App() {
           <AppUpdateNotice />
           <button
             className="icon-link"
-            data-tip={t("app.header.github")}
             aria-label={t("app.header.github")}
             onClick={() =>
               void window.ipcRenderer.invoke(
@@ -1017,7 +925,6 @@ export default function App() {
           </button>
           <button
             className="icon-link"
-            data-tip={t("app.header.discord")}
             aria-label={t("app.header.discord")}
             onClick={() =>
               void window.ipcRenderer.invoke(
@@ -1034,27 +941,41 @@ export default function App() {
       </header>
 
       <GamePrivilegeNotice />
+      {showWizard && !shouldShowInstallSessionModal && !desktopChangelog && (
+        <SetupWizard key={wizardSession} onComplete={() => setShowWizard(false)} onAction={action => {
+          if (action === 'settings') selectTab('settings');
+          else {
+            selectTab('obs');
+            setOnboardingAction(previous => ({ id: (previous?.id ?? 0) + 1, action }));
+          }
+        }} />
+      )}
       <main className="tab-content-area">
-        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} />
-        <OCRTab active={activeTab === "ocr"} />
+        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} onboardingAction={onboardingAction} />
+        <DeferredPanel active={activeTab === 'ocr'}><OCRTab active={activeTab === "ocr"} /></DeferredPanel>
         {canTextHook ? (
+          <DeferredPanel active={activeTab === 'texthook'}>
           <TextHookTab
             active={activeTab === "texthook"}
             onNavigateTab={selectTab}
           />
+          </DeferredPanel>
         ) : null}
-        <TextProcessingTab active={activeTab === "textprocessing"} />
-        {isWindows ? <SpeechRecognitionTab active={activeTab === "speech"} /> : null}
+        <DeferredPanel active={activeTab === 'textprocessing'}><TextProcessingTab active={activeTab === "textprocessing"} /></DeferredPanel>
+        {isWindows ? <DeferredPanel active={activeTab === 'speech'}><SpeechRecognitionTab active={activeTab === "speech"} /></DeferredPanel> : null}
         <StatsPanel active={activeTab === "stats"} />
-        <GameAutomationTab active={activeTab === "launcher"} />
-        <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} />
+        <DeferredPanel active={activeTab === 'launcher'}><GameAutomationTab active={activeTab === "launcher"} /></DeferredPanel>
+        <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} onOpenSetup={() => {
+          setWizardSession(value => value + 1);
+          setShowWizard(true);
+        }} />
         <ConsolePanel
           active={activeTab === "console"}
           onRequestConsole={switchToConsole}
         />
         <SeasonalDecorations />
       </main>
-      {shouldShowInstallSessionModal ? (
+      {shouldShowInstallSessionModal && installSession ? (
         <InstallSessionModal
           snapshot={installSession}
           onRetry={() => void retryInstallSession()}

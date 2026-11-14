@@ -1,6 +1,34 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { LocalVocabulary, jitenWords, ankiWords, sourceId } = require('../local_vocabulary');
+const { LocalVocabulary, VocabularyConnection, jitenWords, ankiWords, sourceId } = require('../local_vocabulary');
+const { EventEmitter } = require('node:events');
+
+test('a dictionary change refreshes the vocabulary view without rewriting its snapshot', async () => {
+  const sent = [];
+  class FakeSocket extends EventEmitter {
+    static OPEN = 1;
+    readyState = 1;
+    constructor() {
+      super();
+      queueMicrotask(() => {
+        this.emit('open');
+        this.emit('message', JSON.stringify({ type: 'service_info', vocabularyProtocol: 1 }));
+      });
+    }
+    send(value) { sent.push(JSON.parse(value)); }
+    close() { this.emit('close'); }
+  }
+  let refreshes = 0;
+  const connection = new VocabularyConnection({ WebSocket: FakeSocket,
+    ensureServer: async () => {}, getPort: () => 1,
+    onDictionaryChanged: () => refreshes++,
+  });
+  const socket = await connection.connect();
+  socket.emit('message', JSON.stringify({ type: 'sudachi_dictionary_changed', state: 'ready' }));
+  assert.equal(refreshes, 1);
+  assert.deepEqual(sent, [{ type: 'configure_features', features: ['sudachi'] }]);
+  connection.close();
+});
 
 test('Jiten exports retain real identities and map FSRS states, not enum ordinals', () => {
   const words = jitenWords({ totalCards: 4, cards: [

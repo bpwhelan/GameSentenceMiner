@@ -4,7 +4,7 @@ import math
 import os
 import time
 from threading import RLock
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from GameSentenceMiner.util.config.configuration import (
     MAX_WGC_CAPTURE_FPS,
@@ -13,7 +13,6 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
     normalize_wgc_capture_fps,
 )
-
 
 ELECTRON_CONFIG_PATH = os.path.join(get_app_directory(), "electron", "config.json")
 
@@ -27,7 +26,7 @@ DEFAULT_STABILITY_OCR = get_default_stability_ocr()
 
 # Mirrors electron-src/main/store.ts defaults.
 # Keep OCR legacy keys that Python code still reads for backwards compatibility.
-DEFAULT_STORE_CONFIG: Dict[str, Any] = {
+DEFAULT_STORE_CONFIG: dict[str, Any] = {
     "frontPageState": {
         "agentEnabled": False,
         "ocrEnabled": False,
@@ -132,9 +131,6 @@ DEFAULT_STORE_CONFIG: Dict[str, Any] = {
         "ocr2_basic": DEFAULT_STABILITY_OCR,
     },
     "customPythonPackage": "GameSentenceMiner",
-    "windowTransparencyToolHotkey": "Ctrl+Alt+Y",
-    "windowTransparencyTarget": "",
-    "runWindowTransparencyToolOnStartup": False,
     "runOverlayOnStartup": False,
     "runOverlayWithActiveGame": False,
     "obsOcrScenes": [],
@@ -174,11 +170,14 @@ class Store:
     def __init__(
         self,
         config_path: str = ELECTRON_CONFIG_PATH,
-        defaults: Optional[Dict[str, Any]] = None,
+        defaults: dict[str, Any] | None = None,
+        *,
+        read_only: bool = False,
     ):
         self.config_path = config_path
-        self.defaults: Dict[str, Any] = _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
-        self.data: Dict[str, Any] = _clone(self.defaults)
+        self.read_only = read_only
+        self.defaults: dict[str, Any] = _clone(defaults) if defaults is not None else _clone(DEFAULT_STORE_CONFIG)
+        self.data: dict[str, Any] = _clone(self.defaults)
         self._lock = RLock()
         self._load_config()
 
@@ -187,11 +186,11 @@ class Store:
         if parent:
             os.makedirs(parent, exist_ok=True)
 
-    def _read_raw_data(self, retries: int = 6, retry_delay: float = 0.05) -> Optional[Dict[str, Any]]:
+    def _read_raw_data(self, retries: int = 6, retry_delay: float = 0.05) -> dict[str, Any] | None:
         if not os.path.exists(self.config_path):
             return None
 
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for attempt in range(retries):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as handle:
@@ -210,23 +209,23 @@ class Store:
 
     def _load_config(self) -> None:
         with self._lock:
-            self._ensure_parent_dir()
             raw_data = self._read_raw_data()
 
             if raw_data is None:
                 if not os.path.exists(self.config_path):
                     self.data = _clone(self.defaults)
-                    self._save_config_unlocked()
                 return
 
-            merged = _deep_merge_defaults(self.defaults, raw_data)
-            self.data = merged
+            # Defaults are a read view. Rust owns desktop preferences; writing this
+            # merged snapshot here could overwrite an edit made after our read.
+            self.data = _deep_merge_defaults(self.defaults, raw_data)
 
-            # Persist merged defaults for missing keys so both sides stay in sync.
-            if merged != raw_data:
-                self._save_config_unlocked()
+    def _ensure_writable(self) -> None:
+        if self.read_only:
+            raise RuntimeError("Desktop preferences are owned by the native desktop settings service")
 
     def _save_config_unlocked(self) -> None:
+        self._ensure_writable()
         self._ensure_parent_dir()
         tmp_path = f"{self.config_path}.tmp"
         with open(tmp_path, "w", encoding="utf-8") as handle:
@@ -240,7 +239,7 @@ class Store:
     def reload_config(self) -> None:
         self._load_config()
 
-    def read_from_disk(self) -> Dict[str, Any]:
+    def read_from_disk(self) -> dict[str, Any]:
         with self._lock:
             raw_data = self._read_raw_data()
             if raw_data is None:
@@ -259,6 +258,7 @@ class Store:
             return _clone(value)
 
     def set(self, key: str, value: Any) -> bool:
+        self._ensure_writable()
         keys = key.split(".") if key else []
         if not keys:
             return False
@@ -276,6 +276,7 @@ class Store:
             return True
 
     def delete(self, key: str) -> bool:
+        self._ensure_writable()
         keys = key.split(".") if key else []
         if not keys:
             return False
@@ -300,14 +301,14 @@ class Store:
             print(json.dumps(self.data, indent=4))
 
 
-electron_store = Store(config_path=ELECTRON_CONFIG_PATH, defaults=DEFAULT_STORE_CONFIG)
+electron_store = Store(config_path=ELECTRON_CONFIG_PATH, defaults=DEFAULT_STORE_CONFIG, read_only=True)
 
 
 def get_electron_store() -> Store:
     return electron_store
 
 
-def get_database_backup_settings() -> Dict[str, Any]:
+def get_database_backup_settings() -> dict[str, Any]:
     """Return the normalized automatic database backup policy."""
     data = electron_store.read_from_disk()
     raw_count = data.get("databaseBackupRetentionCount", 2)
@@ -323,7 +324,7 @@ def get_database_backup_settings() -> Dict[str, Any]:
     }
 
 
-def _get_ocr_config() -> Dict[str, Any]:
+def _get_ocr_config() -> dict[str, Any]:
     config = electron_store.get("OCR", {})
     return config if isinstance(config, dict) else {}
 
@@ -387,11 +388,11 @@ def _resolve_ocr_engine(engine: Any) -> str:
     return engine_normalized
 
 
-def _get_basic_ocr1_engine(_ocr_config: Dict[str, Any]) -> str:
+def _get_basic_ocr1_engine(_ocr_config: dict[str, Any]) -> str:
     return get_default_stability_ocr()
 
 
-def _get_basic_ocr2_engine(ocr_config: Dict[str, Any]) -> str:
+def _get_basic_ocr2_engine(ocr_config: dict[str, Any]) -> str:
     # Old basic profiles all stored Lens; only the new explicit opt-in enables it.
     return "glens" if ocr_config.get("useOnlineOcr") is True else get_default_stability_ocr()
 
@@ -737,7 +738,7 @@ def get_furigana_filter_sensitivity() -> int:
     return get_ocr_furigana_filter_sensitivity()
 
 
-def has_ocr_config_changed() -> Tuple[bool, Dict[str, Tuple[Any, Any]]]:
+def has_ocr_config_changed() -> tuple[bool, dict[str, tuple[Any, Any]]]:
     current_data = electron_store.read_from_disk()
     current_ocr = current_data.get("OCR", {}) if isinstance(current_data, dict) else {}
     old_ocr = _get_ocr_config()
@@ -748,7 +749,7 @@ def has_ocr_config_changed() -> Tuple[bool, Dict[str, Tuple[Any, Any]]]:
     if current_ocr == old_ocr:
         return False, {}
 
-    changes: Dict[str, Tuple[Any, Any]] = {}
+    changes: dict[str, tuple[Any, Any]] = {}
     for key in sorted(set(current_ocr.keys()) | set(old_ocr.keys())):
         old_value = old_ocr.get(key)
         new_value = current_ocr.get(key)

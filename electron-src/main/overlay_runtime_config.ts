@@ -1,8 +1,7 @@
 /**
- * Experimental overlay host mode.
+ * GSM owns the overlay windows, shortcuts and dictionary session.
  *
- * Keep this as a code flag until the in-process lifecycle has had enough real-world
- * testing. Set it to false to restore the existing separate Electron process without
- * changing any launch call sites.
+ * The standalone launcher remains available for overlay development, but normal
+ * desktop launches use the main Electron process.
  */
-export const USE_IN_PROCESS_OVERLAY = false;
+export const USE_IN_PROCESS_OVERLAY = true;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GPU_INSTALL_PROGRESS_CHANNEL, type GpuEngine, type GpuInstallPhase, type GpuStatus } from "../../../../shared/gpu";
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 
 const ENGINES = ["meiki", "firered", "whisper"] as const;
 const CUDA_URL = "https://developer.nvidia.com/cuda-12-9-1-download-archive";
@@ -26,7 +27,7 @@ export function GpuSettings({ active }: { active: boolean }) {
       const next = await invokeIpc<GpuStatus>("settings.gpu", { refresh: force });
       if (!next?.settings || !next?.diagnostics || !next?.runtime || !next?.availability) throw new Error(t("settings.gpu.unavailable"));
       if (mounted.current && started === generation.current && !changing.current) {
-        setStatus(next);
+        setStatus(before => retainEqual(before, next));
         if (!actionError.current) setError("");
       }
     } catch (cause) {
@@ -43,11 +44,11 @@ export function GpuSettings({ active }: { active: boolean }) {
   }), []);
   useEffect(() => {
     if (!active) return;
-    void refresh(true);
-    const timer = setInterval(() => void refresh(), 5000);
+    let first = true;
+    const stop = startVisiblePolling(async () => { await refresh(first); first = false; }, 5000);
     const focus = () => void refresh(true);
     window.addEventListener("focus", focus);
-    return () => { clearInterval(timer); window.removeEventListener("focus", focus); };
+    return () => { stop(); window.removeEventListener("focus", focus); };
   }, [active, refresh]);
   async function change(engine: GpuEngine, enabled: boolean) {
     if (changing.current) return;

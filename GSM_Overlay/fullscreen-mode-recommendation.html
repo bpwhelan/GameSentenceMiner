@@ -162,6 +162,7 @@
 
     .footer {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
@@ -261,6 +262,7 @@
 
     <footer class="footer">
       <button type="button" class="btn" id="btn-dismiss">Don't show again for this game</button>
+      <button type="button" class="btn" id="btn-disable">Don't show again for any game</button>
       <button type="button" class="btn btn-primary" id="btn-close">Got it</button>
     </footer>
   </main>
@@ -288,6 +290,10 @@
 
     document.getElementById("btn-close").addEventListener("click", () => {
       ipcRenderer.send("fullscreen-mode-recommendation-close");
+    });
+
+    document.getElementById("btn-disable").addEventListener("click", () => {
+      ipcRenderer.send("setting-changed", { key: "showExclusiveFullscreenRecommendations", value: false });
     });
   </script>
 </body>

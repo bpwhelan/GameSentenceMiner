@@ -4,8 +4,9 @@ let effectsDisabled = false;
 
 function refreshSeasonalEffects(): void {
   const event = getSeasonalEvent(effectsDisabled);
-  if (event) document.documentElement.dataset.season = event;
-  else delete document.documentElement.dataset.season;
+  if (event) {
+    if (document.documentElement.dataset.season !== event) document.documentElement.dataset.season = event;
+  } else if (document.documentElement.dataset.season) delete document.documentElement.dataset.season;
 }
 
 export function setSeasonalEffectsDisabled(disabled: boolean): void {
@@ -19,11 +20,19 @@ export function startSeasonalEffects(disabled: boolean): () => void {
   const off = window.ipcRenderer.on('settings.seasonalEffectsChanged', (_event, value) => {
     if (typeof value === 'boolean') setSeasonalEffectsDisabled(value);
   });
-  const timer = window.setInterval(refreshSeasonalEffects, 60_000);
-  window.addEventListener('focus', refreshSeasonalEffects);
+  let timer: ReturnType<typeof setTimeout>;
+  const refresh = () => {
+    clearTimeout(timer);
+    refreshSeasonalEffects();
+    const now = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    timer = setTimeout(refresh, midnight.getTime() - now.getTime());
+  };
+  refresh();
+  window.addEventListener('focus', refresh);
   return () => {
     off();
-    window.clearInterval(timer);
-    window.removeEventListener('focus', refreshSeasonalEffects);
+    clearTimeout(timer);
+    window.removeEventListener('focus', refresh);
   };
 }

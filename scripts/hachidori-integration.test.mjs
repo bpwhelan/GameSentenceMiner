@@ -4,9 +4,38 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
-import { patchContent, prepareIntegration } from './hachidori-integration.mjs';
+import { patchContent, patchSearchShell, patchSearchFrame, patchNativeEngine, prepareIntegration } from './hachidori-integration.mjs';
 
 const vendor = new URL('../GSM_Overlay/hachidori/', import.meta.url);
+test('the overlay bridge accepts native hosts and rejects remote lookalikes', async () => {
+    const source = await fs.readFile(new URL('../GSM_Overlay/integrations/hachidori/bridge.js', import.meta.url), 'utf8');
+    const context = vm.createContext({ URL, module: { exports: {} } });
+    new vm.Script(source).runInContext(context);
+    const { isGsmHost } = context.module.exports;
+    for (const url of ['http://gsm.localhost/overlay/index.html', 'gsm://localhost/overlay/index.html']) assert.equal(isGsmHost(url), true);
+    for (const url of ['http://gsm.localhost.evil.test/overlay/index.html', 'https://gsm.localhost/overlay/index.html', 'http://gsm.localhost/renderer/index.html', 'https://example.com/index.html']) assert.equal(isGsmHost(url), false);
+});
+test('WebKit uses the existing offscreen engine and rejects upstream hook drift', async () => {
+    const source = await fs.readFile(new URL('offscreen.js', vendor), 'utf8');
+    const patched = patchNativeEngine(source);
+    assert.equal(patchNativeEngine(patched), patched);
+    assert.match(patched, /protocol === "gsm-hachidori:"\) return "local"/);
+    assert.throws(() => patchNativeEngine(source.replace('async function selectEngine()', 'async function changedEngine()')), /changed upstream/);
+});
+test('native search keeps the sandbox and fails when its frame hook drifts', async () => {
+    const source = await fs.readFile(new URL('search-frame.html', vendor), 'utf8');
+    const patched = patchSearchFrame(source);
+    assert.equal(patchSearchFrame(patched), patched);
+    assert.equal(patched.split('gsm/native-search.js').length, 2);
+    assert.throws(() => patchSearchFrame(source.replace('src="search.js"', 'src="changed.js"')), /changed upstream/);
+});
+test('search keeps working without browser permissions and detects upstream hook drift', async () => {
+    const source = await fs.readFile(new URL('search-shell.js', vendor), 'utf8');
+    const patched = patchSearchShell(source);
+    assert.equal(patchSearchShell(patched), patched);
+    assert.match(patched, /if \(!chrome.permissions\) return/);
+    assert.throws(() => patchSearchShell(source.replace('function clipboardMonitor(clipboardSwitch, search, language)', 'function clipboardMonitor(changed)')), /changed upstream/);
+});
 test('the real Hachidori hooks generate valid JS and are idempotent', async () => {
     const content = await fs.readFile(new URL('content.js', vendor), 'utf8');
     const patched = patchContent(content);

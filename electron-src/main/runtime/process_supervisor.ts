@@ -1,15 +1,7 @@
-/**
- * App-wide ProcessManager singleton, wired with GSM's real platform helpers.
- *
- * Kept separate from process_manager.ts (which stays dependency-free) so the
- * impure imports (util.ts, which pulls the app graph) live here. Created lazily
- * on first use — callers must have run startBus() during app init first.
- */
+/** Shared application client for native managed processes. Configuration and
+ * logging remain here; the Rust runtime owns process lifetimes and the bus. */
 
-import * as path from 'node:path';
-
-import { BASE_DIR, getSanitizedPythonEnv, getWindowsNamedPythonExecutable } from '../util.js';
-import { getBroker, getBusConnectInfo } from './bus_client.js';
+import { getSanitizedPythonEnv, getWindowsNamedPythonExecutable } from '../util.js';
 import { ProcessManager } from './process_manager.js';
 import { recordProcessOutput } from '../services/logging.js';
 
@@ -29,11 +21,8 @@ export async function stopManagedProcesses(): Promise<void> {
 export function getProcessManager(): ProcessManager {
     if (!manager) {
         manager = new ProcessManager({
-            bus: getBroker(),
-            getConnectInfo: () => getBusConnectInfo(),
             baseEnv: () => getSanitizedPythonEnv(),
             launchBlocked: () => launchBlocked(),
-            stateFile: path.join(BASE_DIR, 'electron', 'managed_processes.json'),
             resolveExecutable: (command, label) =>
                 label ? getWindowsNamedPythonExecutable(command, label) : command,
         });

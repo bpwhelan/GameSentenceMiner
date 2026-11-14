@@ -449,6 +449,7 @@ _scene_linux_target: str = ""
 _window_state_monitor: Optional["BaseWindowStateMonitor"] = None
 _suspended_pids: Dict[int, Dict[str, Any]] = {}  # pid -> {'suspended_at': float, 'created': int, 'exe': str}
 _suspended_pids_lock = threading.RLock()
+_process_pause_generation = 0
 _auto_resume_thread: Optional[threading.Thread] = None
 _suspended_pids_file: Optional[Path] = None
 _overlay_pause_request_sources: Set[str] = set()
@@ -675,6 +676,12 @@ def cleanup_target_audio_mutes() -> None:
 
 
 # --- Process pausing state helpers ---
+
+
+def get_game_process_pause_state() -> tuple[bool, int]:
+    """Return whether any GSM-tracked game is paused and a generation for detecting intervening pauses."""
+    with _suspended_pids_lock:
+        return bool(_suspended_pids), _process_pause_generation
 
 
 def _clear_overlay_pause_request_state() -> None:
@@ -1593,6 +1600,8 @@ def _resume_tracked_process(pid: int, context: str) -> bool:
 
 
 def _suspend_process_with_tracking(pid: int, context: str, source: str = "none") -> bool:
+    global _process_pause_generation
+
     if not _is_pid_allowed_to_suspend(pid, source=source):
         return False
 
@@ -1602,13 +1611,19 @@ def _suspend_process_with_tracking(pid: int, context: str, source: str = "none")
         return False
 
     exe_name = _get_process_exe_name(pid)
-    if _suspend_process(pid):
-        with _suspended_pids_lock:
+    # Publish the pause atomically with the OS suspension so readers cannot
+    # mistake a partially suspended game for an unpaused one.
+    with _suspended_pids_lock:
+        suspended = _suspend_process(pid)
+        if suspended:
             _suspended_pids[pid] = {
                 "suspended_at": time.time(),
                 "created": creation_time,
                 "exe": exe_name,
             }
+            _process_pause_generation += 1
+
+    if suspended:
         _save_suspended_pids()
         _mark_process_pausing_activity()
         _ensure_auto_resume_task()

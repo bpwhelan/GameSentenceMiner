@@ -22,6 +22,7 @@ function rendererFixtureSource(html, blockSource) {
     style.textContent = ${JSON.stringify(styles)};
     document.head.appendChild(style);
     ${blockSource}
+    ${fs.readFileSync(path.join(overlayRoot, 'native_layout.js'), 'utf8')}
     const { detectTextBlocks, getMedianValue, insertBlockSeparatorAfter, createRecentBlockHistory, prepareTextLines } = window.GSMBlockDetection;
     let recentBlockHistory = createRecentBlockHistory();
     ${between(html, '  const CJK_LEXICAL_REGEX =', html.includes('  function requestOverlayMouseRelease(') ? '  function requestOverlayMouseRelease(' : '  function requestMagpieMouseRelease(')}

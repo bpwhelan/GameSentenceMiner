@@ -109,14 +109,14 @@
   // before the module loads or on reload; query variants and every other
   // internal page stay excluded.
   if (
-    location.protocol === EXTENSION_PROTOCOL &&
+    location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host &&
     !["startup.html", "startup.html#setup-heading", "search-frame.html"]
       .some((page) => location.href === chrome.runtime.getURL(page))
   ) {
     return;
   }
   // The search page's own document, where search.js runs Custom JavaScript (#644).
-  const SEARCH_FRAME = location.protocol === EXTENSION_PROTOCOL
+  const SEARCH_FRAME = location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host
     && location.href === chrome.runtime.getURL("search-frame.html");
 
   let gsmBridge = null; // GSM hook
@@ -204,7 +204,7 @@
   // Profile id → { id, language, options, dictionaries, groups, text }.
   let readingProfiles = null;
   // The startup and search pages read in the active profile (8.1 rule 4).
-  const READER_PAGE = location.protocol === EXTENSION_PROTOCOL;
+  const READER_PAGE = location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host;
 
   // The language layer (docs/languages.md 5): the registry's copy for content
   // scripts and the display transforms, which a Japanese-only frame never
@@ -693,7 +693,7 @@
       if (isEditingElement(focused)) {
         // Startup is the only extension page allowed above. Its scene arrow
         // keeps keyboard focus without pausing the practice lookup.
-        if (location.protocol === EXTENSION_PROTOCOL && focused.matches(".vn-next")) continue;
+        if (location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host && focused.matches(".vn-next")) continue;
         return true;
       }
     }
@@ -2648,7 +2648,7 @@
         popupSelectionText: selection?.anchorNode && level.popup.contains(selection.anchorNode) ? selection.toString() : "",
         documentTitle: document.title, audioSelection: audio.selectionFor(result) ?? undefined,
         // Like Yomitan, a note mined on Hachidori's own page (the setup practice) has no source address.
-        pageUrl: location.protocol === EXTENSION_PROTOCOL ? "" : location.href,
+        pageUrl: location.protocol === EXTENSION_PROTOCOL && location.host === new URL(chrome.runtime.getURL("")).host ? "" : location.href,
         dictionaryAliases: Object.fromEntries(dictionaries.filter(item => item.displayName).map(item => [item.title, item.displayName])),
         dictionaryIds: Object.fromEntries(dictionaries.map(item => [item.title, item.id])),
         frequencyDictionaries: dictionaries.filter(item => item.enabled && item.frequencyCount > 0).map(item => item.title),

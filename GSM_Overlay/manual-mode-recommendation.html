@@ -68,6 +68,7 @@
 
     .footer {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
@@ -115,6 +116,7 @@
 
     <div class="footer">
       <button type="button" class="btn" id="btn-dismiss">Don't show again for this game</button>
+      <button type="button" class="btn" id="btn-disable">Don't show again for any game</button>
       <button type="button" class="btn btn-primary" id="btn-close">Done</button>
     </div>
   </div>
@@ -136,7 +138,7 @@
       cardController = GSMManualModeCard.mount(mount, {
         initial,
         runtimeState,
-        platform: process.platform,
+        platform: window.gsmEnv?.platform || globalThis.process?.platform,
         intro,
         onChange: (key, value) => {
           // Reuse the existing settings persistence/reconfiguration path in main.js.
@@ -176,6 +178,10 @@
 
     document.getElementById("btn-close").addEventListener("click", () => {
       ipcRenderer.send("manual-mode-recommendation-close");
+    });
+
+    document.getElementById("btn-disable").addEventListener("click", () => {
+      ipcRenderer.send("setting-changed", { key: "showManualModeRecommendations", value: false });
     });
   </script>
 </body>

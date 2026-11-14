@@ -69,7 +69,7 @@
     return !!(PinyinPro && typeof PinyinPro.pinyin === 'function');
   }
 
-  // Languages that need an external tokenizer backend (MeCab/Sudachi/Yomitan/etc.)
+  // Languages that need an external tokenizer backend (Sudachi/Yomitan/etc.)
   // before readings can be produced. Chinese pinyin is computed locally, so it
   // returns false and the renderer skips the backend round-trip entirely.
   function requiresBackend(language) {

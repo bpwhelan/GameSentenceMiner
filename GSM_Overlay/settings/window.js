@@ -41,7 +41,8 @@ function syncDictionaryReaderUi() {
 }
 
 ipcRenderer.on("select-settings-tab", (_event, tab) => {
-  if (tab === "system") updateSettingsTabVisibility("system-dictionary");
+  const aliases = { system: "system-dictionary", lookup: "reading-jiten", hotkeys: "interaction-hotkeys", general: "overview-start" };
+  if (typeof tab === "string" && tab) updateSettingsTabVisibility(aliases[tab] || tab);
 });
 ipcRenderer.on("dictionary-reader-switching", (_event, switching) => {
   document.getElementById("dictionaryReaderSelection").disabled = switching;
@@ -50,6 +51,9 @@ ipcRenderer.on("dictionary-reader-switching", (_event, switching) => {
   document.getElementById("dictionaryReaderStatus").textContent = switching
     ? "Switching dictionary reader…"
     : "Manage dictionaries, appearance, and lookup behavior for the selected reader.";
+});
+ipcRenderer.on("dictionary-reader-error", (_event, message) => {
+  document.getElementById("dictionaryReaderStatus").textContent = String(message || "Could not switch dictionary reader.");
 });
 document.getElementById("openDictionarySettings").addEventListener("click", () => {
   ipcRenderer.send("open-yomitan-settings");
@@ -176,7 +180,7 @@ function acknowledgeMainBoxStartupWarning() {
 
 async function applyPlatformSpecifics() {
   const platform = await ipcRenderer.invoke("get-effective-platform");
-  document.getElementById("windows-gamepad-listeners").hidden = process.platform !== "win32";
+  document.getElementById("windows-gamepad-listeners").hidden = (window.gsmEnv?.platform || globalThis.process?.platform) !== "win32";
 
   // Settings that are not supported on Linux
   const disabledOnLinuxSettings = [];
@@ -234,7 +238,7 @@ async function applyPlatformSpecifics() {
   }
 
   const platformOverrideInput = document.getElementById("platform-override");
-  const derivedPlatformOverride = platform !== process.platform ? platform : null;
+  const derivedPlatformOverride = platform !== (window.gsmEnv?.platform || globalThis.process?.platform) ? platform : null;
   if (platformOverrideInput) {
     platformOverrideInput.value = derivedPlatformOverride || "null";
   }

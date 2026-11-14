@@ -236,6 +236,7 @@ export async function lookupWorthy(text, language) {
 }
 
 function clipboardMonitor(clipboardSwitch, search, language) {
+  if (!chrome.permissions) return { shown() {}, ready() {}, copied() {} }; // GSM hook
   let ready = false;
   const monitor = createClipboardMonitor({
     async read() {

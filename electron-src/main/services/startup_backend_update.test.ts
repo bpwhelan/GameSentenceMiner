@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { InstallSessionManager } from './install_session.js';
 import { syncStartupBackend } from './startup_backend_update.js';
 
 vi.mock('electron-log/main.js', () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
@@ -14,14 +13,10 @@ describe('startup backend sync', () => {
     afterEach(() => { fs.rmSync(dataDir, { recursive: true, force: true }); });
 
     function setup(overrides: Partial<Parameters<typeof syncStartupBackend>[0]> = {}) {
-        const sessions = new InstallSessionManager();
         const updater = {
             lastBackendUpdateWasSuccessful: true,
             lastBackendUpdateFailureReason: null as string | null,
-            updateGSM: vi.fn(async () => {
-                sessions.startSession('backend_update');
-                sessions.finishActive(updater.lastBackendUpdateWasSuccessful ? 'completed' : 'failed');
-            }),
+            updateGSM: vi.fn(async () => {}),
         };
         const options = {
             appVersionChanged: false,
@@ -31,16 +26,15 @@ describe('startup backend sync', () => {
             forceUpdate: false,
             ...overrides,
         };
-        return { options, updater, sessions };
+        return { options, updater };
     }
 
     it('checks the backend for unread release notes after a restart with automatic updates disabled', async () => {
-        const { options, updater, sessions } = setup({ hasPendingDesktopUpdate: true });
+        const { options, updater } = setup({ hasPendingDesktopUpdate: true });
 
         await expect(syncStartupBackend(options, updater)).resolves.toBe(true);
 
         expect(updater.updateGSM).toHaveBeenCalledExactlyOnceWith(false, false);
-        expect(sessions.getLastFinishedSnapshot()?.status).toBe('completed');
     });
 
     it('keeps ordinary launches fast when no sync is needed', async () => {

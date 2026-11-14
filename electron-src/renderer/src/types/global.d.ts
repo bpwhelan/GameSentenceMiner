@@ -21,16 +21,19 @@ export interface IpcBridge {
 }
 
 export interface ClipboardBridge {
-  readText(): string;
+  readText(): string | Promise<string>;
   writeText(text: string): void;
 }
 
 declare global {
   interface Window {
+    __GSM_INVOKE__?: <T=unknown>(command:string,args:unknown)=>Promise<T>;
+    __TAURI__?: {event:{listen:(event:string,listener:(event:{payload:unknown})=>void)=>Promise<()=>void>}};
     ipcRenderer: IpcBridge;
     clipboard: ClipboardBridge;
     gsmEnv: {
       platform: string;
+      shell?: "electron" | "tauri";
     };
   }
 }

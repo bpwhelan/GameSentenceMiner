@@ -9,3 +9,4 @@ initializeSettingsTabs();
 renderOverlayPresetCards();
 void applyPlatformSpecifics();
 initializeSettingsInputs();
+ipcRenderer.send("overlay-settings-ready");

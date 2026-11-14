@@ -1,0 +1,13 @@
+[package]
+name = "gsm-texthook"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-only"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_ProcessStatus", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }

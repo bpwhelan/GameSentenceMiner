@@ -397,7 +397,12 @@
 
         for (const { lineIndex, start, end } of getLineRangesForSpan(p, range)) {
           const boxes = getTextBoxesForRange(lineIndex, start, end);
-          for (const rect of getTokenRunRects(boxes)) {
+          // Use the OCR line's orientation, including OneOCR's inferred layout.
+          // A single-glyph token's aspect ratio cannot determine its direction.
+          const vertical = typeof root.isOverlayLineVertical === 'function'
+            ? root.isOverlayLineVertical(currentLines[lineIndex])
+            : currentLines[lineIndex]?.isVertical;
+          for (const rect of getTokenRunRects(boxes, vertical)) {
             segments.push({ rect, classes });
           }
         }
@@ -590,7 +595,7 @@
   // Group a token's character boxes into one union rect per visual run (row for
   // horizontal text, column for vertical). Almost always a single rect; splits only
   // when a token wraps. Mirrors gamepad.js getTokenLineRects.
-  function getTokenRunRects(boxes) {
+  function getTokenRunRects(boxes, vertical) {
     const rects = [];
     for (const box of boxes) {
       if (!box || !box.isConnected) continue;
@@ -608,7 +613,7 @@
       if (r.right > maxR) maxR = r.right;
       if (r.bottom > maxB) maxB = r.bottom;
     }
-    const horizontal = (maxR - minL) >= (maxB - minT);
+    const horizontal = typeof vertical === 'boolean' ? !vertical : (maxR - minL) >= (maxB - minT);
 
     const runs = [];
     let cur = null;
@@ -639,6 +644,7 @@
       top: run.top,
       width: run.right - run.left,
       height: run.bottom - run.top,
+      vertical: !horizontal,
     }));
   }
 
@@ -661,6 +667,7 @@
       const el = overlaySegments[i];
       const { rect, classes } = segments[i];
       el.className = classes.join(' ');
+      if (rect.vertical) el.classList.add('gsm-jiten-hl--vertical');
       el.style.left = `${rect.left}px`;
       el.style.top = `${rect.top}px`;
       el.style.width = `${rect.width}px`;

@@ -167,7 +167,8 @@ not HEAD or cache-busting queries. A mismatch saves `public-mismatch.json`.
 ```powershell
 node --test scripts/prepare-lunahook-update.test.mjs scripts/generate-texthook-manifest.test.mjs scripts/prepare-texthook-catalog.test.mjs
 pwsh -NoProfile -File scripts/publish-lunahook-update.test.ps1
-npx vitest run --config vitest.config.ts electron-src/main/ui/texthook_downloader.test.ts electron-src/main/ui/texthook.test.ts electron-src/main/ui/texthook_engine_updates.test.ts electron-src/main/services/texthook_updates.test.ts electron-src/renderer/src/components/tabs/TextHookTab.engine-updates.test.tsx
+cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
+npx vitest run --config vitest.config.ts electron-src/main/ui/texthook_downloader.test.ts electron-src/main/ui/texthook.test.ts electron-src/main/ui/texthook_engine_updates.test.ts electron-src/renderer/src/components/tabs/TextHookTab.engine-updates.test.tsx
 ```
 
 For a local trial, activate a verified new package through GSM's managed lifecycle

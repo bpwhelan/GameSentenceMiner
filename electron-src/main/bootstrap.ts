@@ -14,7 +14,6 @@ const { app, dialog } = electron;
 const OVERLAY_CHILD_ARG = '--gsm-overlay-child';
 const OVERLAY_RESOURCES_ARG = '--gsm-overlay-resources';
 const OVERLAY_RESOURCES_ENV = 'GSM_OVERLAY_RESOURCES_PATH';
-const AGENT_HOST_ARG = '--gsm-agent-host';
 
 try {
     configureDataPaths(app);
@@ -92,7 +91,7 @@ function failOverlayBootstrap(message: string, error?: unknown): never {
     throw new Error(detail);
 }
 
-if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG)) {
+if (!isOverlayChildProcess()) {
     // Register every desktop scheme together before asynchronous preparation can
     // let Electron become ready. main.ts may be imported after that point.
     electron.protocol.registerSchemesAsPrivileged([
@@ -110,18 +109,7 @@ if (!isOverlayChildProcess() && !process.argv.includes(AGENT_HOST_ARG)) {
     ]);
 }
 
-if (process.argv.includes(AGENT_HOST_ARG)) {
-    const agentData = path.join(app.getPath('userData'), 'agent-host');
-    fs.mkdirSync(agentData, { recursive: true });
-    app.setPath('userData', agentData);
-    app.setPath('sessionData', agentData);
-    void import('./ui/agent_host.js')
-        .then(({ runDetachedAgentHost }) => runDetachedAgentHost())
-        .catch((error) => {
-            console.error('Detached Agent host failed:', error);
-            app.exit(1);
-        });
-} else if (isOverlayChildProcess()) {
+if (isOverlayChildProcess()) {
     traceOverlayBootstrap('child mode detected');
     const overlayResourcesPath = resolveOverlayResourcesPath();
     const overlayAppAsarPath = path.join(overlayResourcesPath, 'app.asar');

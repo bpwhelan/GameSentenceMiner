@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const { closeWebSocket } = require('./socket_lifecycle');
 
 class BackendConnector {
   constructor(ipcMain, mainWindowGetter, options = {}) {
@@ -34,8 +35,7 @@ class BackendConnector {
     
     if (this.ws) {
       try {
-        this.ws.removeAllListeners();
-        this.ws.close();
+        closeWebSocket(this.ws);
       } catch (e) {
         console.error('BackendConnector: Error closing existing socket', e);
       }
@@ -268,8 +268,7 @@ class BackendConnector {
     }
     if (this.ws) {
       try {
-        this.ws.removeAllListeners();
-        this.ws.close();
+        closeWebSocket(this.ws);
       } catch (e) {
         console.error('BackendConnector: Error closing socket during destroy', e);
       }

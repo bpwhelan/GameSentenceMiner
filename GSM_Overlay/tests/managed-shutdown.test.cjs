@@ -10,6 +10,7 @@ const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 test('only the matching managed overlay handles a shutdown request', () => {
   let shutdowns = 0;
   const context = vm.createContext({
+    nativeOverlay: { receive: () => false },
     process: { env: { GSM_OVERLAY_LAUNCH_ID: 'managed-overlay' } },
     OVERLAY_WS_COMMAND_OPEN_SETTINGS: 'open-overlay-settings',
     requestOverlayShutdown() { shutdowns++; },

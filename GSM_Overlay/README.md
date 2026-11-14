@@ -9,6 +9,9 @@ This is practically a completely different project from the original, and such, 
 https://github.com/user-attachments/assets/c691f5d6-da86-4e1c-802f-7c410211846e
 
 # Development
+- GSM hosts the overlay in its main Electron process. Use **Home → Overlay → Enable overlay** to turn it on or off. The overlay keeps its own **GSM Overlay** tray icon and menu while enabled. Turning it off removes that icon and pauses automatic overlay startup until the next manual enable or GSM restart. Saved startup and game automation preferences remain available.
+- The hosted overlay keeps its existing data directory and dictionary session. Turning it off closes its windows and releases its shortcuts, connections and extensions while GSM stays open.
+- Run `npm run test:integrated-electron` in `GSM_Overlay` to check repeated on/off cycles, host window/shortcut/IPC isolation, the separate overlay tray, and Yomitan dictionary persistence using disposable data.
 - Run `npm run dev` in `GSM_Overlay` to start Vite + Electron with hot reload for overlay HTML/CSS/JS and automatic Electron restarts for main/preload script changes.
 
 # Custom pages

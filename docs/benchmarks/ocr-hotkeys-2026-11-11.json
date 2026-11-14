@@ -1,0 +1,55 @@
+{
+  "checks": [
+    "backtick typing outside game",
+    "backtick passthrough in game",
+    "exact modifiers",
+    "Shift+tilde in game",
+    "Shift+tilde typing outside game",
+    "Ctrl+F8 globally",
+    "stop releases input"
+  ],
+  "metrics": [
+    {
+      "phase": "passive-keyboard-idle",
+      "wall_seconds": 10.000203800038435,
+      "processes": [
+        {
+          "pid": 98992,
+          "cpu_seconds": 0.546875,
+          "total_machine_percent": 0.3417899093203344,
+          "role": "tauri_desktop"
+        },
+        {
+          "pid": 51720,
+          "cpu_seconds": 0.1875,
+          "total_machine_percent": 0.1171851117669718,
+          "role": "input_service"
+        }
+      ]
+    },
+    {
+      "phase": "stopped",
+      "wall_seconds": 10.00036069995258,
+      "processes": [
+        {
+          "pid": 98992,
+          "cpu_seconds": 0.28125,
+          "total_machine_percent": 0.17577490979983704,
+          "role": "tauri_desktop"
+        },
+        {
+          "pid": 51720,
+          "cpu_seconds": 0.15625,
+          "total_machine_percent": 0.09765272766657614,
+          "role": "input_service"
+        }
+      ]
+    }
+  ],
+  "date": "2026-11-11",
+  "logical_cpus": 16,
+  "cpu": "AMD Ryzen 7 5800X",
+  "desktop_binary": "8ba45c99c651948862e3",
+  "input_service_sha256": "a8a71d8f728cde1907f94288d85cdf402ce886007e882b42f1d75f3eba4489a3",
+  "scope": "Windows development binaries; real SendInput into two isolated text-entry windows. Process CPU includes the fixture host. Input service had an attached controller. No OCR inference during idle sampling."
+}

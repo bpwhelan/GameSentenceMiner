@@ -1,0 +1,48 @@
+[package]
+name = "gsm-agent"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-only"
+
+[features]
+default = ["runtime"]
+runtime = ["dep:reqwest", "dep:lzma-rust2", "dep:sha2"]
+
+[dependencies]
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"], optional = true }
+lzma-rust2 = { version = "0.15.8", optional = true }
+
+sha2 = { version = "0.10", optional = true }
+
+[build-dependencies]
+sha2 = "0.10"
+
+
+[[bin]]
+name = "gsm-agent-host"
+path = "src/bin/gsm-agent-host.rs"
+required-features = ["runtime"]
+
+[profile.release]
+lto = "thin"
+strip = true
+opt-level = 3
+
+[[example]]
+name = "agent_host"
+required-features = ["runtime"]
+
+[[example]]
+name = "frida_probe"
+required-features = ["runtime"]
+
+[[example]]
+name = "host_probe"
+required-features = ["runtime"]
+
+[[example]]
+name = "loader_probe"
+required-features = ["runtime"]

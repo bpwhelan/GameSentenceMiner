@@ -19,8 +19,8 @@ test("renderStableReleaseBody includes only user-facing downloads", () => {
   );
   assert.match(body, /\| Linux \| \[GameSentenceMiner-2026\.4\.2\.AppImage\]/);
   assert.match(body, /\| macOS \(Apple Silicon\) \| \[GameSentenceMiner-2026\.4\.2-arm64\.dmg\]/);
-  assert.doesNotMatch(body, /x64\.dmg/);
-  assert.match(body, /Intel Mac builds are no longer provided\./);
+  assert.match(body, /\| macOS \(Intel\) \| \[GameSentenceMiner-2026\.4\.2-x64\.dmg\]/);
+  assert.doesNotMatch(body, /Intel Mac builds are no longer provided/);
 });
 
 test("renderPrereleaseBody warns users away from prereleases", () => {

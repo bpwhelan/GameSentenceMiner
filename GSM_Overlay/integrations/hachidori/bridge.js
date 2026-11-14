@@ -35,6 +35,7 @@
     try {
       const url = new URL(href);
       if (url.protocol === 'file:') return /\/(?:GSM_Overlay|resources\/app\.asar)\/index\.html$/i.test(decodeURIComponent(url.pathname));
+      if ((url.origin === 'http://gsm.localhost' || (url.protocol === 'gsm:' && url.hostname === 'localhost')) && url.pathname === '/overlay/index.html') return true;
       return url.origin === 'http://127.0.0.1:5174' && ['/', '/index.html'].includes(url.pathname);
     } catch { return false; }
   }

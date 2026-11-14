@@ -18,6 +18,17 @@ if (!appVersion || typeof appVersion !== "string") {
   process.exit(1);
 }
 
+const nativeConfigPath = path.join(repoRoot, 'src-tauri', 'tauri.conf.json');
+const nativeConfig = JSON.parse(fs.readFileSync(nativeConfigPath, 'utf8'));
+if (nativeConfig.version !== appVersion) {
+  nativeConfig.version = appVersion;
+  fs.writeFileSync(nativeConfigPath, `${JSON.stringify(nativeConfig, null, 2)}\n`);
+}
+const cargoPath = path.join(repoRoot, 'src-tauri', 'Cargo.toml');
+const cargo = fs.readFileSync(cargoPath, 'utf8');
+const nativeVersion = cargo.replace(/(\[package\][\s\S]*?\nversion\s*=\s*)"[^"]*"/, `$1"${appVersion}"`);
+if (cargo !== nativeVersion) fs.writeFileSync(cargoPath, nativeVersion);
+
 const pyproject = fs.readFileSync(pyprojectPath, "utf8");
 
 // Replace the version assignment inside the [project] table only.

@@ -205,6 +205,8 @@ class IngressAck:
     revision: int | None = None
     reason: str = ""
     matched_source: str | None = None
+    raw_text: str | None = None
+    processed_text: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -215,6 +217,11 @@ class IngressAck:
             "revision": self.revision,
             "reason": self.reason,
             "matched_source": self.matched_source,
+            **(
+                {"raw_text": self.raw_text, "processed_text": self.processed_text}
+                if self.processed_text is not None
+                else {}
+            ),
         }
 
 

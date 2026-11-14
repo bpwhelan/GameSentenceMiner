@@ -28,8 +28,6 @@
           "enabled": "セッション終了後に Anki カードを確認する",
           "enabled_tooltip": "その場での確認とカウントダウンを省略します。プレイ中も Anki への保存は行われます。確認時は編集したフィールドだけを変更します。",
           "open_on_game_close": "ゲーム終了時に確認画面を開く",
-          "notify_on_startup": "起動時に確認待ちのカードを通知する",
-          "notify_on_startup_tooltip": "確認待ちのカードを開くボタン付きの通知を起動時に表示します。",
           "max_future_context_lines": "後続の会話行の最大数",
           "max_future_context_lines_tooltip": "指定した数の後続行を受信すると追加のリプレイを1つ保存します。確認中に後続の文脈を追加した場合のみ使用し、確認完了時に削除します。0で追加キャプチャを無効にします。",
           "open_on_game_close_tooltip": "GSM のゲーム・キャプチャ検出を使用します。追跡中のゲームを最小化しても終了とは見なしません。手動で開くこともできます。",
@@ -139,41 +137,6 @@
           "locale": {
             "label": "表示言語:",
             "tooltip": "アプリケーションのロケールを選択します。これにより、インターフェースの言語が変更されます。"
-          }
-        },
-        "text_processing": {
-          "title": "テキスト処理",
-          "string_replacement": {
-            "group_title": "文字列置換",
-            "group_tooltip": "すべての入力テキストに置換ルールを順番に適用します。",
-            "enabled": {
-              "label": "文字列置換を有効化：",
-              "tooltip": "記録/オーバーレイ前に置換ルールを適用します。"
-            },
-            "rules": {
-              "label": "ルール：",
-              "tooltip": "置換ルールの一覧を編集します。"
-            },
-            "edit_rules": {
-              "label": "ルール編集",
-              "tooltip": "文字列置換ルールエディタを開きます。"
-            },
-            "rules_count": "{count} 件のルール",
-            "dialog": {
-              "title": "文字列置換ルール",
-              "add": "追加",
-              "remove": "削除",
-              "move_up": "上へ",
-              "move_down": "下へ",
-              "enabled": "有効",
-              "mode": "モード",
-              "find": "検索",
-              "replace": "置換",
-              "case_sensitive": "大文字小文字を区別",
-              "whole_word": "単語全体",
-              "mode_plain": "プレーン",
-              "mode_regex": "正規表現"
-            }
           }
         },
         "paths": {
@@ -457,10 +420,6 @@
         },
         "features": {
           "title": "機能",
-          "notify_on_update": {
-            "label": "Ankiカードの作成・更新時に通知:",
-            "tooltip": "GSMがAnkiカードを作成または更新したときに通知します。"
-          },
           "open_anki_edit": {
             "label": "Anki編集画面を開く:",
             "tooltip": "更新後、自動的にAnkiの編集画面を開きます。"
@@ -484,31 +443,6 @@
           "generate_longplay": {
             "label": "ロングプレイを生成:",
             "tooltip": "OBS録画からロングプレイ動画を生成し、GSMに入力されたテキストをSRT字幕ファイルに書き込みます。再起動が必要です。"
-          },
-          "notifications_title": "デスクトップ通知",
-          "notify_on_audio_generated": {
-            "label": "音声生成時に通知:",
-            "tooltip": "GSMが音声の生成またはトリミングを完了したときに通知します。"
-          },
-          "notify_on_screenshot_saved": {
-            "label": "スクリーンショット保存時に通知:",
-            "tooltip": "GSMがスクリーンショットをディスクに保存したときに通知します。"
-          },
-          "notify_on_anki_enhancement_failed": {
-            "label": "Ankiカードの処理失敗時に通知:",
-            "tooltip": "音声がない、または生成に失敗した場合を含め、Ankiカードの処理を完了できないときに通知します。"
-          },
-          "notify_on_errors": {
-            "label": "GSMのエラー時に通知:",
-            "tooltip": "対応が必要なエラーがGSMで発生したときに通知します。"
-          },
-          "notify_on_obs_warning": {
-            "label": "OBSリプレイを利用できない場合に通知:",
-            "tooltip": "GSMがOBSリプレイバッファーを使用できないときに通知します。"
-          },
-          "notify_on_text_intake_state": {
-            "label": "テキスト入力の一時停止・再開時に通知:",
-            "tooltip": "受信テキストの処理が一時停止または再開したときに通知します。"
           }
         },
         "screenshot": {

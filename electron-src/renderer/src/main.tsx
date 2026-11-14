@@ -29,7 +29,7 @@ const suppressReactDevtoolsBanner = (original: (...args: unknown[]) => void) => 
 console.info = suppressReactDevtoolsBanner(originalConsoleInfo);
 console.log = suppressReactDevtoolsBanner(originalConsoleLog);
 
-installDevPreviewBridge();
+const desktopReady = Promise.resolve().then(() => installDevPreviewBridge());
 
 async function getInitialSettings(): Promise<{ locale: string; theme?: string; seasonalEffectsDisabled?: boolean }> {
   try {
@@ -48,7 +48,7 @@ async function getInitialSettings(): Promise<{ locale: string; theme?: string; s
 const root = createRoot(document.getElementById("root")!);
 const isSceneSwitcherPicker = new URLSearchParams(window.location.search).get("window") === "scene-switcher-picker";
 
-void getInitialSettings().then(({ locale, theme, seasonalEffectsDisabled }) => {
+void desktopReady.then(getInitialSettings).then(({ locale, theme, seasonalEffectsDisabled }) => {
   // Apply the persisted theme before first paint to avoid a flash.
   applyTheme(theme);
   startSeasonalEffects(seasonalEffectsDisabled === true);

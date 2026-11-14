@@ -87,7 +87,9 @@ interface ManualResolveOptions extends DesktopUpdateChangelogPreviewOptions {
 type SnapshotListener = (snapshot: DesktopUpdateChangelogSnapshot | null) => void;
 
 const DEFAULT_REPO = 'bpwhelan/GameSentenceMiner';
-const BUNDLED_ASSET_BASE_URL = 'gsm-changelog://images/';
+const BUNDLED_ASSET_BASE_URL = process.env.GSM_NATIVE_SERVICE
+    ? `${process.platform === 'win32' ? 'http://gsm.localhost' : 'gsm://localhost'}/assets/changelog/images/`
+    : 'gsm-changelog://images/';
 const GITHUB_RELEASES_PAGE_SIZE = 100;
 const MAX_GITHUB_RELEASE_PAGES = 5;
 

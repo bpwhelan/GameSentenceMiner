@@ -23,7 +23,6 @@ dependencies = [
     "pyperclipfix",
     "pynput<=1.7.8",
     "websockets>=14.0",
-    "desktop-notifier>=6.1.0",
     "mss",
     "pysbd",
     "langid",

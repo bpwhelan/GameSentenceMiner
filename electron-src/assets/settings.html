@@ -85,11 +85,6 @@
                 </div>
 
                 <div class="input-group">
-                    <label for="runWindowTransparencyToolOnStartup">Run Window Transparency Tool on Startup:</label>
-                    <input type="checkbox" id="runWindowTransparencyToolOnStartup">
-                </div>
-
-                <div class="input-group">
                     <label for="runOverlayOnStartup">Run Overlay on Startup:</label>
                     <input type="checkbox" id="runOverlayOnStartup">
                 </div>
@@ -135,44 +130,6 @@
         <button id="openGSMSettingsBtn">Open GSM Settings</button>
     </div>
 
-    <div id="window-transparency-card" class="card">
-        <h2>Window Transparency Tool</h2>
-        <div class="form-group">
-            <div class="input-group">
-                <label for="window-transparency-tool-hotkey"
-                    class="tooltip-indicator tooltip-bottom tooltip-right">Window Transparency Tool Hotkey:
-                    <span class="tooltiptext">With tool running. On Press, will enable a special mode on the focused
-                        window that will keep it on top, but transparent unless hovered.</span>
-                </label>
-                <input type="text" id="window-transparency-tool-hotkey" value="Ctrl+Alt+Y">
-            </div>
-            <div class="input-group">
-                <label for="window-transparency-target">Window Transparency Target:</label>
-                <input type="text" id="window-transparency-target"
-                    placeholder="Leave empty to use hotkey for currently focused window">
-                <span class="tooltip  tooltip-left">❁E
-                    <span class="tooltiptext">
-                        Specify a window title to target for transparency when tool is run. If left empty, the tool
-                        will apply to the currently focused window after hotkey is pressed.
-                    </span>
-                </span>
-            </div>
-            <div class="input-group">
-                <button id="runWindowTransparencyToolBtn">Run Window Transparency Tool</button>
-                <label id="window-transparency-label"></label>
-            </div>
-            <!-- <div class="input-group">
-                <label for="autoRunWindowTransparencyTool">Auto-Run Window Transparency Tool:</label>
-                <input type="checkbox" id="autoRunWindowTransparencyTool">
-                <span class="tooltip tooltip-left">❁E
-                    <span class="tooltiptext">
-                        Automatically runs the window transparency tool on application startup.
-                    </span>
-                </span>
-            </div> -->
-        </div>
-    </div>
-
     <div id="debug-card" class="card">
         <h2>Debug Settings</h2>
         <div class="form-group" style="margin-top: 20px;">
@@ -195,10 +152,6 @@
         const startConsoleMinimizedCheckbox = document.getElementById('startConsoleMinimized');
         const customPythonPackageInput = document.getElementById('customPythonPackage');
         const openGSMSettingsBtn = document.getElementById('openGSMSettingsBtn');
-        const windowTransparencyToolHotkeyInput = document.getElementById('window-transparency-tool-hotkey');
-        const windowTransparencyTargetInput = document.getElementById('window-transparency-target');
-        const runWindowTransparencyToolBtn = document.getElementById('runWindowTransparencyToolBtn');
-        const runWindowTransparencyToolOnStartupCheckbox = document.getElementById('runWindowTransparencyToolOnStartup');
         const runOverlayOnStartupCheckbox = document.getElementById('runOverlayOnStartup');
         const visibleTabsSelector = document.getElementById('visible-tabs-selector');
         const statsEndpointSelector = document.getElementById('stats-endpoint-selector');
@@ -214,17 +167,6 @@
             if (osInfo) {
                 console.log('Using OS info from shared state:', osInfo);
 
-                // Hide Window Transparency Tool card on non-Windows
-                const windowTransparencyCard = document.getElementById('window-transparency-card');
-                if (windowTransparencyCard) {
-                    if (osInfo.isWindows) {
-                        windowTransparencyCard.style.display = 'block';
-                    } else {
-                        windowTransparencyCard.style.display = 'none';
-                        console.log('Window Transparency Tool hidden - not running on Windows');
-                    }
-                }
-
                 // Hide "Run Overlay on Startup" option on non-Windows
                 const runOverlayGroup = runOverlayOnStartupCheckbox.parentElement;
                 if (runOverlayGroup) {
@@ -236,16 +178,7 @@
                     }
                 }
 
-                // Hide "Run Window Transparency Tool on Startup" option on non-Windows
-                const runTransparencyGroup = runWindowTransparencyToolOnStartupCheckbox.parentElement;
-                if (runTransparencyGroup) {
-                    if (osInfo.isWindows) {
-                        runTransparencyGroup.style.display = 'flex';
-                    } else {
-                        runTransparencyGroup.style.display = 'none';
-                        console.log('Run Window Transparency Tool on Startup option hidden - not running on Windows');
-                    }
-                }
+
             } else {
                 console.log('OS info not yet available in shared state - will apply when available');
             }
@@ -255,23 +188,6 @@
         sharedState.onStateChanged('systemInfo', (osInfo) => {
             console.log('System info updated in shared state:', osInfo);
             applyOSSpecificUI();
-        });
-
-        const setHotkey = (event, inputElement) => {
-            event.preventDefault();
-            const keys = [];
-            if (event.ctrlKey) keys.push('Ctrl');
-            if (event.shiftKey) keys.push('Shift');
-            if (event.altKey) keys.push('Alt');
-            if (event.key && !['Control', 'Shift', 'Alt'].includes(event.key)) keys.push(event.key.toUpperCase());
-            inputElement.value = keys.join('+');
-            saveSettings();
-        };
-
-        windowTransparencyToolHotkeyInput.addEventListener('keydown', (e) => setHotkey(e, windowTransparencyToolHotkeyInput));
-        windowTransparencyTargetInput.addEventListener('change', async () => {
-            const target = windowTransparencyTargetInput.value.trim();
-            saveSettings();
         });
 
         // Allow clicking selected options to deselect them
@@ -303,11 +219,7 @@
                 // agentScriptsPathInput.value = settings.agentScriptsPath || '';
                 startConsoleMinimizedCheckbox.checked = settings.startConsoleMinimized || false;
                 customPythonPackageInput.value = settings.customPythonPackage || 'GameSentenceMiner';
-                windowTransparencyToolHotkeyInput.value = settings.windowTransparencyToolHotkey || 'Ctrl+Alt+Y';
-                windowTransparencyTargetInput.value = settings.windowTransparencyTarget || '';
-                runWindowTransparencyToolOnStartupCheckbox.checked = settings.runWindowTransparencyToolOnStartup || false;
                 runOverlayOnStartupCheckbox.checked = settings.runOverlayOnStartup || false;
-                // autoRunWindowTransparencyToolCheckbox.checked = settings.autoRunWindowTransparencyTool || false;
                 // pullPreReleasesCheckbox.checked = settings.pullPreReleases || false;
                 
                 // Set visible tabs - default to all tabs visible if not set
@@ -332,9 +244,6 @@
                 // agentScriptsPath: agentScriptsPathInput.value,
                 startConsoleMinimized: startConsoleMinimizedCheckbox.checked,
                 customPythonPackage: customPythonPackageInput.value,
-                windowTransparencyToolHotkey: windowTransparencyToolHotkeyInput.value,
-                windowTransparencyTarget: windowTransparencyTargetInput.value.trim(),
-                runWindowTransparencyToolOnStartup: runWindowTransparencyToolOnStartupCheckbox.checked,
                 runOverlayOnStartup: runOverlayOnStartupCheckbox.checked,
                 visibleTabs: Array.from(visibleTabsSelector.selectedOptions).map(option => option.value),
                 statsEndpoint: statsEndpointSelector.value
@@ -347,9 +256,7 @@
             iconStyleSelect,
             // autoUpdateElectronCheckbox,
             customPythonPackageInput,
-            windowTransparencyToolHotkeyInput,
             startConsoleMinimizedCheckbox,
-            runWindowTransparencyToolOnStartupCheckbox,
             runOverlayOnStartupCheckbox,
         ].forEach(element => {
             element.addEventListener('change', async (e) => {
@@ -363,10 +270,6 @@
 
         openGSMSettingsBtn.addEventListener('click', async () => {
             await ipcRenderer.invoke('settings.openGSMSettings');
-        });
-
-        runWindowTransparencyToolBtn.addEventListener('click', async () => {
-            await ipcRenderer.invoke('settings.runWindowTransparencyTool');
         });
 
         // selectPythonPathButton.addEventListener('click', async () => {

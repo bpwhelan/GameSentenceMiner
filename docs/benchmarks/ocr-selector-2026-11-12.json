@@ -1,0 +1,462 @@
+{
+  "before": {
+    "cpu_seconds": 5.703125,
+    "logical_cpus": 16,
+    "samples": [
+      {
+        "capture_ms": 492.45689999999996,
+        "compose_ms": 8.543700000000058,
+        "cpu_ms": 546.875,
+        "presented_ms": 576.5133,
+        "ready_ms": 562.7109,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 482.10429999999997,
+        "compose_ms": 9.43160000000006,
+        "cpu_ms": 453.125,
+        "presented_ms": 560.9719,
+        "ready_ms": 550.5174000000001,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 455.04679999999996,
+        "compose_ms": 9.09170000000006,
+        "cpu_ms": 500.0,
+        "presented_ms": 544.6274,
+        "ready_ms": 534.0524,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 514.8141,
+        "compose_ms": 10.313299999999913,
+        "cpu_ms": 531.25,
+        "presented_ms": 615.2653,
+        "ready_ms": 602.8361,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 430.4265,
+        "compose_ms": 9.989700000000028,
+        "cpu_ms": 390.625,
+        "presented_ms": 548.3456,
+        "ready_ms": 532.6685,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 455.0596,
+        "compose_ms": 9.625100000000032,
+        "cpu_ms": 468.75,
+        "presented_ms": 554.8868,
+        "ready_ms": 541.8596,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 501.129,
+        "compose_ms": 9.970700000000022,
+        "cpu_ms": 515.625,
+        "presented_ms": 583.751,
+        "ready_ms": 574.8953,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 469.8941,
+        "compose_ms": 10.154499999999985,
+        "cpu_ms": 437.5,
+        "presented_ms": 558.7860000000001,
+        "ready_ms": 550.8172,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 420.8197,
+        "compose_ms": 10.250200000000007,
+        "cpu_ms": 406.25,
+        "presented_ms": 507.3297,
+        "ready_ms": 495.82759999999996,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 459.99109999999996,
+        "compose_ms": 10.371400000000051,
+        "cpu_ms": 437.5,
+        "presented_ms": 548.253,
+        "ready_ms": 540.2074,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 447.8586,
+        "compose_ms": 8.313199999999995,
+        "cpu_ms": 421.875,
+        "presented_ms": 528.2641,
+        "ready_ms": 515.4236,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 498.3206,
+        "compose_ms": 10.617799999999988,
+        "cpu_ms": 453.125,
+        "presented_ms": 581.4732,
+        "ready_ms": 572.0493,
+        "size": [
+          4480,
+          1440
+        ]
+      }
+    ],
+    "total_machine_percent": 3.9269752628593384,
+    "wall_seconds": 9.0768413,
+    "medians": {
+      "capture_ms": 464.94259999999997,
+      "compose_ms": 9.980200000000025,
+      "ready_ms": 546.1885,
+      "presented_ms": 556.8364,
+      "cpu_ms": 453.125
+    }
+  },
+  "after": {
+    "cpu_seconds": 1.203125,
+    "logical_cpus": 16,
+    "samples": [
+      {
+        "capture_ms": 63.2365,
+        "compose_ms": 0.0,
+        "cpu_ms": 125.0,
+        "presented_ms": 161.6352,
+        "ready_ms": 145.7965,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 70.41980000000001,
+        "compose_ms": 0.0,
+        "cpu_ms": 78.125,
+        "presented_ms": 155.0172,
+        "ready_ms": 143.3356,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 72.1866,
+        "compose_ms": 0.0,
+        "cpu_ms": 78.125,
+        "presented_ms": 146.4777,
+        "ready_ms": 129.819,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 72.914,
+        "compose_ms": 0.0,
+        "cpu_ms": 125.0,
+        "presented_ms": 157.9583,
+        "ready_ms": 148.6504,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 70.2215,
+        "compose_ms": 0.0,
+        "cpu_ms": 93.75,
+        "presented_ms": 141.239,
+        "ready_ms": 131.648,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 62.3317,
+        "compose_ms": 0.0,
+        "cpu_ms": 78.125,
+        "presented_ms": 151.8579,
+        "ready_ms": 137.7164,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 61.2187,
+        "compose_ms": 0.0,
+        "cpu_ms": 109.375,
+        "presented_ms": 157.1645,
+        "ready_ms": 142.8857,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 82.6235,
+        "compose_ms": 0.0,
+        "cpu_ms": 109.375,
+        "presented_ms": 173.7196,
+        "ready_ms": 153.4556,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 65.19959999999999,
+        "compose_ms": 0.0,
+        "cpu_ms": 93.75,
+        "presented_ms": 163.7661,
+        "ready_ms": 150.38750000000002,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 72.6422,
+        "compose_ms": 0.0,
+        "cpu_ms": 78.125,
+        "presented_ms": 176.4665,
+        "ready_ms": 159.2185,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 62.6404,
+        "compose_ms": 0.0,
+        "cpu_ms": 93.75,
+        "presented_ms": 135.6338,
+        "ready_ms": 123.5377,
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 58.2738,
+        "compose_ms": 0.0,
+        "cpu_ms": 78.125,
+        "presented_ms": 122.55149999999999,
+        "ready_ms": 114.91510000000001,
+        "size": [
+          4480,
+          1440
+        ]
+      }
+    ],
+    "total_machine_percent": 1.8209335045408126,
+    "wall_seconds": 4.1294925,
+    "medians": {
+      "capture_ms": 67.71055,
+      "compose_ms": 0.0,
+      "ready_ms": 143.11065000000002,
+      "presented_ms": 156.09085,
+      "cpu_ms": 93.75
+    }
+  },
+  "oneshot_capture": {
+    "cpu_seconds": 0.71875,
+    "samples": [
+      {
+        "capture_ms": 116.4877,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 114.62740000000001,
+        "cpu_ms": 46.875,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 112.8968,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 105.0843,
+        "cpu_ms": 46.875,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 96.39920000000001,
+        "cpu_ms": 78.125,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 96.8181,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 98.8284,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 91.3848,
+        "cpu_ms": 46.875,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 93.51310000000001,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 105.4732,
+        "cpu_ms": 78.125,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 94.7575,
+        "cpu_ms": 46.875,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      },
+      {
+        "capture_ms": 95.7283,
+        "cpu_ms": 62.5,
+        "origin": [
+          0,
+          0
+        ],
+        "size": [
+          4480,
+          1440
+        ]
+      }
+    ],
+    "source": "Unmodified scripts/OneShotOCR/src/capture.rs; xcap 0.9.10 without wgc feature; optimized dev profile",
+    "wall_seconds": 3.0485781,
+    "medians": {
+      "capture_ms": 97.82325,
+      "cpu_ms": 62.5
+    }
+  },
+  "metadata": {
+    "date": "2026-11-12",
+    "cpu": "AMD Ryzen 7 5800X",
+    "logical_cpus": 16,
+    "profile": "native-dev opt-level 3 for gsm-desktop, gsm-capture, image and xcap",
+    "oneshot_source": "scripts/OneShotOCR/src/capture.rs",
+    "oneshot_source_sha256": "b1fc9ef1d82d7bb5d005a791bcd6c1c8e054a41931e5eeb1a2e4c66260119408",
+    "oneshot_scope": "Unmodified capture function only, xcap 0.9.10 without wgc; excludes OneShot window construction and OCR",
+    "selector_scope": "Production acquisition, pixel buffers, real native window and first paint. presented_ms includes DwmFlush. Excludes hotkey transport, queued inference and OCR after selection.",
+    "desktop_binary": "2ffad96814823f2700d3"
+  }
+}
