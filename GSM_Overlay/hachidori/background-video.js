@@ -1,5 +1,5 @@
-// Experimental Netflix and YouTube mining in the service worker: a site's
-// recorder frame's port, line recordings, and the WAV the player page cuts from
+// Netflix and YouTube mining in the service worker: a site's
+// recorder frame's port, line recordings, and the MP3 the player page cuts from
 // what the viewer heard. background-netflix.js and background-youtube.js give
 // each site its names.
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -22,9 +22,9 @@ function template(message) {
   return message.profileId === undefined ? message.templateId : profileTemplateKey(message.profileId, message.templateId);
 }
 
-// The part of the tab a GIF keeps, as fractions of its width and height (the
-// video, on YouTube), with the tab's aspect ratio, when the reader sent one
-// that fits in the tab.
+// The part of the tab a GIF or a Netflix screenshot keeps, as fractions of its
+// width and height (the video's picture), with the tab's aspect ratio, when
+// the reader sent one that fits in the tab.
 function cropOf(value) {
   if (value === null || typeof value !== "object") return null;
   const { left, top, width, height, aspect } = value;
@@ -54,23 +54,23 @@ function askRecorder(port, message, reply) {
 
 // One site's mining service (docs/architecture.md, Netflix mining). The player
 // page cuts a line's sentence audio from what the viewer heard and sends its
-// WAV with `line_audio`. Otherwise, while the page replays the line, a hidden
+// MP3 with `line_audio`. Otherwise, while the page replays the line, a hidden
 // recorder frame in the site's tab records the tab: `start` lets that frame
 // open its tab-capture stream, `finish` has it cut the line out and gives its
-// WAV and GIF to the Anki worker to hold for the note, `cancel` stops it. The
-// frame connects on a port; the worker holds no media itself and only the WAV
+// MP3 and GIF to the Anki worker to hold for the note, `cancel` stops it. The
+// frame connects on a port; the worker holds no media itself and only the MP3
 // and GIF reach Anki. `load` adds the site's scripts to a page that was open
 // before the switch went on.
 //
-// `site` names the site and its switch (`name`, `flag`), its requests' target,
-// its recorder port and page, the pages it plays on (`origin`, `playerUrl`,
-// and `playing`, what the tab no longer does when it left them), its video
-// IDs (`movieId`), its registered `scripts`, and `requests`, the message type
-// of each operation.
+// `site` names the site (`name`), whether its switch is on in a normalised
+// options record (`enabled`), its requests' target, its recorder port and
+// page, the pages it plays on (`origin`, `playerUrl`, and `playing`, what the
+// tab no longer does when it left them), its video IDs (`movieId`), its
+// registered `scripts`, and `requests`, the message type of each operation.
 function createVideoSiteService(site) {
   const { name } = site;
   // The switch the Anki worker checks before it holds the site's media.
-  const feature = { flag: site.flag, label: `${name} mining` };
+  const feature = { enabled: site.enabled, label: `${name} mining` };
   // Recorder frames that connected, by tab, until a recording claims them.
   const recorders = new Map();
   const recorderWaiters = new Map();
@@ -136,7 +136,7 @@ function createVideoSiteService(site) {
     port.onDisconnect.addListener(() => { open = false; });
     chrome.storage.local.get(OPTIONS_KEY).then(stored => {
       if (!open) return;
-      if (normaliseOptions(stored[OPTIONS_KEY]).experimental[site.flag] === true) adoptRecorder(tabId, port);
+      if (site.enabled(normaliseOptions(stored[OPTIONS_KEY]))) adoptRecorder(tabId, port);
       else port.disconnect();
     }, () => port.disconnect());
   }
@@ -165,7 +165,7 @@ function createVideoSiteService(site) {
     current?.port.disconnect();
   }
 
-  async function startRecording(message, sender) {
+  async function startRecording(message, sender, options) {
     if (sharingLinked) return { unavailable: "linked" };
     const cue = cueOf(message.cue);
     const crop = cropOf(message.crop);
@@ -181,7 +181,10 @@ function createVideoSiteService(site) {
     let started;
     try {
       started = await askRecorder(port, { type: "record", targetTabId: tab.id, audio: message.audio !== false,
-        gif: message.gif === true, limitMs: cue.endMs - cue.startMs + VIDEO_RECORDING_SLACK_MS, ...(crop ? { crop } : {}) },
+        gif: message.gif === true, encoding: { videoAudioFormat: options.videoAudioFormat,
+          videoAudioBitrate: options.videoAudioBitrate, videoImageFormat: options.videoImageFormat,
+          videoImageQuality: options.videoImageQuality },
+        limitMs: cue.endMs - cue.startMs + VIDEO_RECORDING_SLACK_MS, ...(crop ? { crop } : {}) },
       "started");
     } catch (error) {
       if (recording === current) stopRecording();
@@ -207,14 +210,14 @@ function createVideoSiteService(site) {
       if (recording === current) stopRecording();
     }
     const mining = getAnkiMining();
-    // The GIF, when the recorder made one, is held like the WAV: on its own token
+    // The GIF, when the recorder made one, is held like the MP3: on its own token
     // for the {gif} field, independent of whether the audio was silent. A
-    // recording for a {gif} field alone has no WAV to hold.
+    // recording for a {gif} field alone has no MP3 to hold.
     const gif = typeof clip.gif === "string" ? await mining.gifImage(clip.gif, template(message), feature) : null;
     let audio = null;
     if (clip.silent === true) audio = { unavailable: "silent" };
     else if (typeof clip.data === "string") audio = await mining.sentenceAudio(clip.data, template(message), feature);
-    return { audio, gif };
+    return { audio, gif: gif ?? (clip.imageError ? { unavailable: clip.imageError } : null) };
   }
 
   function cancelRecording(message, sender) {
@@ -224,7 +227,7 @@ function createVideoSiteService(site) {
     return { cancelled: true };
   }
 
-  // The WAV the player page cut from what the viewer heard (netflix-audio.js),
+  // The MP3 the player page cut from what the viewer heard (netflix-audio.js),
   // held for the note like a recorded one. Nothing was captured, so the page
   // need not be the active tab.
   async function holdLineAudio(message, sender) {
@@ -262,11 +265,11 @@ function createVideoSiteService(site) {
     if (!Object.hasOwn(handlers, message.type)) throw new Error(`Unknown ${name} request.`);
     await sharingReady;
     const options = normaliseOptions((await chrome.storage.local.get(OPTIONS_KEY))[OPTIONS_KEY]);
-    if (options.experimental[site.flag] !== true) throw new Error(`${name} mining is turned off in Settings.`);
-    return handlers[message.type](message, sender);
+    if (!site.enabled(options)) throw new Error(`${name} mining is turned off in Settings.`);
+    return handlers[message.type](message, sender, options);
   }
 
   return { target: site.target, recorderPort: site.recorderPort, adoptRecorder, connectRecorder, handleRequest };
 }
 
-export { createVideoSiteService };
+export { createVideoSiteService, cropOf };
