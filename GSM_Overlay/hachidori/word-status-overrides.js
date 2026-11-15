@@ -3,7 +3,7 @@
 // Word status overrides (#520): the words marked as known or ignored from the
 // popup's Mark as known and Ignore. An override wins over the word's Anki
 // status in word highlighting, and no Anki note is involved. The service
-// worker owns the stored record and changes one headword per write; the
+// worker owns the stored record and changes one headword or a pasted list per write; the
 // content script, backups and the sharing mirror read the same shape. A
 // classic script, so the content script can use it; modules import it for its
 // side effect.
@@ -110,9 +110,27 @@
     return withLanguageWordStatusOverrides(value, language, next);
   }
 
+  // Settings' pasted list appends to the same marks in one revision. Parsing
+  // and merging once avoids copying the whole record for each pasted word.
+  function withKnownWords(value, language, text) {
+    if (typeof text !== "string") throw new TypeError("Known words must be text, one word per line.");
+    const current = wordStatusOverridesFor(value, language);
+    const known = new Set(current.known);
+    for (const line of text.split(/\r?\n/u)) {
+      const word = line.trim();
+      if (word) known.add(word);
+    }
+    const added = known.size - current.known.length;
+    if (added === 0) return { record: value, added };
+    const next = { revision: current.revision + 1, known: [...known],
+      ignored: current.ignored.filter(word => !known.has(word)) };
+    return { record: withLanguageWordStatusOverrides(value, language, next), added };
+  }
+
   globalThis.HDWordStatusOverrides = {
     WORD_STATUS_OVERRIDES_KEY, OVERRIDE_STATUSES,
     emptyWordStatusOverrides, normaliseWordStatusOverrides, wordStatusOverrideMap, withWordStatusOverride,
     wordStatusOverridesFor, wordStatusOverrideMapFor, withLanguageWordStatusOverride, withLanguageWordStatusOverrides,
+    withKnownWords,
   };
 }());

@@ -62,22 +62,34 @@
   const DEFAULT_HIGHLIGHT_NAME = "gsm-hoshidicts-match";
   // Adopted sheets follow ordinary dictionary styles, even ones appended later.
   // Shadow DOM provides the scope; wrapping user rules would change their CSS.
+  // `update` takes the user's stylesheets in cascade order (userPopupStyles in
+  // reader-options.js): one sheet each, so a rule one stylesheet leaves open
+  // cannot swallow the next. An edit re-parses its sheet in place; the
+  // adopted list changes only when the number of sheets does.
   function createCustomPopupStyle(shadow) {
-    let current = "";
-    let sheet;
-    const detach = () => { shadow.adoptedStyleSheets = shadow.adoptedStyleSheets.filter(value => value !== sheet); };
+    let current = [];
+    let sheets = [];
+    const adopt = (next) => {
+      const kept = shadow.adoptedStyleSheets.filter(value => !sheets.includes(value));
+      shadow.adoptedStyleSheets = [...kept, ...next];
+      sheets = next;
+    };
     return {
-      update(css) {
-        if (css === current) return false;
-        if (css) {
-          sheet ??= new shadow.ownerDocument.defaultView.CSSStyleSheet();
-          sheet.replaceSync(css);
-          if (!current) shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
-        } else detach();
+      update(styles) {
+        const css = styles.filter(Boolean);
+        if (css.length === current.length && css.every((text, index) => text === current[index])) return false;
+        const { CSSStyleSheet } = shadow.ownerDocument.defaultView;
+        const next = css.map((text, index) => {
+          const sheet = sheets[index] ?? new CSSStyleSheet();
+          if (text !== current[index]) sheet.replaceSync(text);
+          return sheet;
+        });
+        if (next.length === sheets.length) sheets = next;
+        else adopt(next);
         current = css;
         return true;
       },
-      destroy() { if (current) detach(); },
+      destroy() { if (sheets.length > 0) adopt([]); },
     };
   }
   // Both the live reader and Settings preview use the same palette and sizing

@@ -2,7 +2,8 @@
 // what a maintainer needs to reproduce a problem: the version, install and
 // browser; the engine's status and memory; the debug log, with what happened
 // in earlier sessions and every extension context (debug-log.js); the
-// installed dictionaries, Anki and sharing state; every setting; and what is
+// installed dictionaries, Anki and sharing state; stored and effective settings
+// for every profile, language packs, themes and user scripts; and what is
 // stored where (storage areas, IndexedDB, OPFS files, caches). Each probe is
 // recorded on its own, so one that fails or is missing in this host leaves
 // `{ error }` in its place instead of losing the report.
@@ -17,6 +18,8 @@ import { LOOKUP_STATS_ROW_PREFIX } from "./lookup-stats.js";
 import { ANKI_INDEX_KEY } from "./anki-index-cache.js";
 import { AUTOMATIC_BACKUPS_KEY } from "./backup-automatic.js";
 import { DEBUG_LOG_DATABASE, openDebugLogStore, readDebugLog, redactSecrets } from "./debug-log.js";
+import "./reader-options.js";
+import { MCP_CAPABILITY, MCP_TARGET } from "./sharing-protocol.js";
 import "./word-status-overrides.js";
 
 export const DEBUG_INFO_SCHEMA_VERSION = 2;
@@ -59,10 +62,13 @@ async function probeAll(probes, timeoutMs) {
 const jsonBytes = value => new TextEncoder().encode(JSON.stringify(value) ?? "").length;
 
 function summariseCustomDictionary(value) {
-  const { text, ...rest } = value ?? {};
-  return typeof text === "string"
-    ? { ...rest, text: { omitted: true, characters: text.length, lines: text === "" ? 0 : text.split(/\r?\n/u).length } }
-    : value;
+  const { text, languages, ...rest } = value ?? {};
+  if (languages) rest.languages = Object.fromEntries(Object.entries(languages)
+    .map(([code, document]) => [code, summariseCustomDictionary(document)]));
+  if (typeof text === "string") {
+    return { ...rest, text: { omitted: true, characters: text.length, lines: text === "" ? 0 : text.split(/\r?\n/u).length } };
+  }
+  return languages ? rest : value;
 }
 
 // One snapshot, or one per source key once profiles name several (languages.md 12).
@@ -76,9 +82,14 @@ function summariseAnkiIndex(value) {
 }
 
 function summariseWordStatusOverrides(value) {
-  const record = globalThis.HDWordStatusOverrides.normaliseWordStatusOverrides(value);
-  return { revision: record.revision, ...Object.fromEntries(globalThis.HDWordStatusOverrides.OVERRIDE_STATUSES
-    .map(status => [status, { omitted: true, count: record[status].length }])) };
+  const { normaliseWordStatusOverrides, OVERRIDE_STATUSES } = globalThis.HDWordStatusOverrides;
+  const counts = record => Object.fromEntries(OVERRIDE_STATUSES
+    .map(status => [status, { omitted: true, count: record[status].length }]));
+  const record = normaliseWordStatusOverrides(value);
+  return { revision: record.revision, ...counts(record),
+    ...(value?.languages ? { languages: Object.fromEntries(Object.entries(value.languages)
+      .map(([code, record]) => [code, counts(normaliseWordStatusOverrides(record))])) } : {}),
+  };
 }
 
 function summariseAutomaticBackups(value) {
@@ -111,6 +122,38 @@ export function summariseStorage(items) {
     keys[key] = { bytes: jsonBytes(value), value: redactSecrets(summarise ? summarise(value) : value) };
   }
   return { keys, lookupStatsRows: lookupRows };
+}
+
+// Project with the production option layer instead of maintaining a second
+// settings list: new defaults, migrations and language capability masking all
+// appear here automatically. The raw stored values stay in storage.local.
+function configuration(items) {
+  const { profiles, projectOptions, normaliseLanguageSelection, activeProfileId, LANGUAGE_SELECTION_KEY,
+    EXPERIMENTAL_FEATURES, packSettingValue, popupRenderer } = globalThis.HDReaderOptions;
+  const stored = items.options;
+  const languageSelection = normaliseLanguageSelection(items[LANGUAGE_SELECTION_KEY]);
+  const registry = globalThis.HDLanguages;
+  return redactSecrets({
+    optionsRevision: stored?.revision ?? 0,
+    languageSelection,
+    activeProfileId: activeProfileId(stored, languageSelection),
+    experimentalFeatures: EXPERIMENTAL_FEATURES,
+    languages: { registryVersion: registry.version, packs: registry.codes.map(code => {
+      const { name, nativeName, bcp47, scripts, direction, capabilities, settings } = registry.get(code);
+      return { code, name, nativeName, bcp47, scripts, direction, capabilities, settings };
+    }) },
+    profiles: profiles(stored).map(profile => {
+      const pack = registry.get(profile.language);
+      const effectiveOptions = projectOptions(stored, profile.id);
+      return { ...profile, packAvailable: pack !== null,
+        effectivePackSettings: Object.fromEntries((pack?.settings ?? [])
+          .map(setting => [setting.id, packSettingValue(pack, profile.packSettings, setting.id)])),
+        effectiveOptions,
+        theme: { selected: effectiveOptions.popupTheme, renderer: popupRenderer(effectiveOptions.popupTheme),
+          variant: effectiveOptions.popupThemeVariant },
+      };
+    }),
+  });
 }
 
 const HIGH_ENTROPY_HINTS = ["architecture", "bitness", "formFactors", "fullVersionList", "model", "platformVersion", "wow64"];
@@ -196,11 +239,6 @@ async function listCaches(caches) {
   return Promise.all(names.map(async name => ({ name, entries: (await (await caches.open(name)).keys()).length })));
 }
 
-// Registered scripts by identity and match patterns; a custom script's code
-// is already in the options.
-const scriptSummary = scripts => scripts.map(({ id, matches, excludeMatches, allFrames, runAt, world }) =>
-  ({ id, matches, excludeMatches, allFrames, runAt, world }));
-
 const entryId = entry => `${entry.session}:${entry.n}`;
 
 // The report's debug log: every entry the ring keeps, from this session and
@@ -271,9 +309,18 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
   const { navigator } = window;
   const startedAt = now();
   const manifest = chrome.runtime.getManifest();
+  let local;
+  const readLocal = () => local ??= chrome.storage.local.get(null);
+  const bundledJson = async path => {
+    const response = await window.fetch(chrome.runtime.getURL(path));
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  };
   const [results, debugLog] = await Promise.all([probeAll({
     os: () => chrome.runtime.getPlatformInfo(),
     userAgentHints: () => navigator.userAgentData.getHighEntropyValues(HIGH_ENTROPY_HINTS),
+    av1Encoding: async () => typeof window.VideoEncoder === "function"
+      && (await window.VideoEncoder.isConfigSupported({ codec: "av01.0.08M.08", width: 1920, height: 1080 })).supported === true,
     self: () => chrome.management.getSelf(),
     fileSchemeAccess: () => chrome.extension.isAllowedFileSchemeAccess(),
     incognitoAccess: () => chrome.extension.isAllowedIncognitoAccess(),
@@ -284,14 +331,21 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
     alarms: async () => (await chrome.alarms.getAll()).map(alarm => ({ ...alarm, scheduledAt: new Date(alarm.scheduledTime).toISOString() })),
     // Chrome exposes the API only while the extension's Allow User Scripts is on.
     userScripts: async () => chrome.userScripts
-      ? { available: true, scripts: scriptSummary(await chrome.userScripts.getScripts()) } : { available: false },
-    contentScripts: async () => scriptSummary(await chrome.scripting.getRegisteredContentScripts()),
+      ? { available: true, scripts: redactSecrets(await chrome.userScripts.getScripts()) } : { available: false },
+    contentScripts: async () => redactSecrets(await chrome.scripting.getRegisteredContentScripts()),
     storageEstimate: () => navigator.storage.estimate(),
     storagePersisted: () => navigator.storage.persisted(),
     localBytesInUse: () => chrome.storage.local.getBytesInUse(null),
     sessionBytesInUse: () => chrome.storage.session.getBytesInUse(null),
     syncBytesInUse: () => chrome.storage.sync.getBytesInUse(null),
-    local: async () => summariseStorage(await chrome.storage.local.get(null)),
+    local: async () => summariseStorage(await readLocal()),
+    configuration: async () => {
+      // Only a requested export needs the complete pack registry.
+      await import("./vendor/languages/registry.js");
+      return configuration(await readLocal());
+    },
+    themeCatalogue: () => bundledJson("vendor/themes/index.json"),
+    themeSource: () => bundledJson("vendor/themes/source.json"),
     indexedDb: () => window.indexedDB.databases(),
     opfs: async () => listOpfs(await navigator.storage.getDirectory()),
     caches: () => listCaches(window.caches),
@@ -323,16 +377,22 @@ export async function collectDebugInfo({ chrome, window, send, targets, context 
       contentScripts: results.contentScripts,
       manifest,
     },
-    browser: { ...browserFacts(navigator, window), userAgentHints: results.userAgentHints, os: results.os },
+    browser: { ...browserFacts(navigator, window), userAgentHints: results.userAgentHints, os: results.os,
+      av1Encoding: results.av1Encoding },
     settingsPage: {
       url: window.location.href, visibilityState: window.document?.visibilityState ?? null,
       uptimeMs: Math.round(window.performance?.now() ?? 0), memory: pageMemory(window), ...redactSecrets(context),
     },
+    configuration: results.configuration,
+    themes: { catalogue: results.themeCatalogue, source: results.themeSource,
+      palettes: globalThis.HDReaderOptions.POPUP_THEME_GROUPS, variants: globalThis.HDReaderOptions.POPUP_THEME_VARIANTS },
     engine: { status: results.engineStatus, memory: results.engineMemory, extensionMemory: results.extensionMemory },
     dictionaries: redactSecrets(results.dictionaryState),
     services: {
       anki: results.anki,
       sharing: redactSecrets(results.sharing),
+      mcp: { capability: MCP_CAPABILITY, target: MCP_TARGET, transport: "sharing-relay",
+        hostLanguageSelection: true },
       automaticBackups: results.automaticBackups,
     },
     debugLog,

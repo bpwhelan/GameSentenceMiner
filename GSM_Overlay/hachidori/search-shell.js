@@ -1,7 +1,7 @@
 // The search page (#610) as the extension page that holds it (#644). Chrome
 // and Firefox run no user script in an extension page, so the search box, its
 // results and the reader live in a sandboxed frame, search-frame.html, where
-// Design → Custom JavaScript runs as it does on a web page. The frame has no
+// Advanced → User scripts run as they do on a web page. The frame has no
 // extension APIs: this page answers for it over one MessagePort, which
 // search-bridge.js offers it. The user's script shares the frame's
 // document and globals with the reader, so whatever this page serves the
@@ -190,15 +190,15 @@ export function connectSearchFrame({ window, frame, serve, connection, reload })
   });
 }
 
-// The user's script, where it runs on web pages: once the worker has
-// registered it (custom-javascript.js), which Chrome's Allow User Scripts or
-// Firefox's userScripts permission allows.
-async function userScript(api) {
+// The user scripts' JavaScript, in the order web pages run it: once the worker
+// has registered it (custom-javascript.js), which Chrome's Allow User Scripts
+// or Firefox's userScripts permission allows. The bridge is a file, not code.
+async function userScripts(api) {
   try {
     const [script] = await api.userScripts.getScripts({ ids: [SCRIPT_ID] });
-    return script?.js?.find(source => typeof source.code === "string")?.code ?? "";
+    return script?.js?.flatMap(source => (typeof source.code === "string" ? [source.code] : [])) ?? [];
   } catch {
-    return "";
+    return [];
   }
 }
 
@@ -416,7 +416,7 @@ async function start() {
   const lines = openSearchHistory({ indexedDB: window.indexedDB });
   const history = { onChange: lines.onChange, requests: searchHistoryRequests(lines, { settings: () => options,
     page: async () => ((await chrome.windows.getCurrent()).type === "popup" ? "popup" : "tab") }) };
-  const customJavaScript = await userScript(chrome);
+  const scripts = await userScripts(chrome);
   frame.className = "search-frame";
   frame.title = "Hachidori Search";
   let port = null;
@@ -426,7 +426,7 @@ async function start() {
   connectSearchFrame({ window, frame,
     serve: (offered) => { port = offered; return serveSearchFrame(chrome, offered, store, page, history); },
     connection: sandboxed => ({ id: chrome.runtime.id, manifest: chrome.runtime.getManifest(),
-      customJavaScript: sandboxed ? customJavaScript : "" }),
+      userScripts: sandboxed ? scripts : [] }),
     reload: () => location.reload() });
   frame.src = "search-frame.html";
   document.body.append(frame);
