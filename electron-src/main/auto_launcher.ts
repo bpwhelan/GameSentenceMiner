@@ -1609,10 +1609,11 @@ export class AutoLauncher {
                 );
             }
 
-            // OBS window capture does not expose a process image on Linux.
-            // Reuse the executable configured for this scene so text-hook
-            // automation can still resolve the Wine process.
-            if ((!exeName || exeName.trim().length === 0) && process.platform === "linux") {
+            // OBS window capture does not expose a process image on Linux:
+            // Xcomposite reports the X11 window class instead (steam_app_<appid>
+            // under Proton). Prefer the executable configured for this scene so
+            // text-hook automation can resolve the Wine process.
+            if (process.platform === "linux") {
                 const configuredExe = getGameExePathForScene(currentScene.name).trim();
                 if (configuredExe) exeName = path.basename(configuredExe.replace(/\\/g, "/"));
             }
