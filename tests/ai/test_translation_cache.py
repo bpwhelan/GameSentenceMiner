@@ -53,16 +53,31 @@ def test_translation_is_reused_across_services_and_copies_of_the_same_line(servi
     assert clone.translation == clone.TL == "Let's try it."
 
 
-def test_textfeed_prompt_and_anki_share_the_same_line_translation(services, line):
+@pytest.mark.parametrize("plain_first", [True, False])
+def test_anki_sends_markup_even_when_textfeed_translates_the_same_line(services, line, plain_first):
     make, client = services
-    assert (
-        make().translate(
+    marked_source = "<b>試して</b>みよう。"
+
+    def generate(request):
+        text = "<b>Let's try</b> it." if marked_source in request.prompt else "Let's try it."
+        return AIResponse("Gemini", "model", text, text, 1)
+
+    client.generate.side_effect = generate
+
+    def translate_textfeed():
+        return make().translate(
             [line], line.text, line, "Game", custom_prompt="Translate this line only.", translation_only=True
         )
-        == "Let's try it."
-    )
-    assert make().translate([line], "<b>試して</b>みよう。\n", line, "Game") == "Let's try it."
-    client.generate.assert_called_once()
+
+    def translate_anki():
+        return make().translate([line], marked_source + "\n", line, "Game")
+
+    if plain_first:
+        assert translate_textfeed() == "Let's try it."
+    assert translate_anki() == "<b>Let's try</b> it."
+    assert translate_textfeed() == "Let's try it."
+    assert translate_anki() == "<b>Let's try</b> it."
+    assert client.generate.call_count == 2
 
 
 def test_overlapping_translation_requests_share_one_provider_call(services, line):
@@ -226,8 +241,8 @@ def test_unexpected_failures_release_waiters_and_allow_retry(monkeypatch):
     assert cache.get_or_translate("line", lambda: "Recovered") == "Recovered"
 
 
-@pytest.mark.parametrize("source", ["<b>試して</b>みよう。", "{{c1::試して::hint}}みよう。", " 試してみよう。\n"])
-def test_source_markup_and_trailing_newlines_share_the_translation(services, line, source):
+@pytest.mark.parametrize("source", ["{{c1::試して::hint}}みよう。", " 試してみよう。\n"])
+def test_cloze_and_trailing_newlines_share_the_translation(services, line, source):
     make, client = services
     assert make().translate([line], source, line, "Game") == "Let's try it."
     assert make().translate([line], line.text, line, "Game") == "Let's try it."

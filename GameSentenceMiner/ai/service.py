@@ -17,6 +17,7 @@ from GameSentenceMiner.ai.translation_cache import (
     is_successful_translation,
     line_translation_cache,
     normalize_translation_source,
+    translation_markup_key,
 )
 from GameSentenceMiner.util.config.configuration import (
     AI_GEMINI,
@@ -230,9 +231,8 @@ class AIService:
             return self._translate_uncached(lines, sentence, current_line, game_title, custom_prompt)
 
         if line_id and source:
-            result = line_translation_cache.get_or_translate(
-                (str(line_id), source, str(language).casefold(), scope), generate, force_refresh=force_refresh
-            )
+            cache_key = (str(line_id), source, translation_markup_key(sentence), str(language).casefold(), scope)
+            result = line_translation_cache.get_or_translate(cache_key, generate, force_refresh=force_refresh)
         else:
             result = generate()
 

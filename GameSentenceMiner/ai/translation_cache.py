@@ -7,13 +7,20 @@ from collections.abc import Callable, Hashable
 from concurrent.futures import Future
 from html import unescape
 
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
 
 def normalize_translation_source(text: str) -> str:
     """Match a dialogue line to its Anki markup without discarding punctuation."""
     text = re.sub(r"{{c\d+::(.*?)(?:::[^{}]*)?}}", r"\1", text or "", flags=re.DOTALL)
     text = re.sub(r"<br\s*/?>|</(?:p|div)\s*>", "\n", text, flags=re.IGNORECASE)
-    text = re.sub(r"<[^>]+>", "", text)
+    text = _HTML_TAG_RE.sub("", text)
     return "\n".join(part.strip() for part in unescape(text).splitlines()).strip()
+
+
+def translation_markup_key(text: str) -> str:
+    """Distinguish tagged prompts by both the tags and the text they mark."""
+    return text.strip() if _HTML_TAG_RE.search(text) else ""
 
 
 def is_successful_translation(text: str) -> bool:
