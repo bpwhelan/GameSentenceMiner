@@ -220,9 +220,7 @@ def test_meiki_does_not_convert_rgb_twice_or_probe_debug_directory(monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(
-        ocr_module, "get_config", lambda: SimpleNamespace(vad=SimpleNamespace(use_cpu_for_inference_v2=True))
-    )
+    monkeypatch.setattr(ocr_module, "gpu_enabled", lambda _engine: False)
     monkeypatch.setattr(ocr_module.SharedMeikiOCRModel, "get_model", lambda **_kwargs: FakeModel())
     monkeypatch.setattr(ocr_module, "get_ocr_language", lambda: "ja")
     monkeypatch.setattr(

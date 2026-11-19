@@ -1,7 +1,6 @@
 //! Event-driven + adaptive-timer automation coordinator for TextHook/Agent injection,
 //! auto/manual OCR lifecycle, Switch emulator game detection, and overlay state sync.
 
-use crate::active_game::ActiveGame;
 use crate::agent_scripts::{
     extract_title_id, is_switch_emulator_target, resolve_agent_script, ResolveAgentScriptInput,
 };
@@ -384,21 +383,12 @@ async fn run_automation_tick(app: &tauri::AppHandle) {
         .as_ref()
         .is_some_and(|o| o.state()["connected"] == true);
 
-    let (scene_id, scene_name) = if obs_connected {
-        if let Some(ref obs) = obs_state {
-            match obs.invoke(app, "obs.getActiveScene", &[]).await {
-                Ok(v) => (
-                    v["id"].as_str().unwrap_or("").to_owned(),
-                    v["name"].as_str().unwrap_or("").to_owned(),
-                ),
-                Err(_) => (String::new(), String::new()),
-            }
-        } else {
-            (String::new(), String::new())
-        }
-    } else {
-        (String::new(), String::new())
-    };
+    let session = obs_state
+        .as_ref()
+        .map(|o| o.game_session())
+        .unwrap_or_default();
+    let scene_id = session["scene_id"].as_str().unwrap_or("").to_owned();
+    let scene_name = session["scene"].as_str().unwrap_or("").to_owned();
 
     let profile = if !scene_name.is_empty() || !scene_id.is_empty() {
         find_scene_launch_profile(
@@ -410,15 +400,8 @@ async fn run_automation_tick(app: &tauri::AppHandle) {
         None
     };
 
-    let active_game = app.try_state::<ActiveGame>();
-    let any_game_active = active_game.as_ref().is_some_and(|ag| ag.any_game_active());
-    let scene_game_active = if scene_name.is_empty() {
-        false
-    } else {
-        active_game
-            .as_ref()
-            .is_some_and(|ag| ag.is_scene_active(&scene_name))
-    };
+    let any_game_active = session["active"] == true;
+    let scene_game_active = any_game_active && !scene_name.is_empty();
 
     let switch_running = tauri::async_runtime::spawn_blocking(any_switch_emu_running)
         .await
@@ -761,11 +744,8 @@ async fn run_texthook_automation_step(
     }
     // A delayed launch must not attach after a scene/game switch or manual stop.
     if let Some(obs) = obs_state {
-        let current = obs
-            .invoke(app, "obs.getActiveScene", &[])
-            .await
-            .unwrap_or(Value::Null);
-        if current["id"].as_str() != Some(scene_id) {
+        let current = obs.game_session();
+        if current["scene_id"].as_str() != Some(scene_id) {
             return;
         }
     }

@@ -43,20 +43,6 @@ accurate-filtering = [
     "sentencepiece"
 ]
 
-easyocr = [
-    "easyocr"
-]
-
-rapidocr = [
-    "rapidocr",
-    "onnxruntime",
-    "rapidocr_onnxruntime"
-]
-
-mangaocr = [
-    "manga-ocr"
-]
-
 winocr = [
     "winocr"
 ]
@@ -69,16 +55,8 @@ lens = [
     "protobuf>=6.33.2"
 ]
 
-lensweb = [
-    "pyjson5"
-]
-
 gvision = [
     "google-cloud-vision"
-]
-
-azure = [
-    "azure-ai-vision-imageanalysis"
 ]
 
 [project.urls]

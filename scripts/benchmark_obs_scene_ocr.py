@@ -181,7 +181,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--engine",
         default="",
-        help="OCR engine name from ocr.py, for example: meikiocr, oneocr, screenai, mlkitocr. Defaults to OCR1.",
+        help="OCR engine name from ocr.py, for example: meikiocr, oneocr, screenai. Defaults to OCR1.",
     )
     parser.add_argument(
         "--iterations",

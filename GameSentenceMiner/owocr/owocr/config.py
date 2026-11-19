@@ -74,7 +74,7 @@ parser.add_argument(
     "--engine",
     type=str,
     default=argparse.SUPPRESS,
-    help='OCR engine to use. Available: "mangaocr", "glens", "glensweb", "bing", "gvision", "avision", "alivetext", "azure", "winrtocr", "oneocr", "screenai", "mlkitocr", "ndlocrlite", "easyocr", "rapidocr", "ocrspace".',
+    help='OCR engine to use. Available: "avision", "alivetext", "bing", "glens", "gvision", "winrtocr", "oneocr", "screenai", "meikiocr", "vitaocr", "mida_vocr", "vocr_detector", "mida_detector", "meiki_text_detector".',
 )
 parser.add_argument(
     "-p",

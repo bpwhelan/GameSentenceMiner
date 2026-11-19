@@ -232,6 +232,19 @@ def delete_text_lines(regex_pattern=None, exact_text=None, case_sensitive=False,
     if not regex_pattern and not exact_text:
         raise ValueError("Either regex_pattern or exact_text must be provided")
 
+    from GameSentenceMiner.native import history as native_history
+
+    native_result = native_history.delete_text_lines_native(
+        GameLinesTable._db,
+        regex_pattern=regex_pattern,
+        exact_text=exact_text,
+        case_sensitive=case_sensitive,
+        use_regex=use_regex,
+    )
+    if native_result is not None:
+        logger.info(f"Deleted {native_result['deleted_count']} lines using pattern: {regex_pattern or exact_text}")
+        return native_result
+
     # Get all lines from database
     all_lines = GameLinesTable.all()
     if not all_lines:
@@ -318,6 +331,23 @@ def deduplicate_lines_core(
     """
     if not games:
         raise ValueError("At least one game must be selected")
+
+    from GameSentenceMiner.native import history as native_history
+
+    native_result = native_history.deduplicate_lines_native(
+        GameLinesTable._db,
+        games=games,
+        time_window_minutes=time_window_minutes,
+        case_sensitive=case_sensitive,
+        preserve_newest=preserve_newest,
+        ignore_time_window=ignore_time_window,
+    )
+    if native_result is not None:
+        mode_desc = "entire game" if ignore_time_window else f"{time_window_minutes}min window"
+        logger.info(
+            f"Deduplication completed: removed {native_result['deleted_count']} duplicate sentences from {len(games)} games with {mode_desc}"
+        )
+        return native_result
 
     # Get lines from selected games
     if "all" in games:
@@ -577,6 +607,23 @@ def register_database_api_routes(app):
                     )
                 except ValueError:
                     return jsonify({"error": "Invalid to_date format. Use YYYY-MM-DD"}), 400
+
+            from GameSentenceMiner.native import history as native_history
+
+            native_result = native_history.search_sentences(
+                GameLinesTable._db,
+                query=query,
+                game=game_filter or None,
+                start=date_start_timestamp,
+                end=date_end_timestamp,
+                sort=sort_by,
+                page=page,
+                page_size=page_size,
+                use_regex=use_regex,
+                use_tokenized=use_tokenized,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             if use_tokenized:
                 # Tokenized word search: join through words → word_occurrences → game_lines
@@ -907,6 +954,16 @@ def register_database_api_routes(app):
             description: Failed to fetch games list
         """
         try:
+            from GameSentenceMiner.native import history as native_history
+
+            native_result = native_history.games_list(GameLinesTable._db)
+            if native_result is not None:
+                logger.warning("Deprecated endpoint /api/games-list called — migrate to /api/games-management")
+                response = jsonify(native_result)
+                response.headers["Deprecation"] = "true"
+                response.headers["X-Deprecation-Notice"] = "Use /api/games-management instead"
+                return response, 200
+
             games_data = []
 
             rows = GameLinesTable._db.fetchall(
@@ -1814,6 +1871,18 @@ def register_database_api_routes(app):
             if not regex_pattern and not exact_text:
                 return jsonify({"error": "Either regex_pattern or exact_text must be provided"}), 400
 
+            from GameSentenceMiner.native import history as native_history
+
+            native_result = native_history.preview_text_deletion(
+                GameLinesTable._db,
+                regex_pattern=regex_pattern,
+                exact_text=exact_text,
+                case_sensitive=case_sensitive,
+                use_regex=use_regex,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
+
             # Get all lines from database
             all_lines = GameLinesTable.all()
             if not all_lines:
@@ -2043,6 +2112,18 @@ def register_database_api_routes(app):
 
             if not games:
                 return jsonify({"error": "At least one game must be selected"}), 400
+
+            from GameSentenceMiner.native import history as native_history
+
+            native_result = native_history.preview_deduplication(
+                GameLinesTable._db,
+                games=games,
+                time_window_minutes=time_window_minutes,
+                case_sensitive=case_sensitive,
+                ignore_time_window=ignore_time_window,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             # Get lines from selected games
             if "all" in games:
@@ -2404,6 +2485,18 @@ def register_database_api_routes(app):
             time_window_minutes = data.get("time_window_minutes", 5)
             case_sensitive = data.get("case_sensitive", False)
             ignore_time_window = data.get("ignore_time_window", False)
+
+            from GameSentenceMiner.native import history as native_history
+
+            native_result = native_history.search_duplicates(
+                GameLinesTable._db,
+                game=game_filter or None,
+                time_window_minutes=time_window_minutes,
+                case_sensitive=case_sensitive,
+                ignore_time_window=ignore_time_window,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             # Get lines from selected game or all games
             if game_filter:

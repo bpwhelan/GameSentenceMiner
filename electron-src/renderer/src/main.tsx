@@ -47,6 +47,7 @@ async function getInitialSettings(): Promise<{ locale: string; theme?: string; s
 
 const root = createRoot(document.getElementById("root")!);
 const isSceneSwitcherPicker = new URLSearchParams(window.location.search).get("window") === "scene-switcher-picker";
+if (!isSceneSwitcherPicker) document.documentElement.setAttribute("data-gsm-preload-dictionary-popup", "");
 
 void desktopReady.then(getInitialSettings).then(({ locale, theme, seasonalEffectsDisabled }) => {
   // Apply the persisted theme before first paint to avoid a flash.

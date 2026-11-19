@@ -1,0 +1,1406 @@
+{
+  "median": {
+    "rss_mib": 2693.95,
+    "uss_mib": 1444.98,
+    "private_mib": 2000.37
+  },
+  "samples": [
+    {
+      "processes": [
+        {
+          "pid": 86560,
+          "parent_pid": 71512,
+          "name": "gsm-desktop.exe",
+          "kind": "",
+          "rss_mib": 328.59375,
+          "uss_mib": 239.88671875,
+          "private_mib": 310.01171875
+        },
+        {
+          "pid": 20656,
+          "parent_pid": 86560,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.5859375,
+          "uss_mib": 1.01171875,
+          "private_mib": 1.42578125
+        },
+        {
+          "pid": 38640,
+          "parent_pid": 86560,
+          "name": "gsm_overlay_server.exe",
+          "kind": "",
+          "rss_mib": 147.3046875,
+          "uss_mib": 134.06640625,
+          "private_mib": 136.1875
+        },
+        {
+          "pid": 101544,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 189.03125,
+          "uss_mib": 79.3828125,
+          "private_mib": 92.33984375
+        },
+        {
+          "pid": 75624,
+          "parent_pid": 86560,
+          "name": "obs64.exe",
+          "kind": "",
+          "rss_mib": 176.6875,
+          "uss_mib": 66.08984375,
+          "private_mib": 225.41015625
+        },
+        {
+          "pid": 80744,
+          "parent_pid": 86560,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 4.140625,
+          "uss_mib": 0.5703125,
+          "private_mib": 0.7890625
+        },
+        {
+          "pid": 100760,
+          "parent_pid": 86560,
+          "name": "muvluv16.exe",
+          "kind": "",
+          "rss_mib": 73.09765625,
+          "uss_mib": 47.73046875,
+          "private_mib": 55.62890625
+        },
+        {
+          "pid": 94200,
+          "parent_pid": 86560,
+          "name": "gsm-agent-host.exe",
+          "kind": "",
+          "rss_mib": 92.7421875,
+          "uss_mib": 14.00390625,
+          "private_mib": 17.43359375
+        },
+        {
+          "pid": 42660,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 137.62890625,
+          "uss_mib": 30.125,
+          "private_mib": 41.01171875
+        },
+        {
+          "pid": 104220,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.90234375,
+          "uss_mib": 1.703125,
+          "private_mib": 3.0546875
+        },
+        {
+          "pid": 70480,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 80.94140625,
+          "uss_mib": 26.83203125,
+          "private_mib": 92.87109375
+        },
+        {
+          "pid": 102132,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 40.75390625,
+          "uss_mib": 6.43359375,
+          "private_mib": 11.4609375
+        },
+        {
+          "pid": 87616,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 19.609375,
+          "uss_mib": 2.7109375,
+          "private_mib": 7.33203125
+        },
+        {
+          "pid": 108192,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 97.70703125,
+          "uss_mib": 38.37109375,
+          "private_mib": 50.83203125
+        },
+        {
+          "pid": 82708,
+          "parent_pid": 94200,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 15.1015625,
+          "uss_mib": 1.484375,
+          "private_mib": 2.01171875
+        },
+        {
+          "pid": 93032,
+          "parent_pid": 82708,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 9.9921875,
+          "uss_mib": 1.11328125,
+          "private_mib": 1.78515625
+        },
+        {
+          "pid": 63672,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 9.875,
+          "uss_mib": 1.36328125,
+          "private_mib": 1.859375
+        },
+        {
+          "pid": 104360,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86.exe",
+          "kind": "",
+          "rss_mib": 10.66015625,
+          "uss_mib": 1.47265625,
+          "private_mib": 2.234375
+        },
+        {
+          "pid": 106040,
+          "parent_pid": 80744,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.3203125,
+          "uss_mib": 0.78515625,
+          "private_mib": 1.19921875
+        },
+        {
+          "pid": 106204,
+          "parent_pid": 80744,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 266.19140625,
+          "uss_mib": 207.37109375,
+          "private_mib": 215.8984375
+        },
+        {
+          "pid": 84308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.94140625,
+          "uss_mib": 1.6875,
+          "private_mib": 2.984375
+        },
+        {
+          "pid": 90440,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 111.87890625,
+          "uss_mib": 48.12109375,
+          "private_mib": 150.03125
+        },
+        {
+          "pid": 23024,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 42.1015625,
+          "uss_mib": 8.1953125,
+          "private_mib": 13.328125
+        },
+        {
+          "pid": 76936,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 21.55078125,
+          "uss_mib": 4.08984375,
+          "private_mib": 8.765625
+        },
+        {
+          "pid": 96308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 321.98046875,
+          "uss_mib": 240.3125,
+          "private_mib": 254.3359375
+        },
+        {
+          "pid": 112060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 46.14453125,
+          "uss_mib": 9.7421875,
+          "private_mib": 18.640625
+        },
+        {
+          "pid": 102396,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 152.54296875,
+          "uss_mib": 76.89453125,
+          "private_mib": 101.34375
+        },
+        {
+          "pid": 95060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 24.9921875,
+          "uss_mib": 3.31640625,
+          "private_mib": 9.08984375
+        },
+        {
+          "pid": 54692,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 225.30078125,
+          "uss_mib": 149.05078125,
+          "private_mib": 169.6875
+        },
+        {
+          "pid": 61968,
+          "parent_pid": 38640,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.140625,
+          "uss_mib": 0.7734375,
+          "private_mib": 1.16796875
+        }
+      ],
+      "totals": {
+        "rss_mib": 2694.44140625,
+        "uss_mib": 1444.69140625,
+        "private_mib": 2000.15234375
+      }
+    },
+    {
+      "processes": [
+        {
+          "pid": 86560,
+          "parent_pid": 71512,
+          "name": "gsm-desktop.exe",
+          "kind": "",
+          "rss_mib": 328.59375,
+          "uss_mib": 239.88671875,
+          "private_mib": 310.01171875
+        },
+        {
+          "pid": 20656,
+          "parent_pid": 86560,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.5859375,
+          "uss_mib": 1.01171875,
+          "private_mib": 1.42578125
+        },
+        {
+          "pid": 38640,
+          "parent_pid": 86560,
+          "name": "gsm_overlay_server.exe",
+          "kind": "",
+          "rss_mib": 147.3046875,
+          "uss_mib": 134.06640625,
+          "private_mib": 136.1875
+        },
+        {
+          "pid": 101544,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 189.17578125,
+          "uss_mib": 79.52734375,
+          "private_mib": 92.49609375
+        },
+        {
+          "pid": 75624,
+          "parent_pid": 86560,
+          "name": "obs64.exe",
+          "kind": "",
+          "rss_mib": 176.6875,
+          "uss_mib": 66.08984375,
+          "private_mib": 225.41015625
+        },
+        {
+          "pid": 80744,
+          "parent_pid": 86560,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 4.140625,
+          "uss_mib": 0.5703125,
+          "private_mib": 0.7890625
+        },
+        {
+          "pid": 100760,
+          "parent_pid": 86560,
+          "name": "muvluv16.exe",
+          "kind": "",
+          "rss_mib": 73.09765625,
+          "uss_mib": 47.73046875,
+          "private_mib": 55.62890625
+        },
+        {
+          "pid": 94200,
+          "parent_pid": 86560,
+          "name": "gsm-agent-host.exe",
+          "kind": "",
+          "rss_mib": 92.7421875,
+          "uss_mib": 14.00390625,
+          "private_mib": 17.43359375
+        },
+        {
+          "pid": 42660,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 137.62890625,
+          "uss_mib": 30.125,
+          "private_mib": 41.01171875
+        },
+        {
+          "pid": 104220,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.90234375,
+          "uss_mib": 1.703125,
+          "private_mib": 3.0546875
+        },
+        {
+          "pid": 70480,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 80.94140625,
+          "uss_mib": 26.83203125,
+          "private_mib": 92.87109375
+        },
+        {
+          "pid": 102132,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 40.73828125,
+          "uss_mib": 6.41796875,
+          "private_mib": 11.4453125
+        },
+        {
+          "pid": 87616,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 19.609375,
+          "uss_mib": 2.7109375,
+          "private_mib": 7.33203125
+        },
+        {
+          "pid": 108192,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 97.5,
+          "uss_mib": 38.37109375,
+          "private_mib": 50.83203125
+        },
+        {
+          "pid": 82708,
+          "parent_pid": 94200,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 15.1015625,
+          "uss_mib": 1.484375,
+          "private_mib": 2.01171875
+        },
+        {
+          "pid": 93032,
+          "parent_pid": 82708,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 9.9921875,
+          "uss_mib": 1.11328125,
+          "private_mib": 1.78515625
+        },
+        {
+          "pid": 63672,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 9.875,
+          "uss_mib": 1.36328125,
+          "private_mib": 1.859375
+        },
+        {
+          "pid": 104360,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86.exe",
+          "kind": "",
+          "rss_mib": 10.66015625,
+          "uss_mib": 1.47265625,
+          "private_mib": 2.234375
+        },
+        {
+          "pid": 106040,
+          "parent_pid": 80744,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.3203125,
+          "uss_mib": 0.78515625,
+          "private_mib": 1.19921875
+        },
+        {
+          "pid": 106204,
+          "parent_pid": 80744,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 266.19140625,
+          "uss_mib": 207.37109375,
+          "private_mib": 215.8984375
+        },
+        {
+          "pid": 84308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.94140625,
+          "uss_mib": 1.6875,
+          "private_mib": 2.984375
+        },
+        {
+          "pid": 90440,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 111.87890625,
+          "uss_mib": 48.12109375,
+          "private_mib": 150.03125
+        },
+        {
+          "pid": 23024,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 42.24609375,
+          "uss_mib": 8.33984375,
+          "private_mib": 13.484375
+        },
+        {
+          "pid": 76936,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 21.55078125,
+          "uss_mib": 4.08984375,
+          "private_mib": 8.765625
+        },
+        {
+          "pid": 96308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 321.98046875,
+          "uss_mib": 240.3125,
+          "private_mib": 254.3359375
+        },
+        {
+          "pid": 112060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 46.14453125,
+          "uss_mib": 9.7421875,
+          "private_mib": 18.640625
+        },
+        {
+          "pid": 102396,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 152.546875,
+          "uss_mib": 76.8984375,
+          "private_mib": 101.34765625
+        },
+        {
+          "pid": 95060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 24.9921875,
+          "uss_mib": 3.31640625,
+          "private_mib": 9.08984375
+        },
+        {
+          "pid": 54692,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 225.1875,
+          "uss_mib": 149.0625,
+          "private_mib": 169.68359375
+        },
+        {
+          "pid": 61968,
+          "parent_pid": 38640,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.140625,
+          "uss_mib": 0.7734375,
+          "private_mib": 1.16796875
+        }
+      ],
+      "totals": {
+        "rss_mib": 2694.3984375,
+        "uss_mib": 1444.98046875,
+        "private_mib": 2000.44921875
+      }
+    },
+    {
+      "processes": [
+        {
+          "pid": 86560,
+          "parent_pid": 71512,
+          "name": "gsm-desktop.exe",
+          "kind": "",
+          "rss_mib": 328.59375,
+          "uss_mib": 239.88671875,
+          "private_mib": 310.01171875
+        },
+        {
+          "pid": 20656,
+          "parent_pid": 86560,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.5859375,
+          "uss_mib": 1.01171875,
+          "private_mib": 1.42578125
+        },
+        {
+          "pid": 38640,
+          "parent_pid": 86560,
+          "name": "gsm_overlay_server.exe",
+          "kind": "",
+          "rss_mib": 147.3046875,
+          "uss_mib": 134.06640625,
+          "private_mib": 136.1875
+        },
+        {
+          "pid": 101544,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 189.17578125,
+          "uss_mib": 79.52734375,
+          "private_mib": 92.49609375
+        },
+        {
+          "pid": 75624,
+          "parent_pid": 86560,
+          "name": "obs64.exe",
+          "kind": "",
+          "rss_mib": 176.6875,
+          "uss_mib": 66.08984375,
+          "private_mib": 225.41015625
+        },
+        {
+          "pid": 80744,
+          "parent_pid": 86560,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 4.140625,
+          "uss_mib": 0.5703125,
+          "private_mib": 0.7890625
+        },
+        {
+          "pid": 100760,
+          "parent_pid": 86560,
+          "name": "muvluv16.exe",
+          "kind": "",
+          "rss_mib": 73.09765625,
+          "uss_mib": 47.73046875,
+          "private_mib": 55.62890625
+        },
+        {
+          "pid": 94200,
+          "parent_pid": 86560,
+          "name": "gsm-agent-host.exe",
+          "kind": "",
+          "rss_mib": 92.7421875,
+          "uss_mib": 14.00390625,
+          "private_mib": 17.43359375
+        },
+        {
+          "pid": 42660,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 137.44921875,
+          "uss_mib": 29.9453125,
+          "private_mib": 40.83984375
+        },
+        {
+          "pid": 104220,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.90234375,
+          "uss_mib": 1.703125,
+          "private_mib": 3.0546875
+        },
+        {
+          "pid": 70480,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 80.94140625,
+          "uss_mib": 26.83203125,
+          "private_mib": 92.87109375
+        },
+        {
+          "pid": 102132,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 40.73828125,
+          "uss_mib": 6.41796875,
+          "private_mib": 11.4453125
+        },
+        {
+          "pid": 87616,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 19.609375,
+          "uss_mib": 2.7109375,
+          "private_mib": 7.33203125
+        },
+        {
+          "pid": 108192,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 97.21875,
+          "uss_mib": 38.37109375,
+          "private_mib": 50.83203125
+        },
+        {
+          "pid": 82708,
+          "parent_pid": 94200,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 15.1015625,
+          "uss_mib": 1.484375,
+          "private_mib": 2.01171875
+        },
+        {
+          "pid": 93032,
+          "parent_pid": 82708,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 9.9921875,
+          "uss_mib": 1.11328125,
+          "private_mib": 1.78515625
+        },
+        {
+          "pid": 63672,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 9.875,
+          "uss_mib": 1.36328125,
+          "private_mib": 1.859375
+        },
+        {
+          "pid": 104360,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86.exe",
+          "kind": "",
+          "rss_mib": 10.66015625,
+          "uss_mib": 1.47265625,
+          "private_mib": 2.234375
+        },
+        {
+          "pid": 106040,
+          "parent_pid": 80744,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.3203125,
+          "uss_mib": 0.78515625,
+          "private_mib": 1.19921875
+        },
+        {
+          "pid": 106204,
+          "parent_pid": 80744,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 266.19140625,
+          "uss_mib": 207.37109375,
+          "private_mib": 215.8984375
+        },
+        {
+          "pid": 84308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.94140625,
+          "uss_mib": 1.6875,
+          "private_mib": 2.984375
+        },
+        {
+          "pid": 90440,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 111.87890625,
+          "uss_mib": 48.12109375,
+          "private_mib": 150.03125
+        },
+        {
+          "pid": 23024,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 42.24609375,
+          "uss_mib": 8.33984375,
+          "private_mib": 13.484375
+        },
+        {
+          "pid": 76936,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 21.55078125,
+          "uss_mib": 4.08984375,
+          "private_mib": 8.765625
+        },
+        {
+          "pid": 96308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 321.98046875,
+          "uss_mib": 240.3125,
+          "private_mib": 254.3359375
+        },
+        {
+          "pid": 112060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 46.14453125,
+          "uss_mib": 9.7421875,
+          "private_mib": 18.640625
+        },
+        {
+          "pid": 102396,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 152.546875,
+          "uss_mib": 76.8984375,
+          "private_mib": 101.34765625
+        },
+        {
+          "pid": 95060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 24.9921875,
+          "uss_mib": 3.31640625,
+          "private_mib": 9.08984375
+        },
+        {
+          "pid": 54692,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 225.19921875,
+          "uss_mib": 149.07421875,
+          "private_mib": 169.7109375
+        },
+        {
+          "pid": 61968,
+          "parent_pid": 38640,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.140625,
+          "uss_mib": 0.7734375,
+          "private_mib": 1.16796875
+        }
+      ],
+      "totals": {
+        "rss_mib": 2693.94921875,
+        "uss_mib": 1444.8125,
+        "private_mib": 2000.3046875
+      }
+    },
+    {
+      "processes": [
+        {
+          "pid": 86560,
+          "parent_pid": 71512,
+          "name": "gsm-desktop.exe",
+          "kind": "",
+          "rss_mib": 328.59375,
+          "uss_mib": 239.88671875,
+          "private_mib": 310.0078125
+        },
+        {
+          "pid": 20656,
+          "parent_pid": 86560,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.5859375,
+          "uss_mib": 1.01171875,
+          "private_mib": 1.42578125
+        },
+        {
+          "pid": 38640,
+          "parent_pid": 86560,
+          "name": "gsm_overlay_server.exe",
+          "kind": "",
+          "rss_mib": 147.3046875,
+          "uss_mib": 134.06640625,
+          "private_mib": 136.1875
+        },
+        {
+          "pid": 101544,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 189.17578125,
+          "uss_mib": 79.52734375,
+          "private_mib": 92.49609375
+        },
+        {
+          "pid": 75624,
+          "parent_pid": 86560,
+          "name": "obs64.exe",
+          "kind": "",
+          "rss_mib": 176.6875,
+          "uss_mib": 66.08984375,
+          "private_mib": 225.41015625
+        },
+        {
+          "pid": 80744,
+          "parent_pid": 86560,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 4.140625,
+          "uss_mib": 0.5703125,
+          "private_mib": 0.7890625
+        },
+        {
+          "pid": 100760,
+          "parent_pid": 86560,
+          "name": "muvluv16.exe",
+          "kind": "",
+          "rss_mib": 73.09765625,
+          "uss_mib": 47.73046875,
+          "private_mib": 55.62890625
+        },
+        {
+          "pid": 94200,
+          "parent_pid": 86560,
+          "name": "gsm-agent-host.exe",
+          "kind": "",
+          "rss_mib": 92.7421875,
+          "uss_mib": 14.00390625,
+          "private_mib": 17.43359375
+        },
+        {
+          "pid": 42660,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 137.62890625,
+          "uss_mib": 30.125,
+          "private_mib": 41.01171875
+        },
+        {
+          "pid": 104220,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.90234375,
+          "uss_mib": 1.703125,
+          "private_mib": 3.0546875
+        },
+        {
+          "pid": 70480,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 80.94140625,
+          "uss_mib": 26.83203125,
+          "private_mib": 92.87109375
+        },
+        {
+          "pid": 102132,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 40.75,
+          "uss_mib": 6.4296875,
+          "private_mib": 11.45703125
+        },
+        {
+          "pid": 87616,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 19.609375,
+          "uss_mib": 2.7109375,
+          "private_mib": 7.33203125
+        },
+        {
+          "pid": 108192,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 96.95703125,
+          "uss_mib": 38.37890625,
+          "private_mib": 50.83984375
+        },
+        {
+          "pid": 82708,
+          "parent_pid": 94200,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 15.1015625,
+          "uss_mib": 1.484375,
+          "private_mib": 2.01171875
+        },
+        {
+          "pid": 93032,
+          "parent_pid": 82708,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 9.9921875,
+          "uss_mib": 1.11328125,
+          "private_mib": 1.78515625
+        },
+        {
+          "pid": 63672,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 9.875,
+          "uss_mib": 1.36328125,
+          "private_mib": 1.859375
+        },
+        {
+          "pid": 104360,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86.exe",
+          "kind": "",
+          "rss_mib": 10.66015625,
+          "uss_mib": 1.47265625,
+          "private_mib": 2.234375
+        },
+        {
+          "pid": 106040,
+          "parent_pid": 80744,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.3203125,
+          "uss_mib": 0.78515625,
+          "private_mib": 1.19921875
+        },
+        {
+          "pid": 106204,
+          "parent_pid": 80744,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 266.19140625,
+          "uss_mib": 207.37109375,
+          "private_mib": 215.8984375
+        },
+        {
+          "pid": 84308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.94140625,
+          "uss_mib": 1.6875,
+          "private_mib": 2.984375
+        },
+        {
+          "pid": 90440,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 111.87890625,
+          "uss_mib": 48.12109375,
+          "private_mib": 150.03125
+        },
+        {
+          "pid": 23024,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 42.25,
+          "uss_mib": 8.33984375,
+          "private_mib": 13.484375
+        },
+        {
+          "pid": 76936,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 21.55078125,
+          "uss_mib": 4.08984375,
+          "private_mib": 8.765625
+        },
+        {
+          "pid": 96308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 321.98046875,
+          "uss_mib": 240.3125,
+          "private_mib": 254.3359375
+        },
+        {
+          "pid": 112060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 46.14453125,
+          "uss_mib": 9.7421875,
+          "private_mib": 18.640625
+        },
+        {
+          "pid": 102396,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 152.56640625,
+          "uss_mib": 76.91796875,
+          "private_mib": 101.3828125
+        },
+        {
+          "pid": 95060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 24.9921875,
+          "uss_mib": 3.31640625,
+          "private_mib": 9.08984375
+        },
+        {
+          "pid": 54692,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 225.19921875,
+          "uss_mib": 149.07421875,
+          "private_mib": 169.7109375
+        },
+        {
+          "pid": 61968,
+          "parent_pid": 38640,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.140625,
+          "uss_mib": 0.7734375,
+          "private_mib": 1.16796875
+        }
+      ],
+      "totals": {
+        "rss_mib": 2693.90234375,
+        "uss_mib": 1445.03125,
+        "private_mib": 2000.52734375
+      }
+    },
+    {
+      "processes": [
+        {
+          "pid": 86560,
+          "parent_pid": 71512,
+          "name": "gsm-desktop.exe",
+          "kind": "",
+          "rss_mib": 328.59375,
+          "uss_mib": 239.88671875,
+          "private_mib": 310.0078125
+        },
+        {
+          "pid": 20656,
+          "parent_pid": 86560,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.5859375,
+          "uss_mib": 1.01171875,
+          "private_mib": 1.42578125
+        },
+        {
+          "pid": 38640,
+          "parent_pid": 86560,
+          "name": "gsm_overlay_server.exe",
+          "kind": "",
+          "rss_mib": 147.3046875,
+          "uss_mib": 134.06640625,
+          "private_mib": 136.1875
+        },
+        {
+          "pid": 101544,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 189.16015625,
+          "uss_mib": 79.51171875,
+          "private_mib": 92.48046875
+        },
+        {
+          "pid": 75624,
+          "parent_pid": 86560,
+          "name": "obs64.exe",
+          "kind": "",
+          "rss_mib": 176.6875,
+          "uss_mib": 66.08984375,
+          "private_mib": 225.41015625
+        },
+        {
+          "pid": 80744,
+          "parent_pid": 86560,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 4.140625,
+          "uss_mib": 0.5703125,
+          "private_mib": 0.7890625
+        },
+        {
+          "pid": 100760,
+          "parent_pid": 86560,
+          "name": "muvluv16.exe",
+          "kind": "",
+          "rss_mib": 73.03515625,
+          "uss_mib": 47.66796875,
+          "private_mib": 55.48046875
+        },
+        {
+          "pid": 94200,
+          "parent_pid": 86560,
+          "name": "gsm-agent-host.exe",
+          "kind": "",
+          "rss_mib": 92.7421875,
+          "uss_mib": 14.00390625,
+          "private_mib": 17.43359375
+        },
+        {
+          "pid": 42660,
+          "parent_pid": 86560,
+          "name": "msedgewebview2.exe",
+          "kind": "",
+          "rss_mib": 137.62890625,
+          "uss_mib": 30.125,
+          "private_mib": 41.01171875
+        },
+        {
+          "pid": 104220,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.90234375,
+          "uss_mib": 1.703125,
+          "private_mib": 3.0546875
+        },
+        {
+          "pid": 70480,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 80.94140625,
+          "uss_mib": 26.83203125,
+          "private_mib": 92.87109375
+        },
+        {
+          "pid": 102132,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 40.75,
+          "uss_mib": 6.4296875,
+          "private_mib": 11.45703125
+        },
+        {
+          "pid": 87616,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 19.609375,
+          "uss_mib": 2.7109375,
+          "private_mib": 7.33203125
+        },
+        {
+          "pid": 108192,
+          "parent_pid": 42660,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 96.80078125,
+          "uss_mib": 38.37890625,
+          "private_mib": 50.83984375
+        },
+        {
+          "pid": 82708,
+          "parent_pid": 94200,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 15.1015625,
+          "uss_mib": 1.484375,
+          "private_mib": 2.01171875
+        },
+        {
+          "pid": 93032,
+          "parent_pid": 82708,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 9.9921875,
+          "uss_mib": 1.11328125,
+          "private_mib": 1.78515625
+        },
+        {
+          "pid": 63672,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86_64.exe",
+          "kind": "",
+          "rss_mib": 9.875,
+          "uss_mib": 1.36328125,
+          "private_mib": 1.859375
+        },
+        {
+          "pid": 104360,
+          "parent_pid": 82708,
+          "name": "frida-helper-x86.exe",
+          "kind": "",
+          "rss_mib": 10.66015625,
+          "uss_mib": 1.47265625,
+          "private_mib": 2.234375
+        },
+        {
+          "pid": 106040,
+          "parent_pid": 80744,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.3203125,
+          "uss_mib": 0.78515625,
+          "private_mib": 1.19921875
+        },
+        {
+          "pid": 106204,
+          "parent_pid": 80744,
+          "name": "python.exe",
+          "kind": "",
+          "rss_mib": 266.19140625,
+          "uss_mib": 207.37109375,
+          "private_mib": 215.8984375
+        },
+        {
+          "pid": 84308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=crashpad-handler",
+          "rss_mib": 12.94140625,
+          "uss_mib": 1.6875,
+          "private_mib": 2.984375
+        },
+        {
+          "pid": 90440,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=gpu-process",
+          "rss_mib": 111.87890625,
+          "uss_mib": 48.12109375,
+          "private_mib": 150.03125
+        },
+        {
+          "pid": 23024,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 42.25,
+          "uss_mib": 8.33984375,
+          "private_mib": 13.484375
+        },
+        {
+          "pid": 76936,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 21.55078125,
+          "uss_mib": 4.08984375,
+          "private_mib": 8.765625
+        },
+        {
+          "pid": 96308,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 321.98046875,
+          "uss_mib": 240.3125,
+          "private_mib": 254.3359375
+        },
+        {
+          "pid": 112060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 46.14453125,
+          "uss_mib": 9.7421875,
+          "private_mib": 18.640625
+        },
+        {
+          "pid": 102396,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 152.57421875,
+          "uss_mib": 76.92578125,
+          "private_mib": 101.390625
+        },
+        {
+          "pid": 95060,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=utility",
+          "rss_mib": 24.9921875,
+          "uss_mib": 3.31640625,
+          "private_mib": 9.08984375
+        },
+        {
+          "pid": 54692,
+          "parent_pid": 101544,
+          "name": "msedgewebview2.exe",
+          "kind": "--type=renderer",
+          "rss_mib": 225.26171875,
+          "uss_mib": 149.13671875,
+          "private_mib": 169.7109375
+        },
+        {
+          "pid": 61968,
+          "parent_pid": 38640,
+          "name": "conhost.exe",
+          "kind": "",
+          "rss_mib": 7.140625,
+          "uss_mib": 0.7734375,
+          "private_mib": 1.16796875
+        }
+      ],
+      "totals": {
+        "rss_mib": 2693.73828125,
+        "uss_mib": 1445.0234375,
+        "private_mib": 2000.37109375
+      }
+    }
+  ],
+  "platform": "Windows-11-10.0.26300-SP0",
+  "measured_at": "2026-11-15T01:42:51-0500"
+}

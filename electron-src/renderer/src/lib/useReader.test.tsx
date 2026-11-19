@@ -22,6 +22,8 @@ function Harness({ active = true }: { active?: boolean }) { renders++; reader = 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 const line = { id: 'a', session_id: 'live', text: '言葉', stream_sequence: 1, revision: 1, state: 'provisional' };
 beforeEach(async () => {
+    delete window.__GSM_NATIVE_WINDOW_VISIBLE__;
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     vi.useFakeTimers(); localStorage.clear(); Socket.instances = [];
     vi.stubGlobal('WebSocket', Socket);
@@ -39,6 +41,38 @@ beforeEach(async () => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('live desktop reader', () => {
+    it('honors native tray visibility when WebView2 still reports a visible document', async () => {
+        window.__GSM_NATIVE_WINDOW_VISIBLE__ = false;
+        await act(async () => window.dispatchEvent(new Event('gsm-native-visibilitychange')));
+        const before = renders;
+        invoke.mockClear();
+        await act(async () => {
+            Socket.instances[0].emit({ event: 'text_v2_append', data: { ...line, id: 'b', stream_sequence: 2 } });
+            await vi.advanceTimersByTimeAsync(10000);
+        });
+        expect(renders).toBe(before);
+        expect(invoke).not.toHaveBeenCalled();
+        window.__GSM_NATIVE_WINDOW_VISIBLE__ = true;
+        await act(async () => { window.dispatchEvent(new Event('gsm-native-visibilitychange')); await flush(); });
+        expect(reader.lines).toHaveLength(2);
+        expect(invoke).toHaveBeenCalledWith('reader.request', 'state');
+    });
+    it('buffers hidden transcript updates without rendering and publishes corrections on return', async () => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+        await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+        const before = renders;
+        await act(async () => {
+            Socket.instances[0].emit({ event: 'text_v2_append', data: { ...line, id: 'b', stream_sequence: 2 } });
+            Socket.instances[0].emit({ event: 'text_v2_update', data: { ...line, text: '訂正', revision: 2 } });
+            await vi.advanceTimersByTimeAsync(1000);
+        });
+        expect(renders).toBe(before);
+        expect(JSON.parse(localStorage.getItem('reader-test')!).lines).toHaveLength(2);
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+        await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await flush(); });
+        expect(reader.lines).toHaveLength(2);
+        expect(reader.lines[0].text).toBe('訂正');
+    });
     it('keeps unchanged selection snapshots from rendering the transcript again', async () => {
         const selected = reader.selected;
         const before = renders;
@@ -59,8 +93,9 @@ describe('live desktop reader', () => {
         invoke.mockClear();
         await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
         expect(invoke).not.toHaveBeenCalled();
-        // The text stream stays live so changing tabs never loses captured lines.
+        // Intake continues without presenting hidden transcript changes.
         await act(async () => Socket.instances[0].emit({ event: 'text_v2_append', data: { ...line, id: 'b', stream_sequence: 2 } }));
+        await act(async () => root.render(<Harness active />));
         expect(reader.lines).toHaveLength(2);
     });
     it('requests a bounded snapshot on reconnect and keeps corrections', async () => {

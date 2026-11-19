@@ -3,9 +3,10 @@ import path from 'node:path';
 import os from 'node:os';
 import {spawn} from 'node:child_process';
 import {createDictionaryFixture} from './dictionary-fixture.mjs';
+import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
-const target=process.env.CARGO_TARGET_DIR?path.resolve(process.env.CARGO_TARGET_DIR):path.join(root,'src-tauri/target');
+const target=await nativeTargetDirectory();
 const releaseDir=path.join(target,'release');
 const builtExecutable=path.join(releaseDir,process.platform==='win32'?'gsm-desktop.exe':'gsm-desktop');
 await fs.access(builtExecutable);

@@ -60,6 +60,17 @@ describe('native backend maintenance adapter',()=>{
         const manager=new UpdateManager({getPythonPath:()=> 'python',closeAllPythonProcesses:stop,closeAllForAppUpdate:vi.fn(),ensureAndRunGSM:launch});
         return {manager,stop,launch};
     }
+    it('applies a backend-only update requested from settings', async () => {
+        const {manager, stop, launch} = setup();
+        vi.spyOn(manager, 'checkForAvailableUpdates').mockResolvedValue({
+            backend: {updateAvailable: true}, app: {updateAvailable: false},
+        } as Awaited<ReturnType<UpdateManager['checkForAvailableUpdates']>>);
+        mocks.pythonCall.mockResolvedValueOnce({updateAvailable: true, latestVersion: '2026.11.0.post1'})
+            .mockResolvedValueOnce({pythonPath: 'python', installedVersion: '2026.11.0.post1', latestVersion: '2026.11.0.post1'});
+        await manager.updateAvailableTargets(true);
+        expect(stop).toHaveBeenCalledOnce();
+        expect(launch).toHaveBeenCalledExactlyOnceWith('python');
+    });
     it('leaves a running backend alone when native policy says it is current',async()=>{
         const {manager,stop,launch}=setup();
         mocks.pythonCall.mockResolvedValue({currentVersion:'2026.11.0',latestVersion:'2026.11.0',updateAvailable:false});

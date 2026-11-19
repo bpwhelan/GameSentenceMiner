@@ -1,11 +1,8 @@
-//! Text Processing and Windows Speech have no application-service dependency.
+//! Desktop commands for text processing and Windows Speech.
+
 use gsm_settings::workspace::{normalize_scene, speech_settings, Workspace};
 use serde_json::{json, Value};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 pub struct MiningWorkspace {
@@ -53,29 +50,17 @@ pub fn observe(app: &tauri::AppHandle, event: &str, message: &Value) {
             emit(app, "textprocess-latest-text", latest);
         }
         "windows_speech_status" => emit(app, "speech-recognition.status", data.clone()),
-        "windows_speech_log" => emit(app, "speech-recognition.log", data.clone()),
+        "windows_speech_log" => {
+            let mut payload = data.clone();
+            if let Some(msg) = payload["message"].as_str() {
+                payload["message"] = json!(crate::desktop_log::ensure_origin("py:speech", msg));
+            }
+            emit(app, "speech-recognition.log", payload);
+        }
         _ => {}
     }
 }
-fn preview_result(output: gsm_runtime::task::Output) -> Result<String, String> {
-    if output.code != Some(0) {
-        let error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Err(if error.is_empty() {
-            format!("Python preview exited with code {:?}", output.code)
-        } else {
-            error
-        });
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .rev()
-        .find_map(|line| {
-            let value: Value = serde_json::from_str(line.trim()).ok()?;
-            value["result"].as_str().map(str::to_owned)
-        })
-        .ok_or_else(|| "Python text processing preview did not return JSON output".into())
-}
-async fn preview(app: &tauri::AppHandle, mut payload: Value) -> Result<Value, String> {
+async fn preview(app: &tauri::AppHandle, payload: Value) -> Result<Value, String> {
     if !payload["text"].is_string() || !payload["config"].is_object() {
         return Err("Preview requires text and settings".into());
     }
@@ -85,27 +70,15 @@ async fn preview(app: &tauri::AppHandle, mut payload: Value) -> Result<Value, St
         .clone()
         .try_acquire_owned()
         .map_err(|_| "Text processing preview is busy")?;
-    let paths = app.state::<crate::settings::Settings>().paths.clone();
-    let root = app.state::<crate::desktop_state::DesktopState>().app_root.clone();
+    let base = app.state::<crate::settings::Settings>().paths.active.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        let relative = if cfg!(windows) { "Scripts/python.exe" } else { "bin/python" };
-        let managed = paths.shared.join("python_venv").join(relative);
-        let python = if managed.is_file() { managed } else if cfg!(debug_assertions) { root.join(".venv").join(relative) } else { managed };
-        if !python.is_file() { return Err("Managed Python is not installed. Complete application setup first.".to_owned()); }
-        payload["target_language"] = json!(Workspace::new(&paths.active).target_language()?);
-        let mut env: HashMap<_,_> = std::env::vars().filter(|(key,_)| {
-            let key=key.to_ascii_uppercase();
-            !key.starts_with("PYTHON") && !key.starts_with("PYENV_") && !key.starts_with("CONDA_") && !key.starts_with("GSM_BROKER_") && !matches!(key.as_str(),"TCL_LIBRARY"|"TK_LIBRARY"|"VIRTUAL_ENV"|"GSM_CLIENT_ID"|"POETRY_ACTIVE"|"PIPENV_ACTIVE")
-        }).collect();
-        env.insert("GSM_ELECTRON".into(),"1".into());
-        env.insert("GSM_DATA_DIR".into(),paths.active.to_string_lossy().into());
-        env.insert("GSM_SHARED_DATA_DIR".into(),paths.shared.to_string_lossy().into());
-        env.insert("PYTHONIOENCODING".into(),"utf-8".into());
-        let result = gsm_runtime::task::run(json!({"command":python,"args":["-m","GameSentenceMiner.util.text_processing","--preview-json"],"cwd":root}),env,
-            serde_json::to_vec(&payload).map_err(|e|e.to_string())?,Duration::from_secs(10),4*1024*1024)?;
-        preview_result(result).map(|result|json!({"success":true,"result":result}))
-    }).await.map_err(|e|e.to_string())?
+        let language = Workspace::new(&base).target_language()?;
+        let result = gsm_text_preview::process(&payload, &language)?;
+        Ok(json!({"success":true,"result":result}))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 pub async fn invoke(
     app: &tauri::AppHandle,
@@ -187,25 +160,4 @@ pub async fn invoke(
         result["backendConnected"]=json!(crate::runtime::backend_command(app,"windows_speech_start",json!({"sceneId":scene["id"],"sceneName":scene["name"],"settings":speech_settings(&payload["settings"])})).await?);
     }
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn preview_tolerates_logging_but_requires_successful_json() {
-        let result = preview_result(gsm_runtime::task::Output {
-            code: Some(0),
-            stdout: b"startup log\n{\"result\":\"done\"}\n".to_vec(),
-            stderr: vec![],
-        })
-        .unwrap();
-        assert_eq!(result, "done");
-        assert!(preview_result(gsm_runtime::task::Output {
-            code: Some(1),
-            stdout: b"{\"result\":\"wrong\"}".to_vec(),
-            stderr: b"error".to_vec()
-        })
-        .is_err());
-    }
 }

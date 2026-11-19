@@ -6,20 +6,24 @@ use crate::desktop_state::emit_to_desktop_windows;
 use crate::native::dialog_open;
 use crate::process_probe::{find_primary_pid_by_exe, pe_bitness, process_executable_path};
 use crate::settings_tools::{get_game_exe_path_for_scene, set_game_exe_path_for_scene};
+use gsm_settings::gsm_config::get_configured_target_language;
 use gsm_settings::preferences::Preferences;
 use gsm_settings::profiles::Profiles;
 use gsm_settings::{read_object, write_atomic};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager};
+use tokio::sync::mpsc;
 
 pub const DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE: usize = 3000;
 pub const MAX_TEXT_HOOK_MAX_BUFFER_SIZE: usize = 100_000;
 pub const HARD_TEXT_HOOK_REJECTION_LIMIT: usize = 10_000;
 pub const MAX_JAPANESE_QUOTE_PAIRS: usize = 10;
+const HOOK_BATCH_DELAY: Duration = Duration::from_millis(200);
+const HOOK_AUTO_SAVE_LINES: usize = 3;
 
 pub fn normalize_max_buffer_size(value: Option<&Value>) -> usize {
     let parsed = value.and_then(|v| {
@@ -93,6 +97,102 @@ pub fn append_hook_fragment(pending: &mut Vec<Value>, mut payload: Value) {
     pending.push(payload);
 }
 
+struct HookDiscovery {
+    session_id: String,
+    batches: Option<mpsc::Sender<()>>,
+    latest: Value,
+}
+
+impl HookDiscovery {
+    fn start(app: &AppHandle, session_id: &str) -> Self {
+        let (batches, receiver) = mpsc::channel(1);
+        tauri::async_runtime::spawn(run_hook_discovery(
+            app.clone(),
+            session_id.to_owned(),
+            receiver,
+            batches.downgrade(),
+        ));
+        Self {
+            session_id: session_id.to_owned(),
+            batches: Some(batches),
+            latest: Value::Null,
+        }
+    }
+
+    fn stop(&mut self) {
+        self.batches = None;
+    }
+}
+
+struct PendingHookSave {
+    session_id: String,
+    selection_revision: u64,
+    profile: Value,
+    lines: Vec<String>,
+    queued: bool,
+}
+
+impl PendingHookSave {
+    fn new(selection: &Value) -> Option<Self> {
+        let exe = selection["profile"]["exeName"].as_str()?.trim();
+        if exe.is_empty() || exe.starts_with("pid:") {
+            return None;
+        }
+        Some(Self {
+            session_id: selection["sessionId"].as_str()?.to_owned(),
+            selection_revision: selection["selectionRevision"].as_u64()?,
+            profile: selection["profile"].clone(),
+            lines: Vec::with_capacity(HOOK_AUTO_SAVE_LINES),
+            queued: false,
+        })
+    }
+
+    fn record_line(&mut self, payload: &Value, ack: &Value) -> bool {
+        if self.queued
+            || payload["sessionId"] != self.session_id
+            || payload["selectionRevision"] != self.selection_revision
+            || payload["hookId"] != self.profile["hookId"]
+            || ack["status"] != "accepted"
+        {
+            return false;
+        }
+        let text = ack["processed_text"].as_str().unwrap_or("").trim();
+        if text.is_empty() || self.lines.iter().any(|line| line == text) {
+            return false;
+        }
+        if self.lines.len() < HOOK_AUTO_SAVE_LINES {
+            self.lines.push(text.to_owned());
+        }
+        self.queued = self.lines.len() == HOOK_AUTO_SAVE_LINES;
+        self.queued
+    }
+
+    fn matches_profile(&self, exe: &str, scene: Option<&str>) -> bool {
+        let (profile_exe, profile_scene) = parse_profile_identity(Some(&self.profile));
+        match (profile_scene.as_deref(), scene) {
+            (Some(a), Some(b)) => a.to_lowercase() == b.to_lowercase(),
+            (None, None) => profile_exe.to_lowercase() == exe.to_lowercase(),
+            _ => false,
+        }
+    }
+
+    fn save(&self, profiles: &Profiles, status: &Value) -> Result<Value, String> {
+        let mut patch = self.profile.clone();
+        let (exe, scene) = parse_profile_identity(Some(&patch));
+        let existing = profiles.get(&exe, scene.as_deref())?;
+        // Inherit the auto-attach preference when there is only an executable profile.
+        if let Some(auto_hook) = existing["autoHook"].as_bool() {
+            patch["autoHook"] = json!(auto_hook);
+        }
+        for field in ["flushDelayMs", "copyToClipboard"] {
+            if let Some(setting) = status.get(field) {
+                patch[field] = setting.clone();
+            }
+        }
+        profiles.upsert(patch)
+    }
+}
+
 #[derive(Default)]
 struct State {
     active_engine: Option<String>,
@@ -104,6 +204,8 @@ struct State {
     generation: u64,
     last_status: Value,
     last_hooks: Value,
+    discovery: Option<HookDiscovery>,
+    pending_hook_save: Option<PendingHookSave>,
     max_buffer_size: Option<usize>,
     last_reported_backend_active: Option<bool>,
 }
@@ -220,7 +322,7 @@ fn save_max_buffer_size(gsm_config_path: &Path, value: usize) -> Result<(), Stri
 }
 
 pub fn engine_cli_path(shared_dir: &Path, engine: &str, arch: &str) -> PathBuf {
-    let base = shared_dir.join("texthook");
+    let base = gsm_packages::engines::Engines::new(shared_dir).runtime_dir();
     match engine {
         "textractor" => {
             let dir = if arch == "x86" { "_x86" } else { "_x64" };
@@ -288,6 +390,8 @@ pub fn on_texthook_event(app: &AppHandle, event: &str, mut data: Value) {
         if event == "texthook.status" {
             let running = data["running"] == true;
             if !running {
+                g.discovery = None;
+                g.pending_hook_save = None;
                 if g.active_engine.as_deref() != Some("agent") {
                     g.active_engine = None;
                     g.active_pid = None;
@@ -313,12 +417,43 @@ pub fn on_texthook_event(app: &AppHandle, event: &str, mut data: Value) {
                     );
                 }
                 data = merged;
+                if let Some(id) = data["sessionId"].as_str().filter(|id| {
+                    g.discovery
+                        .as_ref()
+                        .is_none_or(|current| current.session_id != *id)
+                }) {
+                    g.discovery = Some(HookDiscovery::start(app, id));
+                    g.pending_hook_save = None;
+                }
+                if data["selectedHookId"].is_string() {
+                    if let Some(discovery) = g.discovery.as_mut() {
+                        discovery.stop();
+                    }
+                }
             }
             if g.active_engine.as_deref() != Some("agent") || running {
                 g.last_status = data.clone();
             }
         } else if event == "texthook.hooks" {
             g.last_hooks = data.clone();
+        } else if event == "texthook.hookSelected" {
+            if let Some(discovery) = g
+                .discovery
+                .as_mut()
+                .filter(|discovery| data["sessionId"] == discovery.session_id)
+            {
+                discovery.stop();
+                g.pending_hook_save = PendingHookSave::new(&data);
+            }
+        } else if event == "texthook.samplesChanged" {
+            if let Some(batches) = g
+                .discovery
+                .as_ref()
+                .filter(|discovery| data.as_str() == Some(discovery.session_id.as_str()))
+                .and_then(|discovery| discovery.batches.as_ref())
+            {
+                let _ = batches.try_send(());
+            }
         }
     }
 
@@ -414,15 +549,55 @@ pub fn on_texthook_processed(app: &AppHandle, data: Value) {
     emit_to_desktop_windows(app, "texthook.processed", &[data]);
 }
 
+pub fn observe_hook_ack(app: &AppHandle, payload: &Value, ack: &Value) {
+    let coord = app.state::<TexthookCoordinator>();
+    let (session_id, selection_revision) = {
+        let mut g = coord.state.lock().unwrap();
+        let Some(save) = g.pending_hook_save.as_mut() else {
+            return;
+        };
+        if !save.record_line(payload, ack) {
+            return;
+        }
+        (save.session_id.clone(), save.selection_revision)
+    };
+
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let coord = app.state::<TexthookCoordinator>();
+        let profiles = Profiles::new(&paths_for(&app).active);
+        let result = {
+            let mut g = coord.state.lock().unwrap();
+            let Some(save) = g.pending_hook_save.as_ref().filter(|save| {
+                save.session_id == session_id && save.selection_revision == selection_revision
+            }) else {
+                return;
+            };
+            let result = save.save(&profiles, &g.last_status);
+            if result.is_ok() {
+                g.pending_hook_save = None;
+            } else if let Some(save) = g.pending_hook_save.as_mut() {
+                save.queued = false;
+            }
+            result
+        };
+        if let Err(error) = result {
+            on_texthook_log_error(&app, &format!("Could not save selected hook: {error}"));
+        }
+    });
+}
+
 pub fn on_texthook_log_error(app: &AppHandle, message: &str) {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64;
+    let tagged = crate::desktop_log::ensure_origin("rust:texthook-coordinator", message);
+    crate::desktop_log::error(app, "texthook-coordinator", message);
     emit_to_desktop_windows(
         app,
         "texthook.log",
-        &[json!({ "level": "error", "message": message, "ts": ts })],
+        &[json!({ "level": "error", "message": tagged, "ts": ts })],
     );
 }
 
@@ -511,6 +686,7 @@ fn apply_saved_hook_options(mut options: Value, profile: &Value) -> Value {
             for (key, saved_key) in [
                 ("autoSelectHookId", "hookId"),
                 ("autoSelectHookFunction", "hookFunction"),
+                ("autoSelectProcessorOverrides", "processorOverrides"),
                 ("manualHookCode", "manualHookCode"),
             ] {
                 if options[key].is_null() {
@@ -660,6 +836,7 @@ pub async fn start_session(
                 "manualHookCode": options["manualHookCode"],
                 "autoSelectHookId": options["autoSelectHookId"],
                 "autoSelectHookFunction": options["autoSelectHookFunction"],
+                "autoSelectProcessorOverrides": options["autoSelectProcessorOverrides"],
             }
         });
         crate::texthook::dispatch(app, start_params).await
@@ -678,17 +855,20 @@ pub async fn start_session(
                 g.active_scene_id = scene_id.clone();
                 g.agent_script_path = options["agentScriptPath"].as_str().map(str::to_owned);
                 g.source = source.clone();
-                g.last_status = json!({
-                    "running": true,
-                    "engine": engine,
-                    "pid": pid,
-                    "exeName": resolved_exe,
-                    "sceneId": scene_id,
-                    "source": source,
-                    "flushDelayMs": flush_delay,
-                    "copyToClipboard": copy_to_clipboard,
-                    "maxBufferSize": max_buffer,
-                });
+                if !val["sessionId"].is_string() || g.last_status["sessionId"] != val["sessionId"] {
+                    g.last_status = json!({
+                        "running": true,
+                        "engine": engine,
+                        "pid": pid,
+                        "exeName": resolved_exe,
+                        "sceneId": scene_id,
+                        "source": source,
+                        "flushDelayMs": flush_delay,
+                        "copyToClipboard": copy_to_clipboard,
+                        "maxBufferSize": max_buffer,
+                        "sessionId": val["sessionId"],
+                    });
+                }
             }
             if !internal {
                 crate::auto_launcher::notify_texthook_user_start(app);
@@ -749,6 +929,8 @@ pub async fn stop_session(app: &AppHandle, internal: bool) -> Result<Value, Stri
         g.active_scene_id = None;
         g.last_status = json!({ "running": false });
         g.last_hooks = json!({ "hooks": [], "selectedHookId": Value::Null });
+        g.discovery = None;
+        g.pending_hook_save = None;
         coord.expecting_internal_stop.store(false, Ordering::SeqCst);
     }
 
@@ -780,6 +962,158 @@ fn parse_profile_identity(arg: Option<&Value>) -> (String, Option<String>) {
     }
 }
 
+pub fn edit_hook_profile(
+    app: &AppHandle,
+    profiles: &Profiles,
+    patch: Value,
+    delete: bool,
+) -> Result<Value, String> {
+    let (exe, scene) = parse_profile_identity(Some(&patch));
+    // Serialize explicit changes with automatic saves for the selected hook.
+    let coord = app.try_state::<TexthookCoordinator>();
+    let mut state = coord.as_ref().map(|c| c.state.lock().unwrap());
+    let result = if delete {
+        profiles.delete(&exe, scene.as_deref())?;
+        Value::Null
+    } else {
+        profiles.upsert(patch)?
+    };
+    if let Some(g) = state.as_mut() {
+        if g.pending_hook_save
+            .as_ref()
+            .is_some_and(|save| save.matches_profile(&exe, scene.as_deref()))
+        {
+            g.pending_hook_save = None;
+        }
+    }
+    Ok(result)
+}
+
+async fn active_scene(app: &AppHandle) -> Result<Value, String> {
+    app.state::<crate::obs::Obs>()
+        .invoke(app, "obs.getActiveScene", &[])
+        .await
+}
+
+async fn next_hook_batch(receiver: &mut mpsc::Receiver<()>) -> bool {
+    if receiver.recv().await.is_none() || receiver.is_closed() {
+        return false;
+    }
+    // Give the game time to draw the dialogue, and collapse changes from other hooks.
+    tokio::time::sleep(HOOK_BATCH_DELAY).await;
+    let _ = receiver.try_recv();
+    !receiver.is_closed()
+}
+
+async fn run_hook_discovery(
+    app: AppHandle,
+    session_id: String,
+    mut receiver: mpsc::Receiver<()>,
+    batches: mpsc::WeakSender<()>,
+) {
+    let capture = Arc::new(Mutex::new(gsm_capture::obs::Capture::default()));
+    let finder = Arc::new(Mutex::new(gsm_text_preview::HookFinder::new(paths_for(&app).active)));
+    while next_hook_batch(&mut receiver).await {
+        match compare_hook_batch(&app, &session_id, capture.clone(), finder.clone(), batches.clone()).await {
+            Ok(result) => {
+                publish_recommendations(&app, &session_id, result);
+            }
+            Err(error) => {
+                if publish_recommendations(&app, &session_id, json!({"status":"error"})) {
+                    on_texthook_log_error(&app, &format!("ScreenAI hook comparison: {error}"));
+                }
+            }
+        }
+    }
+}
+
+fn publish_recommendations(app: &AppHandle, session_id: &str, mut next: Value) -> bool {
+    if next.is_null() {
+        return false;
+    }
+    next["sessionId"] = json!(session_id);
+    {
+        let coord = app.state::<TexthookCoordinator>();
+        let mut g = coord.state.lock().unwrap();
+        let Some(discovery) = g
+            .discovery
+            .as_mut()
+            .filter(|current| current.session_id == session_id && current.batches.is_some())
+        else {
+            return false;
+        };
+        if discovery.latest == next || (next["status"] == "scanning" && !discovery.latest.is_null())
+        {
+            return false;
+        }
+        discovery.latest = next.clone();
+    }
+    emit_to_desktop_windows(app, "texthook.recommendations", &[next]);
+    true
+}
+
+async fn compare_hook_batch(
+    app: &AppHandle,
+    session_id: &str,
+    capture: Arc<Mutex<gsm_capture::obs::Capture>>,
+    finder: Arc<Mutex<gsm_text_preview::HookFinder>>,
+    batches: mpsc::WeakSender<()>,
+) -> Result<Value, String> {
+    let cancelled = || batches.strong_count() == 0;
+    let scene = active_scene(app).await?;
+    if cancelled() {
+        return Ok(Value::Null);
+    }
+    let (Some(name), Some(scene_id)) = (
+        scene["name"].as_str().filter(|name| !name.is_empty()),
+        scene["id"].as_str().filter(|id| !id.is_empty()),
+    ) else {
+        return Ok(json!({"status":"noScene"}));
+    };
+    let samples = crate::texthook::dispatch(app, json!({"action":"discoverySnapshot"})).await?;
+    if cancelled() || samples["sessionId"] != session_id || samples["selectedHookId"].is_string() {
+        return Ok(Value::Null);
+    }
+    if samples["sceneId"]
+        .as_str()
+        .is_some_and(|expected| !expected.is_empty() && expected != scene_id)
+    {
+        return Ok(json!({"status":"stale"}));
+    }
+
+    publish_recommendations(
+        app,
+        session_id,
+        json!({"status":"scanning","sceneId":scene_id}),
+    );
+    let during_capture = batches.clone();
+    let blocks = crate::ocr_coordinator::scan_scene_text(app, name, capture, move || {
+        during_capture.strong_count() == 0
+    })
+    .await?;
+    if cancelled() {
+        return Ok(Value::Null);
+    }
+    if blocks.is_empty() {
+        return Ok(json!({"status":"noText","sceneId":scene_id}));
+    }
+    let during_ranking = batches.clone();
+    let matches = tauri::async_runtime::spawn_blocking(move || {
+        finder.lock().map_err(|_| "Hook Finder worker failed")?
+            .rank(&samples, &blocks, || during_ranking.strong_count() == 0)
+    })
+    .await
+    .map_err(|err| err.to_string())?;
+    if cancelled() {
+        return Ok(Value::Null);
+    }
+    let matches = matches?;
+    if active_scene(app).await?["id"] != scene_id {
+        return Ok(json!({"status":"stale"}));
+    }
+    Ok(json!({"status":"ok","sceneId":scene_id,"matches":matches}))
+}
+
 pub async fn try_invoke(
     app: &AppHandle,
     channel: &str,
@@ -804,7 +1138,8 @@ async fn try_invoke_inner(
                 .try_state::<TexthookCoordinator>()
                 .map(|c| c.get_max_buffer_size(&paths.active))
                 .unwrap_or(DEFAULT_TEXT_HOOK_MAX_BUFFER_SIZE);
-            Ok(json!({ "maxBufferSize": max_buffer }))
+            let target_language = get_configured_target_language(&paths.active.join("config.json"));
+            Ok(json!({ "maxBufferSize": max_buffer, "targetLanguage": target_language }))
         }
         "texthook.setMaxBufferSize" => {
             let max_buffer = normalize_max_buffer_size(args.first());
@@ -883,13 +1218,39 @@ async fn try_invoke_inner(
             }
         }
         "texthook.stop" => stop_session(app, false).await,
+        "texthook.getRecommendations" => Ok(app
+            .state::<TexthookCoordinator>()
+            .state
+            .lock()
+            .unwrap()
+            .discovery
+            .as_ref()
+            .map(|discovery| discovery.latest.clone())
+            .unwrap_or(Value::Null)),
         "texthook.selectHook" => {
             let hook_id = args.first().and_then(Value::as_str).unwrap_or("");
-            crate::texthook::dispatch(
-                app,
-                json!({ "action": "select", "params": { "hookId": hook_id } }),
-            )
-            .await
+            let mut params = json!({"hookId":hook_id});
+            if let Some(recommendation) = args.get(1) {
+                if !recommendation["sessionId"].is_string()
+                    || !recommendation["sceneId"]
+                        .as_str()
+                        .is_some_and(|id| !id.is_empty())
+                    || recommendation["sceneId"] != active_scene(app).await?["id"]
+                {
+                    return Ok(Some(json!({"success":false})));
+                }
+                params["sessionId"] = recommendation["sessionId"].clone();
+                if recommendation["processorOverrides"].is_object() {
+                    params["processorOverrides"] = recommendation["processorOverrides"].clone();
+                }
+            }
+            let success =
+                crate::texthook::dispatch(app, json!({"action":"select","params":params})).await?
+                    == true;
+            Ok(json!({
+                "success":success,
+                "processorOverrides":get_status_snapshot(app)["processorOverrides"],
+            }))
         }
         "texthook.attachManualHook" => {
             let code = args.first().and_then(Value::as_str).unwrap_or("");
@@ -940,12 +1301,24 @@ async fn try_invoke_inner(
         "texthook.listHooks" => Ok(get_list_hooks_snapshot(app)),
         "texthook.devSendLargePayload" => {
             let text = args.first().and_then(Value::as_str).unwrap_or("");
-            if text.is_empty() { Ok(json!({"success":false})) }
-            else if let Some((text, truncated)) = sanitize_texthook_text(text, app.state::<TexthookCoordinator>().get_max_buffer_size(&paths_for(app).active)) {
+            if text.is_empty() {
+                Ok(json!({"success":false}))
+            } else if let Some((text, truncated)) = sanitize_texthook_text(
+                text,
+                app.state::<TexthookCoordinator>()
+                    .get_max_buffer_size(&paths_for(app).active),
+            ) {
                 crate::runtime::get(app)?;
-                crate::runtime::observe_hook(app, json!({"text":text,"hookId":"dev-large-payload", "hookFunction":"dev-large-payload","engine":"luna","exeName":"dev-large-payload","copyToClipboard":false}));
+                crate::runtime::observe_hook(
+                    app,
+                    json!({"text":text,"hookId":"dev-large-payload", "hookFunction":"dev-large-payload","engine":"luna","exeName":"dev-large-payload","copyToClipboard":false}),
+                );
                 Ok(json!({"success":true,"truncated":truncated}))
-            } else { Ok(json!({"success":false,"blockedByHardLimit":text.encode_utf16().count()>HARD_TEXT_HOOK_REJECTION_LIMIT,"limit":HARD_TEXT_HOOK_REJECTION_LIMIT})) }
+            } else {
+                Ok(
+                    json!({"success":false,"blockedByHardLimit":text.encode_utf16().count()>HARD_TEXT_HOOK_REJECTION_LIMIT,"limit":HARD_TEXT_HOOK_REJECTION_LIMIT}),
+                )
+            }
         }
         "texthook.builtInHookTargets" => Ok(json!([])),
         "texthook.advance" => Ok(json!({
@@ -1011,13 +1384,17 @@ async fn try_invoke_inner(
                     }
                 }
             }
-            Profiles::new(&paths_for(app).active).upsert(payload)
+            crate::settings::dispatch(app, json!({"action":"profiles.upsert","params":payload}))
+                .await
         }
         "texthook.deleteProfile" => {
             let (exe, scene) = parse_profile_identity(args.first());
-            Profiles::new(&paths_for(app).active)
-                .delete(&exe, scene.as_deref())
-                .map(|_| json!({ "success": true }))
+            crate::settings::dispatch(
+                app,
+                json!({"action":"profiles.delete","params":{"exeName":exe,"sceneId":scene}}),
+            )
+            .await
+            .map(|_| json!({ "success": true }))
         }
         "texthook.getAllProfiles" => Profiles::new(&paths_for(app).active).list(),
         "texthook.getGameExePath" => {
@@ -1156,7 +1533,179 @@ async fn try_invoke_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn hook_discovery_waits_for_events_and_coalesces_while_busy() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), next_hook_batch(&mut receiver))
+                .await
+                .is_err()
+        );
+
+        sender.try_send(()).unwrap();
+        let (ready, ()) = tokio::join!(next_hook_batch(&mut receiver), async {
+            tokio::task::yield_now().await;
+            sender.try_send(()).unwrap();
+            assert!(sender.try_send(()).is_err());
+        });
+        assert!(ready);
+        assert!(receiver.is_empty());
+
+        // Text that arrives during OCR becomes the next batch.
+        sender.try_send(()).unwrap();
+        assert!(next_hook_batch(&mut receiver).await);
+        sender.try_send(()).unwrap();
+        drop(sender);
+        assert!(!next_hook_batch(&mut receiver).await);
+    }
+
+    #[tokio::test]
+    async fn hook_selection_cancels_ocr_work_and_keeps_the_last_recommendations() {
+        let (batches, mut receiver) = mpsc::channel(1);
+        let worker = batches.downgrade();
+        batches.try_send(()).unwrap();
+        let latest = json!({"status":"ok","matches":[{"hookId":"43","tier":"filtered"}]});
+        let mut discovery = HookDiscovery {
+            session_id: "1".into(),
+            batches: Some(batches),
+            latest: latest.clone(),
+        };
+        discovery.stop();
+        assert_eq!(worker.strong_count(), 0);
+        assert!(!next_hook_batch(&mut receiver).await);
+        assert_eq!(discovery.latest, latest);
+    }
+
+    #[test]
+    fn hook_autosave_requires_three_distinct_accepted_lines_from_the_selection() {
+        let mut save = PendingHookSave::new(&json!({
+            "sessionId":"3", "selectionRevision":2,
+            "profile":{"exeName":"game.exe", "hookId":"43"},
+        }))
+        .unwrap();
+        let output = json!({"sessionId":"3", "selectionRevision":2, "hookId":"43"});
+        let accepted = |text: &str| json!({"status":"accepted", "processed_text":text});
+        assert!(!save.record_line(&output, &accepted(" ")));
+        let mut stale = output.clone();
+        stale["selectionRevision"] = json!(1);
+        assert!(!save.record_line(&stale, &accepted("From a previous selection")));
+        stale["selectionRevision"] = json!(2);
+        stale["sessionId"] = json!("2");
+        assert!(!save.record_line(&stale, &accepted("From a previous attachment")));
+        assert!(!save.record_line(
+            &output,
+            &json!({"status":"duplicate","processed_text":"Duplicate"})
+        ));
+        assert!(!save.record_line(&output, &accepted("First line")));
+        assert!(!save.record_line(&output, &accepted("First line ")));
+        assert!(!save.record_line(&output, &accepted("Second line")));
+        assert!(save.record_line(&output, &accepted("Third line")));
+        assert!(!save.record_line(&output, &accepted("Fourth line")));
+    }
+
+    #[test]
+    fn hook_autosave_retains_filters_in_the_scene_and_preserves_auto_attach_preference() {
+        let dir = tempfile::tempdir().unwrap();
+        let profiles = Profiles::new(dir.path());
+        profiles
+            .upsert(json!({"exeName":"game.exe","autoHook":false,"hookId":"old"}))
+            .unwrap();
+        let processor_overrides = json!({"remove_control_chars":true,"language_filter":true,"language_filter_mode":"trim"});
+        let save = PendingHookSave::new(&json!({
+            "sessionId":"3", "selectionRevision":2,
+            "profile":{"exeName":"game.exe","sceneId":"game-scene","engine":"luna","hookId":"43",
+                "hookFunction":"TextOutW","processorOverrides":processor_overrides},
+        }))
+        .unwrap();
+        assert!(save.matches_profile("GAME.exe", Some("GAME-SCENE")));
+        assert!(!save.matches_profile("game.exe", Some("another-scene")));
+        let saved = save
+            .save(
+                &profiles,
+                &json!({"flushDelayMs":150,"copyToClipboard":true}),
+            )
+            .unwrap();
+        assert_eq!(saved["autoHook"], false);
+        assert_eq!(saved["processorOverrides"], processor_overrides);
+        assert_eq!(saved["flushDelayMs"], 150);
+        assert_eq!(saved["copyToClipboard"], true);
+        assert_eq!(profiles.get("game.exe", None).unwrap()["hookId"], "old");
+        assert_eq!(profiles.get("game.exe", Some("game-scene")).unwrap(), saved);
+    }
+
     use serde_json::json;
+
+    const ENGINE_CLIS: &[(&str, &str, &str)] = &[
+        ("luna", "x86", "luna_builds/LunaHostCLI32.exe"),
+        ("luna", "x64", "luna_builds/LunaHostCLI64.exe"),
+        (
+            "textractor",
+            "x86",
+            "textractor_builds/_x86/TextractorCLI.exe",
+        ),
+        (
+            "textractor",
+            "x64",
+            "textractor_builds/_x64/TextractorCLI.exe",
+        ),
+    ];
+
+    #[test]
+    fn engine_cli_paths_support_legacy_installations() {
+        let dir = tempfile::tempdir().unwrap();
+        for &(engine, arch, relative) in ENGINE_CLIS {
+            let cli = dir.path().join("texthook").join(relative);
+            std::fs::create_dir_all(cli.parent().unwrap()).unwrap();
+            std::fs::write(&cli, b"legacy").unwrap();
+            assert_eq!(engine_cli_path(dir.path(), engine, arch), cli);
+        }
+    }
+
+    #[test]
+    fn engine_cli_paths_follow_the_selected_package() {
+        use gsm_packages::engines::{Engines, SENTINELS};
+
+        let dir = tempfile::tempdir().unwrap();
+        let engines = Engines::new(dir.path());
+        // Old files must not override the package selected by the updater.
+        for relative in SENTINELS {
+            let legacy = engines.root.join(relative);
+            std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+            std::fs::write(legacy, b"legacy").unwrap();
+        }
+        for package in ["a".repeat(32), "b".repeat(32)] {
+            let package_directory = format!("packages/{package}");
+            let root = engines.root.join(&package_directory);
+            for relative in SENTINELS {
+                let file = root.join(relative);
+                std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+                std::fs::write(file, b"package").unwrap();
+            }
+            write_atomic(
+                &engines.root.join("texthook_manifest.json"),
+                &json!({
+                    "version": "1.0.4",
+                    "packageDirectory": package_directory,
+                    "files": SENTINELS.iter().map(|path| json!({
+                        "path": path, "sha256": "0".repeat(64)
+                    })).collect::<Vec<_>>()
+                }),
+            )
+            .unwrap();
+            assert!(engines.installed());
+            for &(engine, arch, relative) in ENGINE_CLIS {
+                assert_eq!(
+                    engine_cli_path(dir.path(), engine, arch),
+                    root.join(relative)
+                );
+            }
+            for engine in ["luna", "textractor"] {
+                let (_, cli) = resolve_cli_for_pid(dir.path(), engine, std::process::id());
+                assert!(cli.unwrap().starts_with(&root));
+            }
+        }
+    }
 
     #[test]
     fn saved_hook_settings_use_native_engine_option_names() {

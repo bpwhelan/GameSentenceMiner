@@ -1,6 +1,6 @@
 # Shared Japanese dictionary
 
-All GSM Japanese analysis uses the existing Rust Sudachi service: Python Anki
+All GSM Japanese analysis uses the shared Rust Sudachi service: Python Anki
 furigana, Whisper reading comparison, new-line word statistics, overlay readings,
 controller word selection, local vocabulary matching, and compiled user dictionaries.
 MeCab selections migrate to Sudachi. The statistics feature flag controls recording
@@ -13,8 +13,15 @@ requests never download dictionaries. Failed downloads, invalid dictionaries, or
 unavailable service expose setup/retry errors; they never produce substitute tokens.
 The Python backend requires the shared GSM service to be running.
 
+The native desktop hosts Sudachi and its local vocabulary database. The input
+helper forwards existing WebSocket requests over its private process pipes.
+Standalone overlay builds host the same service in the helper itself.
+The desktop releases loaded dictionaries after five minutes without requests,
+including when the last client disconnects. The next request loads them on demand.
+
 The service persists the chosen edition under `sudachi/selection.txt` in GSM's data
 directory. Existing Python/overlay dictionary preferences seed the first selection.
+Small is the default for a fresh profile.
 Subsequent clients reuse that choice; only explicit setup changes it. Dictionary
 archives have pinned SHA-256 checksums and extraction uses a temporary file. Retry
 can replace an unreadable system dictionary without removing user CSVs or vocabulary.
@@ -43,7 +50,7 @@ Offline validation:
 ```powershell
 .venv\Scripts\python.exe -m pytest tests/test_tokenizer.py tests/test_sudachi_client.py tests/util/database/test_tokenization.py tests/web/test_onboarding_api.py
 node --test scripts/native-package-policy.test.mjs GSM_Overlay/tests/gamepad_tokenization.test.cjs
-cargo test --offline --manifest-path GSM_Overlay/input_server/Cargo.toml
+cargo test --offline --workspace --manifest-path GSM_Overlay/input_server/Cargo.toml
 node GSM_Overlay/tests/sudachi-migration-smoke.cjs GSM_Overlay/input_server/target/release/gsm_overlay_server.exe
 ```
 

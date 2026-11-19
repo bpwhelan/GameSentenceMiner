@@ -884,7 +884,13 @@ def download_ocenaudio_if_needed():
     os.makedirs(download_dir, exist_ok=True)
     ocenaudio_archive = os.path.join(download_dir, "ocenaudio.zip")
 
-    if download_file(ocenaudio_url, ocenaudio_archive):
+    from GameSentenceMiner.native.downloads import download_file as download_asset
+
+    try:
+        download_asset(ocenaudio_url, ocenaudio_archive)
+    except OSError as error:
+        logger.error(f"Failed to download Ocenaudio: {error}")
+    else:
         logger.info(f"Ocenaudio downloaded. Extracting to {ocenaudio_dir}...")
 
         try:

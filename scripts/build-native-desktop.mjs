@@ -3,6 +3,7 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {signingEnvironment} from './native-signing.mjs';
 import {auditNativePackage} from './native-package-policy.mjs';
+import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
 const args=process.argv.slice(2),signed=args.includes('--signed');
@@ -20,7 +21,7 @@ await new Promise((resolve,reject)=>{
   child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(Error(`Native application build failed (${code})`)));
 });
 if(process.platform==='win32'&&!args.includes('--debug')) {
-  const target=process.env.CARGO_TARGET_DIR?path.resolve(process.env.CARGO_TARGET_DIR):path.join(root,'src-tauri/target');
+  const target=await nativeTargetDirectory({env:environment});
   const executable=path.join(target,'release/gsm-desktop.exe');
   if((await fs.stat(executable)).size>50*1024**2)throw Error('Desktop executable exceeds the 50 MiB budget; check for duplicated embedded resources.');
   if(!args.includes('--no-bundle')) {
@@ -30,5 +31,6 @@ if(process.platform==='win32'&&!args.includes('--debug')) {
     const bytes=(await fs.stat(installer)).size;
     if(bytes>160*1024**2)throw Error('Windows installer exceeds the 160 MiB budget; inspect the package size report.');
     console.log(`Windows installer: ${(bytes/1024**2).toFixed(1)} MiB`);
+    console.log('Installer file:',installer);
   }
 }

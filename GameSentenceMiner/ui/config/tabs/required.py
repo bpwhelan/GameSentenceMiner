@@ -227,9 +227,11 @@ def _add_language_row(window, binder, layout: QFormLayout, i18n: dict) -> None:
     languages_widget = QWidget()
     languages_layout = QHBoxLayout(languages_widget)
     languages_layout.setContentsMargins(0, 0, 0, 0)
-    languages_layout.addWidget(build_label(i18n, "general", "native_language"))
+    languages_layout.addWidget(build_label(i18n, "general", "native_language", default_tooltip=None))
     languages_layout.addWidget(window.req_native_language_combo)
-    languages_layout.addWidget(build_label(i18n, "general", "target_language", color=LabelColor.IMPORTANT, bold=True))
+    languages_layout.addWidget(
+        build_label(i18n, "general", "target_language", default_tooltip=None, color=LabelColor.IMPORTANT, bold=True)
+    )
     languages_layout.addWidget(window.req_target_language_combo)
     languages_layout.addStretch()
 

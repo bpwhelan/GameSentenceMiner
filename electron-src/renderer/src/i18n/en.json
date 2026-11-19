@@ -806,6 +806,25 @@
       "customHelp": "Install a specific package for troubleshooting. This changes the GSM Python environment and restarts the backend.",
       "actionFailed": "Could not complete the request: {error}"
     },
+    "resources": {
+      "title": "Resource usage",
+      "scope": "Live CPU and private RAM for GSM and its helpers. OBS and games are excluded.",
+      "measuring": "Measuring resource usage…",
+      "failed": "Could not measure resource usage. Retrying…",
+      "unavailable": "Unavailable",
+      "component": "Component",
+      "cpu": "CPU",
+      "memory": "Private RAM",
+      "cpuValue": "{value}%",
+      "memoryValue": "{value} MiB",
+      "desktop": "GSM desktop",
+      "webview": "WebView2",
+      "backend": "Python backend",
+      "overlay": "Overlay helper",
+      "textHook": "Text hook",
+      "capture": "Capture and speech",
+      "total": "GSM total"
+    },
     "gpu": {
       "progress": {
         "stopping": "Stopping GSM so its runtime can be updated…",
@@ -1509,6 +1528,15 @@
       "refresh": "Retry"
     },
     "pipeline": {
+      "preset": "Reading preset",
+      "custom": "Custom",
+      "lens": "Default · ScreenAI → Google Lens",
+      "horizontal": "Horizontal Japanese dialogue · MIDA detector → MIDA + VOCR6-L",
+      "multilingual": "Multilingual and vertical text · Meiki detector → ScreenAI",
+      "stableDialogue": "Wait for horizontal dialogue · MIDA then ScreenAI",
+      "midaHint": "Downloads the MIDA detector on first use. VOCR6-L reads horizontal Japanese text locally.",
+      "portableOneOcrHint": "For local OneOCR, install the portable runtime with Python 3.13 in {path} and import the models from your copy of Snipping Tool.",
+      "portableOneOcrGuide": "Model import instructions",
       "vocrDetectorHint": "Finds text lines without recognizing them. Pair with Google Lens or another Main OCR; empty scenes skip recognition.",
       "vitaOcrHint": "Experimental local OCR for Japanese horizontal dialogue. Select a tight dialogue area for best results.",
       "title": "Recognition Pipeline",
@@ -1516,6 +1544,8 @@
       "singlePassFlow": "Single-pass flow:",
       "stabilityOcr": "Stability OCR:",
       "mainOcr": "Main OCR:",
+      "stabilityOcrHelp": "Stability OCR help",
+      "googleVisionHelp": "Google Vision setup help",
       "twoPassOcr": "Two-pass OCR:",
       "optimizeSecondScan": "Optimize Second Scan:",
       "ocrClipboardImages": "OCR Clipboard Images:"
@@ -1611,7 +1641,6 @@
       "runAction": "Run",
       "runActionTitle": "Trigger this action now",
       "gamepadBindingAria": "Gamepad binding for {action}",
-      "gamepadBindingTitle": "Choose a gamepad button handled by the GSM input service",
       "gamepadButtons": {
         "disabled": "No gamepad",
         "a": "A",
@@ -1687,9 +1716,7 @@
       "exportAreas": "Copy the current scene's OCR rectangles to your clipboard as JSON.",
       "docs": "Open the OCR guide documentation for setup help, engine notes, and workflows.",
       "advancedMode": "Show engine selection and comparison tuning. Basic mode keeps common settings visible and hides the expert knobs.",
-      "basicScanRate": "How often OCR scans in basic mode.\n• As fast as possible (0): no scan delay; can expose UTF-8/encoding issues and uses the most CPU\n• Fast: quick polling for responsive text\n• Normal: balanced for most dialogue\n• Slow/Very Slow: better for gradually revealed text",
       "advancedScanRate": "OCR polling interval in seconds. Lower values scan more often and react faster, but use more resources. Higher values scan less often and may feel calmer on slower text.",
-      "language": "Select the language for OCR processing. This ensures only blocks with the correct characters are captured. All Latin-script languages (English, Spanish, French, German, etc.) are supported under English.",
       "baseScale": "Controls how much the screenshot is scaled before scanning.\n• Lower = faster scans, less CPU, but may miss small text\n• Higher = more accurate on small fonts, but uses more CPU\n\n50% -> Fast | 75% -> Balanced | 100% -> Slowest\n\nTip: If OCR misses small kanji or skips characters, try increasing this value.",
       "furiganaFilter": "Filters characters smaller than the selected text size. If you notice real dialogue disappearing, either lower this or set it to 0.\n\nTip: Click Preview to open a window that helps you select the best sensitivity for your current game.",
       "furiganaPreview": "Open a preview window to tune furigana sensitivity against a sample character from your current game.",
@@ -1704,8 +1731,8 @@
       "keepNewlineAreaSelect": "Keep line breaks for manual area-select OCR captures.",
       "textAppearsInstantly": "Immediately run the main OCR when the stability OCR first sees new text or a new text box. Only use this for games where full dialogue appears instantly. Leave it off for typewriter-style, animated, or gradually appearing text, otherwise OCR output can get very messy.",
       "twoPassOCR": "OCR Option 1 runs at the set scan rate. If two pass is enabled and the text does not change by the next scan, it will then do the second scan with the main OCR engine.",
-      "stabilityOcr": "This runs first to watch for text changes and stability. Fast engines work best here. On Windows, OneOCR is recommended.",
-      "mainOcr": "This engine sends the final OCR result to the websocket or clipboard. Pick the most accurate option that works well for your game.",
+      "stabilityOcr": "Stability OCR checks for text changes and waits for the text to settle before Main OCR runs. Engines vary in speed and CPU usage. ScreenAI is the default.",
+      "googleVisionKey": "Download the Google Cloud service account JSON key for a project with the Vision API enabled. Save it as {homePath}, or as {filename} in your GSM data or portable profile folder.",
       "optimizeSecondScan": "Trim the image for the second scan to improve performance (OneOCR 1st only). If your game's text is unusual and some text doesn't get captured, try turning this off.",
       "ocrScreenshots": "If enabled, OCR will also process screenshots taken from the clipboard.",
       "manualHotkey": "Runs the Main OCR (OCR 2) once on the configured green areas. During Auto OCR, this bypasses stability and black-hole checks. Press Escape to clear.",
@@ -1716,15 +1743,11 @@
       "addAreaHotkey": "Draw one new area, save it, and apply it to running OCR. Existing areas are kept. Choose Normal for automatic capture or Secondary for the Menu hotkey. Press Escape here to clear the binding.",
       "wholeWindowHotkey": "Runs a one-time OCR scan on the full active OCR source (typically your OBS game source), bypassing area rectangles. Press Escape to clear.",
       "pauseHotkey": "Pauses or resumes OCR scanning everywhere. Useful during cutscenes or when you want OCR temporarily out of the way. Press Escape to clear.",
-      "processPriority": "Sets the process priority for the OCR Python process on Windows. Higher values may improve OCR responsiveness but can reduce system responsiveness.",
       "defaultSceneFurigana": "Used when a scene does not yet have a saved config file. Existing scenes keep their own saved value.",
-      "obsCapturePreprocess": "Applies preprocessing to OBS screenshots before OCR cropping. Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.",
       "compactBoxes": "Experimental. When multiple OCR areas are set, packs them together (removing transparent dead space) before running detection, while preserving their relative layout. Can improve engines that struggle with large empty regions, e.g. a black-hole box at the top of a menu with dialogue at the bottom. Coordinates are mapped back to the original frame automatically.",
       "compactBoxesGap": "Transparent padding kept between packed OCR areas, in pixels.",
       "ignoreRun1Logs": "Hides OCR terminal lines containing \"OCR Run 1: Text recognized...\" to reduce duplicate output noise when two-pass OCR is enabled. Run 2 lines stay highlighted in green.",
       "advancedDebugLogging": "Writes structured JSON Lines for OCR capture, stability, OCR2 flush decisions, queueing, filtering, deduplication, and delivery to a dedicated file for each OCR run. The console shows the file path when logging starts.",
-      "installDependency": "Install optional OCR dependencies into the GSM Python environment. If unsure, choose a recommended option.",
-      "uninstallDependency": "Remove optional OCR dependencies from the GSM Python environment.",
       "replacements": "Open the OCR replacement rules page for fixing recurring OCR mistakes after recognition.",
       "openConfigFile": "Open the active Electron OCR config JSON file.",
       "openConfigFolder": "Open the OCR config folder that stores per-scene area files.",
@@ -1807,14 +1830,11 @@
       "screenai": "ScreenAI OCR",
       "meikiocr": "Meiki OCR",
       "vitaocr": "VOCR (Japanese only, experimental)",
+      "mida_vocr": "MIDA + VOCR6-L (horizontal Japanese)",
+      "mida_detector": "MIDA horizontal line detector",
       "vocr_detector": "VOCR Line Detector (experimental)",
-      "gemini": "Gemini",
-      "gvision": "Google Vision",
-      "azure": "Azure Image Analysis",
-      "ocrspace": "OCRSpace",
-      "local_llm_ocr": "Local LLM OCR",
+      "gvision": "Google Vision (service account key required)",
       "alivetext": "Apple Live Text",
-      "mlkitocr": "MLKit OCR",
       "meiki_text_detector": "Meiki Text Detector"
     },
     "languages": {
@@ -1852,9 +1872,7 @@
     "dependencies": {
       "install": {
         "fasterPng": "Faster PNG (Recommended on Windows 11)",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision (service account key required)"
       },
       "remove": {
         "owocr": "OWOCR Base",
@@ -1862,13 +1880,12 @@
         "oneocr": "OneOCR",
         "fasterPng": "Faster PNG",
         "transformers": "Accurate Filtering",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision"
       }
     },
     "notices": {
       "areaConfigImported": "OCR area config imported.",
+      "furiganaPreviewFailed": "Could not open the Furigana Filter Preview.",
       "importFailed": "Import failed.",
       "areaConfigExported": "OCR area config copied to clipboard.",
       "exportFailed": "Export failed."
@@ -2081,8 +2098,8 @@
     "profile": {
       "title": "Save for next time",
       "saved": "Saved",
-      "recommended": "Recommended",
       "saveHint": "Save a working hook to reuse it next time.",
+      "autoSaveHint": "GSM saves the selected hook and its filters after three different lines. Use Save Hook to save immediately.",
       "autoHook": "Auto-attach saved hook on next start",
       "copyToClipboard": "Copy processed text to clipboard",
       "flushDelay": "Text revision window (ms):",
@@ -2095,6 +2112,32 @@
     "global": {
       "maxBufferSize": "Maximum incoming text length:",
       "maxBufferSizeHint": "Applies to every text hook. Longer text is truncated before GSM processes or displays it."
+    },
+    "finder": {
+      "waiting": "ScreenAI compares hooks automatically as game text arrives.",
+      "scanning": "Comparing hooks with the scene…",
+      "noScene": "Waiting for an active OBS scene.",
+      "noText": "Waiting for readable dialogue in the scene.",
+      "stale": "Waiting for the hook’s OBS scene.",
+      "error": "ScreenAI could not compare hooks with the active scene.",
+      "noMatch": "No clear matches yet. The ranking updates as game text arrives.",
+      "ranked": "Ranked by ScreenAI. Selecting a hook applies any filter change shown on its row.",
+      "selected": "Hook selected. ScreenAI checks stopped.",
+      "selectFailed": "Could not select that hook. Try again.",
+      "onScreen": "On screen · {text}",
+      "enable": "Turn on {filter}",
+      "languageMode": {
+        "blocks": "Filter blocks by target language",
+        "trim": "Trim other languages from block edges",
+        "strict": "Keep only characters in the target language"
+      },
+      "tiers": {
+        "exact": "Near exact match",
+        "fuzzy": "Near exact fuzzy match",
+        "filtered": "Near match with a filter change",
+        "close": "Close match",
+        "unmatched": "No clear match"
+      }
     },
     "hooks": {
       "title": "Detected Hooks",
@@ -2486,6 +2529,7 @@
     "clearSelection": "Clear",
     "createMedia": "Create media",
     "lineCount": "{count} lines",
+    "lookupHint": "Shift + hover to look up a word",
     "characterCount": "{count} characters",
     "following": "Following latest",
     "follow": "Follow latest",

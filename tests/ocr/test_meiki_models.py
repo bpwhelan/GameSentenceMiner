@@ -103,20 +103,22 @@ def test_shared_model_reloads_when_selection_changes_and_reuses_same_choice(sele
 
 def test_detection_model_loads_from_pinned_cache_without_network(monkeypatch, tmp_path):
     import hashlib
+    import huggingface_hub
 
     path = tmp_path / "model.onnx"
     path.write_bytes(b"model")
     monkeypatch.setattr(meiki_models, "MODELS", {"small": (320, 192, hashlib.sha256(b"model").hexdigest())})
     calls = []
 
-    def cached(**kwargs):
-        calls.append(kwargs)
-        assert kwargs["local_files_only"] is True
-        assert kwargs["revision"] == meiki_models.DETECTION_REVISION
-        assert kwargs["filename"] == "meiki.text.detect.v0.1.320x192.onnx"
+    def cached(repo, filename, *, revision):
+        calls.append(filename)
+        assert repo == meiki_models.DETECTION_REPO
+        assert revision == meiki_models.DETECTION_REVISION
+        assert filename == "meiki.text.detect.v0.1.320x192.onnx"
         return str(path)
 
-    monkeypatch.setattr(meiki_models, "hf_hub_download", cached)
+    monkeypatch.setattr(meiki_models, "get_app_directory", lambda: tmp_path)
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", cached)
     monkeypatch.setattr(meiki_models.ort, "InferenceSession", lambda *a, **k: "session")
     assert meiki_models.create_detection_session("small") == "session"
     assert len(calls) == 1
@@ -125,26 +127,24 @@ def test_detection_model_loads_from_pinned_cache_without_network(monkeypatch, tm
         meiki_models.create_detection_session("small")
 
 
-def test_detection_model_downloads_when_missing_from_cache(monkeypatch, tmp_path):
+def test_detection_model_downloads_when_missing_from_cache(monkeypatch, tmp_path, model_origin):
     import hashlib
+    import huggingface_hub
+    from GameSentenceMiner.native import downloads
 
-    from huggingface_hub.errors import LocalEntryNotFoundError
-
-    path = tmp_path / "model.onnx"
-    path.write_bytes(b"model")
+    filename = "meiki.text.detect.v0.1.320x192.onnx"
+    (model_origin.files / filename).write_bytes(b"model")
     monkeypatch.setattr(meiki_models, "MODELS", {"small": (320, 192, hashlib.sha256(b"model").hexdigest())})
-    calls = []
-
-    def download(**kwargs):
-        calls.append(kwargs)
-        if kwargs.get("local_files_only"):
-            raise LocalEntryNotFoundError("not cached")
-        return str(path)
-
-    monkeypatch.setattr(meiki_models, "hf_hub_download", download)
+    monkeypatch.setattr(meiki_models, "get_app_directory", lambda: tmp_path)
+    monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", lambda *a, **kw: None)
+    monkeypatch.setattr(downloads, "download_file", model_origin.download)
     monkeypatch.setattr(meiki_models.ort, "InferenceSession", lambda *a, **k: "session")
     assert meiki_models.create_detection_session("small") == "session"
-    assert len(calls) == 2
+    assert (tmp_path / "ocr_models" / filename).read_bytes() == b"model"
+    assert meiki_models.create_detection_session("small") == "session"
+    assert model_origin.requests == [
+        f"https://huggingface.co/{meiki_models.DETECTION_REPO}/resolve/{meiki_models.DETECTION_REVISION}/{filename}"
+    ]
 
 
 @pytest.mark.parametrize("engine_name", ["MeikiOCR", "MeikiTextDetector"])
@@ -168,7 +168,7 @@ def test_existing_engines_use_new_model_on_the_next_scan(monkeypatch, engine_nam
 
     selected = [pipeline("large")]
     monkeypatch.setattr(ocr.SharedMeikiOCRModel, "get_model", lambda **k: selected[0])
-    monkeypatch.setattr(ocr, "get_config", lambda: SimpleNamespace(vad=SimpleNamespace(use_cpu_for_inference_v2=True)))
+    monkeypatch.setattr(ocr, "gpu_enabled", lambda _engine: False)
     monkeypatch.setattr(ocr, "get_ocr_language", lambda: "ja")
     engine = getattr(ocr, engine_name)()
     engine.get_furigana_sens_from_file = False

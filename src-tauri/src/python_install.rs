@@ -9,7 +9,7 @@ pub struct PythonInstall {
 }
 pub fn project_root(app:&tauri::AppHandle)->std::path::PathBuf {
     // Isolated integration fixtures never touch the installed project or user environment.
-    if cfg!(debug_assertions) && std::env::var_os("GSM_SMOKE_TEST").is_some() {
+    if crate::LOCAL_BUILD && std::env::var_os("GSM_SMOKE_TEST").is_some() {
         if let Some(root)=std::env::var_os("GSM_TEST_PYTHON_PROJECT") { return root.into(); }
     }
     app.state::<crate::desktop_state::DesktopState>().app_root.clone()
@@ -47,7 +47,11 @@ fn update_notice(app: &tauri::AppHandle, succeeded: bool) {
             .map_err(|e| e.to_string())
     };
     if let Err(error) = result {
-        eprintln!("Could not show backend update notice: {error}");
+        crate::desktop_log::warn(
+            app,
+            "python-install",
+            format!("Could not show backend update notice: {error}"),
+        );
     }
 }
 impl PythonInstall {
@@ -130,6 +134,16 @@ pub async fn dispatch(app: &tauri::AppHandle, mut params: Value) -> Result<Value
                 *current = None;
             }
         }
+        if event == "log" {
+            if let Some(msg) = data["message"].as_str() {
+                let stream = data["stream"].as_str().unwrap_or("stdout");
+                if stream == "stderr" {
+                    crate::desktop_log::warn(&session_app, "python-install", msg);
+                } else {
+                    crate::desktop_log::background(&session_app, "python-install", msg);
+                }
+            }
+        }
         if let Some(lease) = &lease {
             if event == "maintenance-failed" {
                 let _ = sessions.finish(
@@ -143,9 +157,11 @@ pub async fn dispatch(app: &tauri::AppHandle, mut params: Value) -> Result<Value
                 let _ = sessions.update(lease, &data);
             }
             if event == "log" {
+                let raw = data["message"].as_str().unwrap_or("");
+                let tagged = crate::desktop_log::ensure_origin("rust:python-install", raw);
                 sessions.append(
                     lease,
-                    &json!({"source":"setup","stream":data["stream"],"message":data["message"]}),
+                    &json!({"source":"rust:python-install","stream":data["stream"],"message":tagged}),
                 );
             }
             if event == "progress" {
@@ -177,7 +193,7 @@ pub async fn dispatch(app: &tauri::AppHandle, mut params: Value) -> Result<Value
     let notify_update = action == "maintain" && params["params"]["mode"] == "update";
     let result = tauri::async_runtime::spawn_blocking(move || {
         let _guard = guard;
-        gsm_packages::python::Python::new(&paths.shared, &root, cfg!(debug_assertions)).call(
+        gsm_packages::python::Python::new(&paths.shared, &root, crate::LOCAL_BUILD).call(
             params["action"].as_str().unwrap_or(""),
             &params["params"],
             events,

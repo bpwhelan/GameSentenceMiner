@@ -82,14 +82,12 @@ def build_textfeed_v2_snapshot_payload(request_payload: dict | None = None) -> d
     try:
         from GameSentenceMiner.gametext import get_text_stream_snapshot
 
-        payload = get_text_stream_snapshot().to_wire()
         requested_max = (request_payload or {}).get("max_lines", TEXTFEED_SESSION_SYNC_MAX_LINES)
         try:
             max_lines = max(1, min(int(requested_max), TEXTFEED_SESSION_SYNC_MAX_LINES))
         except (TypeError, ValueError):
             max_lines = TEXTFEED_SESSION_SYNC_MAX_LINES
-        payload["lines"] = payload["lines"][-max_lines:]
-        return payload
+        return get_text_stream_snapshot(max_records=max_lines).to_wire()
     except Exception as error:
         logger.debug(f"Unable to build authoritative TextFeed snapshot: {error}")
         from GameSentenceMiner.web.events import event_manager

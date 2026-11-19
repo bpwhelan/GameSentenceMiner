@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Portable VOCR recognition and textspot8 detection. Models are the pinned,
-//! already-bundled assets; execution and decoding need no Python or downloads.
+//! Portable VOCR recognition and textspot8 detection using pinned GSM assets.
 mod charbox;
 mod decode;
 mod grad;
 mod pixels;
+use super::line_cache::{self, LineCache};
+pub(super) use decode::Box as LineBox;
 pub mod selection;
 #[cfg(test)]
 mod tests;
@@ -24,26 +25,26 @@ use std::{
 const SMALL: &str = "small-faithful.onnx";
 const NORMAL: &str = "normal-faithful.onnx";
 const LARGE: &str = "large-faithful.onnx";
+const LARGE_FAST: &str = "large-fast.onnx";
 const DETECTOR: &str = "textspot8-faithful.onnx";
-static ASSET_DIRECTORY: OnceLock<PathBuf> = OnceLock::new();
+static ASSET_LOCATIONS: OnceLock<(PathBuf, PathBuf)> = OnceLock::new();
 
-/// The desktop host and Python share one immutable, packaged set of graphs.
-pub fn set_asset_directory(directory: PathBuf) -> Result<()> {
-    let directory = directory
-        .canonicalize()
-        .context("Locate bundled VOCR models")?;
-    if let Some(existing) = ASSET_DIRECTORY.get() {
-        ensure!(existing == &directory, "VOCR assets are already configured");
+/// The desktop host and Python share a cache. Earlier desktop installs may
+/// also have a complete set of graphs on disk.
+pub fn set_asset_directory(directory: PathBuf, cache: PathBuf) -> Result<()> {
+    let locations = (directory, cache);
+    if let Some(existing) = ASSET_LOCATIONS.get() {
+        ensure!(existing == &locations, "VOCR assets are already configured");
     } else {
-        ASSET_DIRECTORY
-            .set(directory)
+        ASSET_LOCATIONS
+            .set(locations)
             .map_err(|_| anyhow::anyhow!("VOCR assets are already configured"))?;
     }
     Ok(())
 }
 
 fn asset_directory() -> Result<PathBuf> {
-    if let Some(directory) = ASSET_DIRECTORY.get() {
+    if let Some((directory, _)) = ASSET_LOCATIONS.get() {
         return Ok(directory.clone());
     }
     if let Some(root) = std::env::var_os("GSM_APP_ROOT") {
@@ -59,6 +60,10 @@ fn asset_directory() -> Result<PathBuf> {
 
 fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
     let hashes = [
+        (
+            LARGE_FAST,
+            "c1a36ae7313d3ff39a2100bbd6aa88509836fb22e947d08c2b5d8fe06e47c4bc",
+        ),
         (
             SMALL,
             "b8a7207d8323c9468833676fdf09199bf793644b126db9038862d2d7b41ee36e",
@@ -80,17 +85,23 @@ fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
         .iter()
         .find(|(name, _)| *name == filename)
         .context("Unknown VOCR model")?;
-    let bytes = std::fs::read(directory.join(filename))
-        .with_context(|| format!("Read bundled VOCR model {filename}"))?;
+    let bundled = directory.join(filename);
+    let model = match ASSET_LOCATIONS.get() {
+        Some((_, cache)) => gsm_downloads::ensure_asset(cache, &format!("vocr/{filename}"), Some(&bundled))
+            .map_err(anyhow::Error::msg)
+            .with_context(|| format!("Download VOCR model {filename}"))?,
+        None => bundled,
+    };
+    let bytes = std::fs::read(model).with_context(|| format!("Read VOCR model {filename}"))?;
     ensure!(
         format!("{:x}", Sha256::digest(&bytes)) == *hash,
-        "Bundled VOCR checksum failed; rebuild or reinstall GSM"
+        "VOCR model checksum failed"
     );
     Ok(bytes)
 }
 pub fn verify_bundled() -> Result<()> {
     let directory = asset_directory()?;
-    for filename in [SMALL, NORMAL, LARGE, DETECTOR] {
+    for filename in [SMALL, NORMAL, LARGE, LARGE_FAST, DETECTOR] {
         verified_model(&directory, filename)?;
     }
     Ok(())
@@ -120,7 +131,12 @@ fn session(filename: &str, kind: &str, source: &str) -> Result<(Session, Value)>
         metadata["kind"] == kind
             && metadata["revision"] == selection::REVISION
             && metadata["export_version"] == 1
-            && metadata["mode"] == "faithful"
+            && metadata["mode"]
+                == if filename == LARGE_FAST {
+                    "fast"
+                } else {
+                    "faithful"
+                }
             && metadata["source_sha256"] == source,
         "VOCR model metadata is incompatible"
     );
@@ -210,7 +226,7 @@ struct Recognizer {
     vocab: Vec<String>,
 }
 impl Recognizer {
-    fn new(tier: Tier) -> Result<Self> {
+    fn new(tier: Tier, fast: bool) -> Result<Self> {
         let (bytes, hash) = match tier {
             Tier::Small => (
                 SMALL,
@@ -221,7 +237,7 @@ impl Recognizer {
                 "107cf084cc0c1a3a61ce4c3f9b9cf6b31d6dff80f0a1bdb94afd3f7ee9ae3bc9",
             ),
             Tier::Large => (
-                LARGE,
+                if fast { LARGE_FAST } else { LARGE },
                 "65310013e8f990886e4e8097b2fe55eb98cdf082d7193eea510601fc0ac26c82",
             ),
         };
@@ -240,8 +256,18 @@ impl Recognizer {
         );
         Ok(Self { session, vocab })
     }
-    fn recognize(&mut self, image: &RgbaImage, dark: bool) -> Result<TextBox> {
+    fn recognize(&mut self, image: &RgbaImage, dark: Option<bool>) -> Result<TextBox> {
         let grey = pixels::grey(image);
+        let dark = dark.unwrap_or_else(|| {
+            decode::dark(
+                &grey,
+                &LineBox {
+                    w: image.width() as i64,
+                    h: image.height() as i64,
+                    ..Default::default()
+                },
+            ) != 0
+        });
         let (input, width) = pixels::prepare(&grey, dark);
         let input = Tensor::from_array((
             [1usize, 1, 32, width.div_ceil(8) as usize * 8],
@@ -286,31 +312,64 @@ impl Recognizer {
 }
 pub struct Vocr {
     pub model: Tier,
-    finder: Finder,
+    finder: Option<Finder>,
+    cache: LineCache,
     recognizer: Option<Recognizer>,
 }
 impl Vocr {
     pub fn new(model: Tier) -> Result<Self> {
         Ok(Self {
             model,
-            finder: Finder::new()?,
+            finder: Some(Finder::new()?),
+            cache: LineCache::default(),
             recognizer: None,
+        })
+    }
+    pub(super) fn large_fast() -> Result<Self> {
+        Ok(Self {
+            model: Tier::Large,
+            finder: None,
+            cache: LineCache::default(),
+            recognizer: Some(Recognizer::new(Tier::Large, true)?),
         })
     }
     pub fn validate(&mut self) -> Result<()> {
         if self.recognizer.is_none() {
-            self.recognizer = Some(Recognizer::new(self.model)?);
+            self.recognizer = Some(Recognizer::new(self.model, false)?);
         }
         Ok(())
     }
     pub fn recognize(&mut self, image: &RgbaImage) -> Result<Recognition> {
-        let found = self.finder.detect(image)?;
+        let found = self
+            .finder
+            .as_mut()
+            .context("VOCR reader requires an external line detector")?
+            .detect(image)?;
+        self.read_lines(image, found, false)
+    }
+    pub(super) fn read_lines(
+        &mut self,
+        image: &RgbaImage,
+        found: Vec<LineBox>,
+        infer_polarity: bool,
+    ) -> Result<Recognition> {
         self.validate()?;
+        self.cache.begin();
         let mut lines = vec![];
         for b in found {
             // VOCR's recognizer is horizontal. Detector-only workflows retain
             // vertical boxes for engines that support them (including Lens).
             if b.vertical != 0 {
+                continue;
+            }
+            let polarity = (!infer_polarity).then_some(b.dark != 0);
+            let key = line_cache::key(
+                image,
+                [b.x as u32, b.y as u32, b.w as u32, b.h as u32],
+                polarity,
+            );
+            if let Some(hit) = self.cache.get(&key) {
+                lines.push(hit);
                 continue;
             }
             let crop = imageops::crop_imm(image, b.x as u32, b.y as u32, b.w as u32, b.h as u32)
@@ -319,7 +378,7 @@ impl Vocr {
                 .recognizer
                 .as_mut()
                 .unwrap()
-                .recognize(&crop, b.dark != 0)?;
+                .recognize(&crop, polarity)?;
             line.bounds = b.edges();
             for c in &mut line.words {
                 c.bounds[0] += b.x as f64;
@@ -327,6 +386,7 @@ impl Vocr {
                 c.bounds[1] += b.y as f64;
                 c.bounds[3] += b.y as f64;
             }
+            self.cache.insert(key, &line);
             lines.push(line);
         }
         Ok(Recognition::from_lines(lines))

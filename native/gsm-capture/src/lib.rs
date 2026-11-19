@@ -40,7 +40,7 @@ pub fn monitor_image(monitor: &xcap::Monitor, state: &mut Capture) -> Result<Rgb
     }
 }
 #[cfg(windows)]
-mod desktop;
+pub mod desktop;
 /// Fresh physical desktop pixels, with the virtual desktop's possibly negative origin.
 pub struct DesktopSnapshot {
     pub left: i32,
@@ -50,7 +50,13 @@ pub struct DesktopSnapshot {
 /// A one-shot desktop read, with no persistent capture session or idle work.
 #[cfg(windows)]
 pub fn desktop_snapshot() -> Result<DesktopSnapshot, String> {
-    desktop::snapshot()
+    let (bitmap, left, top) = desktop::capture()?;
+    let (width, height) = bitmap.dimensions();
+    Ok(DesktopSnapshot {
+        left,
+        top,
+        image: bitmap.crop_rgba([0, 0, width, height]),
+    })
 }
 #[cfg(not(windows))]
 pub fn desktop_snapshot() -> Result<DesktopSnapshot, String> {
@@ -93,6 +99,34 @@ pub fn desktop_snapshot() -> Result<DesktopSnapshot, String> {
 }
 
 use image::RgbaImage;
+
+pub fn scale_for_ocr(image: RgbaImage, scale: f64) -> RgbaImage {
+    use fast_image_resize::{FilterType, ResizeAlg, ResizeOptions, Resizer};
+
+    if scale >= 1. || image.is_empty() {
+        return image;
+    }
+    let width = (image.width() as f64 * scale).max(1.) as u32;
+    let height = (image.height() as f64 * scale).max(1.) as u32;
+    let mut scaled = RgbaImage::new(width, height);
+    // Match the previous triangle filter with independent RGBA channels.
+    let options = ResizeOptions::new()
+        .resize_alg(ResizeAlg::Convolution(FilterType::Bilinear))
+        .use_alpha(false);
+    if Resizer::new()
+        .resize(&image, &mut scaled, &options)
+        .is_err()
+    {
+        return image::imageops::resize(
+            &image,
+            width,
+            height,
+            image::imageops::FilterType::Triangle,
+        );
+    }
+    scaled
+}
+
 #[cfg(windows)]
 pub fn crop_client(
     image: RgbaImage,
@@ -336,9 +370,46 @@ pub fn capture_window(config: &Value, state: &mut Capture) -> Result<image::Rgba
     )
     .map(|(image, _)| image)
 }
+
 #[cfg(not(windows))]
 pub fn capture_window(config: &Value, state: &mut Capture) -> Result<image::RgbaImage, String> {
     let mut config = config.clone();
     config["settings"]["base_scale"] = serde_json::json!(1.);
     capture(&config, false, state).map(|(image, _, _)| image)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ocr_resize_preserves_triangle_filter_and_frame_dimensions() {
+        let image = RgbaImage::from_fn(65, 37, |x, y| {
+            image::Rgba([
+                (x * 7) as u8,
+                (y * 11) as u8,
+                ((x + y) * 5) as u8,
+                (x * y) as u8,
+            ])
+        });
+        let original = scale_for_ocr(image.clone(), 1.);
+        assert_eq!(original, image);
+        for scale in [0.25, 0.5, 0.75, 0.95] {
+            let width = (image.width() as f64 * scale) as u32;
+            let height = (image.height() as f64 * scale) as u32;
+            let expected = image::imageops::resize(
+                &image,
+                width,
+                height,
+                image::imageops::FilterType::Triangle,
+            );
+            let actual = scale_for_ocr(image.clone(), scale);
+            assert_eq!(actual.dimensions(), expected.dimensions());
+            assert!(actual
+                .as_raw()
+                .iter()
+                .zip(expected.as_raw())
+                .all(|(a, b)| a.abs_diff(*b) <= 1));
+        }
+    }
 }

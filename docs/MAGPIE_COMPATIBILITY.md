@@ -79,7 +79,7 @@ mouse release. At most one renderer hit test is in flight; a stalled reply can
 expire without changing input ownership. During a windowed drag, the same timer
 refreshes native geometry until Magpie broadcasts the end of movement.
 
-**Click through overlay text** defaults to on in automatic mode. Find it directly
+**Click through overlay text** defaults to off in automatic mode. Find it directly
 on Overlay Settings → Home, or under Interaction → Mouse & text. When enabled, game text
 passes clicks through even while hovered or while a dictionary popup is open.
 When disabled, text accepts selection and click-triggered lookups. Real popup

@@ -109,16 +109,25 @@ fn slow_ocr_does_not_turn_close_captures_into_quiet_agreement() {
 #[test]
 fn learned_hook_delay_requires_repeated_confirmed_late_reveals() {
     let mut learned = LearnedDelay::default();
+    let mut timing = HookTiming::new("日本語の文章");
+    timing.observe("", 0.02);
+    timing.observe("日本語の文章", 0.2);
     for _ in 0..3 {
-        let mut timing = HookTiming::new("日本語の文章");
-        timing.observe("", 0.);
-        timing.observe("日本語の文章", 0.2);
         learned.record(&timing);
     }
     assert!((learned.delay - 0.05).abs() < 0.001);
+    assert_eq!(
+        timing.summary(0., learned.delay),
+        "initial delay: 0ms -> 50ms, initial match: 0%, timing: late_reveal, first capture: 20ms, ready capture: 200ms"
+    );
     let mut partial = HookTiming::new("日本語の文章");
     partial.observe("日本語", 0.);
     partial.observe("日本語の文章", 0.5);
+    assert!(
+        partial
+            .summary(0.05, 0.05)
+            .contains("initial match: 50%, timing: partial_text")
+    );
     for _ in 0..10 {
         learned.record(&partial);
     }

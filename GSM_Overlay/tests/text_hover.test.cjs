@@ -8,14 +8,16 @@ function target(matches) {
   }, dispatchEvent(event) { this.events.push(event); } };
 }
 
-test('game text and padded text regions pass clicks; real controls and dictionary frames capture', () => {
-  for (const matches of [['.text-box', '.interactive'], ['.nav-char-box'], ['.big-interactive-area', '.interactive'], ['#text', '.interactive'], []]) {
-    assert.equal(isClickableHoverTarget(target(matches)), false);
+test('game text accepts clicks by default and passes them through when enabled', () => {
+  for (const matches of [['.text-box', '.interactive'], ['.nav-char-box'], ['.big-interactive-area', '.interactive'], ['#text', '.interactive']]) {
+    assert.equal(isClickableHoverTarget(target(matches)), true);
+    assert.equal(isClickableHoverTarget(target(matches), true), false);
   }
+  assert.equal(isClickableHoverTarget(target([])), false);
   for (const match of ['button', 'a[href]', 'input', '.interactive', 'iframe.yomitan-popup', 'yomitan-popup-tag-name', 'hachidori-host']) {
     assert.equal(isClickableHoverTarget(target([match])), true, match);
   }
-  assert.equal(isClickableHoverTarget(target(['button', '.text-box'])), true);
+  assert.equal(isClickableHoverTarget(target(['button', '.text-box']), true), true);
 });
 
 function setup(clickThrough = true) {

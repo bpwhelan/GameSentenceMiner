@@ -55,7 +55,12 @@ export class ScrollElement {
      * @param {number} y
      */
     toY(y) {
-        this.to(this.x, y);
+        this.stop();
+        if (this._node !== null) {
+            this._node.scrollTop = y;
+        } else {
+            window.scroll({top: y});
+        }
     }
 
     /**

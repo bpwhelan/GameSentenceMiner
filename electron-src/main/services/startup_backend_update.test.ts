@@ -37,10 +37,10 @@ describe('startup backend sync', () => {
         expect(updater.updateGSM).toHaveBeenCalledExactlyOnceWith(false, false);
     });
 
-    it('keeps ordinary launches fast when no sync is needed', async () => {
+    it('checks for hotfixes on ordinary launches with automatic updates disabled', async () => {
         const { options, updater } = setup();
         await expect(syncStartupBackend(options, updater)).resolves.toBe(true);
-        expect(updater.updateGSM).not.toHaveBeenCalled();
+        expect(updater.updateGSM).toHaveBeenCalledExactlyOnceWith(false, false);
     });
 
     it.each([

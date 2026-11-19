@@ -6882,3 +6882,29 @@ button.danger:hover:not(:disabled) {
 .settings-data-folder-location summary {
   cursor: pointer;
 }
+
+.log-origin-badge {
+  font-family: "Noto Sans Mono", "IPA Gothic", "Courier New", monospace;
+  font-weight: 600;
+}
+
+.log-origin-badge--python {
+  color: #f0c659;
+}
+
+.log-origin-badge--rust {
+  color: #f28b50;
+}
+
+.log-origin-badge--renderer,
+.log-origin-badge--electron {
+  color: #c792ea;
+}
+
+.log-origin-badge--frida {
+  color: #82aaff;
+}
+
+.log-origin-badge--other {
+  color: #89ddff;
+}

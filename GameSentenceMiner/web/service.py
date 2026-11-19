@@ -6,6 +6,7 @@ import shlex
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
 
 from GameSentenceMiner import anki
 from GameSentenceMiner.util.config.configuration import (
@@ -265,17 +266,65 @@ def _save_texthooker_video_clip(trimmed_video: str, line: GameLine) -> str:
     return destination
 
 
-def create_media_for_lines(video_path=""):
+@dataclass
+class TextFeedReplay:
+    """Everything a single button press needs when its replay finishes."""
+
+    line_ids: tuple[str, ...]
+    line_for_audio: GameLine | None = None
+    line_for_screenshot: GameLine | None = None
+    line_for_video_trim: GameLine | None = None
+    lines_for_media_creation: list | None = None
+    pending_clip_saves: list = field(default_factory=list)
+    texthooker_audio_request: dict = field(default_factory=dict)
+    texthooker_video_trim_request: dict = field(default_factory=dict)
+    media_creation_request: dict = field(default_factory=dict)
+
+
+def text_feed_request(lines):
+    from GameSentenceMiner.obs.outputs import native_replay_acquisition
+
+    if native_replay_acquisition():
+        return TextFeedReplay(tuple(line.id for line in lines))
+    return gsm_state
+
+
+def save_text_feed_replay(pending):
+    from GameSentenceMiner import obs
+    from GameSentenceMiner.replay_handler import card_executor
+
+    path = obs.save_replay_buffer()
+    if isinstance(pending, TextFeedReplay):
+        card_executor.submit(handle_texthooker_button, path, pending)
+
+
+def reusable_text_feed_replay(pending, lines):
+    if isinstance(pending, TextFeedReplay):
+        cached = gsm_state.previous_text_feed_replay
+        if cached and pending.line_ids == cached[0] and os.path.isfile(cached[1]):
+            return cached[1]
+        return None
+
+    if pending.lines_for_media_creation:
+        same = lines == gsm_state.previous_lines_for_media_creation
+    else:
+        same = lines[0] in (gsm_state.previous_line_for_audio, gsm_state.previous_line_for_screenshot)
+        if pending.line_for_video_trim:
+            same = same or lines[0] == gsm_state.previous_line_for_video_trim
+    return gsm_state.previous_replay if same else None
+
+
+def create_media_for_lines(video_path="", pending=gsm_state):
     """Generate media (screenshot/audio/trimmed video) for the given line(s) into the output
     folder without creating an Anki card. Used by the non-Anki / Migaku helper button."""
     config = get_config()
-    lines = gsm_state.lines_for_media_creation or []
-    request = gsm_state.media_creation_request or {}
+    lines = pending.lines_for_media_creation or []
+    request = pending.media_creation_request or {}
     trim_with_vad = bool(request.get("trim_with_vad", False))
     open_folder = bool(request.get("open_folder", config.paths.open_output_folder_on_card_creation))
 
-    gsm_state.lines_for_media_creation = None
-    gsm_state.media_creation_request = {}
+    pending.lines_for_media_creation = None
+    pending.media_creation_request = {}
     gsm_state.previous_lines_for_media_creation = lines
 
     if not lines or not config.paths.output_folder:
@@ -335,13 +384,13 @@ def create_media_for_lines(video_path=""):
         _open_folder(word_path)
 
 
-def save_clip_from_replay(video_path=""):
+def save_clip_from_replay(video_path="", pending=gsm_state):
     """Keep an OBS-shaped clip of the oldest queued line so a card can be made later."""
     from GameSentenceMiner.util import clips
 
-    if not gsm_state.pending_clip_saves:
+    if not pending.pending_clip_saves:
         return
-    line = gsm_state.pending_clip_saves.pop(0)
+    line = pending.pending_clip_saves.pop(0)
     line_ids = [line.id]
     try:
         folder = clips.save_clip(video_path, line, clips.get_clips_root())
@@ -356,18 +405,18 @@ def save_clip_from_replay(video_path=""):
     _send_texthooker_audio_event("clip_saved", line_ids=line_ids, folder=folder)
 
 
-def handle_texthooker_button(video_path=""):
+def handle_texthooker_button(video_path="", pending=gsm_state):
     try:
-        if gsm_state.pending_clip_saves:
-            save_clip_from_replay(video_path)
+        if pending.pending_clip_saves:
+            save_clip_from_replay(video_path, pending)
             return
 
-        if gsm_state.lines_for_media_creation:
-            create_media_for_lines(video_path)
+        if pending.lines_for_media_creation:
+            create_media_for_lines(video_path, pending)
             return
 
-        if gsm_state.line_for_audio:
-            request = gsm_state.texthooker_audio_request or {}
+        if pending.line_for_audio:
+            request = pending.texthooker_audio_request or {}
             playback_mode = request.get("playback_mode", "native")
             trim_with_vad = bool(request.get("trim_with_vad", False))
             use_browser_playback = playback_mode == "browser"
@@ -393,14 +442,14 @@ def handle_texthooker_button(video_path=""):
             if gsm_state.current_audio_stream:
                 if not use_browser_playback:
                     stop_current_audio()
-                    gsm_state.line_for_audio = None
-                    gsm_state.texthooker_audio_request = {}
+                    pending.line_for_audio = None
+                    pending.texthooker_audio_request = {}
                     return
                 stop_current_audio()
 
-            line: GameLine = gsm_state.line_for_audio
-            gsm_state.line_for_audio = None
-            gsm_state.texthooker_audio_request = {}
+            line: GameLine = pending.line_for_audio
+            pending.line_for_audio = None
+            pending.texthooker_audio_request = {}
             cached_audio_path = _get_cached_audio_path(line.id, trim_with_vad)
 
             if cached_audio_path and can_play_from_audio_cache:
@@ -472,14 +521,14 @@ def handle_texthooker_button(video_path=""):
                     _play_audio_from_file(audio_path, line.id)
             return
 
-        if gsm_state.line_for_video_trim:
-            line: GameLine = gsm_state.line_for_video_trim
-            request = gsm_state.texthooker_video_trim_request or {}
+        if pending.line_for_video_trim:
+            line: GameLine = pending.line_for_video_trim
+            request = pending.texthooker_video_trim_request or {}
             trim_with_vad = bool(request.get("trim_with_vad", False))
             show_in_explorer = bool(request.get("show_in_explorer", True))
 
-            gsm_state.line_for_video_trim = None
-            gsm_state.texthooker_video_trim_request = {}
+            pending.line_for_video_trim = None
+            pending.texthooker_video_trim_request = {}
             gsm_state.previous_line_for_video_trim = line
 
             trimmed_video = _trim_video_for_line(line, video_path, trim_with_vad)
@@ -492,9 +541,9 @@ def handle_texthooker_button(video_path=""):
                 logger.info(f"Trimmed video created: {saved_video}")
             return
 
-        if gsm_state.line_for_screenshot:
-            line: GameLine = gsm_state.line_for_screenshot
-            gsm_state.line_for_screenshot = None
+        if pending.line_for_screenshot:
+            line: GameLine = pending.line_for_screenshot
+            pending.line_for_screenshot = None
             gsm_state.previous_line_for_screenshot = line
             screenshot = ffmpeg.get_screenshot_for_line(video_path, line, True)
             if not screenshot:
@@ -533,6 +582,8 @@ def handle_texthooker_button(video_path=""):
         return
     finally:
         if video_path:
+            if isinstance(pending, TextFeedReplay):
+                gsm_state.previous_text_feed_replay = (pending.line_ids, video_path)
             gsm_state.previous_replay = video_path
             gsm_state.videos_to_remove.add(video_path)
 

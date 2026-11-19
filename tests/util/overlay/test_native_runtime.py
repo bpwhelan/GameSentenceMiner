@@ -6,30 +6,42 @@ from GameSentenceMiner.util.overlay import get_overlay_coords as overlay
 from GameSentenceMiner.util.overlay import native_runtime
 
 
-def test_completed_native_scan_updates_mining_translation_and_recycled_context(monkeypatch):
+def test_completed_native_scan_only_records_unbacked_scans_without_bouncing_back(monkeypatch):
     monkeypatch.setenv("GSM_NATIVE_OVERLAY", "1")
     recorded = AsyncMock()
     recycled = []
     processor = SimpleNamespace(
-        _is_sentence_recycled=lambda text: text == "猫",
+        _is_sentence_recycled=lambda text: (_ for _ in ()).throw(AssertionError("should not check recycled on return")),
         _send_sentence_recycled_status=lambda **payload: recycled.append(payload),
         _record_overlay_scan=recorded,
     )
-    payload = {"is_final": True, "data": [{"text": "猫"}], "line_id": None, "source": "hotkey"}
+    payload = {
+        "is_final": True,
+        "data": [{"text": "猫"}],
+        "line_id": None,
+        "source": "hotkey",
+        "scan_summary": "Overlay OCR complete: meikiocr sent 1 text boxes",
+    }
     asyncio.run(native_runtime.accept_result(processor, payload))
     assert processor.last_oneocr_result == "猫"
     assert processor.last_lens_result == ""
-    assert processor.sentence_is_recycled
+    assert recycled == []
     recorded.assert_awaited_once_with("猫", source="hotkey")
     recorded.reset_mock()
+    # Text-driven scans (line_id present) are owned end-to-end by Rust; Python ignores them.
     payload["line_id"] = "existing-hook-line"
+    payload["data"] = [{"text": "犬"}]
     asyncio.run(native_runtime.accept_result(processor, payload))
     recorded.assert_not_awaited()
-    assert recycled[-1]["line_id"] == "existing-hook-line"
+    assert recycled == []
+    assert processor.last_oneocr_result == "猫"
+    # Non-final scans are ignored.
+    payload["line_id"] = None
     payload["is_final"] = False
     payload["data"] = [{"text": "partial"}]
     asyncio.run(native_runtime.accept_result(processor, payload))
     assert processor.last_oneocr_result == "猫"
+    recorded.assert_not_awaited()
 
 
 def test_tauri_scan_forwards_context_without_initializing_python_ocr(monkeypatch):
@@ -37,6 +49,7 @@ def test_tauri_scan_forwards_context_without_initializing_python_ocr(monkeypatch
     processor = overlay.OverlayProcessor()
     send = AsyncMock()
     monkeypatch.setattr(native_runtime, "send", send)
+    monkeypatch.setattr(processor, "_is_sentence_recycled", lambda text: text == "日本語")
     monkeypatch.setattr(processor, "_ensure_correct_engine_loaded", lambda: (_ for _ in ()).throw(AssertionError()))
     asyncio.run(processor.find_box_and_send_to_overlay(SimpleNamespace(id="line", text="日本語")))
     send.assert_awaited_once_with(
@@ -44,6 +57,7 @@ def test_tauri_scan_forwards_context_without_initializing_python_ocr(monkeypatch
         "scan",
         line_id="line",
         text="日本語",
+        is_sentence_recycled=True,
         precomputed=None,
         retries=5,
         manual=False,
@@ -100,3 +114,14 @@ def test_pause_recovery_and_background_do_not_capture_in_python(monkeypatch):
 def test_python_standalone_keeps_legacy_runtime(monkeypatch):
     monkeypatch.delenv("GSM_NATIVE_OVERLAY", raising=False)
     assert not native_runtime.enabled()
+
+
+def test_window_movement_reprojects_native_results_without_requesting_ocr(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_OVERLAY", "1")
+    processor = overlay.OverlayProcessor()
+    send = AsyncMock()
+    monkeypatch.setattr(native_runtime, "send", send)
+
+    asyncio.run(processor.reprocess_and_send_last_results())
+
+    send.assert_awaited_once_with(processor, "reproject")

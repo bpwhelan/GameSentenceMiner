@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 OVERLAY_INDEX = Path(__file__).resolve().parents[1] / "GSM_Overlay" / "index.html"
@@ -21,5 +22,7 @@ def test_red_indicator_boxes_follow_overlay_calibration_offset():
         "// Add recycled sentence indicator", 1
     )[0]
 
-    assert "blockBox.style.left = `${bounds.minx + offsetX}%`;" in indicator_rendering
-    assert "blockBox.style.top = `${bounds.miny + offsetY}%`;" in indicator_rendering
+    # Coordinates may already have been projected or padded for the display.
+    # Calibration still applies to the final horizontal and vertical positions.
+    for property_name, offset in (("left", "offsetX"), ("top", "offsetY")):
+        assert re.search(rf"blockBox\.style\.{property_name}\s*=\s*`\$\{{[^}}]+\+\s*{offset}\}}%`", indicator_rendering)

@@ -194,6 +194,7 @@ class SQLiteDB:
         self._write_conn: Optional[sqlite3.Connection] = None
         self._write_tx_depth = 0
         self._closed = False
+        self._used_external_writer = False
         self._shutdown_enqueued = False
         self._pending_futures: set[concurrent.futures.Future] = set()
         self._async_write_errors: List[BaseException] = []
@@ -464,6 +465,13 @@ class SQLiteDB:
             return self._run_tx_inline(fn)
         return self._submit_and_maybe_wait(lambda _conn: self._run_tx_inline(fn), priority, wait)
 
+    def run_external_write(self, fn: Callable[[], Any], *, priority=DB_PRIORITY_NORMAL, wait=True) -> Any:
+        """Order a desktop-owned transaction with local writes, backups and shutdown."""
+        if self.read_only or self._on_writer_thread():
+            raise RuntimeError("Cannot delegate a write from a reader or a nested transaction")
+        self._used_external_writer = True
+        return self._submit_and_maybe_wait(lambda _conn: fn(), priority, wait)
+
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
         """Open a nested-safe transaction from code already on the writer thread."""
@@ -721,6 +729,15 @@ class SQLiteDB:
             except sqlite3.Error:
                 pass
         self._local = threading.local()
+        if self._used_external_writer:
+            from GameSentenceMiner.native import history
+            from GameSentenceMiner.util.communication import bus_client
+
+            # A disconnect releases the writer in the desktop too. When live,
+            # wait for its acknowledgement before handing the file to restore.
+            if bus_client.get_bus().connected:
+                history.request("closeWriter")
+            self._used_external_writer = False
 
     def __enter__(self) -> "SQLiteDB":
         return self

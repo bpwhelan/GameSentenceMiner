@@ -31,6 +31,7 @@ struct Inner {
     pending: Option<Value>,
     requested_at: Option<Instant>,
     background: Option<Value>,
+    reproject: bool,
     paused: bool,
     closed: bool,
 }
@@ -53,7 +54,7 @@ impl Overlay {
         let action = message["action"].as_str().unwrap_or("configure");
         if !matches!(
             action,
-            "configure" | "scan" | "background" | "pause" | "stop"
+            "configure" | "scan" | "background" | "reproject" | "pause" | "stop"
         ) {
             return Err("Unknown overlay action".into());
         }
@@ -83,16 +84,19 @@ impl Overlay {
             "background" => {
                 state.background = Some(message);
             }
+            "reproject" => state.reproject = true,
             "pause" => {
                 state.generation += 1;
                 state.paused = message["paused"].as_bool().unwrap_or(false);
                 state.pending = None;
+                state.reproject = false;
             }
             "stop" => {
                 state.generation += 1;
                 state.label.clear();
                 state.pending = None;
                 state.background = None;
+                state.reproject = false;
                 state.paused = false;
                 state.config = Value::Null;
             }
@@ -153,6 +157,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
     let mut last_cursor = None;
     let mut observed_generation = 0;
     let mut watch: Option<Watch> = None;
+    let mut cached: Option<CachedResult> = None;
     let mut focus = Focus::default();
     let mut focus_context = Value::Null;
     let mut last_projection = None;
@@ -175,6 +180,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
         if state.generation != observed_generation {
             observed_generation = state.generation;
             watch = None;
+            cached = None;
             // Target/profile/visibility changes discard the previous frame.
             if !available(&state.config) || state.paused {
                 emit(
@@ -210,6 +216,29 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             capture_state.clear();
             OBS_CAPTURE.with(|capture| capture.borrow_mut().clear());
         }
+        if std::mem::take(&mut state.reproject) && !state.paused && available(&state.config) {
+            if let Some(result) = cached.as_mut() {
+                // Moving a window changes its desktop projection, not its OCR.
+                // Read geometry only; do not capture a frame or load an engine.
+                let mut config = state.config.clone();
+                if flag(&config, "ocr_full_screen_instead_of_obs", false) {
+                    config["target_id"] = Value::Null;
+                }
+                if let Ok((monitor, capture)) = gsm_capture::source_projection(&config) {
+                    let projection = Projection {
+                        monitor,
+                        capture,
+                        image_size: result.projection.image_size,
+                    };
+                    if result.reproject(&projection) {
+                        if let Some(watch) = watch.as_mut() {
+                            watch.reproject(&projection);
+                        }
+                        emit(&app, &state.label, result.payload.clone());
+                    }
+                }
+            }
+        }
         let automatic = state.pending.is_none() && state.background.is_none();
         if automatic
             && !state.paused
@@ -237,12 +266,29 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                             focus.clear();
                         }
                         for event in events {
+                            match event["type"].as_str() {
+                                Some("ocr_text_invalidated") => cached = None,
+                                Some("word_coordinates") => {
+                                    cached = Some(CachedResult::new(&event, &current.projection));
+                                }
+                                Some("ocr_text_revalidated") => {
+                                    cached = Some(CachedResult::new(
+                                        &event["payload"],
+                                        &current.projection,
+                                    ));
+                                }
+                                _ => {}
+                            }
                             emit(&app, &label, event);
                         }
                     }
                     Err(error) => {
                         current.failures += 1;
-                        eprintln!("[overlay] Presence capture: {error}");
+                        crate::desktop_log::warn(
+                            &app,
+                            "overlay",
+                            format!("Presence capture: {error}"),
+                        );
                     }
                 }
                 if current.failures < 3 && !current.stopped {
@@ -273,7 +319,13 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
         let label = state.label.clone();
         let config = state.config.clone();
         let paused = state.paused;
-        let requested_at = state.requested_at.unwrap_or_else(Instant::now);
+        let dequeued_at = Instant::now();
+        let requested_at = if automatic {
+            dequeued_at
+        } else {
+            state.requested_at.unwrap_or(dequeued_at)
+        };
+        let queue_time = dequeued_at.duration_since(requested_at);
         drop(state);
         if label.is_empty()
             || !available(&config)
@@ -315,7 +367,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 if config["settings"]["manual_mode_desktop_background"] == "off" {
                     return Ok(());
                 }
-                let (image, _) = capture(&config, true, &mut capture_state)?;
+                let (image, _, _) = capture(&config, true, &mut capture_state)?;
                 let mut bytes = std::io::Cursor::new(Vec::new());
                 image::DynamicImage::ImageRgba8(image)
                     .write_to(&mut bytes, image::ImageFormat::Jpeg)
@@ -331,19 +383,23 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 return Ok(());
             }
             let language = config["language"].as_str().unwrap_or("ja");
-            let engine = config["settings"]["engine_v2"].as_str().unwrap_or("oneocr");
-            let engine = if !cfg!(windows) && matches!(engine, "oneocr" | "lens") {
+            let engine = config["settings"]["engine_v2"].as_str().unwrap_or(if cfg!(windows) { "oneocr" } else { "meikiocr" });
+            let engine = if !cfg!(windows) && engine == "lens" {
                 "meikiocr"
             } else {
                 engine
             };
+            // A presence check may need a local fallback for a cloud reader.
+            let fallback = if cfg!(windows) { "oneocr" } else { "meikiocr" };
+            engines.as_mut().unwrap().1.retain_for(&[engine, fallback]);
             if request["recovery"] == true {
                 let mut landing = Landing::default();
                 for _ in 0..8 {
                     if cancelled() {
                         return Ok(());
                     }
-                    let Ok((mut image, projection)) = capture(&config, false, &mut capture_state)
+                    let Ok((mut image, projection, _)) =
+                        capture(&config, false, &mut capture_state)
                     else {
                         break;
                     };
@@ -360,11 +416,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     }
                 }
             }
-            let attempts = if flag(&config, "text_appears_instantly", false) {
-                1
-            } else {
-                request["retries"].as_u64().unwrap_or(5).min(8) + 1
-            };
+            let attempts = scan_attempts(&config, &request);
             let reference = request["text"].as_str().unwrap_or("");
             let learn = matches!(request["source"].as_str(), Some("texthook" | "hooker"))
                 && local_engine(engine)
@@ -372,6 +424,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 && request["manual"] != true
                 && request["precomputed"].is_null();
             let mut hook_timing = HookTiming::new(reference);
+            let mut initial_delay = 0.;
             if learn {
                 let context = json!([
                     config["scene"],
@@ -383,26 +436,33 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     learned_delay = LearnedDelay::default();
                     hook_context = context;
                 }
+                initial_delay = learned_delay.delay;
                 if !wait_until(
                     &shared,
                     generation,
-                    requested_at + Duration::from_secs_f64(learned_delay.delay),
+                    requested_at + Duration::from_secs_f64(initial_delay),
                 ) {
                     return Ok(());
                 }
             }
             let mut retry = Retry::new(
                 reference,
-                attempts as u32,
+                attempts,
                 flag(&config, "adaptive_ocr_retries", false),
             );
+            let mut ocr_time = Duration::ZERO;
+            let mut frame_time = Duration::ZERO;
+            let mut resize_time = Duration::ZERO;
+            let mut tries = 0;
             loop {
                 if cancelled() {
                     break;
                 }
                 let mut timer = gsm_overlay::timing::Timer::new("scan");
                 let captured_at = Instant::now();
-                let (mut image, projection) = capture(&config, false, &mut capture_state)?;
+                let (mut image, projection, timing) = capture(&config, false, &mut capture_state)?;
+                frame_time += timing.frame;
+                resize_time += timing.resize;
                 if last_projection.as_ref() != Some(&projection) {
                     focus.clear();
                     last_projection = Some(projection.clone());
@@ -431,6 +491,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     focus.clear();
                     Vec::new()
                 } else {
+                    tries += 1;
                     let use_focus = flag(&config, "adaptive_ocr_retries", false)
                         && !flag(&config, "text_appears_instantly", false)
                         && !flag(&config, "use_overlay_area_config", false)
@@ -450,13 +511,16 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                             if cancelled() {
                                 return Err("Scan cancelled".into());
                             }
-                            engines
+                            let start = Instant::now();
+                            let result = engines
                                 .as_mut()
                                 .unwrap()
                                 .1
                                 .recognize(input, engine, language)
                                 .map(|r| r.lines)
-                                .map_err(|e| format!("{e:#}"))
+                                .map_err(|e| format!("{e:#}"));
+                            ocr_time += start.elapsed();
+                            result
                         },
                     )?
                 };
@@ -477,22 +541,34 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     flag(&config, "use_text_filtering", true),
                     &projection,
                 );
-                let text = payload["data"]
-                    .as_array()
-                    .unwrap()
+                let rows = payload["data"].as_array().unwrap();
+                let box_count = rows.len();
+                let text = rows
                     .iter()
                     .filter_map(|l| l["text"].as_str())
                     .collect::<String>();
                 let capture_seconds = captured_at.duration_since(clock).as_secs_f64();
                 if learn {
-                    hook_timing.observe(&text, capture_seconds);
+                    hook_timing.observe(
+                        &text,
+                        captured_at.duration_since(requested_at).as_secs_f64(),
+                    );
                 }
                 let step = retry.observe(&text, capture_seconds, clock.elapsed().as_secs_f64());
                 let final_pass = bypass || step.finished;
                 payload["is_final"] = json!(final_pass);
                 payload["line_id"] = request["line_id"].clone();
                 payload["latest_text"] = request["text"].clone();
-                payload["source"] = request["source"].clone();
+                payload["source"] = if request["source"].is_string() {
+                    request["source"].clone()
+                } else if request["recovery"] == true {
+                    json!("skip_recovery")
+                } else {
+                    Value::Null
+                };
+                if let Some(recycled) = request["is_sentence_recycled"].as_bool() {
+                    payload["is_sentence_recycled"] = json!(recycled);
+                }
                 mark_latest(&mut payload, request["text"].as_str().unwrap_or(""));
                 payload["engine"] = json!(engine);
                 timer.mark("grouping");
@@ -500,23 +576,62 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 if state.generation != generation || state.label != label {
                     break;
                 }
+                if final_pass && learn {
+                    learned_delay.record(&hook_timing);
+                }
                 let grew = text != last_text
                     && !last_text.is_empty()
                     && normalized(&text).contains(&normalized(&last_text));
+                let mut completed_summary = None;
                 if !automatic
                     || grew
                     || !similar(&text, &last_text, number(&config, "periodic_ratio", 0.9))
                 {
                     watch = Watch::arm(&mut payload, &image, &projection, &config);
+                    cached = Some(CachedResult::new(&payload, &projection));
+                    if final_pass {
+                        let total = requested_at.elapsed();
+                        let total_ms = total.as_millis();
+                        let summary = if bypass {
+                            let coordinates = if forced {
+                                "text-hook"
+                            } else {
+                                "precomputed OCR"
+                            };
+                            format!("Overlay OCR bypass: used {coordinates} coordinates ({box_count} text boxes, total: {total_ms}ms)")
+                        } else {
+                            let source = request["source"].as_str().unwrap_or(if automatic {
+                                "periodic"
+                            } else if request["recovery"] == true {
+                                "skip_recovery"
+                            } else {
+                                "none"
+                            });
+                            let timing = if learn {
+                                hook_timing.summary(initial_delay, learned_delay.delay)
+                            } else {
+                                "timing: not_applicable".into()
+                            };
+                            let ocr_ms = ocr_time.as_millis();
+                            let queue_ms = queue_time.as_millis();
+                            let frame_ms = frame_time.as_millis();
+                            let resize_ms = resize_time.as_millis();
+                            let other_ms = total
+                                .saturating_sub(queue_time + frame_time + resize_time + ocr_time)
+                                .as_millis();
+                            format!("Overlay OCR complete: {engine} sent {box_count} text boxes (total: {total_ms}ms, queue: {queue_ms}ms, frame: {frame_ms}ms, resize: {resize_ms}ms, OCR: {ocr_ms}ms, other: {other_ms}ms, tries: {tries}, source: {source}, {timing})")
+                        };
+                        completed_summary = Some(summary);
+                    }
                     emit(&app, &label, payload);
                     last_text = text;
                 }
                 drop(state);
+                if let Some(summary) = completed_summary {
+                    crate::desktop_log::info(&app, "overlay", &summary);
+                }
                 timer.mark("dispatch");
                 if final_pass {
-                    if learn {
-                        learned_delay.record(&hook_timing);
-                    }
                     break;
                 }
                 if !wait_until(
@@ -531,9 +646,10 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
         })();
         if let Err(error) = result {
             watch = None;
+            cached = None;
             let state = lock.lock().unwrap();
             if state.generation == generation && state.label == label && !state.closed {
-                eprintln!("[overlay] {error}");
+                crate::desktop_log::error(&app, "overlay", &error);
                 emit(
                     &app,
                     &label,
@@ -563,10 +679,28 @@ fn wait_until(shared: &Arc<(Mutex<Inner>, Condvar)>, generation: u64, deadline: 
         .unwrap();
     state.generation == generation && !state.closed
 }
+fn scan_attempts(config: &Value, request: &Value) -> u32 {
+    // OCR has already observed the displayed text, and explicit scans request
+    // the current frame. Hook/unknown sources may still need time to reveal.
+    // Waiting for agreement across two OCR engines otherwise spends the entire
+    // typewriter budget on recognition differences or a vanished HUD label.
+    if flag(config, "text_appears_instantly", false)
+        || request["manual"] == true
+        || matches!(
+            request["source"].as_str(),
+            Some("ocr" | "ocr_manual" | "screen_cropper" | "hotkey" | "manual" | "secondary")
+        )
+    {
+        1
+    } else {
+        (request["retries"].as_u64().unwrap_or(5).min(8) + 1) as u32
+    }
+}
+
 fn local_engine(engine: &str) -> bool {
     matches!(
         engine,
-        "oneocr" | "meikiocr" | "screenai" | "vitaocr" | "alivetext"
+        "oneocr" | "meikiocr" | "screenai" | "vitaocr" | "mida_vocr" | "alivetext"
     )
 }
 fn configured_region(projection: &Projection, config: &Value) -> Option<Region> {
@@ -636,6 +770,68 @@ fn recognize_frame(
 // Two missed checks confirm disappearance in roughly one second.
 const PRESENCE_POLL_INTERVAL: Duration = Duration::from_millis(500);
 
+struct CachedResult {
+    payload: Value,
+    projection: Projection,
+}
+impl CachedResult {
+    fn new(payload: &Value, projection: &Projection) -> Self {
+        Self {
+            payload: payload.clone(),
+            projection: projection.clone(),
+        }
+    }
+
+    fn reproject(&mut self, projection: &Projection) -> bool {
+        if self.projection == *projection
+            || projection.capture[2..]
+                .iter()
+                .chain(&projection.monitor[2..])
+                .any(|size| !size.is_finite() || *size <= 0.)
+        {
+            return false;
+        }
+        reproject_payload(&mut self.payload, &self.projection, projection);
+        self.projection = projection.clone();
+        true
+    }
+}
+
+fn reproject_payload(payload: &mut Value, from: &Projection, to: &Projection) {
+    fn remap_box(line: &mut Value, from: &Projection, to: &Projection) {
+        if let Some(bounds) = line.get_mut("bounding_rect").and_then(Value::as_object_mut) {
+            for (axis, keys) in [(0, ["x1", "x2", "x3", "x4"]), (1, ["y1", "y2", "y3", "y4"])] {
+                for key in keys {
+                    if let Some(value) = bounds.get(key).and_then(Value::as_f64) {
+                        let relative = (value * from.monitor[axis + 2] + from.monitor[axis]
+                            - from.capture[axis])
+                            / from.capture[axis + 2];
+                        bounds.insert(
+                            key.into(),
+                            json!(
+                                (relative * to.capture[axis + 2] + to.capture[axis]
+                                    - to.monitor[axis])
+                                    / to.monitor[axis + 2]
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(words) = line.get_mut("words").and_then(Value::as_array_mut) {
+            for word in words {
+                remap_box(word, from, to);
+            }
+        }
+    }
+    if let Some(lines) = payload["data"].as_array_mut() {
+        for line in lines {
+            remap_box(line, from, to);
+        }
+    }
+    payload["coordinates_only"] = json!(true);
+}
+
 struct Watch {
     presence: Presence,
     projection: Projection,
@@ -645,6 +841,20 @@ struct Watch {
     stopped: bool,
 }
 impl Watch {
+    fn reproject(&mut self, projection: &Projection) -> bool {
+        // A translation leaves the image and presence signatures unchanged.
+        // Resizes still need visual/OCR validation in the presence check.
+        if self.projection == *projection
+            || self.projection.capture[2..] != projection.capture[2..]
+            || self.projection.image_size != projection.image_size
+        {
+            return false;
+        }
+        reproject_payload(&mut self.payload, &self.projection, projection);
+        self.projection = projection.clone();
+        true
+    }
+
     fn arm(payload: &mut Value, image: &RgbaImage, p: &Projection, config: &Value) -> Option<Self> {
         if !flag(config, "last_sent_ocr_presence_check", false)
             || !(flag(config, "last_sent_ocr_presence_remove_notation", true)
@@ -693,27 +903,52 @@ fn poll_watch(
     engines: &mut Engines,
 ) -> Result<Vec<Value>, String> {
     watch.deadline = Instant::now() + PRESENCE_POLL_INTERVAL;
-    let mut timer = gsm_overlay::timing::Timer::new("presence");
-    let (mut image, projection) = capture(config, false, capture_state)?;
+    let (mut image, projection, _) = capture(config, false, capture_state)?;
     mask_areas(&mut image, &projection, config);
-    timer.mark("capture");
-    let geometry_changed = projection != watch.projection;
+    check_watch(
+        watch,
+        config,
+        &image,
+        &projection,
+        |input, engine, language| {
+            engines
+                .recognize(input, engine, language)
+                .map(|r| r.lines)
+                .map_err(|e| format!("{e:#}"))
+        },
+    )
+}
+
+fn check_watch(
+    watch: &mut Watch,
+    config: &Value,
+    image: &RgbaImage,
+    projection: &Projection,
+    mut recognize: impl FnMut(&RgbaImage, &str, &str) -> Result<Vec<TextBox>, String>,
+) -> Result<Vec<Value>, String> {
+    let mut timer = gsm_overlay::timing::Timer::new("presence");
+    let reprojected = watch.reproject(projection);
+    let geometry_changed = *projection != watch.projection;
     let was_invalidated = watch.presence.invalidated();
     let decision = if geometry_changed {
         Decision::Confirm
     } else {
-        watch.presence.observe(&image)
+        watch.presence.observe(image)
     };
     timer.mark("visual");
     match decision {
-        Decision::Unchanged => Ok(Vec::new()),
+        Decision::Unchanged => Ok(if reprojected && !was_invalidated {
+            vec![watch.payload.clone()]
+        } else {
+            Vec::new()
+        }),
         Decision::Restore => Ok(vec![
             json!({"type":"ocr_text_revalidated","presence_id":watch.payload["presence_id"],"payload":watch.payload}),
         ]),
         Decision::Confirm => {
             // Cloud OCR is never called by a background presence check.
-            let selected = config["settings"]["engine_v2"].as_str().unwrap_or("oneocr");
-            let engine = if !cfg!(windows) && matches!(selected, "oneocr" | "lens") {
+            let selected = config["settings"]["engine_v2"].as_str().unwrap_or(if cfg!(windows) { "oneocr" } else { "meikiocr" });
+            let engine = if !cfg!(windows) && selected == "lens" {
                 "meikiocr"
             } else if local_engine(selected) {
                 selected
@@ -723,14 +958,11 @@ fn poll_watch(
                 "meikiocr"
             };
             let language = config["language"].as_str().unwrap_or("ja");
-            let mut lines = recognize_frame(&image, &projection, config, "", None, 0., |input| {
-                engines
-                    .recognize(input, engine, language)
-                    .map(|r| r.lines)
-                    .map_err(|e| format!("{e:#}"))
+            let mut lines = recognize_frame(image, projection, config, "", None, 0., |input| {
+                recognize(input, engine, language)
             })
             .unwrap_or_default();
-            filter_areas(&mut lines, &projection, config);
+            filter_areas(&mut lines, projection, config);
             timer.mark("confirm_ocr");
             if let Some(lines) = presence::match_lines(&watch.presence.lines, &lines) {
                 let mut payload = pipeline::prepare(
@@ -738,7 +970,7 @@ fn poll_watch(
                     language,
                     number(config, "minimum_character_size", 0.),
                     flag(config, "use_text_filtering", true),
-                    &projection,
+                    projection,
                 );
                 for key in [
                     "presence_id",
@@ -753,10 +985,9 @@ fn poll_watch(
                     &mut payload,
                     watch.payload["latest_text"].as_str().unwrap_or(""),
                 );
-                if let Some(presence) = Presence::new(&image, payload_lines(&payload, &projection))
-                {
+                if let Some(presence) = Presence::new(image, payload_lines(&payload, projection)) {
                     watch.presence = presence;
-                    watch.projection = projection;
+                    watch.projection = projection.clone();
                     watch.payload = payload.clone();
                     return Ok(vec![if was_invalidated {
                         json!({"type":"ocr_text_revalidated","presence_id":payload["presence_id"],"payload":payload})
@@ -766,7 +997,7 @@ fn poll_watch(
                 }
             }
             watch.presence.invalidate();
-            // Without a matching text location after a resize/move, the old
+            // Without a matching text location after a resize, the old
             // pixel reference cannot safely restore coordinates. A new scan
             // will arm a fresh monitor instead of OCR polling indefinitely.
             watch.stopped = geometry_changed;
@@ -809,11 +1040,18 @@ fn similar(a: &str, b: &str, threshold: f64) -> bool {
         >= threshold.clamp(0., 1.)
 }
 
-pub(crate) fn capture(
+#[derive(Clone, Copy)]
+struct CaptureTiming {
+    frame: Duration,
+    resize: Duration,
+}
+
+fn capture(
     config: &Value,
     background: bool,
     _state: &mut Capture,
-) -> Result<(RgbaImage, Projection), String> {
+) -> Result<(RgbaImage, Projection, CaptureTiming), String> {
+    let started_at = Instant::now();
     let mut timer = gsm_overlay::timing::Timer::new("capture");
     let source = config["source_name"].as_str().filter(|s| !s.is_empty());
     let obs_allowed = !background
@@ -834,29 +1072,23 @@ pub(crate) fn capture(
             Err(error) => return Err(error),
         }
     };
-    timer.mark("crop");
+    let frame = started_at.elapsed();
+    timer.mark("frame");
     let scale = if background {
         1.
     } else {
         number(config, "base_scale", 0.75).clamp(0.25, 1.)
     };
-    let image = if scale < 1. {
-        image::imageops::resize(
-            &image,
-            (image.width() as f64 * scale).max(1.) as u32,
-            (image.height() as f64 * scale).max(1.) as u32,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        image
-    };
+    let resize_started = Instant::now();
+    let image = gsm_capture::scale_for_ocr(image, scale);
+    let resize = resize_started.elapsed();
     let projection = Projection {
         monitor: bounds,
         capture,
         image_size: image.dimensions(),
     };
     timer.mark("resize");
-    Ok((image, projection))
+    Ok((image, projection, CaptureTiming { frame, resize }))
 }
 
 fn area_regions(p: &Projection, config: &Value) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
@@ -990,6 +1222,212 @@ fn cursor_over_target(config: &Value, point: (i32, i32)) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ocr_and_manual_scans_finish_without_waiting_for_reference_agreement() {
+        for adaptive in [false, true] {
+            let config = json!({"settings":{"adaptive_ocr_retries":adaptive}});
+            for source in ["ocr", "ocr_manual", "screen_cropper", "hotkey", "manual", "secondary"] {
+                let request = json!({"source":source,"text":"女神の祝福","retries":5});
+                for text in ["女神の祝福", "女神の祝複", "", "別のメニュー"] {
+                    let mut retry = Retry::new("女神の祝福", scan_attempts(&config, &request), adaptive);
+                    assert!(retry.observe(text, 0., 0.1).finished, "{source}: {text:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hooked_dialogue_keeps_its_reveal_budget() {
+        for source in ["texthook", "hooker"] {
+            let request = json!({"source":source,"retries":5});
+            let mut retry = Retry::new("日本語", scan_attempts(&json!({}), &request), true);
+            assert!(!retry.observe("日", 0., 0.1).finished);
+            assert!(!retry.observe("日本", 0.3, 0.4).finished);
+            assert!(retry.observe("日本語", 1., 1.1).finished);
+        }
+        assert_eq!(scan_attempts(&json!({}), &json!({"retries":0})), 1);
+    }
+
+    fn movement_fixture() -> (RgbaImage, Projection, Value) {
+        let image = RgbaImage::from_fn(400, 200, |x, y| {
+            let v = if (20..100).contains(&x) && (40..70).contains(&y) && (x % 12 < 4 || y % 12 < 3)
+            {
+                240
+            } else {
+                30
+            };
+            image::Rgba([v, v, v, 255])
+        });
+        let p = Projection {
+            monitor: [-1920., 0., 1920., 1080.],
+            capture: [-1800., 100., 800., 400.],
+            image_size: image.dimensions(),
+        };
+        let line = TextBox {
+            text: "日本語".into(),
+            bounds: [20., 40., 100., 70.],
+            words: vec![TextBox {
+                text: "日".into(),
+                bounds: [20., 40., 40., 70.],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut payload = pipeline::prepare(vec![line], "ja", 0., false, &p);
+        payload["is_final"] = json!(true);
+        payload["line_id"] = json!("hook-line");
+        payload["latest_text"] = json!("日本語");
+        payload["is_sentence_recycled"] = json!(true);
+        payload["engine"] = json!("meikiocr");
+        (image, p, payload)
+    }
+
+    #[test]
+    fn cached_coordinates_follow_moves_and_resizes_without_presence_monitoring() {
+        let (image, p, mut payload) = movement_fixture();
+        assert!(Watch::arm(&mut payload, &image, &p, &json!({})).is_none());
+        let mut cached = CachedResult::new(&payload, &p);
+        let mut moved = Projection {
+            monitor: [0., -1080., 2560., 1440.],
+            capture: [200., -800., 800., 400.],
+            image_size: p.image_size,
+        };
+        assert!(cached.reproject(&moved));
+        let close = |actual: &Value, expected: f64| {
+            assert!((actual.as_f64().unwrap() - expected).abs() < 1e-10);
+        };
+        close(
+            &cached.payload["data"][0]["bounding_rect"]["x1"],
+            240. / 2560.,
+        );
+        close(
+            &cached.payload["data"][0]["bounding_rect"]["y1"],
+            360. / 1440.,
+        );
+        close(
+            &cached.payload["data"][0]["words"][0]["bounding_rect"]["x2"],
+            280. / 2560.,
+        );
+        assert!(cached.payload.get("scan_summary").is_none());
+        assert_eq!(cached.payload["coordinates_only"], true);
+        for key in [
+            "blocks",
+            "is_final",
+            "line_id",
+            "latest_text",
+            "is_sentence_recycled",
+            "engine",
+        ] {
+            assert_eq!(cached.payload[key], payload[key]);
+        }
+        assert!(!cached.reproject(&moved));
+        let mut empty = moved.clone();
+        empty.capture[2] = 0.;
+        assert!(!cached.reproject(&empty));
+        moved.capture[2] *= 2.;
+        moved.capture[3] *= 2.;
+        assert!(cached.reproject(&moved));
+        close(
+            &cached.payload["data"][0]["bounding_rect"]["x1"],
+            280. / 2560.,
+        );
+        close(
+            &cached.payload["data"][0]["bounding_rect"]["y1"],
+            440. / 1440.,
+        );
+        close(
+            &cached.payload["data"][0]["words"][0]["bounding_rect"]["x2"],
+            360. / 2560.,
+        );
+        assert!(cached.reproject(&p));
+        close(
+            &cached.payload["data"][0]["bounding_rect"]["x1"],
+            payload["data"][0]["bounding_rect"]["x1"].as_f64().unwrap(),
+        );
+    }
+
+    #[test]
+    fn presence_moves_existing_boxes_without_calling_ocr() {
+        let (image, mut p, mut payload) = movement_fixture();
+        let config = json!({"settings":{"last_sent_ocr_presence_check":true}});
+        let mut watch = Watch::arm(&mut payload, &image, &p, &config).unwrap();
+        for _ in 0..20 {
+            p.capture[0] += 10.;
+            p.capture[1] += 5.;
+            let events = check_watch(&mut watch, &config, &image, &p, |_, _, _| {
+                panic!("Moving an unchanged image must not run OCR")
+            })
+            .unwrap();
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0]["coordinates_only"], true);
+            assert_eq!(events[0]["presence_id"], payload["presence_id"]);
+            assert_eq!(watch.projection, p);
+        }
+        let events = check_watch(&mut watch, &config, &image, &p, |_, _, _| {
+            panic!("Unchanged image")
+        })
+        .unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn moving_invalidated_text_keeps_it_hidden_until_it_reappears() {
+        let (image, mut p, mut payload) = movement_fixture();
+        let config = json!({"settings":{"last_sent_ocr_presence_check":true}});
+        let mut watch = Watch::arm(&mut payload, &image, &p, &config).unwrap();
+        watch.presence.invalidate();
+        p.capture[0] += 100.;
+        let blank = RgbaImage::from_pixel(400, 200, image::Rgba([30, 30, 30, 255]));
+        assert!(
+            check_watch(&mut watch, &config, &blank, &p, |_, _, _| panic!(
+                "Still missing"
+            ))
+            .unwrap()
+            .is_empty()
+        );
+        let events = check_watch(&mut watch, &config, &image, &p, |_, _, _| {
+            panic!("Restored visually")
+        })
+        .unwrap();
+        assert_eq!(events[0]["type"], "ocr_text_revalidated");
+        assert_eq!(events[0]["payload"]["coordinates_only"], true);
+        assert_eq!(watch.projection, p);
+    }
+
+    #[test]
+    fn presence_still_checks_changed_text_and_resized_captures() {
+        let (image, mut p, mut payload) = movement_fixture();
+        let config = json!({"settings":{"last_sent_ocr_presence_check":true}});
+        let mut watch = Watch::arm(&mut payload, &image, &p, &config).unwrap();
+        let blank = RgbaImage::from_pixel(400, 200, image::Rgba([30, 30, 30, 255]));
+        assert!(
+            check_watch(&mut watch, &config, &blank, &p, |_, _, _| panic!(
+                "First miss"
+            ))
+            .unwrap()
+            .is_empty()
+        );
+        let mut calls = 0;
+        let events = check_watch(&mut watch, &config, &blank, &p, |_, _, _| {
+            calls += 1;
+            Ok(vec![])
+        })
+        .unwrap();
+        assert_eq!(calls, 1);
+        assert_eq!(events[0]["type"], "ocr_text_invalidated");
+        let mut watch = Watch::arm(&mut payload, &image, &p, &config).unwrap();
+        p.capture[2] *= 2.;
+        assert!(!watch.reproject(&p));
+        check_watch(&mut watch, &config, &image, &p, |_, _, _| {
+            calls += 1;
+            Ok(vec![])
+        })
+        .unwrap();
+        assert_eq!(calls, 2);
+        assert!(watch.stopped);
+    }
+
     #[test]
     fn configured_crop_preserves_masks_words_and_scaled_desktop_coordinates() {
         let p = Projection {
@@ -1122,7 +1560,8 @@ mod tests {
         let mut capture_state = Capture::default();
         for sample in 0..10 {
             let start = Instant::now();
-            let (mut image, projection) = capture(&config, false, &mut capture_state).unwrap();
+            let (mut image, projection, timing) =
+                capture(&config, false, &mut capture_state).unwrap();
             let captured = Instant::now();
             mask_areas(&mut image, &projection, &config);
             let masked = Instant::now();
@@ -1132,7 +1571,7 @@ mod tests {
             let grouped = Instant::now();
             println!(
                 "BENCH {}",
-                json!({"sample":sample,"capture_ms":captured.duration_since(start).as_secs_f64()*1000.,"mask_ms":masked.duration_since(captured).as_secs_f64()*1000.,"ocr_ms":recognized.duration_since(masked).as_secs_f64()*1000.,"grouping_ms":grouped.duration_since(recognized).as_secs_f64()*1000.,"lines":payload["data"].as_array().unwrap().len(),"size":[image.width(),image.height()]})
+                json!({"sample":sample,"capture_ms":captured.duration_since(start).as_secs_f64()*1000.,"frame_ms":timing.frame.as_secs_f64()*1000.,"resize_ms":timing.resize.as_secs_f64()*1000.,"mask_ms":masked.duration_since(captured).as_secs_f64()*1000.,"ocr_ms":recognized.duration_since(masked).as_secs_f64()*1000.,"grouping_ms":grouped.duration_since(recognized).as_secs_f64()*1000.,"lines":payload["data"].as_array().unwrap().len(),"size":[image.width(),image.height()]})
             );
         }
         #[cfg(windows)]
@@ -1142,7 +1581,7 @@ mod tests {
             std::fs::write(control, r##"{"color":"#123456"}"##).unwrap();
             let deadline = Instant::now() + Duration::from_secs(5);
             loop {
-                let (image, _) = capture(&config, false, &mut capture_state).unwrap();
+                let (image, _, _) = capture(&config, false, &mut capture_state).unwrap();
                 let pixel = image.get_pixel(image.width() - 30, image.height() - 30).0;
                 if pixel[..3] == [0x12, 0x34, 0x56] {
                     break;
@@ -1153,7 +1592,7 @@ mod tests {
             std::fs::write(control, r#"{"width":800,"height":440}"#).unwrap();
             let deadline = Instant::now() + Duration::from_secs(5);
             loop {
-                let (image, _) = capture(&config, false, &mut capture_state).unwrap();
+                let (image, _, _) = capture(&config, false, &mut capture_state).unwrap();
                 if image.width() == 800 && image.height() == 440 {
                     break;
                 }
@@ -1161,7 +1600,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(20));
             }
             capture_state.clear();
-            let (image, _) = capture(&config, false, &mut capture_state).unwrap();
+            let (image, _, _) = capture(&config, false, &mut capture_state).unwrap();
             assert_eq!(
                 image.dimensions(),
                 (800, 440),
@@ -1169,10 +1608,10 @@ mod tests {
             );
             let mut full_screen = config.clone();
             full_screen["settings"]["ocr_full_screen_instead_of_obs"] = json!(true);
-            let (image, projection) = capture(&full_screen, false, &mut capture_state).unwrap();
+            let (image, projection, _) = capture(&full_screen, false, &mut capture_state).unwrap();
             assert_eq!(image.width(), projection.monitor[2] as u32);
             assert_eq!(image.height(), projection.monitor[3] as u32);
-            let (image, _) = capture(&config, false, &mut capture_state).unwrap();
+            let (image, _, _) = capture(&config, false, &mut capture_state).unwrap();
             assert_eq!(
                 image.dimensions(),
                 (800, 440),
@@ -1248,6 +1687,32 @@ mod tests {
         let state = actor.0 .0.lock().unwrap();
         assert!(state.background.is_some());
         assert!(state.pending.is_some());
+    }
+    #[test]
+    fn window_movement_does_not_queue_ocr_or_cancel_inflight_work() {
+        let actor = actor();
+        let config = json!({"available":true,"target_id":123});
+        let initial = actor
+            .command("overlay", json!({"action":"configure","config":config}))
+            .unwrap();
+        actor.0 .0.lock().unwrap().pending = None;
+        let moved = actor
+            .command("overlay", json!({"action":"reproject","config":config}))
+            .unwrap();
+        assert_eq!(initial, moved);
+        assert!(actor.0 .0.lock().unwrap().pending.is_none());
+
+        let scan = actor
+            .command("overlay", json!({"action":"scan","text":"new"}))
+            .unwrap();
+        let moved = actor
+            .command("overlay", json!({"action":"reproject","config":config}))
+            .unwrap();
+        assert_eq!(scan, moved);
+        assert_eq!(
+            actor.0 .0.lock().unwrap().pending.as_ref().unwrap()["text"],
+            "new"
+        );
     }
     #[test]
     fn stop_cancels_pending_work_and_reopening_does_not_inherit_pause() {

@@ -15,6 +15,7 @@ const engineHostFiles = new Map([
     ['integrations/hachidori/engine-host.html', 'gsm/engine-host.html'],
     ['integrations/hachidori/engine-host.js', 'gsm/engine-host.js'],
     ['integrations/hachidori/native-search.js', 'gsm/native-search.js'],
+    ['integrations/hachidori/lookup-cache.mjs', 'gsm/lookup-cache.mjs'],
 ]);
 const begin = '// GSM integration hook begin';
 const end = '// GSM integration hook end';
@@ -24,9 +25,10 @@ const hook = `${begin}
     ready: () => globalThis.HDReaderReady,
     readOptions: async () => (await chrome.storage.local.get("options")).options ?? null,
     resolveCandidate, resolveCandidateAt, candidateSignature, sameAnchorNode, lookupCandidate, hide, sendRequest,
+    anchorConnected, anchorRectFor,
     cancelHover({ preserveLookup = false } = {}) {
       if (preserveLookup) clearScanTimer(); else cancelCandidateScan();
-      clearHideTimer(); clearTransferTimer(); clearDescendantTimer();
+      cancelScanDwell(); clearHideTimer(); clearTransferTimer(); clearDescendantTimer(); clearCursorExitTimer();
     },
     command: (action, argument) => runKeybindAction({ action, argument }, { preventDefault() {}, stopPropagation() {} }),
   });
@@ -49,8 +51,40 @@ export function patchContent(source) {
     source = source.replace(/  \/\/ GSM integration hook begin[\s\S]*?  \/\/ GSM integration hook end\n/gu, '');
     source = source.replace(/^.*\/\/ GSM hook\n/gmu, '');
     source = replaceOnce(source, '  let disposed = false;', '  let gsmBridge = null; // GSM hook\n  let disposed = false;');
+    const activation = '  function activationAllowed() {';
+    source = replaceOnce(source, activation, [
+        '  function gsmScanOptions() { return globalThis.GsmHachidoriIntegration.homeScanOptions(options, lastPointer?.target); } // GSM hook',
+        '  function gsmPageScanAllowed(target) { return globalThis.GsmHachidoriIntegration.pageScanAllowed(document.documentElement.dataset.gsmReaderScope, target); } // GSM hook',
+        activation,
+        '    if (!gsmPageScanAllowed(lastPointer?.target)) return false; // GSM hook',
+    ].join('\n'));
+    // Recheck the hit when a delayed pointer scan finally runs. Selection
+    // shortcuts use the selected range independently of the last pointer.
+    const field = '    const field = scannableField(hit);';
+    source = replaceOnce(source, field, `    if (!gsmPageScanAllowed(hit)) return null; // GSM hook\n${field}`);
+    for (const signature of ['function resolveSelectedLookupCandidate(selection = window.getSelection(), profile = undefined)',
+        'function resolveSelectionScanCandidate(selection = window.getSelection())']) {
+        const start = `  ${signature} {`;
+        source = replaceOnce(source, start, `${start}\n    if (selection?.rangeCount && !gsmPageScanAllowed(selectionBoundaryElement(selection.getRangeAt(0).commonAncestorContainer))) return null; // GSM hook`);
+    }
+    const button = '    const { claimed, cancelRelease, candidate } = scanPressClaim(event, inPopup, level);';
+    source = replaceOnce(source, button, `    if (!inPopup && !gsmPageScanAllowed(event.target)) return false; // GSM hook\n${button}`);
+    for (const method of ['addEventListener', 'removeEventListener']) {
+        const pageHide = `    window.${method}("pagehide", onPageHide);`;
+        source = replaceOnce(source, pageHide, `${pageHide}\n    if (document.documentElement.dataset.gsmReaderScope === "feed") window.${method}("gsm-reader-feed-closed", dismissPopups); // GSM hook`);
+    }
+    // Shadow options only during pointer/activation handling. Settings writes,
+    // dictionary profiles and unrelated pages retain the user's actual options.
+    for (const signature of ['function activationAllowed()', 'function definitionKeyGated()',
+        'function hoverScanDelay(level)', 'function activationButton()', 'function schedulePointerHide()',
+        'function updateModifierState(event)', 'function scanActivatedPointer()', 'function releaseActivation()',
+        'function onKeyDown(event)', 'function onKeyUp(event)', 'function onWindowBlur()',
+        'function syncHostAttention()', 'function scheduleDescendantPrune(level)', 'function startButtonScan(event)']) {
+        source = replaceOnce(source, `  ${signature} {`, `  ${signature} {\n    const options = gsmScanOptions(); // GSM hook`);
+    }
     for (const signature of ['function onMouseMove(event)', 'function onPopupMouseMove(event, level)',
         'function onMouseOut(event)', 'function onWindowBlur()', 'function scheduleHide()',
+        'function scheduleCursorExitHide()', 'function scheduleDescendantPrune(level)',
         'function onKeyDown(event)', 'function onKeyUp(event)']) {
         source = replaceOnce(source, `  ${signature} {`, `  ${signature} {\n    if (gsmBridge?.navigationActive) return; // GSM hook`);
     }
@@ -59,6 +93,8 @@ export function patchContent(source) {
         // Coalesce lifecycle/layout callbacks after the new buttons are bound.
         source = replaceOnce(source, `  ${signature} {`, `  ${signature} {\n    gsmBridge?.scheduleRefresh(); // GSM hook`);
     }
+    const show = '  function show(candidate, level = rootLevel) {';
+    source = replaceOnce(source, show, `${show}\n    gsmBridge?.captureRootAnchor(level, candidate); // GSM hook`);
     source = replaceOnce(source, '  function teardown(reason) {', '  function teardown(reason) {\n    gsmBridge?.destroy(); // GSM hook');
     source = replaceOnce(source, '          resolve(reply);', '          gsmBridge?.requestCompleted(type, reply); // GSM hook\n          resolve(reply);');
     source = replaceOnce(source, '  start();', `  ${hook}\n  start();`);
@@ -93,6 +129,22 @@ export function patchNativeEngine(source) {
     return replaceOnce(source, anchor, `${anchor}\n  if (globalThis.location?.protocol === "gsm-hachidori:") return "local"; // GSM native engine`);
 }
 
+export function patchEngineLookups(source) {
+    source = source.replaceAll('\r\n', '\n').replace(/^.*\/\/ GSM lookup cache\n/gmu, '');
+    source = source.replaceAll('const json = gsmLookup(', 'const json = engine.ccall(');
+    source = `import {createLookupCache} from "./gsm/lookup-cache.mjs"; // GSM lookup cache\n${source}`;
+    source = source.trimEnd() + '\n\nconst gsmLookupCache = createLookupCache(); // GSM lookup cache\n';
+    source += 'const gsmLookup = (...args) => gsmLookupCache.call(generation, engine, throwIfEngineFailed, ...args); // GSM lookup cache\n';
+    for (const name of ['hdw_lookup', 'hdw_lookup_dictionary']) {
+        const checked = `    // GSM cached ${name}: native errors are checked only when executing the call.`;
+        const check = `    throwIfEngineFailed("${name}");`;
+        source = source.replace(checked, check);
+        source = replaceOnce(source, `const json = engine.ccall(\n      "${name}",`, `const json = gsmLookup(\n      "${name}",`);
+        source = replaceOnce(source, check, checked);
+    }
+    return source;
+}
+
 export async function prepareIntegration(extensionDir) {
     const content = patchContent(await fs.readFile(path.join(extensionDir, 'content.js'), 'utf8'));
     const offscreen = await fs.readFile(path.join(extensionDir, 'chrome-offscreen.js'), 'utf8');
@@ -107,6 +159,7 @@ export async function prepareIntegration(extensionDir) {
     const assets = new Map([['search-shell.js', Buffer.from(patchSearchShell(await fs.readFile(path.join(extensionDir, 'search-shell.js'), 'utf8')))]]);
     assets.set('search-frame.html', Buffer.from(patchSearchFrame(await fs.readFile(path.join(extensionDir, 'search-frame.html'), 'utf8'))));
     assets.set('offscreen.js', Buffer.from(patchNativeEngine(await fs.readFile(path.join(extensionDir, 'offscreen.js'), 'utf8'))));
+    assets.set('engine-service.js', Buffer.from(patchEngineLookups(await fs.readFile(path.join(extensionDir, 'engine-service.js'), 'utf8'))));
     assets.set('search-clipboard.js', Buffer.from(patchClipboard(await fs.readFile(path.join(extensionDir, 'search-clipboard.js'), 'utf8'))));
     for (const [source, destination] of [...files, ...engineHostFiles]) {
         const text = await fs.readFile(path.join(overlayRoot, source), 'utf8');

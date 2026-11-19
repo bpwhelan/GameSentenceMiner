@@ -148,8 +148,9 @@ export class StructuredContentGenerator {
         }
 
         if (this._contentManager !== null) {
-            // Radical fix: Always use img elements instead of canvas for Electron compatibility
-            const image = /** @type {HTMLImageElement} */ (this._createElement('img', 'gloss-image'));
+            const image = this._contentManager instanceof DisplayContentManager ?
+                /** @type {HTMLCanvasElement} */ (this._createElement('canvas', 'gloss-image')) :
+                /** @type {HTMLImageElement} */ (this._createElement('img', 'gloss-image'));
             if (sizeUnits === 'em' && (hasPreferredWidth || hasPreferredHeight)) {
                 const emSize = 14; // We could Number.parseFloat(getComputedStyle(document.documentElement).fontSize); here for more accuracy but it would cause a layout and be extremely slow; possible improvement would be to calculate and cache the value
                 const scaleFactor = 2 * this._window.devicePixelRatio;
@@ -168,11 +169,10 @@ export class StructuredContentGenerator {
             imageContainer.appendChild(image);
 
             if (this._contentManager instanceof DisplayContentManager) {
-                // Use img element directly instead of transferring control to offscreen canvas
                 this._contentManager.loadMedia(
                     path,
                     dictionary,
-                    image,
+                    (/** @type {HTMLCanvasElement} */(image)).transferControlToOffscreen(),
                 );
             } else if (this._contentManager instanceof AnkiTemplateRendererContentManager) {
                 this._contentManager.loadMedia(

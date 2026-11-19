@@ -22,6 +22,7 @@ import { setSeasonalEffectsDisabled } from "../../lib/seasonal";
 import { GpuSettings } from "./GpuSettings";
 import { NotificationSettings } from "./NotificationSettings";
 import { PythonSettings } from "./PythonSettings";
+import { ResourceUsage } from "./ResourceUsage";
 import { ObsUpdates } from "./ObsUpdates";
 import {
   SETTINGS_BACKUP_CATEGORY_IDS,
@@ -98,7 +99,7 @@ const STATS_ENDPOINT_OPTIONS = [
   { value: "search", labelKey: "settings.workspace.statsSearch" },
 ];
 
-type SettingsView = "general" | "notifications" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage";
+type SettingsView = "general" | "notifications" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage" | "resources";
 const SETTINGS_VIEWS = [
   {
     id: "general",
@@ -110,6 +111,7 @@ const SETTINGS_VIEWS = [
   { id: "updates", labelKey: "settings.updates.title" },
   { id: "backups", labelKey: "settings.backup.title" },
   { id: "python", labelKey: "settings.python.title" },
+  { id: "resources", labelKey: "settings.resources.title" },
   {
     id: "storage",
     labelKey: "settings.dataFolder.title",
@@ -504,6 +506,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
+  const hasResourceUsage = isWindows && window.gsmEnv?.shell === "tauri" && Boolean(window.__GSM_INVOKE__);
   const backupSelectionTree = useMemo(() => getBackupSelectionTree(isWindows), [isWindows]);
   const [currentLocale, setCurrentLocale] = useLocale();
 
@@ -1057,7 +1060,9 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
           </div>
           <WorkspaceNavigation
             prefix="settings"
-            items={SETTINGS_VIEWS.map((view) => ({ id: view.id, label: t(view.labelKey) }))}
+            items={SETTINGS_VIEWS
+              .filter((view) => view.id !== "resources" || hasResourceUsage)
+              .map((view) => ({ id: view.id, label: t(view.labelKey) }))}
             value={hasSearchQuery ? null : workspaceView}
             onChange={navigateWorkspace}
             label={t("settings.workspace.navigation")}
@@ -1132,6 +1137,18 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                 onRequestConsole={onRequestConsole}
               />
             </section>
+            {hasResourceUsage && (
+              <section
+                id="settings-view-resources"
+                className="ws-view"
+                role="tabpanel"
+                aria-labelledby="settings-nav-resources"
+                hidden={hasSearchQuery || workspaceView !== "resources"}
+                tabIndex={0}
+              >
+                {active && !hasSearchQuery && workspaceView === "resources" && <ResourceUsage />}
+              </section>
+            )}
             <section
               id="settings-view-general"
               className="ws-view"

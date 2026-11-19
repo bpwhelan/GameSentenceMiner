@@ -13,6 +13,8 @@ use tokio::{
 };
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
+mod replay;
+
 #[derive(Clone, Debug, Serialize)]
 pub struct ObsError {
     pub message: String,
@@ -41,6 +43,7 @@ enum Command {
 struct Sessions {
     clients: HashMap<String, mpsc::Sender<Command>>,
     primary: Option<String>,
+    replay: replay::Replay,
 }
 #[derive(Clone, Default)]
 pub struct ObsService(Arc<Mutex<Sessions>>);
@@ -49,6 +52,10 @@ type Event = Arc<dyn Fn(&str, Value) + Send + Sync>;
 impl ObsService {
     pub fn has_primary(&self) -> bool {
         self.0.lock().unwrap().primary.is_some()
+    }
+
+    pub fn primary_id(&self) -> Option<String> {
+        self.0.lock().unwrap().primary.clone()
     }
 
     pub async fn connect(
@@ -126,11 +133,7 @@ impl ObsService {
 
     pub async fn primary_call(&self, method: &str, data: Value) -> ResultValue {
         let id = self
-            .0
-            .lock()
-            .unwrap()
-            .primary
-            .clone()
+            .primary_id()
             .ok_or_else(|| ObsError::new("OBS is not connected"))?;
         self.call(
             &id,
@@ -242,6 +245,12 @@ async fn run_client(
                     if reply.is_closed() || deadline <= Instant::now() { continue; }
                     sequence += 1;
                     let key = sequence.to_string();
+                    if method == "SaveReplayBuffer" {
+                        if let Err(error) = service.0.lock().unwrap().replay.begin(id, &key) {
+                            let _ = reply.send(Err(error));
+                            continue;
+                        }
+                    }
                     let message = json!({"op":6,"d":{"requestType":method,"requestId":key,"requestData":if data.is_null(){json!({})}else{data}}});
                     if !matches!(timeout(Duration::from_secs(2), socket.send(Message::Text(message.to_string().into()))).await, Ok(Ok(_))) {
                         let error = ObsError::new("OBS request could not be sent");
@@ -260,12 +269,24 @@ async fn run_client(
                     _ => break ObsError::new("OBS connection closed"),
                 };
                 match data["op"].as_u64() {
-                    Some(5) => if let Some(name) = data["d"]["eventType"].as_str() { event(name, data["d"]["eventData"].clone()); },
-                    Some(7) => if let Some((reply, _)) = data["d"]["requestId"].as_str().and_then(|id|pending.remove(id)) {
+                    Some(5) => if let Some(name) = data["d"]["eventType"].as_str() {
+                        let payload = &data["d"]["eventData"];
+                        if primary && matches!(name, "ReplayBufferSaved" | "ReplayBufferStateChanged") {
+                            let completion = service.0.lock().unwrap().replay.event(id, name, payload);
+                            if let Some((key, result)) = completion {
+                                if let Some((reply, _)) = pending.remove(&key) { let _ = reply.send(result); }
+                            }
+                        }
+                        event(name, payload.clone());
+                    },
+                    Some(7) => if let Some(key) = data["d"]["requestId"].as_str() {
                         let d = &data["d"];
                         let result = if d["requestStatus"]["result"] == true { Ok(d.get("responseData").cloned().unwrap_or_else(||json!({}))) }
                         else { Err(ObsError { code:d["requestStatus"]["code"].as_i64().unwrap_or(-1),message:d["requestStatus"]["comment"].as_str().unwrap_or("OBS request failed").into() }) };
-                        let _ = reply.send(result);
+                        let result = service.0.lock().unwrap().replay.reply(id, key, result);
+                        if let Some(result) = result {
+                            if let Some((reply, _)) = pending.remove(key) { let _ = reply.send(result); }
+                        }
                     },
                     _ => {},
                 }
@@ -276,6 +297,7 @@ async fn run_client(
             }
         }
     };
+    service.0.lock().unwrap().replay.disconnected(id);
     for (_, (reply, _)) in pending {
         let _ = reply.send(Err(failure.clone()));
     }
@@ -420,6 +442,56 @@ mod tests {
         });
         server.join().unwrap();
     }
+    #[test]
+    fn replay_save_waits_for_its_ack_and_saved_event_in_either_order() {
+        let (url, server) = fixture(|mut socket| {
+            let saved = |socket: &mut Server, path: &str| {
+                send(
+                    socket,
+                    json!({"op":5,"d":{"eventType":"ReplayBufferSaved","eventData":{"savedReplayPath":path}}}),
+                )
+            };
+            saved(&mut socket, "manual.mkv");
+            // A round trip ensures the unsolicited event was consumed while idle.
+            let barrier = receive(&mut socket);
+            reply(&mut socket, &barrier, json!({}));
+            let first = receive(&mut socket);
+            assert_eq!(first["d"]["requestType"], "SaveReplayBuffer");
+            saved(&mut socket, "card one.mov");
+            reply(&mut socket, &first, json!({}));
+            let second = receive(&mut socket);
+            reply(&mut socket, &second, json!({}));
+            saved(&mut socket, "clip two.mkv");
+            let _ = socket.read();
+        });
+        tauri::async_runtime::block_on(async {
+            let service = ObsService::default();
+            service
+                .connect(
+                    "main".into(),
+                    url,
+                    "password".into(),
+                    true,
+                    Arc::new(|_, _| {}),
+                )
+                .await
+                .unwrap();
+            service
+                .primary_call("GetVersion", Value::Null)
+                .await
+                .unwrap();
+            for path in ["card one.mov", "clip two.mkv"] {
+                let result = service
+                    .primary_call("SaveReplayBuffer", Value::Null)
+                    .await
+                    .unwrap();
+                assert_eq!(result["savedReplayPath"], path);
+            }
+            service.disconnect_primary().await.unwrap();
+        });
+        server.join().unwrap();
+    }
+
     #[test]
     fn timed_out_mutations_are_not_replayed_and_late_replies_do_not_complete_other_requests() {
         let (url, server) = fixture(|mut socket| {

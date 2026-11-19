@@ -17,6 +17,7 @@ from collections import defaultdict
 from flask import request, jsonify
 from threading import Lock
 
+from GameSentenceMiner.native import history
 from GameSentenceMiner.util.config.configuration import get_config
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -40,9 +41,8 @@ _CACHE_EMPTY_RESPONSE = {
 # ---------------------------------------------------------------------------
 # Shared Anki data cache
 # ---------------------------------------------------------------------------
-# The game_stats, nsfw/sfw retention, and earliest_date endpoints all load
-# the entire notes, cards, and reviews tables.  This cache loads them once and
-# reuses the result for up to _ANKI_DATA_TTL seconds.
+# Python reports that need individual notes, cards, and reviews share these
+# objects for up to _ANKI_DATA_TTL seconds. Desktop collection reports query SQLite directly.
 _ANKI_DATA_TTL = 60.0  # seconds
 _ANKICONNECT_NOTES_BATCH_SIZE = 500
 _anki_data_lock = Lock()
@@ -379,7 +379,12 @@ def _fetch_earliest_date(
         return {"earliest_date": 0, **_CACHE_EMPTY_RESPONSE}
 
     try:
+        from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        report = history.anki_earliest_note(AnkiNotesTable._db, parent_tag)
+        if report is not None:
+            return report
         parent_tag_prefix = f"{parent_tag}::"
 
         anki_data = _get_anki_data()
@@ -549,12 +554,15 @@ def _fetch_game_stats(
     end_timestamp: int | None,
 ) -> list:
     """Return per-game Anki statistics from the local cache."""
-    if _is_cache_empty():
-        return []
-
     try:
-        parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
 
+        parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        report = history.anki_game_stats(AnkiNotesTable._db, parent_tag, start_timestamp, end_timestamp)
+        if report is not None:
+            return report
+        if _is_cache_empty():
+            return []
         anki_data = _get_anki_data()
         notes_by_id = anki_data["notes_by_id"]
         note_tags_by_id = anki_data.get("note_tags_by_id")
@@ -668,12 +676,16 @@ def _fetch_nsfw_sfw_retention(
         return {**_empty, **_CACHE_EMPTY_RESPONSE}
 
     try:
+        from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
+        parent_tag = get_config().anki.parent_tag.strip() or "Game"
+        report = history.anki_content_retention(AnkiNotesTable._db, parent_tag, start_timestamp, end_timestamp)
+        if report is not None:
+            return report
         anki_data = _get_anki_data()
         notes_by_id = anki_data["notes_by_id"]
         note_tags_by_id = anki_data.get("note_tags_by_id")
         reviews_by_card = anki_data["reviews_by_card"]
-
-        parent_tag = get_config().anki.parent_tag.strip() or "Game"
 
         # Classify notes as NSFW or SFW
         nsfw_note_ids = set()
@@ -1021,8 +1033,8 @@ def _fetch_anki_reading_impact(
                 _merge_game_activity_totals(game_activity_totals, live_stats.get("game_activity_data", {}))
 
     tokenization_enabled = False
-    mature_word_dates: dict[str, datetime.date] = {}
-    mature_kanji_dates: dict[int, datetime.date] = {}
+    mature_words = [0] * len(week_starts)
+    mature_kanji = [0] * len(week_starts)
     try:
         from GameSentenceMiner.web.tokenization_api import (
             _get_db,
@@ -1034,16 +1046,23 @@ def _fetch_anki_reading_impact(
         tokenization_enabled = bool(is_tokenization_enabled())
         if tokenization_enabled:
             db = _get_db()
-            mature_word_dates = _get_first_mature_word_dates(db)
-            mature_kanji_dates = _get_first_mature_kanji_dates(db)
+            weekly_maturity = history.maturity_report(db, today, weeks=(start_date, end_date))
+            if weekly_maturity is None:
+                mature_words = _build_weekly_maturity_series(
+                    _get_first_mature_word_dates(db), start_date, end_date, week_starts
+                )
+                mature_kanji = _build_weekly_maturity_series(
+                    _get_first_mature_kanji_dates(db), start_date, end_date, week_starts
+                )
+            else:
+                mature_words = weekly_maturity["mature_words"]
+                mature_kanji = weekly_maturity["mature_kanji"]
     except Exception as exc:
         logger.debug(f"Failed to load tokenization maturity data for reading impact: {exc}")
 
     reading_chars = [int(weekly_reading_chars.get(week_label, 0)) for week_label in week_labels]
     reading_hours = [round(float(weekly_reading_hours.get(week_label, 0.0)), 2) for week_label in week_labels]
     cards_mined = [int(weekly_cards_mined.get(week_label, 0)) for week_label in week_labels]
-    mature_words = _build_weekly_maturity_series(mature_word_dates, start_date, end_date, week_starts)
-    mature_kanji = _build_weekly_maturity_series(mature_kanji_dates, start_date, end_date, week_starts)
     lagged_mature_words = _build_lagged_series(mature_words, lag_weeks)
     lagged_mature_kanji = _build_lagged_series(mature_kanji, lag_weeks)
     lagged_pairs = (
@@ -1407,10 +1426,15 @@ def _get_anki_kanji_from_cache(
         return set()
 
     try:
+        from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
         parent_tag = get_config().anki.parent_tag.strip() or "Game"
         parent_tag_prefix = f"{parent_tag}::"
         raw_word_field = getattr(get_config().anki, "word_field", "")
         word_field = raw_word_field.strip() if isinstance(raw_word_field, str) else ""
+        report = history.anki_note_kanji(AnkiNotesTable._db, parent_tag, word_field, start_timestamp, end_timestamp)
+        if report is not None:
+            return set(report)
 
         data = _get_anki_data()
         notes = data["notes_by_id"].values()

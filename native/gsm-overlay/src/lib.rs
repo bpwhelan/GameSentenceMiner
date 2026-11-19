@@ -16,8 +16,3 @@ pub mod text_filter;
 #[path = "../../gsm-native/src/text_matching.rs"]
 pub mod text_matching;
 pub mod timing;
-mod logging {
-    pub fn info(message: String) {
-        eprintln!("[overlay] {message}");
-    }
-}

@@ -64,7 +64,7 @@ try:
     from watchdog.observers import Observer
 
     from GameSentenceMiner import obs
-    from GameSentenceMiner.obs import check_obs_folder_is_correct
+    from GameSentenceMiner.obs import check_obs_folder_is_correct, desktop_session
     from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
     from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
@@ -501,6 +501,8 @@ class GSMApplication:
             logger.debug(f"Failed to broadcast GSM profile state to overlay: {e}")
 
     def _handle_manual_profile_change(self, previous_profile_name: str, new_profile_name: str) -> None:
+        if desktop_session.enabled():
+            return
         self._get_profile_switcher().record_manual_profile_switch(previous_profile_name, new_profile_name)
         self._broadcast_overlay_profile_state()
 
@@ -643,8 +645,12 @@ class GSMApplication:
         if (get_config().advanced.audio_player_path or get_config().advanced.video_player_path) and len(
             get_all_lines()
         ) > 0:
-            gsm_state.line_for_audio = get_all_lines()[-1]
-            obs.save_replay_buffer()
+            from GameSentenceMiner.web.service import save_text_feed_replay, text_feed_request
+
+            line = get_all_lines()[-1]
+            pending = text_feed_request([line])
+            pending.line_for_audio = line
+            save_text_feed_replay(pending)
         else:
             logger.error("Feature Disabled. No audio or video player path set in config!")
 
@@ -677,6 +683,9 @@ class GSMApplication:
         _get_texthooking_page_module().open_texthooker()
 
     def switch_profile(self, profile_name: str) -> None:
+        if desktop_session.enabled():
+            desktop_session.select_profile(profile_name)
+            return
         self._get_profile_switcher().switch_profile(profile_name, settings_window=self.state.settings_window)
         self._broadcast_overlay_profile_state()
 
@@ -989,6 +998,10 @@ class GSMApplication:
         return _handle_exit
 
     def start_file_watcher(self) -> None:
+        from GameSentenceMiner.obs.outputs import native_replay_acquisition
+
+        if native_replay_acquisition():
+            return
         if self.state.file_watcher_observer:
             try:
                 self.state.file_watcher_observer.stop()
@@ -1011,14 +1024,16 @@ class GSMApplication:
         logger.background(f"File watcher started for: {watch_path}")
 
     def on_config_changed(self) -> None:
+        from GameSentenceMiner.native import anki_monitor
+        from GameSentenceMiner.obs.outputs import native_replay_acquisition
+
+        anki_monitor.wake()
         new_path = get_config().paths.folder_to_watch
-        if self.state.file_watcher_path != new_path:
+        if not native_replay_acquisition() and self.state.file_watcher_path != new_path:
             logger.info(
                 f"Watch path changed from '{self.state.file_watcher_path}' to '{new_path}', restarting file watcher..."
             )
             self.start_file_watcher()
-        else:
-            logger.debug("Config changed, but watch path unchanged - no restart needed")
 
         if _is_overlay_previous_line_check_enabled():
             if not game_log.previous_lines:
@@ -1467,7 +1482,10 @@ class GSMApplication:
 
     def start_background_threads(self) -> None:
         anki = _get_anki_module()
-        self._start_thread(anki.start_monitoring_anki, "anki-monitor")
+        from GameSentenceMiner.native import anki_monitor
+
+        if not anki_monitor.start(anki):
+            self._start_thread(anki.start_monitoring_anki, "anki-monitor")
         if get_config().paths.output_folder:
             self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
 
@@ -1757,6 +1775,8 @@ class GSMApplication:
         )
 
     def _register_scene_observed_profile_check(self) -> None:
+        if desktop_session.enabled():
+            return
         service = getattr(obs, "obs_service", None)
         if not service:
             return
@@ -1771,32 +1791,83 @@ class GSMApplication:
             self.start_file_watcher()
 
     def _register_recording_directory_watcher(self) -> None:
+        from GameSentenceMiner.obs.outputs import native_replay_acquisition
+
+        if native_replay_acquisition():
+            return
         service = getattr(obs, "obs_service", None)
         if service:
             service.on_recording_directory_changed(self._on_obs_recording_directory_changed)
 
-    async def register_scene_switcher_callback(self) -> None:
-        def scene_switcher_callback(scene):
-            logger.info(f"Scene changed to: {scene}")
-            if (
-                getattr(self, "_windows_speech_recognition_service", None) is not None
-                and getattr(self, "_windows_speech_recognition_scene", None) != str(scene or "").strip()
-            ):
-                self._stop_windows_speech_recognition(reason="scene changed")
-            try:
-                from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
-                    queue_ensure_scene_dictionary,
-                )
+    def _scene_changed(self, scene):
+        logger.info(f"Scene changed to: {scene}")
+        if (
+            getattr(self, "_windows_speech_recognition_service", None) is not None
+            and getattr(self, "_windows_speech_recognition_scene", None) != str(scene or "").strip()
+        ):
+            self._stop_windows_speech_recognition(reason="scene changed")
+        try:
+            from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
+                queue_ensure_scene_dictionary,
+            )
 
-                queue_ensure_scene_dictionary(
-                    scene,
-                    reason="scene-change-callback",
-                    force=True,
-                )
-            except Exception as exc:
-                logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
+            queue_ensure_scene_dictionary(
+                scene,
+                reason="scene-change-callback",
+                force=True,
+            )
+        except Exception as exc:
+            logger.debug(f"Failed to queue Sudachi user dictionary export from scene callback for '{scene}': {exc}")
+        if not desktop_session.enabled():
             gsm_state.current_game = obs.get_current_game()
+        self.get_previous_lines_for_game()
+
+    def _apply_desktop_session(self, previous, state):
+        from GameSentenceMiner.util.config import configuration
+
+        scene = state["scene"]
+        profile = state.get("profile")
+        changed_profile = profile and previous.get("profile") != profile
+        if changed_profile:
+            configuration.reload_config()
+            if self.state.settings_window:
+                self.state.settings_window.reload_settings(suppress_profile_change_hooks=True)
+            self._broadcast_overlay_profile_state()
+
+        if previous["scene"] != scene:
+            service = obs.obs_service
+            if service:
+                service.apply_desktop_scene(scene)
+            if scene:
+                self._scene_changed(scene)
+            elif getattr(self, "_windows_speech_recognition_service", None):
+                self._stop_windows_speech_recognition(reason="scene changed")
+        elif changed_profile:
             self.get_previous_lines_for_game()
+
+        choices = state.get("choices")
+        if choices and (previous.get("choices") != choices or previous.get("scene_epoch") != state["scene_epoch"]):
+            # The dialog can stay open while the game changes. Rust checks its epoch.
+            threading.Thread(
+                target=self._choose_desktop_profile, args=(choices, state["scene_epoch"]), daemon=True
+            ).start()
+
+    @staticmethod
+    def _choose_desktop_profile(choices, epoch):
+        from GameSentenceMiner.ui.qt_main import launch_scene_selection
+
+        if name := launch_scene_selection(choices):
+            try:
+                desktop_session.select_profile(name, scene_epoch=epoch)
+            except Exception as exc:
+                logger.info(f"Scene profile choice expired: {exc}")
+
+    async def register_scene_switcher_callback(self) -> None:
+        if desktop_session.enabled():
+            return
+
+        def scene_switcher_callback(scene):
+            self._scene_changed(scene)
             self._get_profile_switcher().sync_profile_for_scene(
                 scene,
                 interactive=True,
@@ -1998,6 +2069,8 @@ class GSMApplication:
             self._ensure_settings_window()
         _log_startup_stage("Qt ready")
 
+        if desktop_session.enabled():
+            self.state.transport_runtime.submit(desktop_session.watch(self._apply_desktop_session))
         self.start_background_threads()
         self.register_hotkeys()
         _log_startup_stage("background services started")

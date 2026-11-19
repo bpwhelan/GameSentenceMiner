@@ -1,0 +1,546 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "dialogue-mixed": {
+      "iterations_per_run": 36,
+      "verified_result": {
+        "decisions_and_events": "6e96eca121cd28ba4fa24f6b9943e29cc85b0ae28cdcb4f7d63d9654b68ccb11",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 19.686792694739307,
+            "cpu_us_per_observation": 16.075102880658438,
+            "intake_baseline_mib": 36.12890625,
+            "intake_peak_mib": 36.12890625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 21.281545779085956,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 36.1171875,
+            "intake_peak_mib": 36.1171875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 23.89841821042767,
+            "cpu_us_per_observation": 26.122042181069958,
+            "intake_baseline_mib": 36.14453125,
+            "intake_peak_mib": 36.14453125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 20.255645576531762,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 36.03515625,
+            "intake_peak_mib": 36.03515625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 19.561985596296292,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.3828125,
+            "intake_peak_mib": 36.3828125
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 20.256,
+          "cpu_us_per_observation": 20.094,
+          "intake_baseline_mib": 36.129,
+          "intake_peak_mib": 36.129
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 21.26661522586786,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 35.51953125,
+            "intake_peak_mib": 35.51953125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 19.981211418945414,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 35.203125,
+            "intake_peak_mib": 35.203125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 21.171784982968642,
+            "cpu_us_per_observation": 22.10326646090535,
+            "intake_baseline_mib": 35.6875,
+            "intake_peak_mib": 35.6875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 20.413811727976206,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 35.51953125,
+            "intake_peak_mib": 35.51953125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 19.914068926995046,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 35.49609375,
+            "intake_peak_mib": 35.49609375
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 20.414,
+          "cpu_us_per_observation": 20.094,
+          "intake_baseline_mib": 35.52,
+          "intake_peak_mib": 35.52
+        }
+      }
+    },
+    "dialogue-long": {
+      "iterations_per_run": 18,
+      "verified_result": {
+        "decisions_and_events": "c94e4b662ea6d7e7233560e24bbed6b117562fbb5b27ada92978cadcd9b0d3e9",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 103.01373456916178,
+            "cpu_us_per_observation": 104.48816872427983,
+            "intake_baseline_mib": 37.171875,
+            "intake_peak_mib": 37.19140625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 107.12294238801555,
+            "cpu_us_per_observation": 100.46939300411523,
+            "intake_baseline_mib": 37.4375,
+            "intake_peak_mib": 37.4375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 103.14112654885942,
+            "cpu_us_per_observation": 100.46939300411523,
+            "intake_baseline_mib": 37.5234375,
+            "intake_peak_mib": 37.5234375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 109.66581790000171,
+            "cpu_us_per_observation": 112.52572016460906,
+            "intake_baseline_mib": 37.36328125,
+            "intake_peak_mib": 37.36328125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 106.71556069778659,
+            "cpu_us_per_observation": 100.46939300411523,
+            "intake_baseline_mib": 37.44140625,
+            "intake_peak_mib": 37.44140625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 106.716,
+          "cpu_us_per_observation": 100.469,
+          "intake_baseline_mib": 37.438,
+          "intake_peak_mib": 37.438
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 51.4559413601286,
+            "cpu_us_per_observation": 52.244084362139915,
+            "intake_baseline_mib": 37.29296875,
+            "intake_peak_mib": 37.29296875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 49.587705760304104,
+            "cpu_us_per_observation": 48.22530864197531,
+            "intake_baseline_mib": 37.15234375,
+            "intake_peak_mib": 37.15234375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 52.70221193429799,
+            "cpu_us_per_observation": 52.244084362139915,
+            "intake_baseline_mib": 37.09375,
+            "intake_peak_mib": 37.09375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 52.80843621453772,
+            "cpu_us_per_observation": 52.244084362139915,
+            "intake_baseline_mib": 37.32421875,
+            "intake_peak_mib": 37.32421875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 51.75691872759465,
+            "cpu_us_per_observation": 52.244084362139915,
+            "intake_baseline_mib": 37.05078125,
+            "intake_peak_mib": 37.05078125
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 51.757,
+          "cpu_us_per_observation": 52.244,
+          "intake_baseline_mib": 37.152,
+          "intake_peak_mib": 37.152
+        }
+      }
+    },
+    "dialogue-burst": {
+      "iterations_per_run": 18,
+      "verified_result": {
+        "decisions_and_events": "bd0b50db299df92559bf2c6993559d224779eebe422b521d9c36df27f008d1e2",
+        "decisions": {
+          "accepted": 216
+        },
+        "metrics": {
+          "accepted": 216,
+          "duplicates": 0,
+          "rejected": 0,
+          "appended": 216,
+          "updated": 0,
+          "frozen": 0
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 86.18063271689323,
+            "cpu_us_per_observation": 84.39429012345678,
+            "intake_baseline_mib": 36.02734375,
+            "intake_peak_mib": 36.02734375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 85.63078703550879,
+            "cpu_us_per_observation": 88.4130658436214,
+            "intake_baseline_mib": 36.515625,
+            "intake_peak_mib": 36.515625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 93.71944445029904,
+            "cpu_us_per_observation": 88.4130658436214,
+            "intake_baseline_mib": 36.03125,
+            "intake_peak_mib": 36.03125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 84.32160493874167,
+            "cpu_us_per_observation": 84.39429012345678,
+            "intake_baseline_mib": 36.6484375,
+            "intake_peak_mib": 36.6484375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 91.60586419599629,
+            "cpu_us_per_observation": 88.4130658436214,
+            "intake_baseline_mib": 36.03125,
+            "intake_peak_mib": 36.03125
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 86.181,
+          "cpu_us_per_observation": 88.413,
+          "intake_baseline_mib": 36.031,
+          "intake_peak_mib": 36.031
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 29.70367798601122,
+            "cpu_us_per_observation": 32.150205761316876,
+            "intake_baseline_mib": 36.8671875,
+            "intake_peak_mib": 36.8671875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 26.712602878661553,
+            "cpu_us_per_observation": 28.131430041152264,
+            "intake_baseline_mib": 36.84375,
+            "intake_peak_mib": 36.84375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 28.42283950189901,
+            "cpu_us_per_observation": 28.131430041152264,
+            "intake_baseline_mib": 35.984375,
+            "intake_peak_mib": 35.984375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 27.763966050927447,
+            "cpu_us_per_observation": 28.131430041152264,
+            "intake_baseline_mib": 36.01953125,
+            "intake_peak_mib": 36.01953125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 28.761445472259823,
+            "cpu_us_per_observation": 28.131430041152264,
+            "intake_baseline_mib": 36.1640625,
+            "intake_peak_mib": 36.1640625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 28.423,
+          "cpu_us_per_observation": 28.131,
+          "intake_baseline_mib": 36.164,
+          "intake_peak_mib": 36.164
+        }
+      }
+    },
+    "dialogue-live": {
+      "iterations_per_run": 8,
+      "verified_result": {
+        "published": 216,
+        "events_sha256": "181f7d7cb549fd7b03a4f55957ca9c662c9fd5f906e76580a47a77196b7a40af"
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 339.5360532286523,
+            "cpu_us_per_observation": 126.59143518518519,
+            "intake_baseline_mib": 36.67578125,
+            "intake_peak_mib": 37.109375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 206.6144097288661,
+            "cpu_us_per_observation": 126.59143518518519,
+            "intake_baseline_mib": 36.375,
+            "intake_peak_mib": 36.828125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 198.76990740562582,
+            "cpu_us_per_observation": 126.59143518518519,
+            "intake_baseline_mib": 36.171875,
+            "intake_peak_mib": 36.609375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 203.29334490640946,
+            "cpu_us_per_observation": 90.42245370370371,
+            "intake_baseline_mib": 36.67578125,
+            "intake_peak_mib": 37.09765625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 163.75711806580915,
+            "cpu_us_per_observation": 117.54918981481481,
+            "intake_baseline_mib": 36.5859375,
+            "intake_peak_mib": 37.01953125
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 203.293,
+          "cpu_us_per_observation": 126.591,
+          "intake_baseline_mib": 36.586,
+          "intake_peak_mib": 37.02
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 268.52569445273497,
+            "cpu_us_per_observation": 171.80266203703704,
+            "intake_baseline_mib": 36.60546875,
+            "intake_peak_mib": 37.05078125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 291.26180554697015,
+            "cpu_us_per_observation": 144.67592592592592,
+            "intake_baseline_mib": 36.47265625,
+            "intake_peak_mib": 36.90625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 217.0910879613075,
+            "cpu_us_per_observation": 126.59143518518519,
+            "intake_baseline_mib": 36.4921875,
+            "intake_peak_mib": 36.9296875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 185.61238424876205,
+            "cpu_us_per_observation": 81.38020833333333,
+            "intake_baseline_mib": 37.08984375,
+            "intake_peak_mib": 37.48046875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 200.1717592537278,
+            "cpu_us_per_observation": 126.59143518518519,
+            "intake_baseline_mib": 36.41796875,
+            "intake_peak_mib": 36.84765625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 217.091,
+          "cpu_us_per_observation": 126.591,
+          "intake_baseline_mib": 36.492,
+          "intake_peak_mib": 36.93
+        }
+      }
+    },
+    "dialogue-mixed-broker": {
+      "iterations_per_run": 4,
+      "verified_result": {
+        "decisions_and_events": "6e96eca121cd28ba4fa24f6b9943e29cc85b0ae28cdcb4f7d63d9654b68ccb11",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 21.578472215979772,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.15625,
+            "intake_peak_mib": 36.15625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 21.156018529264085,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.09765625,
+            "intake_peak_mib": 36.12109375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 23.634722209761904,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.19140625,
+            "intake_peak_mib": 36.19140625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 21.317361104054186,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.12109375,
+            "intake_peak_mib": 36.12109375
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 19.75405093954005,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.3671875,
+            "intake_peak_mib": 36.3671875
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 21.317,
+          "cpu_us_per_observation": 18.084,
+          "intake_baseline_mib": 36.156,
+          "intake_peak_mib": 36.156
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 423.7451388757176,
+            "cpu_us_per_observation": 506.36574074074076,
+            "intake_baseline_mib": 35.5703125,
+            "intake_peak_mib": 35.578125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 395.6768518778349,
+            "cpu_us_per_observation": 506.36574074074076,
+            "intake_baseline_mib": 36.03125,
+            "intake_peak_mib": 36.03125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 420.9267361282535,
+            "cpu_us_per_observation": 470.19675925925924,
+            "intake_baseline_mib": 35.87890625,
+            "intake_peak_mib": 35.87890625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 417.32256943726463,
+            "cpu_us_per_observation": 434.02777777777777,
+            "intake_baseline_mib": 35.890625,
+            "intake_peak_mib": 35.98046875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 404.6643518315115,
+            "cpu_us_per_observation": 614.8726851851852,
+            "intake_baseline_mib": 35.73828125,
+            "intake_peak_mib": 35.75390625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 417.323,
+          "cpu_us_per_observation": 506.366,
+          "intake_baseline_mib": 35.879,
+          "intake_peak_mib": 35.879
+        }
+      }
+    }
+  },
+  "desktop_sha256": "c5ddffa6e1fd075b8255400dc71d1a58f5b71694a140c44f718848c038fd0783",
+  "native_extension_sha256": "60501605897dc6f54d67740b01e5cf7170eac3702466874d8cc4a777b2335260"
+}

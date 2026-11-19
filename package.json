@@ -4,9 +4,12 @@
   "version": "2026.11.0",
   "description": "GameSentenceMiner",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
+  "desktopRootFiles": ["pyproject.toml", "uv.lock", ".python-version", "LICENSE"],
   "scripts": {
     "start": "npm run build:tauri && node scripts/start-tauri.mjs",
+    "start:optimized": "npm run build:tauri:optimized && node scripts/start-tauri.mjs",
     "build:tauri": "npm run build && node scripts/build-native-dev.mjs",
+    "build:tauri:optimized": "npm run build:tauri -- --release",
     "start:tauri": "node scripts/start-tauri.mjs",
     "agent:restart": "node scripts/restart-gsm.mjs",
     "agent:status": "node scripts/restart-gsm.mjs --status",
@@ -18,8 +21,7 @@
     "build:windows-helpers": "node scripts/build-windows-helpers.mjs",
     "build:game-background": "node scripts/build-game-background-hooks.mjs",
     "test:game-background": "node scripts/test-game-background-hooks.mjs && node scripts/test-direct-input-background-hooks.mjs",
-    "dev": "npm run build:tauri && concurrently -k \"npm:dev:renderer\" \"npm:dev:desktop\"",
-    "dev:main": "tsc -p tsconfig.electron.json --watch --preserveWatchOutput",
+    "dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:renderer": "vite --config electron-src/renderer/vite.config.ts",
     "sync:legacy": "node electron-src/renderer/scripts/sync-legacy-assets.mjs",
     "sync:theme": "node scripts/sync-overlay-theme.mjs",
@@ -34,11 +36,14 @@
     "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
     "app:dist": "npm run app:prepare && node scripts/build-native-desktop.mjs && node scripts/collect-native-assets.mjs",
     "stage:native": "node scripts/stage-native-desktop.mjs",
-    "build:input-server": "cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml",
+    "build:input-server": "cargo build --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target",
     "test:native": "node scripts/check-native-desktop.mjs",
-    "dev:desktop": "wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 GSM_NATIVE_WATCH=1 nodemon --exitcrash --watch src-tauri/src --watch src-tauri/Cargo.toml --watch native/gsm-settings/src --watch native/gsm-settings/Cargo.toml --watch native/gsm-packages/src --watch native/gsm-packages/Cargo.toml --watch native/gsm-runtime/src --watch native/gsm-runtime/Cargo.toml --watch native/gsm-agent/src --watch native/gsm-agent/assets --watch native/gsm-agent/Cargo.toml --watch native/gsm-agent/build.rs --watch native/gsm-overlay/src --watch native/gsm-overlay/Cargo.toml --watch native/gsm-native/src --ext rs,toml --exec \"node scripts/build-native-dev.mjs && node scripts/start-tauri.mjs\"",
     "app:prepare": "npm run build:native && npm run build && npm run build:windows-helpers && npm run build:input-server && npm run stage:native",
-    "app:dist:signed": "npm run app:prepare && node scripts/build-native-desktop.mjs --signed && node scripts/collect-native-assets.mjs"
+    "app:dist:signed": "npm run app:prepare && node scripts/build-native-desktop.mjs --signed && node scripts/collect-native-assets.mjs",
+    "dev:prepare": "npm run sync:theme && npm run sync:legacy && npm run build:helpers",
+    "build:helpers": "node scripts/build-native-helpers.mjs",
+    "check:desktop": "cargo check --locked --manifest-path src-tauri/Cargo.toml",
+    "test:desktop": "cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=1"
   },
   "type": "module",
   "engines": {
@@ -65,8 +70,6 @@
     "@vitejs/plugin-react": "^6.0.4",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "concurrently": "^10.0.6",
-    "cross-env": "^10.0.0",
     "daisyui": "^5.7.4",
     "electron": "^43.8.1",
     "electron-builder": "^26.18.0",
@@ -75,7 +78,6 @@
     "electron-updater": "^6.8.9",
     "frida": "^17.16.4",
     "jsdom": "^30.0.0",
-    "nodemon": "^3.1.14",
     "png-to-ico": "^3.0.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -86,8 +88,7 @@
     "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.2.4",
-    "vitest": "^4.1.12",
-    "wait-on": "^9.1.0"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "acorn": "^8.19.0",

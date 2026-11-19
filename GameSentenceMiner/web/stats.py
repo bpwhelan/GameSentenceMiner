@@ -568,6 +568,12 @@ def calculate_game_milestones(all_lines=None) -> dict | None:
         all_lines: Unused parameter (kept for API compatibility).
     """
     GamesTable = _get_games_table()
+    from GameSentenceMiner.native import history
+
+    if history.managed(GamesTable._db):
+        milestones = history.request("gameMilestones")
+        if milestones is not None:
+            return milestones or None
     all_games = GamesTable.all()
 
     if not all_games:

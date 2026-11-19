@@ -13,15 +13,27 @@ export function Tooltip({ text, align = "start", children }: {
   return <span className={`tooltip-trigger tooltip-trigger--${align}`} data-tip={text}>{children}</span>;
 }
 
+export function HelpTip({ label, text }: { label: string; text: string }) {
+  return (
+    <button type="button" className="help-tip tooltip-trigger--center" aria-label={label} {...tooltipProps(text)}>
+      ?
+    </button>
+  );
+}
+
 interface TooltipTarget {
   source: HTMLElement;
   anchor: HTMLElement;
 }
 
+const DROPDOWN_SELECTOR = 'select, input[list], [role="combobox"], [role="listbox"], [role="option"], [role="menu"], [aria-haspopup="listbox"], [aria-haspopup="menu"]';
+
 function findTooltipTarget(target: EventTarget | null): TooltipTarget | null {
   if (!(target instanceof Element)) return null;
-  const isControl = target instanceof HTMLInputElement || target instanceof HTMLSelectElement ||
-    target instanceof HTMLTextAreaElement;
+  if (target.closest(DROPDOWN_SELECTOR) || target.closest("label")?.control?.matches(DROPDOWN_SELECTOR)) {
+    return null;
+  }
+  const isControl = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
   const source = target.closest<HTMLElement>("[data-tip]") ?? (isControl
     ? Array.from(target.labels ?? []).find((label) => label.dataset.tip)
     : null);

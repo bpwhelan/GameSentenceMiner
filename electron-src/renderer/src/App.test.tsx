@@ -341,6 +341,66 @@ describe('App install-session integration', () => {
         expect(data).not.toContain('History 199\r\n');
     });
 
+    it('parses origin-tagged Python and Rust logs, filters BACKGROUND in simple mode, and replays recent logs without duplicates', async () => {
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'install-session.getActive') return null;
+            if (channel === 'changelog.getPendingDesktopUpdate') return null;
+            if (channel === 'settings.getSettings') return { hasCompletedSetup: true, consoleMode: 'simple' };
+            if (channel === 'logs.getRecent') {
+                return [
+                    {
+                        seq: 1,
+                        message: '[rust:startup] 2026-11-19 12:30:01 | INFO       | Desktop started',
+                        stream: 'stdout',
+                        level: 'INFO',
+                        channel: 'basic',
+                        source: 'rust:startup',
+                    },
+                    {
+                        seq: 2,
+                        message: '[py:backend] 2026-11-19 12:30:02 | MAIN       | BACKGROUND | Hidden in simple mode',
+                        stream: 'stdout',
+                        source: 'py:backend',
+                    },
+                ];
+            }
+            return {};
+        });
+
+        const { default: App } = await import('./App.js');
+        await act(async () => {
+            root.render(<App />);
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+
+        await act(async () => {
+            // Duplicate seq 1 should be ignored.
+            for (const listener of listeners.get('terminal-output') ?? []) {
+                listener({}, { seq: 1, message: '[rust:startup] 2026-11-19 12:30:01 | INFO       | Desktop started', source: 'rust:startup' });
+                listener({}, { seq: 3, message: '[py:backend] 2026-11-19 12:30:03 | ANKI       | INFO       | Card updated', source: 'py:backend' });
+                listener({}, { seq: 4, message: '[py:backend] UpdateProgress: 2/4 Syncing', source: 'py:backend' });
+            }
+            for (const listener of listeners.get('terminal-error') ?? []) {
+                listener({}, { seq: 5, message: '[rust:obs] 2026-11-19 12:30:04 | ERROR      | Connection lost', source: 'rust:obs' });
+            }
+        });
+
+        const logsButton = Array.from(container.querySelectorAll('.tab-button')).find(button => button.textContent === 'Logs')!;
+        await act(async () => { logsButton.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+
+        const written = terminalWriteMock.mock.calls.map(([data]) => data).join('');
+        expect(written.match(/Desktop started/g)).toHaveLength(1);
+        expect(written).toContain('\x1b[38;5;208m[rust:startup]\x1b[0m');
+        expect(written).toContain('\x1b[93m[py:backend]\x1b[0m');
+        expect(written).toContain('Card updated');
+        expect(written).toContain('Update: [############------------] 50% Syncing');
+        expect(written).toContain('\x1b[38;5;208m[rust:obs]\x1b[0m');
+        expect(written).toContain('\x1b[91m2026-11-19 12:30:04 | ERROR      | Connection lost');
+        expect(written).not.toContain('Hidden in simple mode');
+    });
+
     it('loads stats from the configured port and releases the page on leaving the tab', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true }));
         vi.stubGlobal('fetch', fetchMock);

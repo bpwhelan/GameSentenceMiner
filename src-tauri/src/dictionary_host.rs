@@ -839,7 +839,11 @@ async fn run_legacy_export(
                 }
                 let trimmed = line.trim();
                 if !trimmed.is_empty() {
-                    eprintln!("[Dictionary transfer] {trimmed}");
+                    crate::desktop_log::background(
+                        &app_handle,
+                        "dictionary",
+                        format!("Transfer: {trimmed}"),
+                    );
                     if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
                         if let Some(records) = val.get("records").and_then(Value::as_u64) {
                             app_handle
@@ -2188,6 +2192,27 @@ fn current_iso_timestamp() -> String {
 }
 
 impl DictionaryManager {
+    /// Release per-document routing/attachment state when a view is destroyed.
+    /// Shared engines and persistent dictionary storage belong to the app.
+    pub fn forget_window(&self, app: &AppHandle, label: &str) {
+        self.home_reader_ext.lock().unwrap().remove(label);
+        self.home_reader_windows.lock().unwrap().remove(label);
+        self.contexts.lock().unwrap().remove(label);
+        self.content_contexts.lock().unwrap().retain(|(owner, _), _| owner != label);
+        let disconnected: Vec<_> = {
+            let mut ports = self.ports.lock().unwrap();
+            let ids: Vec<_> = ports.iter().filter(|(_, port)| port.source.label == label || port.targets.iter().any(|target| target.label == label)).map(|(id, _)| id.clone()).collect();
+            ids.into_iter().filter_map(|id| ports.remove(&id).map(|port| (id, port))).collect()
+        };
+        for (id, port) in disconnected {
+            for recipient in std::iter::once(port.source).chain(port.targets).filter(|r| r.label != label) {
+                if let Some(window) = app.get_webview_window(&recipient.label) {
+                    let _ = window.eval(&format!("globalThis.__GSM_DICTIONARY_DISPATCH__?.({}, 'port-disconnect', {}, {})", json!(recipient.extension_id), json!([id, Value::Null]), recipient.frame));
+                }
+            }
+        }
+    }
+
     pub fn list_transfers(&self) -> Vec<Value> {
         self.transfers
             .lock()
@@ -2212,11 +2237,11 @@ impl DictionaryManager {
         self.transfers.lock().unwrap().remove(id);
     }
 
-    pub fn get_home_reader_extension(&self, label: &str) -> Option<String> {
+    pub(crate) fn get_home_reader_extension(&self, label: &str) -> Option<String> {
         self.home_reader_ext.lock().unwrap().get(label).cloned()
     }
 
-    pub fn set_home_reader_extension(&self, label: &str, extension_id: &str) {
+    fn set_home_reader_extension(&self, label: &str, extension_id: &str) {
         self.home_reader_ext
             .lock()
             .unwrap()
@@ -2470,7 +2495,7 @@ impl DictionaryManager {
             1.0,
             false,
             overlay_data,
-            "desktop",
+            "dictionary",
             None,
         )
     }
@@ -2520,6 +2545,11 @@ impl DictionaryManager {
             let legacy = discover_legacy(app, &overlay_data, &expected, &name, &active_dir).await?;
             let state_root = overlay_data.join("native-dictionaries");
             let mut relocated = false;
+
+            if extension_kind(&name) == "jiten" && std::env::var_os("GSM_SMOKE_TEST").is_some() {
+                active_dir =
+                    crate::smoke_test::stage_jiten_extension(&canonical_source, &overlay_data)?;
+            }
 
             if let Some(ref legacy_src) = legacy {
                 if legacy_src.id != expected {
@@ -2930,9 +2960,13 @@ impl DictionaryManager {
                 json!({ "directory": destination.to_string_lossy() }).to_string(),
             )
             .map_err(|e| e.to_string())?;
-            eprintln!(
-                "[Dictionary transfer] Reading saved {} dictionaries. The original profile is preserved.",
-                extension.name
+            crate::desktop_log::info(
+                app,
+                "dictionary",
+                format!(
+                    "Reading saved {} dictionaries. The original profile is preserved.",
+                    extension.name
+                ),
             );
             run_legacy_export(
                 app,
@@ -3062,9 +3096,13 @@ impl DictionaryManager {
                 }
                 fs::write(&completed, Value::Object(marker_obj).to_string())
                     .map_err(|e| e.to_string())?;
-                eprintln!(
-                    "[Dictionary transfer] Completed {} {} records.",
-                    extension.name, records_count
+                crate::desktop_log::info(
+                    app,
+                    "dictionary",
+                    format!(
+                        "Completed {} transfer ({} records).",
+                        extension.name, records_count
+                    ),
                 );
                 Ok(Value::Null)
             }
@@ -3244,9 +3282,13 @@ impl DictionaryManager {
             format!("{}/{default_page}", ext.base)
         };
         let label = format!("gsm-dict-options-{}", ext.id);
+        let show =
+            extension_kind(&ext.name) != "jiten" || std::env::var_os("GSM_SMOKE_TEST").is_none();
         if let Some(win) = app.get_webview_window(&label) {
-            let _ = win.show();
-            let _ = win.set_focus();
+            if show {
+                let _ = win.show();
+                let _ = win.set_focus();
+            }
             return Ok(());
         }
         let extra = if use_windows_native_extensions() {
@@ -3272,7 +3314,7 @@ impl DictionaryManager {
             &ext.name,
             1000.0,
             760.0,
-            true,
+            show,
             &overlay_data,
             "dictionary",
             extra.as_deref(),

@@ -401,7 +401,7 @@ impl Obs {
             return Ok(json!("unsupported"));
         }
         {
-            let _lock = self.0.lifecycle.lock().await;
+            let _lock = self.0.lifecycle.write().await;
             recover(&paths)?;
         }
         let installed = paths.executable().is_file();
@@ -418,7 +418,7 @@ impl Obs {
                 if !installed {
                     return Err(error);
                 }
-                eprintln!("[OBS] Automatic update failed: {error}");
+                crate::desktop_log::warn(app, "obs", format!("Automatic update failed: {error}"));
             }
         }
         paths.seed()?;
@@ -525,7 +525,7 @@ impl Obs {
         app: &tauri::AppHandle,
         rollback: bool,
     ) -> Result<Value, String> {
-        let guard = self.0.lifecycle.lock().await;
+        let guard = self.0.lifecycle.write().await;
         self.0.updating.store(true, Ordering::SeqCst);
         let mut coordinated = false;
         let result = self.replace_runtime(app, rollback, &mut coordinated).await;

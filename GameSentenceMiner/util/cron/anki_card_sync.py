@@ -670,6 +670,45 @@ def _scope_note_ids(note_ids: list[int] | None) -> list[int] | None:
     return [note_id for note_id in note_ids if note_id in scope_set]
 
 
+def _desktop_sync(note_ids: list[int] | None, query: str | None = None) -> dict | None:
+    from GameSentenceMiner.native import history
+    from GameSentenceMiner.util.database.anki_tables import AnkiNotesTable
+
+    if not history.manages_anki_sync(AnkiNotesTable._db):
+        return None
+    if note_ids is not None and (
+        len(note_ids) > 300_000 or any(type(n) is not int or not -(2**63) <= n < 2**63 for n in note_ids)
+    ):
+        # Oversize/custom standalone requests retain the original semantics.
+        return None
+    if query is None:
+        query = _build_sync_query()
+        if query is None:
+            return {"skipped": True, "reason": "AnkiConnect unreachable"}
+    config = get_config().anki
+    from websockets.exceptions import ConnectionClosed
+
+    try:
+        result = history.sync_anki(AnkiNotesTable._db, config.url, config.word_field, query, note_ids)
+    except (OSError, RuntimeError, ConnectionClosed) as exc:
+        # A lost reply can follow a committed page. Leave retries to the next
+        # sync so two collection scans never race to prune the same database.
+        logger.warning(f"Desktop Anki sync interrupted: {exc}")
+        return {"skipped": True, "reason": str(exc)}
+    if not result.get("skipped"):
+        _invalidate_reports()
+    return result
+
+
+def _invalidate_reports():
+    try:
+        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
+
+        invalidate_anki_data_cache()
+    except Exception as exc:  # noqa: BLE001 - reports also expire on their normal TTL
+        logger.debug(f"Anki report cache invalidation failed: {exc}")
+
+
 def run_full_sync() -> dict:
     """Daily cron entry point. Performs a complete sync of all Anki data.
 
@@ -696,6 +735,10 @@ def run_full_sync() -> dict:
     sync_query = _build_sync_query()
     if sync_query is None:
         return {"skipped": True, "reason": "word_field not configured"}
+
+    desktop = _desktop_sync(None, sync_query)
+    if desktop is not None:
+        return desktop
 
     note_ids = anki_invoke("findNotes", raise_on_error=False, query=sync_query)
     if note_ids is None:
@@ -754,14 +797,7 @@ def run_full_sync() -> dict:
     }
     logger.info(f"Full sync complete: {summary}")
 
-    # Invalidate the in-memory Anki stats cache so the next API request
-    # picks up the freshly synced data.
-    try:
-        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
-
-        invalidate_anki_data_cache()
-    except Exception:
-        pass  # Non-critical; cache will expire naturally via TTL
+    _invalidate_reports()
 
     return summary
 
@@ -792,6 +828,10 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
 
     if not note_ids:
         return {"skipped": True, "reason": "no note IDs provided"}
+
+    desktop = _desktop_sync(note_ids)
+    if desktop is not None:
+        return desktop
 
     scoped_note_ids = _scope_note_ids(note_ids)
     if scoped_note_ids is None:
@@ -838,11 +878,6 @@ def run_incremental_sync(note_ids: list[int]) -> dict:
     }
     logger.info(f"Incremental sync complete for {len(note_ids)} notes: {summary}")
 
-    try:
-        from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
-
-        invalidate_anki_data_cache()
-    except Exception:
-        pass
+    _invalidate_reports()
 
     return summary

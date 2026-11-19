@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from GameSentenceMiner import obs
 from GameSentenceMiner.util import clips
 from GameSentenceMiner.util.text_log import GameLine
 from GameSentenceMiner.web import service, texthooking_page
@@ -88,8 +89,8 @@ def test_text_feed_actions_run_on_the_saved_clip_once_the_line_left_the_buffer(m
     from GameSentenceMiner import clip_cards
 
     handled, saved = [], []
-    monkeypatch.setattr(service, "handle_texthooker_button", handled.append)
-    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+    monkeypatch.setattr(service, "handle_texthooker_button", lambda path, pending: handled.append(path))
+    monkeypatch.setattr(obs, "save_replay_buffer", lambda: saved.append(True))
     monkeypatch.setattr(clip_cards, "replay_for_lines", lambda lines: "clip-copy.mkv" if lines[0].id == "a" else None)
 
     texthooking_page._save_replay_for([_line("a", 0)])
@@ -107,13 +108,32 @@ def test_saved_clip_lines_are_found_after_a_restart(monkeypatch):
     assert texthooking_page.get_event_line_by_id("unknown") is None
 
 
+def test_native_text_feed_keeps_each_action_with_its_completed_file(monkeypatch):
+    from GameSentenceMiner import clip_cards, replay_handler
+    from GameSentenceMiner.obs import outputs
+
+    monkeypatch.setattr(outputs, "native_replay_acquisition", lambda: True)
+    lines = {name: _line(name, 0) for name in ("a", "b")}
+    monkeypatch.setattr(texthooking_page, "get_event_line_by_id", lines.get)
+    monkeypatch.setattr(service.gsm_state, "previous_text_feed_replay", None)
+    monkeypatch.setattr(clip_cards, "replay_for_lines", lambda selected: None)
+    paths = iter(["custom.mov", "second.mkv"])
+    monkeypatch.setattr(obs, "save_replay_buffer", lambda: next(paths))
+    queued = []
+    monkeypatch.setattr(replay_handler.card_executor, "submit", lambda fn, path, job: queued.append((path, job)))
+    client = texthooking_page.app.test_client()
+    for name in lines:
+        assert client.post("/get-screenshot", json={"id": name}).status_code == 200
+    assert [(path, job.line_for_screenshot.id) for path, job in queued] == [("custom.mov", "a"), ("second.mkv", "b")]
+
+
 def test_clip_save_waits_for_new_context_then_saves_after_padding(monkeypatch):
     selected, first, second = _line("s", 0), _line("n", 4), _line("n2", 8)
     timers, saved = [], []
     clock = [0.0]
     monkeypatch.setattr(texthooking_page.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(texthooking_page.gsm_state, "pending_clip_saves", [], raising=False)
-    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+    monkeypatch.setattr(obs, "save_replay_buffer", lambda: saved.append(True))
 
     class Timer:
         def __init__(self, delay, callback):
@@ -151,7 +171,7 @@ def test_clip_save_stops_waiting_at_the_deadline(monkeypatch):
     clock = [0.0]
     monkeypatch.setattr(texthooking_page.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(texthooking_page.gsm_state, "pending_clip_saves", [], raising=False)
-    monkeypatch.setattr(texthooking_page.obs, "save_replay_buffer", lambda: saved.append(True))
+    monkeypatch.setattr(obs, "save_replay_buffer", lambda: saved.append(True))
     monkeypatch.setattr(clips, "seconds_until_clip_ready", lambda line: clips.MAX_WAIT_SECONDS)
 
     class Timer:

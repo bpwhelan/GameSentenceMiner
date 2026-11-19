@@ -230,7 +230,7 @@ pub fn build_tray_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, Strin
         .map_err(|e| e.to_string())?;
     }
 
-    if cfg!(debug_assertions) {
+    if crate::LOCAL_BUILD {
         menu.append(
             &MenuItem::with_id(app, "tray::restart-app", "Restart App", true, None::<&str>)
                 .map_err(|e| e.to_string())?,
@@ -351,10 +351,15 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
     match id {
         "tray::open-settings" => {
             tauri::async_runtime::spawn(async move {
-                let sent = crate::runtime::backend_command(&handle, "open_settings", json!({}))
-                    .await
-                    .unwrap_or(false);
-                if !sent {
+                let result = crate::gui_dialog::open(&handle, crate::gui_dialog::Dialog::Settings {
+                    root_tab_key: String::new(), subtab_key: String::new(),
+                }).await;
+                if let Err(error) = result {
+                    crate::desktop_log::warn(
+                        &handle,
+                        "tray",
+                        format!("Could not open settings: {error}"),
+                    );
                     show_main_window(&handle);
                 }
             });
@@ -386,15 +391,11 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
                 return;
             }
             tauri::async_runtime::spawn(async move {
-                if crate::runtime::backend_command(
-                    &handle,
-                    "switch_profile",
-                    json!({ "profile_name": profile_name }),
-                )
-                .await
-                .unwrap_or(false)
+                if handle
+                    .state::<crate::obs::Obs>()
+                    .select_game_profile(&profile_name, None)
+                    .is_ok()
                 {
-                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
                     let _ = refresh_menu(&handle);
                 }
             });
@@ -423,7 +424,7 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
         }
         "tray::restart-as-admin" => {
             if let Err(err) = crate::game_privileges::restart_as_admin(app) {
-                eprintln!("[tray] restart-as-admin failed: {err}");
+                crate::desktop_log::error(app, "tray", format!("restart-as-admin failed: {err}"));
             }
         }
         "tray::restart-app" => {

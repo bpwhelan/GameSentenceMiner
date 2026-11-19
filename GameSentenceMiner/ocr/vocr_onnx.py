@@ -4,6 +4,7 @@ The exported assets are verified before loading. There is no build-time ONNX or
 upstream Python dependency here, and no native VOCR library is loaded.
 """
 
+import copy
 import hashlib
 import json
 import os
@@ -15,15 +16,15 @@ import cv2
 import numpy as np
 from PIL import Image
 
+from GameSentenceMiner.native.downloads import asset_path, cached_asset_path
 from GameSentenceMiner.ocr.vocr_onnx_charbox import INK, PITCH, ink_profile, positions, resized_width
 from GameSentenceMiner.ocr.vocr_onnx_decode import _find_grad, grey_of, halve, spot_maps
 
-BUNDLE_HELP = "Reinstall or update GSM to restore its bundled VOCR models."
+BUNDLE_HELP = "Update GSM to restore its VOCR model manifest."
 
 
 def bundled_directory():
-    # Wheels and Electron's resources/GameSentenceMiner tree share this location.
-    # Model selection lives in user data; never write into this package directory.
+    # The package keeps the manifest and may contain graphs from an older install.
     return Path(__file__).resolve().parents[1] / "assets" / "vocr"
 
 
@@ -70,11 +71,19 @@ def installed_models(directory):
 
     directory = Path(directory)
     manifest = read_manifest(directory)
-    for name in ("textspot8-faithful.onnx", *(f"{tier}-faithful.onnx" for tier in MODELS)):
-        file = directory / name
-        if not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != manifest["files"].get(name):
-            raise ValueError(f"VOCR ONNX model is missing or corrupt: {name}. {BUNDLE_HELP}")
-    return list(MODELS)
+
+    def installed(name):
+        bundled = directory / name
+        file = bundled if bundled.is_file() else cached_asset_path(f"vocr/{name}")
+        if file is None:
+            return False
+        if hashlib.sha256(file.read_bytes()).hexdigest() != manifest["files"].get(name):
+            raise ValueError(f"VOCR ONNX model checksum failed: {name}. {BUNDLE_HELP}")
+        return True
+
+    if not installed("textspot8-faithful.onnx"):
+        return []
+    return [tier for tier in MODELS if installed(f"{tier}-faithful.onnx")]
 
 
 def check_dimensions(width, height):
@@ -114,7 +123,9 @@ def load_session(directory, filename, kind, *, threads=1):
     directory = Path(directory)
     manifest = read_manifest(directory)
     try:
-        data = (directory / filename).read_bytes()
+        bundled = directory / filename
+        path = bundled if bundled.is_file() else asset_path(f"vocr/{filename}", bundled)
+        data = path.read_bytes()
     except FileNotFoundError as error:
         raise FileNotFoundError(f"VOCR ONNX model is missing: {filename}. {BUNDLE_HELP}") from error
     if hashlib.sha256(data).hexdigest() != manifest.get("files", {}).get(filename):
@@ -222,6 +233,7 @@ class ONNXRuntime:
         detector_mode="faithful",
         threads=1,
         installation_directory=None,
+        finder=None,
     ):
         from GameSentenceMiner.ocr.vita_ocr import MODELS
 
@@ -248,8 +260,10 @@ class ONNXRuntime:
             "backend": "onnx",
             "mode": mode,
         }
-        self.finder = ONNXLineFinder(directory, mode=detector_mode, threads=threads)
+        self.finder = finder if finder is not None else ONNXLineFinder(directory, mode=detector_mode, threads=threads)
         self._lock = threading.Lock()
+        self._reading = 0
+        self._line_cache = {}
 
     def recognize_line(self, image, *, dark=False):
         if image.mode not in ("L", "RGB", "RGBA"):
@@ -268,15 +282,28 @@ class ONNXRuntime:
         check_dimensions(*image.size)
         with self._lock:
             boxes, metadata = self.finder.detect(image)
+            self._reading += 1
+            self._line_cache = {k: v for k, v in self._line_cache.items() if self._reading - v[0] <= 4}
             lines = []
             for box in boxes:
                 if box["vertical"]:
                     continue
                 x1, y1, x2, y2 = box["box"]
-                line, _ = self.recognize_line(image.crop((x1, y1, x2, y2)), dark=box["dark"])
+                crop = image.crop((x1, y1, x2, y2))
+                if crop.mode not in ("L", "RGB", "RGBA"):
+                    crop = crop.convert("RGBA")
+                key = (x1, y1, x2, y2, crop.mode, box["dark"], hashlib.sha256(crop.tobytes()).digest())
+                cached = self._line_cache.get(key)
+                if cached is not None:
+                    self._line_cache[key] = self._reading, cached[1]
+                    lines.append(copy.deepcopy(cached[1]))
+                    continue
+                line, _ = self.recognize_line(crop, dark=box["dark"])
                 line["box"] = (x1, y1, x2 - x1, y2 - y1)
                 for character in line["characters"]:
                     x, y, w, h = character["box"]
                     character["box"] = (x + x1, y + y1, w, h)
+                if len(self._line_cache) < 512:
+                    self._line_cache[key] = self._reading, copy.deepcopy(line)
                 lines.append(line)
             return VOCRLines(lines, metadata)

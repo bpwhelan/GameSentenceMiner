@@ -95,6 +95,29 @@ test('duplicate button and OS key-down events only fire an action once per press
   assert.equal(confirms, 4);
 });
 
+test('forward Enter bindings work before navigation, during navigation and after exit', t => {
+  const { handler, button, key } = setup(t, {
+    forwardEnterButton: 0, keyboardForwardEnterKey: 'F8', keyboardEnabled: true,
+  });
+  const forwarded = [];
+  handler.getIpcRenderer = () => ({
+    send(channel) { if (channel === 'gamepad-forward-enter') forwarded.push(channel); },
+  });
+  for (const active of [false, true, false]) {
+    if (active) handler.activateNavigation();
+    else handler.deactivateNavigation();
+    assert.equal(handler.isNavigationActive(), active);
+    const previous = forwarded.length;
+    button(0, true); button(0, true); button(0, false);
+    key('F8', true); key('F8', true); key('F8', false);
+    assert.equal(forwarded.length, previous + 2, 'Each button/key press must forward exactly once');
+  }
+  handler.setInputSuppressed(true);
+  button(0, true); button(0, false);
+  key('F8', true); key('F8', false);
+  assert.equal(forwarded.length, 6, 'Input testing must suppress forwarding');
+});
+
 test('manual exit stops repeats and resets toggle activation', t => {
   const { handler, button, tick } = setup(t);
   handler.activateNavigation();

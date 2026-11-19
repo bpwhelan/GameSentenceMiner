@@ -1,4 +1,5 @@
 //! Native supervisor for the bundled `gsm_overlay_server` WebSocket input service.
+use gsm_sudachi::{LanguageService, PipeReply, PipeRequest, PIPE_ENV, REPLY_PREFIX, REQUEST_PREFIX};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -12,6 +13,7 @@ const INPUT_SERVER_HOST: &str = "127.0.0.1";
 const INPUT_SERVER_READY_PREFIX: &str = "GSM_INPUT_SERVER_READY:";
 const RESTART_DELAY: Duration = Duration::from_millis(1000);
 const STOP_GRACE: Duration = Duration::from_millis(300);
+type HelperStdin = Arc<Mutex<ChildStdin>>;
 
 #[derive(Deserialize)]
 struct ReadyPayload {
@@ -26,7 +28,7 @@ struct InnerState {
     binary_path: Option<PathBuf>,
     port: Option<u16>,
     url: Option<String>,
-    stdin: Option<ChildStdin>,
+    stdin: Option<HelperStdin>,
     child: Option<Arc<Mutex<Option<Child>>>>,
     running: bool,
 }
@@ -77,7 +79,7 @@ fn binary_name() -> &'static str {
 }
 
 pub fn resolve_binary_in_roots(roots: &[PathBuf]) -> Option<PathBuf> {
-    resolve_binary_for_mode(roots, cfg!(debug_assertions))
+    resolve_binary_for_mode(roots, crate::LOCAL_BUILD)
 }
 
 fn resolve_binary_for_mode(roots: &[PathBuf], development: bool) -> Option<PathBuf> {
@@ -116,13 +118,19 @@ fn resolve_binary_for_mode(roots: &[PathBuf], development: bool) -> Option<PathB
 }
 
 fn resolve_binary(app: &tauri::AppHandle) -> Option<PathBuf> {
-    if cfg!(debug_assertions) {
-        if let Some(binary) = std::env::current_exe()
-            .ok()
-            .and_then(|exe| exe.parent().map(|dir| dir.join(binary_name())))
-            .filter(|binary| binary.is_file())
-        {
-            return Some(binary);
+    if crate::LOCAL_BUILD {
+        if let Ok(exe) = std::env::current_exe() {
+            #[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
+            let binary = match crate::dev_launch::helper_path(&exe, binary_name()) {
+                Ok(binary) => binary,
+                Err(error) => {
+                    crate::desktop_log::warn(app, "input-server", format!("{error}"));
+                    return None;
+                }
+            };
+            #[cfg(not(all(windows, any(debug_assertions, feature = "local-build"))))]
+            let binary = exe.with_file_name(binary_name());
+            if binary.is_file() { return Some(binary); }
         }
     }
     let mut roots = Vec::new();
@@ -147,7 +155,11 @@ pub fn start_background(app: &tauri::AppHandle) {
         }
     }
     let Some(binary) = resolve_binary(app) else {
-        eprintln!("[input-server] Bundled gsm_overlay_server binary not found");
+        crate::desktop_log::warn(
+            app,
+            "input-server",
+            "Bundled gsm_overlay_server binary not found",
+        );
         return;
     };
     let shared = server.0.clone();
@@ -164,9 +176,11 @@ pub fn start_background(app: &tauri::AppHandle) {
         guard.started = true;
         guard.binary_path = Some(binary.clone());
     }
+    let language = app.state::<Arc<LanguageService>>().inner().clone();
+    let app_handle = app.clone();
     std::thread::Builder::new()
         .name("gsm-input-server".into())
-        .spawn(move || supervisor_loop(shared, binary, env))
+        .spawn(move || supervisor_loop(Some(app_handle), shared, binary, env, language))
         .ok();
 }
 
@@ -224,7 +238,7 @@ pub fn stop(app: &tauri::AppHandle) {
 }
 
 fn stop_shared(shared: &Arc<Shared>) {
-    let (mut stdin, child_ref) = {
+    let (stdin, child_ref) = {
         let mut guard = shared.state.lock().unwrap();
         guard.stopping = true;
         guard.port = None;
@@ -232,7 +246,8 @@ fn stop_shared(shared: &Arc<Shared>) {
         shared.cv.notify_all();
         (guard.stdin.take(), guard.child.clone())
     };
-    if let Some(mut pipe) = stdin.take() {
+    if let Some(pipe) = stdin {
+        let mut pipe = pipe.lock().unwrap();
         let _ = pipe.write_all(b"quit\n");
         let _ = pipe.flush();
     }
@@ -280,6 +295,7 @@ fn spawn_server_process(
     let mut cmd = Command::new(binary);
     cmd.args(["--host", INPUT_SERVER_HOST, "--port", &port.to_string()])
         .envs(env)
+        .env(PIPE_ENV, "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -294,7 +310,37 @@ fn spawn_server_process(
     cmd.spawn()
 }
 
-fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, String>) {
+fn reply_to_language_request(
+    app: Option<&tauri::AppHandle>,
+    body: &str,
+    language: &Arc<LanguageService>,
+    pipe: &HelperStdin,
+) {
+    let Ok(PipeRequest { id, request }) = serde_json::from_str(body) else {
+        crate::desktop_log::emit_rust(app, "input-server", "WARNING", "Invalid desktop language request");
+        return;
+    };
+    let language = language.clone();
+    let pipe = pipe.clone();
+    tauri::async_runtime::spawn(async move {
+        let result = language.execute(request).await;
+        let reply = PipeReply { id, result };
+        if let Ok(body) = serde_json::to_string(&reply) {
+            tauri::async_runtime::spawn_blocking(move || {
+                let mut pipe = pipe.lock().unwrap();
+                let _ = writeln!(pipe, "{REPLY_PREFIX}{body}").and_then(|_| pipe.flush());
+            });
+        }
+    });
+}
+
+fn supervisor_loop(
+    app: Option<tauri::AppHandle>,
+    shared: Arc<Shared>,
+    binary: PathBuf,
+    env: HashMap<String, String>,
+    language: Arc<LanguageService>,
+) {
     // Existing Python clients retain their launch environment across service crashes.
     let mut requested_port = 0;
     loop {
@@ -304,9 +350,11 @@ fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, St
         let mut child = match spawn_server_process(&binary, requested_port, &env) {
             Ok(child) => child,
             Err(error) => {
-                eprintln!(
-                    "[input-server] Failed to launch {}: {error}",
-                    binary.display()
+                crate::desktop_log::emit_rust(
+                    app.as_ref(),
+                    "input-server",
+                    "ERROR",
+                    &format!("Failed to launch {}: {error}", binary.display()),
                 );
                 let guard = shared.state.lock().unwrap();
                 if guard.stopping {
@@ -317,7 +365,7 @@ fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, St
             }
         };
 
-        let stdin = child.stdin.take();
+        let stdin = child.stdin.take().map(|pipe| Arc::new(Mutex::new(pipe)));
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child_arc = Arc::new(Mutex::new(Some(child)));
@@ -331,7 +379,7 @@ fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, St
                 }
                 break;
             }
-            guard.stdin = stdin;
+            guard.stdin = stdin.clone();
             guard.child = Some(child_arc.clone());
             guard.running = true;
             guard.port = None;
@@ -339,28 +387,48 @@ fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, St
             shared.cv.notify_all();
         }
 
+        let stderr_app = app.clone();
         let stderr_handle = stderr.map(|pipe| {
             std::thread::spawn(move || {
                 for line in BufReader::new(pipe).lines().map_while(Result::ok) {
                     let trimmed = line.trim();
                     if !trimmed.is_empty() {
-                        eprintln!("[input-server] {trimmed}");
+                        crate::desktop_log::emit_rust(
+                            stderr_app.as_ref(),
+                            "input-server",
+                            "BACKGROUND",
+                            trimmed,
+                        );
                     }
                 }
             })
         });
 
         let stdout_shared = shared.clone();
+        let stdout_app = app.clone();
+        let language = language.clone();
         let stdout_handle = stdout.map(|pipe| {
             std::thread::spawn(move || {
                 for line in BufReader::new(pipe).lines().map_while(Result::ok) {
                     if let Some(port) = parse_ready_line(&line) {
                         let mut guard = stdout_shared.state.lock().unwrap();
                         if !guard.stopping {
+                            let url = format!("ws://{INPUT_SERVER_HOST}:{port}");
                             guard.port = Some(port);
-                            guard.url = Some(format!("ws://{INPUT_SERVER_HOST}:{port}"));
+                            guard.url = Some(url.clone());
                             stdout_shared.cv.notify_all();
+                            drop(guard);
+                            crate::desktop_log::emit_rust(
+                                stdout_app.as_ref(),
+                                "input-server",
+                                "BACKGROUND",
+                                &format!("Listening on {url}"),
+                            );
                         }
+                    } else if let (Some(body), Some(stdin)) =
+                        (line.strip_prefix(REQUEST_PREFIX), stdin.as_ref())
+                    {
+                        reply_to_language_request(stdout_app.as_ref(), body, &language, stdin);
                     }
                 }
             })
@@ -393,7 +461,12 @@ fn supervisor_loop(shared: Arc<Shared>, binary: PathBuf, env: HashMap<String, St
             break;
         }
         if let Some(status) = status {
-            eprintln!("[input-server] Exited unexpectedly ({status}); restarting");
+            crate::desktop_log::emit_rust(
+                app.as_ref(),
+                "input-server",
+                "WARNING",
+                &format!("Exited unexpectedly ({status}); restarting"),
+            );
         }
         let guard = shared.state.lock().unwrap();
         if guard.stopping {
@@ -480,10 +553,38 @@ mod tests {
         shared.state.lock().unwrap().started = true;
         shared.state.lock().unwrap().binary_path = Some(binary.clone());
 
+        // A different selection in the helper's profile makes local fallback
+        // distinguishable from a reply generated inside this desktop process.
+        let data = tempfile::tempdir().unwrap();
+        let helper_data = tempfile::tempdir().unwrap();
+        let fixture = std::env::var_os("GSM_TEST_SUDACHI_DICTIONARY");
+        let edition = if fixture.is_some() { "small" } else { "full" };
+        for (folder, selection) in [(data.path(), edition), (helper_data.path(), "core")] {
+            std::fs::create_dir(folder.join("sudachi")).unwrap();
+            std::fs::write(folder.join("sudachi/selection.txt"), selection).unwrap();
+        }
+        if let Some(source) = fixture.as_ref() {
+            let directory = data.path().join("sudachi/v20260116-small");
+            std::fs::create_dir(&directory).unwrap();
+            let dictionary = directory.join("system_small.dic");
+            if std::fs::hard_link(source, &dictionary).is_err() {
+                std::fs::copy(source, dictionary).unwrap();
+            }
+        }
+        std::fs::write(
+            helper_data.path().join("settings.json"),
+            r#"{"gamepadXinputEnabled":false,"gamepadDinputEnabled":false}"#,
+        )
+        .unwrap();
+        let language = Arc::new(LanguageService::new(
+            data.path().to_path_buf(),
+            data.path().join("user"),
+        ));
         let started_at = Instant::now();
         let supervisor_shared = shared.clone();
+        let env = service_environment(helper_data.path(), helper_data.path());
         let handle =
-            std::thread::spawn(move || supervisor_loop(supervisor_shared, binary, HashMap::new()));
+            std::thread::spawn(move || supervisor_loop(None, supervisor_shared, binary, env, language));
 
         let deadline = Instant::now() + Duration::from_secs(5);
         let ready = {
@@ -499,12 +600,59 @@ mod tests {
                 guard = next;
             }
         };
+        let replies = ready.as_ref().map(|(port, url, _)| -> Result<_, String> {
+            use tungstenite::{client, Message};
+
+            let stream = std::net::TcpStream::connect((INPUT_SERVER_HOST, *port))
+                .map_err(|error| error.to_string())?;
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .map_err(|error| error.to_string())?;
+            let (mut socket, _) = client(url.as_str(), stream).map_err(|error| error.to_string())?;
+            let mut request = |payload: &str, response_type: &str| {
+                socket
+                    .send(Message::Text(payload.into()))
+                    .map_err(|error| error.to_string())?;
+                for _ in 0..16 {
+                    let message = socket.read().map_err(|error| error.to_string())?;
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(
+                        message.to_text().unwrap_or(""),
+                    ) {
+                        if value["type"] == response_type {
+                            return Ok(value);
+                        }
+                    }
+                }
+                Err(format!("No {response_type} returned through the input server"))
+            };
+            let status = request(r#"{"type":"sudachi_status"}"#, "sudachi_status")?;
+            request(
+                r#"{"type":"configure_features","features":["sudachi"]}"#,
+                "service_features_changed",
+            )?;
+            let tokens = request(
+                r#"{"type":"tokenize","requestId":"managed","text":"猫が来た。"}"#,
+                "tokens",
+            )?;
+            Ok((status, tokens))
+        });
         stop_shared(&shared);
         let _ = handle.join();
 
         let (port, url, elapsed) = ready.expect("gsm_overlay_server should become ready");
         assert!(port > 0);
         assert_eq!(url, format!("ws://127.0.0.1:{port}"));
+        let (status, tokens) = replies.unwrap().unwrap();
+        assert_eq!(status["dictionary"], edition);
+        assert_eq!(tokens["requestId"], "managed");
+        if fixture.is_some() {
+            assert_eq!(status["state"], "ready");
+            assert_eq!(tokens["sudachiAvailable"], true);
+            assert_eq!(tokens["tokens"][0]["word"], "猫");
+        } else {
+            assert_eq!(status["state"], "setup_required");
+            assert_eq!(tokens["setupRequired"], true);
+        }
         println!(
             "[bench] input_server startup ready_ms={:.2}",
             elapsed.as_secs_f64() * 1000.0

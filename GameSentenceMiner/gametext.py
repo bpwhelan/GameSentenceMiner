@@ -53,7 +53,7 @@ from GameSentenceMiner.util.text_log import (
     game_log,
     to_local_naive_datetime,
 )
-from GameSentenceMiner.util.text_processing import apply_text_processing
+from GameSentenceMiner.util.text_processing import apply_text_processing, with_processor_overrides
 
 pyperclip = None
 try:
@@ -131,8 +131,8 @@ def get_authoritative_text_runtime() -> AuthoritativeTextRuntime:
         return _text_runtime
 
 
-def get_text_stream_snapshot() -> TextStreamSnapshot:
-    return get_authoritative_text_runtime().snapshot(timeout=1.0)
+def get_text_stream_snapshot(*, max_records: int | None = None) -> TextStreamSnapshot:
+    return get_authoritative_text_runtime().snapshot(timeout=1.0, max_records=max_records)
 
 
 def freeze_authoritative_text_line(line_id: str) -> bool:
@@ -802,6 +802,7 @@ def _ingest_line_sync(
     wait_projected=True,
     source_sequence=None,
     metadata_extra=None,
+    processor_overrides=None,
 ):
     global current_line_time
     guarded_line, guard_reason = guard_text_input(line)
@@ -829,7 +830,10 @@ def _ingest_line_sync(
         metadata=metadata_extra,
     ):
         return IngressAck(IngressStatus.REJECTED, observation_id, reason="automatic OCR recorded for benchmark")
-    current_line_after_regex = apply_text_processing(guarded_line, get_config().text_processing)
+    processing = get_config().text_processing
+    if source_kind is SourceKind.TEXTHOOK and processor_overrides and processing is not None:
+        processing = with_processor_overrides(processing, processor_overrides)
+    current_line_after_regex = apply_text_processing(guarded_line, processing)
     general_config = getattr(get_config(), "general", None)
     remove_matching_prefix = (
         bool(getattr(general_config, "remove_matching_prefix_on_subsequent_lines", True))
@@ -959,6 +963,7 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
         merge_fragments=bool(payload.get("merge_fragments", payload.get("mergeFragments", False))),
         wait_projected=False,
         source_sequence=payload.get("source_sequence", payload.get("sourceSequence")),
+        processor_overrides=payload.get("processorOverrides") if payload.get("_nativeHook") is True else None,
         metadata_extra={
             key: payload[key]
             for key in (
@@ -1137,6 +1142,8 @@ def trigger_manual_overlay_scan() -> bool:
 
 def _persist_game_line_async(new_line: GameLine) -> None:
     """Persist a game line via the single DB writer without blocking the caller."""
+    if GameLinesTable.persist_with_desktop([new_line], imported=False):
+        return
 
     def _op(_conn):
         try:

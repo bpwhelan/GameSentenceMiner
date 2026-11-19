@@ -3,10 +3,17 @@ name = "gsm_overlay_server"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["language"]
+resolver = "2"
+
 [profile.release]
 codegen-units = 1
 lto = "thin"
 strip = true
+
+[build-dependencies]
+tauri-winres = "0.3"
 
 [dependencies]
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros", "net", "time", "sync", "process", "io-util"] }
@@ -22,12 +29,7 @@ clap = { version = "4.5", features = ["derive"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
-sha2 = "0.10"
-rusqlite = { version = "0.32", features = ["bundled"] }
-unicode-normalization = "0.1"
-sudachi = { git = "https://github.com/WorksApplications/sudachi.rs.git", tag = "v0.6.10" }
-zip = { version = "2.2", default-features = false, features = ["deflate"] }
+gsm-sudachi = { path = "language" }
 rdev = "0.5.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]

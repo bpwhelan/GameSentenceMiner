@@ -41,7 +41,7 @@ jobs:
             GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
       - name: Build gamepad server (Windows)
-        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+        run: cargo rustc --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target -- -D warnings
 
       - name: Upload unsigned binary
         id: upload-unsigned
@@ -121,7 +121,7 @@ jobs:
             libxtst-dev
 
       - name: Build gamepad server (Linux)
-        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+        run: cargo rustc --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target -- -D warnings
 
       - name: Stage binary for release
         run: |
@@ -156,7 +156,7 @@ jobs:
             GSM_Overlay/input_server -> GSM_Overlay/input_server/target
 
       - name: Build gamepad server (macOS)
-        run: cargo build --release --manifest-path GSM_Overlay/input_server/Cargo.toml
+        run: cargo rustc --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target -- -D warnings
 
       - name: Stage binary for release
         run: |

@@ -601,12 +601,38 @@ function shouldSuppressTerminalLog(message: string): boolean {
     return false;
 }
 
+const ORIGIN_PREFIX_RE =
+    /^((?:\u001b\[[0-9;]*m)*)\[((?:py|python|rust|electron|renderer|frida|system)(?::[a-zA-Z0-9._/-]+)?)\](?:\u001b\[[0-9;]*m)*(\s+|$)/i;
+
 function parsePythonLogLevel(message: string): string | null {
-    const clean = stripAnsi(message);
-    const match = clean.match(
-        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
+    const clean = stripAnsi(message).trimStart().replace(ORIGIN_PREFIX_RE, '');
+    const threeField = clean.match(
+        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
     );
-    return match ? match[1] : null;
+    if (threeField) return threeField[1];
+    const twoField = clean.match(
+        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\s+\|\s+([A-Z_]+)\s+\|/
+    );
+    return twoField ? twoField[1] : null;
+}
+
+function ensureTerminalOrigin(source: string | undefined, message: string): string {
+    if (!message.trim() || ORIGIN_PREFIX_RE.test(message)) {
+        return message;
+    }
+    const clean = stripAnsi(message);
+    if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
+        return message;
+    }
+    const origin =
+        source === 'python'
+            ? 'py:backend'
+            : source === 'electron'
+              ? 'electron:main'
+              : source && source.trim()
+                ? source.trim()
+                : 'system';
+    return `[${origin}] ${message}`;
 }
 
 function inferTerminalChannel(
@@ -619,7 +645,7 @@ function inferTerminalChannel(
         return 'background';
     }
 
-    const clean = stripAnsi(message);
+    const clean = stripAnsi(message).trimStart().replace(ORIGIN_PREFIX_RE, '');
     if (clean.startsWith(UPDATE_PROGRESS_PREFIX)) {
         return 'basic';
     }
@@ -637,10 +663,12 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
     }
 
     const stream = payload.stream ?? 'stdout';
-    const message = payload.message ?? '';
-    if (shouldSuppressTerminalLog(message)) {
+    const rawMessage = payload.message ?? '';
+    if (shouldSuppressTerminalLog(rawMessage)) {
         return;
     }
+    const source = payload.source ?? 'system';
+    const message = ensureTerminalOrigin(source, rawMessage);
     const level = payload.level ? payload.level.toUpperCase() : undefined;
     const channel = payload.channel ?? inferTerminalChannel(message, level, stream);
     const normalized: TerminalLogPayload = {
@@ -648,7 +676,7 @@ function sendTerminalLog(payload: TerminalLogPayload): void {
         stream,
         level,
         channel,
-        source: payload.source ?? 'system',
+        source,
     };
 
     if (normalized.source !== 'python' && (normalized.channel !== 'background' || normalized.level === 'ERROR' || normalized.level === 'WARNING')) {

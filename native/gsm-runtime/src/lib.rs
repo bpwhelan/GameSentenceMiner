@@ -1,7 +1,7 @@
 //! Native desktop runtime: authenticated local transport, correlated requests,
 //! acknowledged text delivery, and owned Python process lifetimes.
-mod process;
 pub mod backend;
+mod process;
 pub mod task;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
@@ -26,6 +26,30 @@ type Reply = oneshot::Sender<Result<Value, String>>;
 type Sink = Arc<dyn Fn(&str, Value) + Send + Sync>;
 const LIMIT: usize = 256;
 const FRAME_LIMIT: usize = 8 * 1024 * 1024;
+
+/// Count serialized bytes without duplicating the payload. Leave room for the
+/// envelope. Null tells callers with a local read implementation to use it.
+pub fn bounded_reply(result: Value) -> Result<Value, String> {
+    #[derive(Default)]
+    struct Size(usize);
+    impl std::io::Write for Size {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    if result.is_object() || result.is_array() {
+        let mut bytes = Size::default();
+        serde_json::to_writer(&mut bytes, &result).map_err(|e| e.to_string())?;
+        if bytes.0 > FRAME_LIMIT - 1024 * 1024 {
+            return Ok(Value::Null);
+        }
+    }
+    Ok(result)
+}
 fn id() -> String {
     Uuid::new_v4().to_string()
 }
@@ -182,7 +206,7 @@ struct Pending {
     dst: String,
     epoch: u64,
     topic: String,
-    until: Instant,
+    until: Option<Instant>,
     destination: Destination,
 }
 struct Observation {
@@ -256,7 +280,11 @@ impl Actor {
                 _ = tick.tick() => self.tick(),
             }
         }
-        self.clients.clear();
+        // Stopping the broker also ends each authenticated connection. Notify
+        // service owners even when shutdown wins the race with socket EOF.
+        for client in std::mem::take(&mut self.clients).into_keys() {
+            self.emit("bus.disconnected", json!({"id":client}));
+        }
         for (_, pending) in self.pending.drain() {
             if let Destination::Native(reply) = pending.destination {
                 let _ = reply.send(Err("Native runtime shutting down".into()));
@@ -298,7 +326,7 @@ impl Actor {
             .insert(client.clone(), Client { epoch, output });
         self.emit(
             "bus.connected",
-            json!({"id":client,"pid":pid,"version":hello["data"]["version"]}),
+            json!({"id":client,"pid":pid,"version":hello["data"]["version"],"epoch":epoch}),
         );
         if let Some(mut process) = self.processes.remove(&client) {
             if !process.stopping {
@@ -346,9 +374,38 @@ impl Actor {
         }
         self.clients.contains_key(client)
     }
-    fn request(&mut self, message: Value, destination: Destination, timeout: Duration) {
+    fn request(&mut self, mut message: Value, destination: Destination, timeout: Duration) {
         let key = string(&message, "id").to_owned();
         let dst = string(&message, "dst").to_owned();
+        let mut until = Some(Instant::now() + timeout);
+        if let Destination::Relay { client, epoch } = &destination {
+            if client == "backend" && dst == "main" {
+                if matches!(
+                    message["topic"].as_str(),
+                    Some("mining.cron" | "anki.monitor")
+                ) {
+                    message["connectionEpoch"] = json!(epoch);
+                    if message["data"]["action"] == "next" {
+                        until = None;
+                    }
+                } else if matches!(
+                    message["topic"].as_str(),
+                    Some("anki.sync" | "anki.sync.stop" | "anki.group" | "anki.cards")
+                ) {
+                    message["connectionEpoch"] = json!(epoch);
+                    if message["topic"] != "anki.sync.stop"
+                        && (message["topic"] != "anki.cards"
+                            || message["data"]["action"] == "latest")
+                    {
+                        until = None;
+                    }
+                } else if message["topic"] == "mining.history"
+                    && message["data"]["operation"] == "rebuildRollups"
+                {
+                    until = None;
+                }
+            }
+        }
         let epoch = if dst == "main" {
             Some(0)
         } else {
@@ -358,7 +415,7 @@ impl Actor {
             dst: dst.clone(),
             epoch: epoch.unwrap_or(0),
             topic: string(&message, "topic").into(),
-            until: Instant::now() + timeout,
+            until,
             destination,
         };
         if self.pending.len() >= 512 || self.pending.contains_key(&key) {
@@ -486,7 +543,10 @@ impl Actor {
         let result = match action {
             "bus.info" => Ok(self.info.clone()),
             "bus.clients" => Ok(json!(self.clients.keys().collect::<Vec<_>>())),
-            "backend.command" => Ok(json!(self.send("backend", envelope("backend", "backend.command", "command", params)))),
+            "backend.command" => Ok(json!(self.send(
+                "backend",
+                envelope("backend", "backend.command", "command", params)
+            ))),
             "bus.request" => {
                 let message = envelope(
                     string(&params, "dst"),
@@ -740,7 +800,7 @@ impl Actor {
         let expired: Vec<_> = self
             .pending
             .iter()
-            .filter(|(_, p)| p.until <= now)
+            .filter(|(_, p)| p.until.is_some_and(|until| until <= now))
             .map(|(id, _)| id.clone())
             .collect();
         for id in expired {

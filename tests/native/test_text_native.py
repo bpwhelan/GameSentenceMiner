@@ -31,6 +31,10 @@ def test_extension_exports_text_operations():
         "remove_repeated_chars",
         "remove_repeated_lines",
         "count_kanji",
+        "classify_dialogue",
+        "compact_dialogue",
+        "DialogueSkipDetector",
+        "DialogueJournal",
     ):
         assert callable(getattr(ocr._extension, name, None)), name
 

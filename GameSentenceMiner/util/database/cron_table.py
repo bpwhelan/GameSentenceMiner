@@ -324,53 +324,6 @@ class CronTable(SQLiteDBTable):
         return cron
 
     @classmethod
-    def setup_plugins_cron(cls) -> "CronTable":
-        """
-        Set up the user plugins cron job to run every 15 minutes.
-        This is called automatically on GSM startup to ensure the plugins cron exists.
-
-        The cron will:
-        1. Create plugins.py if it doesn't exist
-        2. Execute plugins.py main() function every 15 minutes
-
-        Returns:
-            CronTable: The created or existing cron entry
-        """
-        # Check if cron already exists. Rename the legacy "plugins" row because the
-        # scheduler dispatch registry uses "user_plugins".
-        existing = cls.get_by_name("user_plugins")
-        legacy = cls.get_by_name("plugins")
-
-        if existing:
-            if existing.schedule != "quarter_hourly":
-                existing.schedule = "quarter_hourly"
-                existing.save()
-            if legacy and legacy.enabled:
-                legacy.disable()
-            logger.debug("Plugins cron job already exists")
-            return existing
-
-        if legacy:
-            legacy.name = "user_plugins"
-            legacy.description = "Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py"
-            legacy.schedule = "quarter_hourly"
-            legacy.save()
-            logger.info("Updated legacy plugins cron job - runs every 15 minutes")
-            return legacy
-
-        # Create new cron entry to run every 15 minutes
-        now = time.time()
-        next_run = now + (15 * 60)
-
-        cron = cls.create_cron_entry(
-            name="user_plugins",
-            description="Execute user-defined plugins from AppData/GameSentenceMiner/plugins.py",
-            next_run=next_run,
-            schedule="quarter_hourly",
-            enabled=True,
-        )
-
-        logger.info("Created plugins cron job - runs every 15 minutes")
-        logger.info("Edit your plugins at: %APPDATA%/GameSentenceMiner/plugins.py")
-
-        return cron
+    def retire_user_script_schedules(cls) -> None:
+        """Remove both historical schedule names during an upgrade."""
+        cls._db.execute("DELETE FROM cron_table WHERE name IN ('plugins','user_plugins')", commit=True)

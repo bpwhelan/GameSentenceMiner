@@ -70,7 +70,8 @@ export class DictionaryDatabase {
         /**
          * @type {Uint8Array?}
          */
-        this._resvgFontBuffer = null;
+        /** @type {Promise<Uint8Array<ArrayBuffer> | null> | null} */
+        this._resvgFont = null;
 
         /** @type {import('dictionary-database').ApiMap} */
         this._apiMap = createApiMap([
@@ -170,18 +171,29 @@ export class DictionaryDatabase {
                 log.log('Unhandled promise rejection in worker:', event);
             });
         } else {
-            // when we are the worker, prepare to need to do some SVG work and load appropriate wasm & fonts
+            // Load the renderer now. GSM obtains the optional SVG font when it is used.
             await initWasm(fetch('/lib/resvg.wasm'));
-
-            const font = await fetch('/fonts/NotoSansJP-Regular.ttf');
-            const fontData = await font.arrayBuffer();
-            this._resvgFontBuffer = new Uint8Array(fontData);
         }
     }
 
     /** */
     async close() {
         this._db.close();
+    }
+
+    /** @returns {Promise<Uint8Array<ArrayBuffer> | null>} */
+    _loadResvgFont() {
+        this._resvgFont ??= (async () => {
+            try {
+                const response = await fetch('/fonts/NotoSansJP-Regular.ttf');
+                if (!response.ok) { throw new Error(`Font request failed (${response.status})`); }
+                return new Uint8Array(await response.arrayBuffer());
+            } catch {
+                this._resvgFont = null;
+                return null;
+            }
+        })();
+        return this._resvgFont;
     }
 
     /**
@@ -428,6 +440,7 @@ export class DictionaryDatabase {
 
         // move all svgs to front to have a hotter loop
         results.sort((a, _b) => (a.mediaType === 'image/svg+xml' ? -1 : 1));
+        const svgFont = results[0]?.mediaType === 'image/svg+xml' ? await this._loadResvgFont() : null;
 
         safePerformance.mark('drawMedia:draw:start');
         for (const m of results) {
@@ -440,7 +453,7 @@ export class DictionaryDatabase {
                         value: m.canvasWidth,
                     },
                     font: {
-                        fontBuffers: this._resvgFontBuffer !== null ? [this._resvgFontBuffer] : [],
+                        fontBuffers: svgFont !== null ? [svgFont] : [],
                     },
                 };
                 const resvgJS = new Resvg(new Uint8Array(m.content), opts);
@@ -640,14 +653,11 @@ export class DictionaryDatabase {
             let completeCount = 0;
             const requiredCompleteCount = itemCount * indexCount;
             /**
-             * @param {TItem} item
+             * @param {PerformanceMeasureOptions|null} timing
              * @returns {(rows: TRow[], data: import('dictionary-database').FindMultiBulkData<TItem>) => void}
              */
-            const onGetAll = (item) => (rows, data) => {
-                if (typeof item === 'object' && item !== null && 'path' in item) {
-                    safePerformance.mark(`findMultiBulk:onGetAll:${item.path}:end`);
-                    safePerformance.measure(`findMultiBulk:onGetAll:${item.path}`, `findMultiBulk:onGetAll:${item.path}:start`, `findMultiBulk:onGetAll:${item.path}:end`);
-                }
+            const onGetAll = (timing) => (rows, data) => {
+                if (timing !== null) { safePerformance.measure('findMultiBulk:onGetAll', timing); }
                 for (const row of rows) {
                     if (predicate(row, data.item)) {
                         results.push(createResult(row, data));
@@ -663,13 +673,12 @@ export class DictionaryDatabase {
             for (let i = 0; i < itemCount; ++i) {
                 const item = items[i];
                 const query = createQuery(item);
+                const path = typeof item === 'object' && item !== null && 'path' in item ? item.path : null;
                 for (let j = 0; j < indexCount; ++j) {
                     /** @type {import('dictionary-database').FindMultiBulkData<TItem>} */
                     const data = {item, itemIndex: i, indexIndex: j};
-                    if (typeof item === 'object' && item !== null && 'path' in item) {
-                        safePerformance.mark(`findMultiBulk:onGetAll:${item.path}:start`);
-                    }
-                    this._db.getAll(indexList[j], query, onGetAll(item), reject, data);
+                    const timing = path === null ? null : {start: safePerformance.now(), detail: path};
+                    this._db.getAll(indexList[j], query, onGetAll(timing), reject, data);
                 }
             }
             safePerformance.mark('findMultiBulk:getAll:end');

@@ -142,6 +142,7 @@ exclude = ["GameSentenceMiner.mecab*", "node_modules*", "GSM_Overlay*", "texthoo
 
 [tool.setuptools.exclude-package-data]
 "*" = ["*.dic", "mecab/**", "**/mecab/**"]
+"GameSentenceMiner" = ["assets/vocr/*.onnx"]
 
 [[tool.setuptools-rust.ext-modules]]
 target = "GameSentenceMiner._native"

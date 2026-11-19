@@ -20,6 +20,7 @@ let focusScenario = null;
 let pendingLookups = null;
 const ready = chrome.storage.local.set({
   options: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS, revision: 1, popupWidth: 600,
+    hidePopupOnCursorExit: true, hidePopupOnCursorExitDelayMs: 20,
     audioAutoplay: true, anki: { ...globalThis.HDReaderOptions.DEFAULT_OPTIONS.anki, model: 'Fixture' } },
   dictionaryState: { revision: 1, dictionaries: [{ id: 'fixture', title: 'Fixture', path: 'fixture', enabled: true, termCount: 3 }] }
 });
@@ -157,6 +158,39 @@ app.whenReady().then(async () => {
     assert((await calls()).some(call => call.type === 'hd_lookup' && call.text.startsWith('猫犬')), 'Lookup must skip ruby readings');
     await wait(() => root().querySelector('[data-action="add"]:not(:disabled)'), 'Anki preflight');
     await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]'), 'mine selection');
+    // Repositioning an auto-lookup can move a popup out from under a stationary
+    // mouse. Its native mouseleave must not dismiss the controller's selection.
+    const mouseLeavePopup = () => {
+      const pane = root().querySelector('.gsm-hoshidicts-popup');
+      assert(pane, 'Missing popup for cursor-exit regression');
+      pane.dispatchEvent(new MouseEvent('mouseenter'));
+      pane.dispatchEvent(new MouseEvent('mouseleave', { relatedTarget: document.body }));
+    };
+    mouseLeavePopup();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert(handler.dictionaryPopupVisible, 'Cursor exit must not close an auto-lookup during controller navigation');
+    window.GsmJitenHighlight = { getNavigationTokens: () => [
+      { lineIndex: 0, text: '猫ねこ犬遅', start: 0, end: 3, states: ['new'] },
+      { lineIndex: 0, text: '猫ねこ犬遅', start: 3, end: 4, states: ['new'] },
+    ] };
+    for (const direction of [1, -1, 1, -1]) {
+      assert(handler.navigateJitenWord(direction), 'Jiten jump must select a different word');
+      await wait(async () => (await gsmHachidoriBridge.invoke('selection'))?.matchOffset === (direction > 0 ? 1 : 0), 'Jiten lookup');
+      mouseLeavePopup();
+      await new Promise(resolve => setTimeout(resolve, 100));
+      assert(handler.dictionaryPopupVisible, 'Popup movement during a Jiten jump must not trigger cursor-exit dismissal');
+    }
+    delete window.GsmJitenHighlight;
+    // A hide queued before the controller takes ownership must also be canceled,
+    // even when the next lookup reuses the same rendered word.
+    await gsmHachidoriBridge.control('navigation-active', { active: false });
+    mouseLeavePopup();
+    await gsmHachidoriBridge.control('navigation-active', { active: true });
+    handler.autoConfirmSelection();
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert(handler.dictionaryPopupVisible, 'Controller activation must cancel a previously queued cursor-exit hide');
+    handler.resetDictionaryPopupActionSelection();
+    await wait(() => root().querySelector('.gsm-controller-selected[data-action="add"]:not(:disabled)'), 'mine selection after Jiten jumps');
     handler.confirmSelection();
     handler.confirmSelection();
     await wait(() => mined === 1, 'native mining completion');
@@ -363,7 +397,9 @@ app.whenReady().then(async () => {
     const results = [];
     for (const fixture of fixtures) {
       blocks[1].replaceChildren(...Array.from(fixture.sentence, (glyph, index) => {
-        const box = createTextBox(glyph, 2 + index * 2, 20, 4 + index * 2, 25, 24);
+        const box = document.createElement('span');
+        box.className = 'text-box';
+        applyTextBoxLayout(box, glyph, 2 + index * 2, 20, 4 + index * 2, 25, true);
         box.style.fontSize = '24px';
         return box;
       }));

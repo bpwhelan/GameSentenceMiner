@@ -54,7 +54,7 @@ fn metadata(window: &xcap::Window) -> Option<CaptureWindow> {
     let id = window.id().ok()?;
     let pid = window.pid().ok()?;
     let title = window.title().ok()?;
-    if title.trim().is_empty() || pid == std::process::id() {
+    if pid == std::process::id() || pid == 0 {
         return None;
     }
     #[cfg(windows)]
@@ -115,6 +115,13 @@ fn window_class(id: u32) -> Option<String> {
 }
 
 pub fn list() -> Result<Vec<CaptureWindow>, String> {
+    Ok(target_windows()?
+        .into_iter()
+        .filter(|window| !window.title.trim().is_empty())
+        .collect())
+}
+
+pub(crate) fn target_windows() -> Result<Vec<CaptureWindow>, String> {
     // No capture/portal is started just to populate a picker.
     #[cfg(target_os = "linux")]
     if std::env::var("XDG_SESSION_TYPE").is_ok_and(|s| s.eq_ignore_ascii_case("wayland")) {

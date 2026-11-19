@@ -6,6 +6,7 @@ game window must not tear down the overlay and its dictionaries.
 
 import time
 
+from GameSentenceMiner.obs import desktop_session
 from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.config.configuration import is_windows
 from GameSentenceMiner.util.platform.window_state_monitor import user32
@@ -24,6 +25,9 @@ def get_obs_state():
 
 
 def get_active_game_snapshot(monitor):
+    if desktop_session.enabled():
+        state = desktop_session.snapshot()
+        return {"sceneName": state["scene"], "active": state["active"]}
     state = get_obs_state()
     scene_name = state.current_scene if state else getattr(monitor, "last_target_scene_name", "")
     payload = {"sceneName": scene_name or "", "active": None}
@@ -73,6 +77,8 @@ def get_active_game_snapshot(monitor):
 
 
 def publish_active_game_state(monitor):
+    if desktop_session.enabled():
+        return
     # Heartbeats distinguish missing capture from a missing backend.
     global _last_published_snapshot, _last_published_at
     snapshot = get_active_game_snapshot(monitor)

@@ -112,7 +112,11 @@ impl Output {
                 builder
                     .with_error_callback(move |error| {
                         if !stream_failed.swap(true, Ordering::Relaxed) {
-                            eprintln!("Notification audio output failed: {error}");
+                            crate::desktop_log::stderr_only(
+                                "audio",
+                                "WARNING",
+                                format!("Notification audio output failed: {error}"),
+                            );
                         }
                     })
                     .open_sink_or_fallback()

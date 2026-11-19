@@ -11,13 +11,12 @@ from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, v
 from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
 from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
 from GameSentenceMiner.ai.setup import ai_error_message, ai_setup_required
-from GameSentenceMiner.obs import get_current_game, get_current_scene, save_replay_buffer
+from GameSentenceMiner.obs import get_current_game, get_current_scene
 from GameSentenceMiner.util.config.configuration import (
     AI_DEEPL,
     coerce_gsm_owned_overlay_value,
     get_config,
     get_master_config,
-    gsm_state,
     logger,
     save_full_config,
     serialize_gsm_owned_overlay,
@@ -61,7 +60,8 @@ class OverlayRequestHandler:
             message = json.loads(message_str)
             message_type = message.get("type")
 
-            logger.background(f"Received overlay message of type: {message_type}")
+            if message_type != "native-overlay-result":
+                logger.background(f"Received overlay message of type: {message_type}")
 
             if message_type == "dictionary-setup-result":
                 from GameSentenceMiner.web.onboarding_api import accept_dictionary_setup_result
@@ -133,13 +133,20 @@ class OverlayRequestHandler:
             if action == "toggle-intake":
                 gametext.toggle_text_intake_paused()
             elif action == "replay-audio":
-                from GameSentenceMiner.web.service import handle_texthooker_button, has_cached_texthooker_audio
+                from GameSentenceMiner.web.service import (
+                    handle_texthooker_button,
+                    has_cached_texthooker_audio,
+                    text_feed_request,
+                    reusable_text_feed_replay,
+                    save_text_feed_replay,
+                )
 
                 if not lines:
                     raise ValueError("No captured line available to replay yet.")
                 line = lines[-1]
-                gsm_state.line_for_audio = line
-                gsm_state.texthooker_audio_request = {
+                pending = text_feed_request([line])
+                pending.line_for_audio = line
+                pending.texthooker_audio_request = {
                     "line_id": line.id,
                     "trim_with_vad": False,
                     "playback_mode": "native",
@@ -147,10 +154,11 @@ class OverlayRequestHandler:
                 # Match Text Feed's native playback, including its audio cache and
                 # built-in player when no external video player is configured.
                 cached = not get_config().advanced.video_player_path and has_cached_texthooker_audio(line.id, False)
-                if cached or line in (gsm_state.previous_line_for_audio, gsm_state.previous_line_for_screenshot):
-                    handle_texthooker_button(gsm_state.previous_replay or "")
+                replay = reusable_text_feed_replay(pending, [line])
+                if cached or replay:
+                    handle_texthooker_button(replay or "", pending)
                 else:
-                    save_replay_buffer()
+                    save_text_feed_replay(pending)
             return {"paused": gametext.is_text_intake_paused(), "canReplay": can_replay}
 
         try:
@@ -253,6 +261,8 @@ class OverlayRequestHandler:
             sentence = last_oneocr_result or last_lens_result
             if message is not None and "blocks" in message:
                 sentence = "\n".join(block["text"] for block in validate_blocks(message["blocks"]))
+            elif message is not None and isinstance(message.get("text"), str) and message["text"].strip():
+                sentence = message["text"]
 
             if not sentence or not sentence.strip():
                 await self.send_error("No OCR text available to translate", request_id)

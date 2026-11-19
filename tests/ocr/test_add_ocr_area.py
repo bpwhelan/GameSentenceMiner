@@ -114,6 +114,8 @@ def test_add_area_cancel_and_small_drag_do_not_save(selector_factory):
 def test_add_area_save_failure_stays_open_and_can_retry(selector_factory, monkeypatch):
     create, path, _scene = selector_factory
     selector, completed = create()
+    saved = Mock()
+    selector.config_saved.connect(saved)
     writer = selector_module.write_ocr_config
     monkeypatch.setattr(selector_module, "write_ocr_config", Mock(side_effect=OSError("disk full")))
     error_dialog = Mock()
@@ -122,9 +124,11 @@ def test_add_area_save_failure_stays_open_and_can_retry(selector_factory, monkey
     assert selector.isVisible()
     completed.assert_not_called()
     error_dialog.assert_called_once()
+    saved.assert_not_called()
     assert not path.exists()
     monkeypatch.setattr(selector_module, "write_ocr_config", writer)
     draw_box(selector)
+    saved.assert_called_once_with()
     assert len(json.loads(path.read_text(encoding="utf-8"))["rectangles"]) == 1
     assert completed.call_count == 1
 

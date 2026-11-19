@@ -18,6 +18,7 @@ from pathlib import Path
 
 from GameSentenceMiner.util.config.configuration import logger, get_stats_config
 from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.native import history
 from GameSentenceMiner.util.database.game_daily_rollup_table import (
     GameDailyRollupTable,
 )
@@ -899,6 +900,26 @@ def _summarize_live_lines_by_date(lines: list) -> dict[str, dict]:
     return summaries
 
 
+def _native_range_report(operation, start_timestamp, end_timestamp):
+    if not history.managed(GameLinesTable._db):
+        return None
+    config = get_stats_config()
+    if config.regex_out_repetitions or config.extra_punctuation_regex:
+        return None
+    today = datetime.date.today()
+    explicit = bool(start_timestamp and end_timestamp)
+    options = {"session_gap": config.session_gap_seconds} if operation == "readingOverview" else {}
+    return history.request(
+        operation,
+        today=today.isoformat(),
+        day_start=datetime.datetime.combine(today, datetime.time.min).timestamp(),
+        day_end=datetime.datetime.combine(today, datetime.time.max).timestamp(),
+        start=datetime.date.fromtimestamp(start_timestamp).isoformat() if explicit else None,
+        end=datetime.date.fromtimestamp(end_timestamp).isoformat() if explicit else None,
+        **options,
+    )
+
+
 def _build_all_games_stats(
     combined_stats: dict,
     end_timestamp: float | None,
@@ -1417,6 +1438,28 @@ def register_stats_api_routes(app):
             include_tokenization = _is_truthy_query_arg(request.args.get("include_tokenization"), default=True)
             start_timestamp = float(start_timestamp) if start_timestamp else None
             end_timestamp = float(end_timestamp) if end_timestamp else None
+
+            stats_config = get_stats_config()
+            if not stats_config.regex_out_repetitions and not stats_config.extra_punctuation_regex:
+                from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
+
+                try:
+                    tok_enabled = bool(is_tokenization_enabled())
+                except Exception:
+                    tok_enabled = False
+                native_payload = history.dashboard_stats(
+                    GameLinesTable._db,
+                    today=datetime.date.today(),
+                    session_gap=stats_config.session_gap_seconds,
+                    filter_year=filter_year,
+                    start_timestamp=start_timestamp,
+                    end_timestamp=end_timestamp,
+                    include_tokenization=include_tokenization,
+                    tokenization_enabled=tok_enabled,
+                )
+                if native_payload is not None:
+                    return jsonify(native_payload), 200
+
             precomputed_start_date_str, precomputed_end_date_str = get_date_range_params(
                 start_timestamp,
                 end_timestamp,
@@ -1785,6 +1828,9 @@ def register_stats_api_routes(app):
             start_timestamp = float(start_timestamp) if start_timestamp else None
             end_timestamp = float(end_timestamp) if end_timestamp else None
 
+            grid = _native_range_report("kanjiGrid", start_timestamp, end_timestamp)
+            if grid is not None:
+                return jsonify(grid)
             combined_stats, *_ = _build_combined_stats(start_timestamp, end_timestamp)
             return jsonify(_build_kanji_grid_data(combined_stats))
         except Exception as e:
@@ -1856,6 +1902,9 @@ def register_stats_api_routes(app):
             start_timestamp = float(start_timestamp) if start_timestamp else None
             end_timestamp = float(end_timestamp) if end_timestamp else None
 
+            overview = _native_range_report("readingOverview", start_timestamp, end_timestamp)
+            if overview is not None:
+                return jsonify(overview)
             rollups, today_lines, _start_date_str, end_date_str, third_party_by_date = _load_stats_range_context(
                 start_timestamp, end_timestamp
             )
@@ -1951,6 +2000,10 @@ def register_stats_api_routes(app):
             end_timestamp = float(end_timestamp) if end_timestamp else None
 
             # Fetch lines filtered by timestamp
+            if history.managed(GameLinesTable._db):
+                snapshot = history.request("miningHeatmap", start=start_timestamp, end=end_timestamp)
+                if snapshot is not None:
+                    return jsonify(snapshot), 200
             all_lines = GameLinesTable.get_lines_filtered_by_timestamp(
                 start=start_timestamp, end=end_timestamp, for_stats=True
             )
@@ -2153,6 +2206,19 @@ def register_stats_api_routes(app):
 
             today = datetime.date.today()
 
+            if history.managed(StatsRollupTable._db):
+                snapshot = history.request(
+                    "dailyActivity",
+                    today=today.isoformat(),
+                    start=datetime.date.fromtimestamp(float(start_timestamp)).isoformat()
+                    if use_explicit_range
+                    else None,
+                    end=datetime.date.fromtimestamp(float(end_timestamp)).isoformat() if use_explicit_range else None,
+                    all_time=use_all_time,
+                )
+                if snapshot is not None:
+                    return jsonify(snapshot), 200
+
             if use_explicit_range:
                 start_date = datetime.date.fromtimestamp(float(start_timestamp))
                 end_date = datetime.date.fromtimestamp(float(end_timestamp))
@@ -2276,6 +2342,23 @@ def register_stats_api_routes(app):
                 today_end = datetime.datetime.combine(today, datetime.time.max).timestamp()
 
             # Query all game lines for today using lightweight stats records.
+            snapshot = None
+            if (
+                history.managed(GameLinesTable._db)
+                and not getattr(config, "regex_out_repetitions", False)
+                and not getattr(config, "extra_punctuation_regex", "")
+            ):
+                snapshot = history.request(
+                    "todaySessions", start=today_start, end=today_end, session_gap=session_gap_seconds
+                )
+            if snapshot is not None:
+                metadata = {}
+                for session in snapshot["sessions"]:
+                    game_id = session.pop("gameId")
+                    if game_id and game_id not in metadata:
+                        metadata[game_id] = _serialise_game_metadata(GamesTable.get(game_id))
+                    session["gameMetadata"] = metadata.get(game_id)
+                return jsonify(snapshot), 200
             today_lines = fetch_stats_lines_for_timestamp_range(today_start, today_end)
 
             # If no lines today, return empty stats
@@ -2469,6 +2552,9 @@ def register_stats_api_routes(app):
             if not kanji or len(kanji) != 1:
                 return jsonify({"error": "Invalid kanji parameter"}), 400
 
+            if history.managed(StatsRollupTable._db):
+                return jsonify(history.request("kanjiFrequency", kanji=kanji, today=datetime.date.today().isoformat()))
+
             total = 0
             first_date = StatsRollupTable.get_first_date()
 
@@ -2493,6 +2579,10 @@ def register_stats_api_routes(app):
     def api_game_kanji_grid(game_id):
         """Get kanji frequencies for a single game's captured text."""
         try:
+            if history.managed(GameLinesTable._db):
+                grid = history.request("gameKanji", game_id=game_id)
+                if grid is not None:
+                    return jsonify(grid), 404 if "error" in grid else 200
             if not GamesTable.get(game_id):
                 return jsonify({"error": "Game not found"}), 404
 
@@ -2532,6 +2622,26 @@ def register_stats_api_routes(app):
             description: Server error
         """
         try:
+            stats_config = get_stats_config()
+            if not stats_config.regex_out_repetitions and not stats_config.extra_punctuation_regex:
+                from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
+
+                try:
+                    tok_enabled = bool(is_tokenization_enabled())
+                except Exception:
+                    tok_enabled = False
+                native_payload = history.game_stats(
+                    GameLinesTable._db,
+                    game_id=game_id,
+                    today=datetime.date.today(),
+                    session_gap=stats_config.session_gap_seconds,
+                    tokenization_enabled=tok_enabled,
+                )
+                if native_payload is not None:
+                    if native_payload.get("not_found"):
+                        return jsonify({"error": "Game not found"}), 404
+                    return jsonify(native_payload), 200
+
             # Look up the game
             game = GamesTable.get(game_id)
             if not game:

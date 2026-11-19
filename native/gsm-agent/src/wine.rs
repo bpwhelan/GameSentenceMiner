@@ -33,8 +33,9 @@ pub fn launch(
     };
     let name = format!("frida-server-{}-windows-{arch}.exe", crate::FRIDA_VERSION);
     let cached = PathBuf::from(
-        options["baseDir"]
+        options["sharedDir"]
             .as_str()
+            .or_else(|| options["baseDir"].as_str())
             .ok_or("Missing data directory")?,
     )
     .join("texthook/frida-server")

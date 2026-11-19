@@ -40,7 +40,7 @@ test('vertical readings split OCR word boxes down the column and sit to its righ
     const source = line('日本', vertical);
     const chars = window.buildLineCharacterBoxes(source);
     assert.deepEqual(Array.from(chars, c => [c.x1, c.y1, c.x3, c.y3]), [
-      [20, 10, 24, 20], [20, 20, 24, 30],
+      [0.2, 0.1, 0.24, 0.2], [0.2, 0.2, 0.24, 0.3],
     ]);
     const [box] = window.createFuriganaBoxesForLine(source, [
       { text: '日本', start: 0, end: 2, reading: 'にほん' },

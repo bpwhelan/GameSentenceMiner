@@ -24,6 +24,12 @@ describe("shared tooltips", () => {
         </div>
         <label htmlFor="field" data-tip="Field help">Field</label>
         <input id="field" aria-describedby="existing-description" />
+        <div data-tip="Dropdown group help">
+          <label htmlFor="dropdown" data-tip="Dropdown label help"><span>Engine</span></label>
+          <select id="dropdown" data-tip="Dropdown help"><option data-tip="Option help">ScreenAI</option></select>
+        </div>
+        <label data-tip="Wrapped dropdown help">Language<select><option>Japanese</option></select></label>
+        <button aria-haspopup="listbox" data-tip="Custom dropdown help"><span>Preset</span></button>
         <p id="existing-description">Existing description</p>
         <iframe title="Document" />
       </>);
@@ -52,6 +58,15 @@ describe("shared tooltips", () => {
   it("shows explanations when hovering disabled controls", async () => {
     await hover(container.querySelector("#disabled")!);
     expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("Why this is disabled");
+  });
+
+  it("ignores tooltip text on dropdowns, options, and associated labels", async () => {
+    for (const selector of ["#dropdown", "#dropdown option", 'label[for="dropdown"] span', "label:has(select)", '[aria-haspopup="listbox"] span']) {
+      await hover(container.querySelector(selector)!);
+      expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    }
+    await act(async () => container.querySelector<HTMLSelectElement>("#dropdown")!.focus());
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
   });
 
   it("only shows game-name tooltips when the label overflows, including multiline clipping and keyboard focus", async () => {

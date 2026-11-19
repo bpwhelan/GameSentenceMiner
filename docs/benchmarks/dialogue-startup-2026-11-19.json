@@ -1,0 +1,172 @@
+{
+  "python": "3.13.2",
+  "platform": "Windows-11-10.0.26300-SP0",
+  "native_extension_sha256": "af4d1023e0c3d039e5aae7f3e274f212a52f2685e493d13f1ddbd73a6a50b844",
+  "rounds": 9,
+  "eager": [
+    {
+      "startup_ms": 51.40580001170747,
+      "additional_private_mib": 2.99609375,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 53.82669999380596,
+      "additional_private_mib": 2.9609375,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 60.70420000469312,
+      "additional_private_mib": 2.84765625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 56.35850000544451,
+      "additional_private_mib": 2.640625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 60.30129999271594,
+      "additional_private_mib": 2.94921875,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 58.99719998706132,
+      "additional_private_mib": 3.265625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 50.116899976274,
+      "additional_private_mib": 2.74609375,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 53.62930000410415,
+      "additional_private_mib": 3.22265625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    },
+    {
+      "startup_ms": 53.76610002713278,
+      "additional_private_mib": 2.79296875,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": true,
+        "unicodedata": true,
+        "statistics": true
+      }
+    }
+  ],
+  "lazy": [
+    {
+      "startup_ms": 35.1717000012286,
+      "additional_private_mib": 1.81640625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 29.76819998002611,
+      "additional_private_mib": 1.68359375,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 35.24250001646578,
+      "additional_private_mib": 1.80078125,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 28.57289998792112,
+      "additional_private_mib": 1.66015625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 26.77560001029633,
+      "additional_private_mib": 1.8515625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 30.479200009722263,
+      "additional_private_mib": 1.578125,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 26.40230001998134,
+      "additional_private_mib": 1.69140625,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 28.9016000169795,
+      "additional_private_mib": 1.2421875,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    },
+    {
+      "startup_ms": 26.389599981484935,
+      "additional_private_mib": 1.953125,
+      "modules_loaded": {
+        "rapidfuzz.fuzz": false,
+        "unicodedata": false,
+        "statistics": false
+      }
+    }
+  ]
+}

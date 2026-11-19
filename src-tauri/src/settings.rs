@@ -7,6 +7,7 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
     let paths = app.state::<Settings>().paths.clone();
     let action = params["action"].as_str().unwrap_or("").to_owned();
     let args = params["params"].clone();
+    let app_handle = app.clone();
     let result = tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
         let profiles = gsm_settings::profiles::Profiles::new(&paths.active);
         let preferences = gsm_settings::preferences::Preferences::new(&paths.active);
@@ -27,10 +28,13 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
             "paths" => Ok(json!({"active":paths.active,"shared":paths.shared})),
             "profiles.list" => profiles.list(),
             "profiles.get" => profiles.get(exe, scene),
-            "profiles.upsert" => profiles.upsert(args),
-            "profiles.delete" => {
-                profiles.delete(exe, scene)?;
-                Ok(Value::Null)
+            "profiles.upsert" | "profiles.delete" => {
+                crate::texthook_coordinator::edit_hook_profile(
+                    &app_handle,
+                    &profiles,
+                    args,
+                    action == "profiles.delete",
+                )
             }
             _ => Err(format!("Unknown native settings action: {action}")),
         }

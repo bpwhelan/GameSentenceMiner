@@ -118,9 +118,9 @@ class AuthoritativeTextRuntime:
             raise TypeError(f"Unexpected freeze result: {type(result)!r}")
         return result
 
-    def snapshot(self, *, timeout: float = 0.25) -> TextStreamSnapshot:
+    def snapshot(self, *, timeout: float = 0.25, max_records: int | None = None) -> TextStreamSnapshot:
         self.start()
-        result = self.coordinator.ref.ask(SnapshotCommand(), timeout=timeout)
+        result = self.coordinator.ref.ask(SnapshotCommand(max_records), timeout=timeout)
         if not isinstance(result, TextStreamSnapshot):
             raise TypeError(f"Unexpected snapshot result: {type(result)!r}")
         return result

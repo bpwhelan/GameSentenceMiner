@@ -1092,7 +1092,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "hideOnStartup": true,
   "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
-  "textHoverClickThrough": true,
+  "textHoverClickThrough": false,
   "manualMode": false,
   "manualModeType": "hold",
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
@@ -1181,6 +1181,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "vnGuideMode": "auto",
   "vnGuideDisplayStyle": "card",
   "vnGuideAutoAdvance": true,
+  "vnGuideClickThroughOnChoice": true,
   "vnGuideToggleHotkey": "Alt+Shift+G",
   "vnGuideNextHotkey": "Alt+Shift+Right",
   "vnGuideBackHotkey": "Alt+Shift+Left",
@@ -2467,6 +2468,7 @@ let texthookerWindow = null;
 let texthookerLoadToken = 0;
 let customPageController = null;
 let vnGuideController = null;
+let vnGuideChoiceClickThroughActive = false;
 let vnGuideHud = null;
 let vnGuideCatalogue = null;
 let tray = null;
@@ -6299,6 +6301,13 @@ function registerVnGuideHotkeys() {
     vnGuideController = createVnGuideController({
       library: new GuideLibrary(dataPath), hud: vnGuideHud,
       onChange: state => {
+        if (vnGuideChoiceClickThroughActive !== state.choiceClickThrough) {
+          vnGuideChoiceClickThroughActive = state.choiceClickThrough;
+          magpieSession?.invalidatePointer({ keepProjection: canTrackMagpiePointer() });
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('vn-guide-choice-click-through', state.choiceClickThrough);
+          }
+        }
         if (settingsWindow && !settingsWindow.isDestroyed()) settingsWindow.webContents.send('vn-guide-state', state);
       },
       onRouteChange: routeId => {
@@ -8081,11 +8090,12 @@ async function startOverlayAppImpl() {
     if (event.sender === mainWindow?.webContents) magpieSession?.handleHit(reply);
   });
 
+  // Older renderers sent untagged replies based on click-through being enabled.
   ipcMain.on('text-hover-ignore', (event, ignore, clickThroughText = true) => {
     if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
     if (event.sender !== mainWindow?.webContents || typeof ignore !== 'boolean') return;
     if (!canRouteTextHover() || magpieSession?.ownsPointer()) return;
-    if (clickThroughText !== (userSettings.textHoverClickThrough === true)) return;
+    if (clickThroughText !== (vnGuideChoiceClickThroughActive || userSettings.textHoverClickThrough === true)) return;
     mainWindow.setIgnoreMouseEvents(ignore, { forward: true });
   });
 
@@ -8288,7 +8298,7 @@ async function startOverlayAppImpl() {
     if (isDev) {
       // mainWindow.openDevTools({ mode: 'detach' });
     }
-    mainWindow.webContents.send("load-settings", buildOverlaySettingsPayload());
+    mainWindow.webContents.send("load-settings", { ...buildOverlaySettingsPayload(), vnGuideChoiceClickThroughActive });
     publishOverlayCaptureAvailability();
     broadcastPomodoroState();
     mainWindow.webContents.send("display-info", buildOverlayDisplayInfo(display));
@@ -8874,6 +8884,7 @@ async function startOverlayAppImpl() {
       case "vnGuideMode":
       case "vnGuideDisplayStyle":
       case "vnGuideAutoAdvance":
+      case "vnGuideClickThroughOnChoice":
       case "vnGuideToggleHotkey":
       case "vnGuideNextHotkey":
       case "vnGuideBackHotkey":
@@ -9304,6 +9315,7 @@ async function startOverlayAppImpl() {
 
   registerOverlayEmitterListener(app, "before-quit", () => {
     vnGuideController?.dispose();
+    vnGuideChoiceClickThroughActive = false;
     vnGuideController = null;
     vnGuideHud = null;
     customPageController?.dispose();
@@ -9402,6 +9414,7 @@ async function stopOverlayApp() {
       runOverlayCleanupStep('custom page', () => customPageController?.dispose());
       customPageController = null;
       runOverlayCleanupStep('VN guide', () => vnGuideController?.dispose());
+      vnGuideChoiceClickThroughActive = false;
       vnGuideController = null;
       vnGuideHud = null;
       runOverlayCleanupStep('Jiten requests', () => {

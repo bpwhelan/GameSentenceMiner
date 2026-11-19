@@ -18,8 +18,8 @@ for(const relative of [
 ]) {
   await fs.access(path.join(root,relative));
 }
-await fs.access(path.join(root,'native/gsm-agent',process.platform==='win32'?'gsm-agent-host.exe':'gsm-agent-host'));
-await fs.access(path.join(root,'licenses/frida/FRIDA-COPYING'));
+const agentRuntime=JSON.parse(await fs.readFile(path.join(root,'native/agent-runtime.json'),'utf8'));
+if(agentRuntime.schemaVersion!==1 || agentRuntime.platform!==`${process.platform}-${process.arch}` || !/^[a-f0-9]{64}$/.test(agentRuntime.archive?.sha256))throw Error('Missing pinned Agent runtime metadata');
 for(const forbidden of ['runtime','node_modules','desktop-runtime','dist/main','dist/shared']) {
   if(await fs.access(path.join(root,forbidden)).then(()=>true,()=>false)) {
     throw Error(`Forbidden Node/JS runtime directory found in staged package: ${forbidden}`);
@@ -27,7 +27,7 @@ for(const forbidden of ['runtime','node_modules','desktop-runtime','dist/main','
 }
 const vendor=JSON.parse(await fs.readFile(path.join(root,'GSM_Overlay/hachidori/SOURCE.json')));
 validateReleaseMetadata(vendor.release);
-await verifyVocrBundle(path.join(root,'GameSentenceMiner/assets/vocr'));
+await verifyVocrBundle(path.join(root,'GameSentenceMiner/assets/vocr'), {downloadable: true});
 const audit=await auditNativePackage(root);
 console.log(`Audited package contents: ${(audit.total/1024**2).toFixed(1)} MiB, ${audit.count} files, zero Node/Electron runtime payloads.`);
-console.log('Verified pure-Rust native services, renderer, both dictionary engines, input server, and licenses.');
+console.log('Verified native services, renderer, dictionary engines, input server, and downloadable Agent runtime metadata.');

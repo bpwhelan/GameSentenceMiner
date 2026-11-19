@@ -26,6 +26,13 @@ pub fn dictionary_origin(name: &str) -> String {
         format!("gsm-{name}://localhost")
     }
 }
+pub fn yomitan_font_request(request: &Request<Vec<u8>>) -> bool {
+    percent_decode(request.uri().path())
+        .ok()
+        .is_some_and(|path| {
+            gsm_packages::downloads::contains(&format!("yomitan/{}", path.trim_start_matches('/')))
+        })
+}
 impl Assets {
     pub fn unmount(&self, id: &str) {
         self.0.lock().unwrap().remove(id);
@@ -137,12 +144,14 @@ impl Assets {
         let mut id = components.next().unwrap_or_default().to_owned();
         let mut relative = components.next().unwrap_or_default().to_owned();
         let dictionaries = self.1.lock().unwrap();
-        if let Some((key, _)) = dictionaries.iter().find(|(_, name)| {
+        let mut is_yomitan = false;
+        if let Some((key, name)) = dictionaries.iter().find(|(_, name)| {
             url.origin().ascii_serialization() == dictionary_origin(name)
                 || url.scheme() == format!("gsm-{name}")
         }) {
             id = key.clone();
             relative = decoded.trim_start_matches('/').into();
+            is_yomitan = name == "yomitan";
         }
         drop(dictionaries);
         if relative == "__gsm_migration__.html" && self.0.lock().unwrap().contains_key(&id) {
@@ -158,16 +167,35 @@ impl Assets {
                 return response(200, "text/html; charset=utf-8", bytes.clone());
             }
         }
-        let roots = self.0.lock().unwrap();
-        let Some(root) = roots.get(&id) else {
+        let Some(root) = self.0.lock().unwrap().get(&id).cloned() else {
             return response(404, "text/plain", b"Unknown resource".to_vec());
         };
-        let Ok(path) = root.join(relative).canonicalize() else {
-            return response(404, "text/plain", vec![]);
+        let candidate = root.join(&relative);
+        let asset = format!("yomitan/{relative}");
+        let path = if is_yomitan && gsm_packages::downloads::contains(&asset) {
+            let bundled = candidate.canonicalize().ok().filter(|path| path.starts_with(&root));
+            match gsm_packages::download_cache().and_then(|cache| {
+                gsm_packages::downloads::ensure_asset(&cache, &asset, bundled.as_deref())
+            }) {
+                Ok(path) => path,
+                Err(error) => {
+                    crate::desktop_log::stderr_only(
+                        "assets",
+                        "WARNING",
+                        format!("Could not load {asset}: {error}"),
+                    );
+                    return response(503, "text/plain", vec![]);
+                }
+            }
+        } else {
+            let Ok(path) = candidate.canonicalize() else {
+                return response(404, "text/plain", vec![]);
+            };
+            if !path.starts_with(&root) || !path.is_file() {
+                return response(403, "text/plain", vec![]);
+            }
+            path
         };
-        if !path.starts_with(root) || !path.is_file() {
-            return response(403, "text/plain", vec![]);
-        }
         let Ok(bytes) = std::fs::read(&path) else {
             return response(404, "text/plain", vec![]);
         };

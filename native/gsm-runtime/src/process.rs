@@ -58,7 +58,11 @@ impl OwnedChild {
         command
             .env_clear()
             .envs(env)
-            .stdin(if spec["stdin"] == true { Stdio::piped() } else { Stdio::null() })
+            .stdin(if spec["stdin"] == true {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if let Some(cwd) = spec["cwd"].as_str() {

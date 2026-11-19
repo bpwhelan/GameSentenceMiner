@@ -20,6 +20,22 @@ def _line(line_id: str, text: str):
     return SimpleNamespace(id=line_id, text=text, time=datetime(2026, 7, 25, 12, 0, 0))
 
 
+def test_v2_snapshot_applies_client_limit_before_serializing(monkeypatch):
+    from GameSentenceMiner import gametext
+    from GameSentenceMiner.web.gsm_websocket import build_textfeed_v2_snapshot_payload
+
+    limits = []
+
+    def snapshot(*, max_records):
+        limits.append(max_records)
+        return SimpleNamespace(to_wire=lambda: {"event": "text_v2_snapshot", "snapshot_sequence": 1005, "lines": []})
+
+    monkeypatch.setattr(gametext, "get_text_stream_snapshot", snapshot)
+    for request in ({}, {"max_lines": "3"}, {"max_lines": 0}, {"max_lines": 1010}, {"max_lines": "bad"}):
+        assert build_textfeed_v2_snapshot_payload(request)["snapshot_sequence"] == 1005
+    assert limits == [1000, 3, 1, 1000, 1000]
+
+
 def test_new_overlay_clients_receive_cached_window_coverage(monkeypatch):
     from GameSentenceMiner.util.platform import window_state_monitor
 

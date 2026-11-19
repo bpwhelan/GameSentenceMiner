@@ -1,0 +1,579 @@
+[
+  {
+    "name": "test_ranks_hooks_by_match_tier_across_independent_blocks",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "empty",
+          "samples": []
+        },
+        {
+          "id": "other",
+          "samples": [
+            "昨日も雨が降っていた"
+          ]
+        },
+        {
+          "id": "close",
+          "samples": [
+            "今日の放課後は図書館で勉強しよう"
+          ]
+        },
+        {
+          "id": "enable",
+          "samples": [
+            "<longermarkup>今日の放課後は図書館で待ち合わせよう</longermarkup>"
+          ]
+        },
+        {
+          "id": "disable",
+          "samples": [
+            "セーブデータ1234567890"
+          ]
+        },
+        {
+          "id": "fuzzy",
+          "samples": [
+            "今日の放課後は図書舘で待ち合わせよう"
+          ]
+        },
+        {
+          "id": "exact",
+          "samples": [
+            "今日の放課後は\n図書館で待ち合わせよう",
+            "おはよう"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "セーブデータ1234567890",
+      "今日の放課後は図書館で待ち合わせよう",
+      "設定を開く"
+    ],
+    "settings": {
+      "remove_numbers": true
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "exact",
+        "tier": "exact",
+        "processorOverrides": {},
+        "sample": "今日の放課後は\n図書館で待ち合わせよう",
+        "output": "今日の放課後は\n図書館で待ち合わせよう",
+        "ocrText": "今日の放課後は図書館で待ち合わせよう"
+      },
+      {
+        "hookId": "fuzzy",
+        "tier": "fuzzy",
+        "processorOverrides": {},
+        "sample": "今日の放課後は図書舘で待ち合わせよう",
+        "output": "今日の放課後は図書舘で待ち合わせよう",
+        "ocrText": "今日の放課後は図書館で待ち合わせよう"
+      },
+      {
+        "hookId": "enable",
+        "tier": "filtered",
+        "processorOverrides": {
+          "remove_angle_brackets": true
+        },
+        "sample": "<longermarkup>今日の放課後は図書館で待ち合わせよう</longermarkup>",
+        "output": "今日の放課後は図書館で待ち合わせよう",
+        "ocrText": "今日の放課後は図書館で待ち合わせよう",
+        "changes": {
+          "remove_angle_brackets": true
+        }
+      },
+      {
+        "hookId": "close",
+        "tier": "close",
+        "processorOverrides": {},
+        "sample": "今日の放課後は図書館で勉強しよう",
+        "output": "今日の放課後は図書館で勉強しよう",
+        "ocrText": "今日の放課後は図書館で待ち合わせよう"
+      },
+      {
+        "hookId": "empty",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      },
+      {
+        "hookId": "other",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      },
+      {
+        "hookId": "disable",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      }
+    ]
+  },
+  {
+    "name": "test_preserves_the_active_hook_overrides_and_compares_whole_blocks",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "concatenated",
+          "samples": [
+            "セーブ123456789設定を開く"
+          ]
+        },
+        {
+          "id": "current",
+          "samples": [
+            "セーブ123456789"
+          ]
+        }
+      ],
+      "selectedHookId": "current",
+      "processorOverrides": {
+        "remove_numbers": false
+      }
+    },
+    "blocks": [
+      "セーブ123456789",
+      "設定を開く"
+    ],
+    "settings": {
+      "remove_numbers": true
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "current",
+        "tier": "exact",
+        "processorOverrides": {
+          "remove_numbers": false
+        },
+        "sample": "セーブ123456789",
+        "output": "セーブ123456789",
+        "ocrText": "セーブ123456789"
+      },
+      {
+        "hookId": "concatenated",
+        "tier": "close",
+        "processorOverrides": {},
+        "sample": "セーブ123456789設定を開く",
+        "output": "セーブ設定を開く",
+        "ocrText": "設定を開く"
+      }
+    ]
+  },
+  {
+    "name": "test_short_fuzzy_match_requires_matching_characters",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "yes",
+          "samples": [
+            "「はい」"
+          ]
+        },
+        {
+          "id": "ash",
+          "samples": [
+            "灰"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "はい"
+    ],
+    "settings": {},
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "yes",
+        "tier": "fuzzy",
+        "processorOverrides": {},
+        "sample": "「はい」",
+        "output": "「はい」",
+        "ocrText": "はい"
+      },
+      {
+        "hookId": "ash",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      }
+    ]
+  },
+  {
+    "name": "test_combines_control_character_cleanup_and_language_filtering_for_bilingual_dialogue",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "Ages3ResT",
+          "samples": [
+            "【武】「…\u0003…\u0003…\u0003うそ〜ん」\u0003\n【Takeru】「…No frickin' way…」\u0003"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "武",
+      "⋯ 『うそ～ん！』"
+    ],
+    "settings": {
+      "remove_control_chars": false
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "Ages3ResT",
+        "tier": "filtered",
+        "processorOverrides": {
+          "remove_control_chars": true,
+          "language_filter": true
+        },
+        "sample": "【武】「…\u0003…\u0003…\u0003うそ〜ん」\u0003\n【Takeru】「…No frickin' way…」\u0003",
+        "output": "【武】「………うそ〜ん」",
+        "ocrText": "⋯ 『うそ～ん！』",
+        "changes": {
+          "remove_control_chars": true,
+          "language_filter": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "test_inline_bilingual_dialogue_can_suggest_language_trim_for_this_hook",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "Ages3ResT",
+          "samples": [
+            "【武】「…\u0003うそ〜ん」\u0003 【Takeru】「…No frickin' way…」 12345"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "『うそ～ん』"
+    ],
+    "settings": {
+      "remove_control_chars": false
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "Ages3ResT",
+        "tier": "filtered",
+        "processorOverrides": {
+          "remove_control_chars": true,
+          "language_filter": true,
+          "language_filter_mode": "trim"
+        },
+        "sample": "【武】「…\u0003うそ〜ん」\u0003 【Takeru】「…No frickin' way…」 12345",
+        "output": "【武】「…うそ〜ん」",
+        "ocrText": "『うそ～ん』",
+        "changes": {
+          "remove_control_chars": true,
+          "language_filter": true,
+          "language_filter_mode": "trim"
+        }
+      }
+    ]
+  },
+  {
+    "name": "test_enables_filters_in_a_pipeline_with_a_repeated_processor",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "save",
+          "samples": [
+            "「番号1234567890\u0003」\nMENU1234567890"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "「番号1234567890」"
+    ],
+    "settings": {
+      "processor_order": [
+        "remove_numbers",
+        "language_filter",
+        "remove_numbers",
+        "remove_control_chars"
+      ],
+      "remove_control_chars": false
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "save",
+        "tier": "filtered",
+        "processorOverrides": {
+          "language_filter": true,
+          "remove_control_chars": true
+        },
+        "sample": "「番号1234567890\u0003」\nMENU1234567890",
+        "output": "「番号1234567890」",
+        "ocrText": "「番号1234567890」",
+        "changes": {
+          "language_filter": true,
+          "remove_control_chars": true
+        }
+      }
+    ]
+  },
+  {
+    "name": "test_preserves_the_mode_of_an_enabled_language_filter",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "Ages3ResT",
+          "samples": [
+            "【武】「うそ〜ん」 【Takeru】「No frickin' way」 12345"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "『うそ～ん』"
+    ],
+    "settings": {
+      "processor_order": [
+        "language_filter"
+      ],
+      "language_filter": true
+    },
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "Ages3ResT",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      }
+    ]
+  },
+  {
+    "name": "test_ignores_edge_marks_and_matches_a_labeled_quote_to_the_dialogue_block",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "dialogue",
+          "samples": [
+            "【武】「…うそ〜ん！？」~"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "⋯『うそ～ん』"
+    ],
+    "settings": {},
+    "language": "ja",
+    "expected": [
+      {
+        "hookId": "dialogue",
+        "tier": "fuzzy",
+        "processorOverrides": {},
+        "sample": "【武】「…うそ〜ん！？」~",
+        "output": "【武】「…うそ〜ん！？」~",
+        "ocrText": "⋯『うそ～ん』"
+      }
+    ]
+  },
+  {
+    "name": "unicode_and_equal_scores",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "newest",
+          "samples": [
+            "strasse!",
+            "Straße!"
+          ]
+        },
+        {
+          "id": "sigma",
+          "samples": [
+            "τελικός"
+          ]
+        },
+        {
+          "id": "hangul",
+          "samples": [
+            "안 녕"
+          ]
+        },
+        {
+          "id": "noise",
+          "samples": [
+            "*!"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "STRASSE",
+      "ΤΕΛΙΚΌΣ",
+      "안녕"
+    ],
+    "settings": {},
+    "language": "en",
+    "expected": [
+      {
+        "hookId": "hangul",
+        "tier": "exact",
+        "processorOverrides": {},
+        "sample": "안 녕",
+        "output": "안 녕",
+        "ocrText": "안녕"
+      },
+      {
+        "hookId": "newest",
+        "tier": "fuzzy",
+        "processorOverrides": {},
+        "sample": "Straße!",
+        "output": "Straße!",
+        "ocrText": "STRASSE"
+      },
+      {
+        "hookId": "sigma",
+        "tier": "fuzzy",
+        "processorOverrides": {},
+        "sample": "τελικός",
+        "output": "τελικός",
+        "ocrText": "ΤΕΛΙΚΌΣ"
+      },
+      {
+        "hookId": "noise",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      }
+    ]
+  },
+  {
+    "name": "custom_replacement",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "rule",
+          "samples": [
+            "A12-B34"
+          ]
+        }
+      ],
+      "selectedHookId": null,
+      "processorOverrides": null
+    },
+    "blocks": [
+      "B34:A12"
+    ],
+    "settings": {
+      "string_replacement": {
+        "enabled": true,
+        "rules": [
+          {
+            "enabled": true,
+            "mode": "regex",
+            "find": "(\\w+)-(\\w+)",
+            "replace": "$2:$1",
+            "case_sensitive": false,
+            "whole_word": false
+          }
+        ]
+      }
+    },
+    "language": "en",
+    "expected": [
+      {
+        "hookId": "rule",
+        "tier": "exact",
+        "processorOverrides": {},
+        "sample": "A12-B34",
+        "output": "B34:A12",
+        "ocrText": "B34:A12"
+      }
+    ]
+  },
+  {
+    "name": "unicode_character_length_cutoff_and_stable_hook_order",
+    "snapshot": {
+      "hooks": [
+        {
+          "id": "at-cutoff",
+          "samples": [
+            "abcdefghijk"
+          ]
+        },
+        {
+          "id": "below-cutoff",
+          "samples": [
+            "abcdefghij"
+          ]
+        },
+        {
+          "id": "tier",
+          "samples": [
+            "abcdefghijklmnopqrst"
+          ]
+        },
+        {
+          "id": "same-tier",
+          "samples": [
+            "abcdefghijklmnopqrst"
+          ]
+        }
+      ]
+    },
+    "blocks": [
+      "abcdefghijklmnopqrst"
+    ],
+    "settings": {
+      "processor_order": [
+        "language_filter"
+      ]
+    },
+    "language": "en",
+    "expected": [
+      {
+        "hookId": "tier",
+        "tier": "exact",
+        "processorOverrides": {},
+        "sample": "abcdefghijklmnopqrst",
+        "output": "abcdefghijklmnopqrst",
+        "ocrText": "abcdefghijklmnopqrst"
+      },
+      {
+        "hookId": "same-tier",
+        "tier": "exact",
+        "processorOverrides": {},
+        "sample": "abcdefghijklmnopqrst",
+        "output": "abcdefghijklmnopqrst",
+        "ocrText": "abcdefghijklmnopqrst"
+      },
+      {
+        "hookId": "at-cutoff",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      },
+      {
+        "hookId": "below-cutoff",
+        "tier": "unmatched",
+        "processorOverrides": {}
+      }
+    ]
+  }
+]

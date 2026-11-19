@@ -21,13 +21,7 @@ export async function syncStartupBackend(
 ): Promise<boolean> {
     const updateFlagExists = fs.existsSync(options.updateFlagPath);
     const force = updateFlagExists || options.appVersionChanged || options.forceUpdate;
-    // Unread release notes survive a quit, but install sessions do not. Run the
-    // normal version check so the restored dialog gets a terminal sync result
-    // even when automatic updates are disabled. An up-to-date backend is reused.
-    if (!force && !options.autoUpdateEnabled && !options.hasPendingDesktopUpdate) {
-        return true;
-    }
-
+    // Compatible backend hotfixes are independent of the desktop auto-update preference.
     await updater.updateGSM(false, force);
     if (!updater.lastBackendUpdateWasSuccessful) {
         log.warn(

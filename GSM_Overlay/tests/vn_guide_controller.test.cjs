@@ -25,6 +25,29 @@ function setup(t, overrides = {}, controllerOptions = {}) {
   return { controller, library, directory, requests, updates, settings, hud, advance: milliseconds => { time += milliseconds; } };
 }
 
+test('choice click-through follows live detection even when the guide is hidden', async t => {
+  const { controller, settings } = setup(t);
+  const prefs = { ...settings, vnGuideMode: 'hotkey', vnGuideAutoAdvance: false };
+  const active = () => controller.snapshot().choiceClickThrough;
+  await controller.configure(prefs);
+  controller.setAvailable(true);
+  assert.equal(active(), false);
+  controller.observe(menu);
+  assert.equal(controller.snapshot().visible, false);
+  assert.equal(active(), true);
+  await controller.configure({ ...prefs, vnGuideClickThroughOnChoice: false });
+  assert.equal(active(), false);
+  await controller.configure(prefs);
+  assert.equal(active(), true);
+  controller.setAvailable(false);
+  controller.setAvailable(true);
+  assert.equal(active(), false, 'a remembered choice awaits a fresh detection');
+  controller.observe(menu);
+  assert.equal(active(), true);
+  controller.observe({ type: 'overlay_clear' });
+  assert.equal(active(), false);
+});
+
 test('completion waits for Next, then continues in guide order and stops at the last route', async t => {
   const selections = [];
   const { controller, settings, library } = setup(t, {}, { onRouteChange: id => selections.push(id) });

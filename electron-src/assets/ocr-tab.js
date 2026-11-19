@@ -29,6 +29,7 @@
     // Animation constants
     const dotsAnimation = ['.', '..', '...', '....'];
     const scanningAnimation = ['.', '..', '...', '....'];
+    const DEFAULT_STABILITY_OCR = 'screenai';
     const validProcessPriorities = ['low', 'below_normal', 'normal', 'above_normal', 'high'];
     const OCR_RUN_1_RECOGNIZED_PATTERN = /OCR Run 1: Text recognized/i;
     const OCR_RUN_2_RECOGNIZED_PATTERN = /OCR Run 2(?:\s*\(bypassed\))?: Text recognized/i;
@@ -41,18 +42,11 @@
     const engineColors = {
         "OneOCR": { ansi: "\x1b[36m", html: "color: #00FFFF;" },
         "Google Lens": { ansi: "\x1b[92m", html: "color: #00FF00;" },
-        "Gemini": { ansi: "\x1b[95m", html: "color: #FF77FF;" },
         "Bing": { ansi: "\x1b[34m", html: "color: #0000FF;" },
         "ScreenAI OCR": { ansi: "\x1b[96m", html: "color: #2AD6F9;" },
         "Google Vision": { ansi: "\x1b[92m", html: "color: #00FF00;" },
-        "Azure Image Analysis": { ansi: "\x1b[96m", html: "color: #00FFFF;" },
-        "OCRSpace": { ansi: "\x1b[93m", html: "color: #FFFF00;" },
-        "Qwen2-VL": { ansi: "\x1b[90m", html: "color: #808080;" },
-        "Local LLM OCR": { ansi: "\x1b[95m", html: "color: #D6A4FF;" },
         "Meiki": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
         "MeikiOCR": { ansi: "\x1b[95m", html: "color: #ff00ff;" },
-        "OpenCV Classical Text Detector": { ansi: "\x1b[33m", html: "color: #f5b041;" },
-        "MLKit OCR": { ansi: "\x1b[94m", html: "color: #01ff62;" },
     };
 
     // Utility functions
@@ -352,13 +346,7 @@
             ocr_settings.ocr2_advanced = current_ocr2;
             ocr_settings.scanRate_advanced = parseFloat(scanRate);
         } else {
-            let defaultOcr1 = 'oneocr';
-            if (platform === 'darwin') {
-                defaultOcr1 = 'alivetext';
-            } else if (platform === 'linux') {
-                defaultOcr1 = 'meiki_text_detector';
-            }
-            ocr_settings.ocr1 = defaultOcr1;
+            ocr_settings.ocr1 = DEFAULT_STABILITY_OCR;
             ocr_settings.ocr2 = 'glens';
             ocr_settings.scanRate_basic = parseFloat(scanRate);
         }
@@ -398,13 +386,6 @@
         const clipboardGroup = document.getElementById('send-to-clipboard-group');
         const keepNewlineGroup = document.getElementById('keep-newline-group');
         const languageGroup = document.getElementById('language-select-group');
-
-        let defaultOcr1 = 'oneocr';
-        if (platform === 'darwin') {
-            defaultOcr1 = 'alivetext'; // Actually 'macocr' or 'alivetext' depending on what we support
-        } else if (platform === 'linux') {
-            defaultOcr1 = 'meiki_text_detector';
-        }
 
         if (isAdvanced) {
             basicSettings.style.display = 'none';
@@ -473,7 +454,7 @@
             }
 
             // Load Advanced Configs
-            document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || defaultOcr1;
+            document.getElementById('ocr1-input').value = ocr_settings.ocr1_advanced || DEFAULT_STABILITY_OCR;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2_advanced || 'glens';
             document.getElementById('ocr-scan-rate').value = ocr_settings.scanRate_advanced ?? 0.5;
 
@@ -508,7 +489,7 @@
             }
 
             // Load Basic Configs
-            document.getElementById('ocr1-input').value = defaultOcr1;
+            document.getElementById('ocr1-input').value = DEFAULT_STABILITY_OCR;
             document.getElementById('ocr2-input').value = 'glens';
 
             const scanRate = ocr_settings.scanRate_basic ?? 0.5;
@@ -1056,15 +1037,8 @@
         console.log('Loaded OCR Settings:', ocr_settings);
         console.log('Platform:', platform);
 
-        let defaultOcr1 = 'oneocr';
-        if (platform === 'darwin') {
-            defaultOcr1 = 'alivetext';
-        } else if (platform === 'linux') {
-            defaultOcr1 = 'meiki_text_detector';
-        }
-
         if (ocr_settings) {
-            document.getElementById('ocr1-input').value = ocr_settings.ocr1 || defaultOcr1;
+            document.getElementById('ocr1-input').value = ocr_settings.ocr1 || DEFAULT_STABILITY_OCR;
             document.getElementById('ocr2-input').value = ocr_settings.ocr2 || 'glens';
             document.getElementById('two-pass-ocr').checked = ocr_settings.twoPassOCR;
             document.getElementById('optimize-second-scan').checked = ocr_settings.optimize_second_scan === undefined ? true : ocr_settings.optimize_second_scan;
@@ -1113,7 +1087,7 @@
                 appearanceSpeed.value = '0.8';
             }
         } else {
-            document.getElementById('ocr1-input').value = defaultOcr1;
+            document.getElementById('ocr1-input').value = DEFAULT_STABILITY_OCR;
             document.getElementById('ocr2-input').value = 'glens';
             document.getElementById('ignore-ocr-run-1-text').checked = false;
             document.getElementById('obs-capture-preprocess').value = 'none';

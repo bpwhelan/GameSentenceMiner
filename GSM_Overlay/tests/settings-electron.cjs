@@ -67,13 +67,18 @@ app
     await view.loadFile(path.join(__dirname, "../settings.html"));
     view.webContents.send("preload-settings", {
       userSettings: { gamepadEnabled: true, showFurigana: true, showTextIndicators: true },
-      defaultSettings: { showTextIndicators: true, textHoverClickThrough: true },
+      defaultSettings: { showTextIndicators: true, textHoverClickThrough: false },
       websocketStates: { ws1: false, ws2: false },
       runtimeSettings: {},
     });
     await run("new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
     assert.equal(await run("document.getElementById('vnGuideCatalogueSource').value"), 'https://github.com/kanjieater/VN-Guide');
     assert.equal(await run("document.getElementById('vn-guide-catalogue').options.length"), 3);
+    assert.equal(await run("document.querySelector('[data-page=\"tools-guide\"] #vnGuideClickThroughOnChoice').checked"), true);
+    await run("document.getElementById('vnGuideClickThroughOnChoice').click(); new Promise(resolve => setTimeout(resolve, 0))");
+    assert.ok(saved.some(({ key, value }) => key === 'vnGuideClickThroughOnChoice' && value === false));
+    assert.equal(await run("GSMSettingsNavigation.pages.filter(page => page.category === 'gamepad').at(-1).id"), 'gamepad-quick-actions');
+    assert.equal(await run("Array.from(document.querySelectorAll('[data-tab=\"gamepad\"] [data-page]')).at(-1).dataset.page"), 'gamepad-quick-actions');
     await run("document.getElementById('vn-guide-search').value = '薄桜鬼'; document.getElementById('vn-guide-search').dispatchEvent(new Event('input'))");
     assert.equal(await run("document.getElementById('vn-guide-catalogue').options.length"), 2);
     assert.match(await run("document.getElementById('vn-guide-catalogue').options[1].text"), /Hakuouki/);
@@ -127,8 +132,8 @@ app
     await run("new Promise(resolve => setTimeout(resolve, 0))");
     assert.equal(await run("document.getElementById('meiki-ocr-model-row').hidden"), true);
     await run("GSMSettingsNavigation.navigate('overview-start')");
-    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), true);
-    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true);
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), false);
     assert.equal(await run("document.getElementById('home-textHoverClickThrough').getClientRects().length > 0"), true,
       'click-through must be available directly on Home without expanding anything');
     assert.equal(await run("document.getElementById('textHoverClickThrough').closest('[data-page]').dataset.page"),
@@ -143,17 +148,17 @@ app
     assert.equal(await run("document.getElementById('hideYomitanAfterMine').checked"), false);
     await run("document.getElementById('home-textHoverClickThrough').click()");
     await run("new Promise(resolve => setTimeout(resolve, 0))");
-    assert.ok(saved.some(({ key, value }) => key === 'textHoverClickThrough' && value === false),
-      'Home must save an explicit opt-out through the real settings binding');
-    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
+    assert.ok(saved.some(({ key, value }) => key === 'textHoverClickThrough' && value === true),
+      'Home must save an explicit opt-in through the real settings binding');
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), true);
     await run("GSMSettingsNavigation.navigate('interaction-mouse'); document.getElementById('textHoverClickThrough').click()");
     await run("new Promise(resolve => setTimeout(resolve, 0))");
-    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true);
-    view.webContents.send('settings-updated', { textHoverClickThrough: false });
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), false);
+    view.webContents.send('settings-updated', { textHoverClickThrough: true });
     await run("new Promise(resolve => setTimeout(resolve, 0))");
-    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), false);
-    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), false,
-      'a disabled profile choice must remain disabled in both views');
+    assert.equal(await run("document.getElementById('textHoverClickThrough').checked"), true);
+    assert.equal(await run("document.getElementById('home-textHoverClickThrough').checked"), true,
+      'an enabled profile choice must be reflected in both views');
     await run("GSMSettingsNavigation.navigate('interaction-reveal')");
     for (const key of ['showManualModeRecommendations', 'showExclusiveFullscreenRecommendations']) {
       assert.equal(await run(`document.getElementById('${key}').checked`), true);

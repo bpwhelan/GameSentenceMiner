@@ -5,7 +5,7 @@ import os
 import sys
 import time
 from PIL import Image
-from PyQt6.QtCore import Qt, QRect, QTimer, QPoint
+from PyQt6.QtCore import Qt, QRect, QTimer, QPoint, pyqtSignal
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -231,6 +231,8 @@ class SelectorToolbar(QWidget):
 
 
 class OWOCRAreaSelectorWidget(QWidget):
+    config_saved = pyqtSignal()
+
     def __init__(
         self,
         window_name,
@@ -1992,6 +1994,12 @@ class OWOCRAreaSelectorWidget(QWidget):
         self.close()
 
     def _write_config_to_disk(self) -> bool:
+        saved = self._save_rectangles()
+        if saved:
+            self.config_saved.emit()
+        return saved
+
+    def _save_rectangles(self) -> bool:
         """Serialize the current rectangles to the active config file.
 
         Returns True on success. Does NOT close the window, so it can be reused

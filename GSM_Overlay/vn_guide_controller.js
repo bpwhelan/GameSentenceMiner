@@ -46,6 +46,7 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
     const showing = loggedChoice !== null
       ? mode === 'always' || (mode === 'auto' || peek === true) && now() < loggedUntil
       : peek ?? !!automatic;
+    const detected = tracker?.detected === true && !tracker.rememberedChoice;
     return {
       enabled: settings.vnGuideEnabled === true, loading, error, mode,
       sourceUrl,
@@ -59,7 +60,8 @@ function createVnGuideController({ library, hud, onChange = () => {}, onRouteCha
       index: tracker?.index ?? 0, startIndex: tracker?.startIndex ?? 0, total: tracker?.steps.length ?? 0,
       text: tracker?.current?.text || '', kind: tracker?.current?.kind || '',
       saveInstructions, saveNotice, loggedChoice,
-      detected: tracker?.detected === true && !tracker.rememberedChoice, rememberedChoice: tracker?.rememberedChoice === true,
+      detected, rememberedChoice: tracker?.rememberedChoice === true,
+      choiceClickThrough: detected && available && !disposed && !loading && settings.vnGuideClickThroughOnChoice !== false,
       tentative: tracker?.tentative === true, complete: tracker?.complete === true,
       recoveredFrom: tracker?.recoveredFrom ?? null,
       toggleHotkey: settings.vnGuideToggleHotkey || '', nextHotkey: settings.vnGuideNextHotkey || '',

@@ -8,7 +8,7 @@ This has been tested with Python 3.11, 3.12 and 3.13. It can be installed with `
 
 # Usage
 
-Basic usage is comparable to Manga OCR as in, `owocr` keeps scanning for images and performing text recognition on them. Similarly, by default it will read images from the clipboard and write text back to the clipboard (or optionally, read images from a folder and/or write text to a .txt file if you specify `-r=<folder path>` or `-w=<txt file path>`).
+`owocr` keeps scanning for images and performing text recognition on them. By default it will read images from the clipboard and write text back to the clipboard (or optionally, read images from a folder and/or write text to a .txt file if you specify `-r=<folder path>` or `-w=<txt file path>`).
 
 Additionally:
 - Scanning the clipboard takes basically zero system resources on macOS and Windows
@@ -30,9 +30,6 @@ Additionally:
 # Supported providers
 
 ## Local providers
-- [Manga OCR](https://github.com/kha-white/manga-ocr): install with `pip install owocr[mangaocr]` ("m" key)
-- [EasyOCR](https://github.com/JaidedAI/EasyOCR): install with `pip install owocr[easyocr]` ("e" key)
-- [RapidOCR](https://github.com/RapidAI/RapidOCR): install with `pip install owocr[rapidocr]` ("r" key)
 - Apple Vision framework: this will work on macOS Ventura or later. In my experience, the best of the local providers for horizontal text ("a" key)
 - Apple Live Text (VisionKit framework): this will work on macOS Ventura or later. It should be the same as Vision except that in Sonoma Apple added vertical text reading ("d" key)
 - WinRT OCR: install with `pip install owocr[winocr]` on Windows 10 and later. It can also be used by installing winocr on a Windows virtual machine and running the server there (`winocr_serve`) and specifying the IP address of the Windows VM/machine in the config file ("w" key)
@@ -40,11 +37,8 @@ Additionally:
 
 ## Cloud providers
 - Google Lens: Google Vision in disguise (no need for API keys!), install with `pip install owocr[lens]` ("l" key)
-- Google Lens (web): alternative version of Lens (Google webpage version). Results should be the same but it's much slower. Install with `pip install owocr[lensweb]` ("k" key)
-- Bing: Azure in disguise (no need for API keys!) ("b" key)
-- Google Vision: install with `pip install owocr[gvision]`, you also need a service account .json file named google_vision.json in `user directory/.config/` ("g" key)
-- Azure Image Analysis: install with `pip install owocr[azure]`, you also need to specify an api key and an endpoint in the config file ("v" key)
-- OCRSpace: you need to specify an api key in the config file ("o" key)
+- Bing visual search ("b" key)
+- Google Vision: install `google-cloud-vision` and save your Google Cloud service account key as `~/.config/google_vision.json` or as `google_vision.json` in your GSM data folder. For portable profiles, save it in the profile folder. You can also set `GOOGLE_APPLICATION_CREDENTIALS` to the key file's path ("g" key).
 
 # Acknowledgments
 

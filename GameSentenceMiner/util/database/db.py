@@ -21,6 +21,7 @@ from GameSentenceMiner.util.config.configuration import (
     sanitize_and_resolve_path,
 )
 from GameSentenceMiner.util.text_log import GameLine
+from GameSentenceMiner.native import history
 from GameSentenceMiner.util.data_directory import get_app_directory
 from GameSentenceMiner.util.database.data_dir_migration import recover_legacy_database
 from GameSentenceMiner.util.database.sqlite_core import (
@@ -757,6 +758,22 @@ class GameLinesTable(SQLiteDBTable):
         translation: Optional[str] = None,
         note_id: Optional[str] = None,
     ):
+        if history.managed(cls._db):
+            updated = history.update_mined_line(
+                cls._db,
+                line_id=line_id,
+                audio_in_anki=audio_in_anki,
+                screenshot_in_anki=screenshot_in_anki,
+                audio_path=audio_path,
+                screenshot_path=screenshot_path,
+                replay_path=replay_path,
+                translation=translation,
+                note_id=note_id,
+            )
+            if updated is not None:
+                if not updated:
+                    logger.warning(f"GameLine with id {line_id} not found for update, maybe testing?")
+                return
         line = cls.get(line_id)
         if not line:
             logger.warning(f"GameLine with id {line_id} not found for update, maybe testing?")
@@ -806,7 +823,44 @@ class GameLinesTable(SQLiteDBTable):
         return new_line
 
     @classmethod
+    def persist_with_desktop(cls, gamelines, *, imported):
+        if not history.managed(cls._db):
+            return False
+        mode = "import" if imported else "capture"
+        payload = history.capture_payload(gamelines, str(get_config().general.target_language), mode)
+        if payload is None:
+            return False
+
+        def persist():
+            if not imported and get_config().advanced.dont_collect_stats:
+                return
+            index_words = _is_tokenization_enabled()
+            if index_words and os.environ.get("GSM_NATIVE_WORD_INDEX") == "1":
+                from GameSentenceMiner.tokenizer import get_sudachi_dictionary
+
+                payload["dictionary"] = get_sudachi_dictionary()
+            history.request("captureLines", **payload)
+            if index_words and "dictionary" not in payload:
+                from GameSentenceMiner.util.cron.tokenize_lines import enqueue_realtime_tokenization_batch
+
+                enqueue_realtime_tokenization_batch([(r["id"], r["text"], r["timestamp"]) for r in payload["lines"]])
+
+        if imported:
+            cls._db.run_external_write(persist)
+        else:
+            pending = cls._db.run_external_write(persist, wait=False, priority=DB_PRIORITY_HIGH)
+
+            def report_failure(future):
+                if not future.cancelled() and (error := future.exception()) is not None:
+                    logger.error(f"Failed to persist game line {gamelines[0].id}: {error}")
+
+            pending.add_done_callback(report_failure)
+        return True
+
+    @classmethod
     def add_lines(cls, gamelines: List[GameLine]):
+        if cls.persist_with_desktop(gamelines, imported=True):
+            return
         from GameSentenceMiner.util.database.games_table import GamesTable
 
         target_language = str(get_config().general.target_language)
@@ -2065,51 +2119,6 @@ def check_and_run_migrations():
         else:
             logger.debug("populate_games scheduled task already exists, skipping creation.")
 
-    def migrate_user_plugins_cron_job():
-        """
-        Create the user_plugins cron job if it doesn't exist.
-        """
-        legacy_cron = CronTable.get_by_name("plugins")
-        existing_cron = CronTable.get_by_name("user_plugins")
-        if not existing_cron:
-            if legacy_cron:
-                logger.info("Migrating legacy plugins scheduled task to user_plugins...")
-                legacy_cron.name = "user_plugins"
-                legacy_cron.description = "Custom user plugins"
-                legacy_cron.schedule = "quarter_hourly"
-                legacy_cron.save()
-                logger.info("✅ Updated user_plugins scheduled task to run every 15 minutes")
-                return
-
-            logger.info("Creating user_plugins scheduled task...")
-            # Schedule to run immediately (2 minutes ago)
-            now = datetime.now()
-            two_minutes_ago = now - timedelta(minutes=2)
-
-            CronTable.create_cron_entry(
-                name="user_plugins",
-                description="Custom user plugins",
-                next_run=two_minutes_ago.timestamp(),
-                schedule="quarter_hourly",
-            )
-            logger.info(
-                f"✅ Created user_plugins scheduled task - scheduled to run immediately (next_run: {two_minutes_ago.strftime('%Y-%m-%d %H:%M:%S')})"
-            )
-        else:
-            changed = False
-            if existing_cron.schedule != "quarter_hourly":
-                existing_cron.schedule = "quarter_hourly"
-                changed = True
-            if changed:
-                existing_cron.save()
-                logger.info("✅ Updated user_plugins scheduled task to run every 15 minutes")
-            else:
-                logger.debug("user_plugins scheduled task already exists, skipping creation.")
-
-            if legacy_cron and legacy_cron.enabled:
-                legacy_cron.disable()
-                logger.info("Disabled legacy plugins scheduled task")
-
     def migrate_jiten_upgrader_cron_job():
         """
         Create the weekly jiten_upgrader cron job if it doesn't exist.
@@ -2223,7 +2232,7 @@ def check_and_run_migrations():
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
     migrate_genres_and_tags()  # Add genres and tags columns
-    migrate_user_plugins_cron_job()
+    CronTable.retire_user_script_schedules()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
     migrate_tadoku_cron_job()

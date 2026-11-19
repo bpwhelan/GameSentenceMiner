@@ -7,6 +7,8 @@ Only its identity/availability is passed to the native overlay worker.
 import os
 from dataclasses import asdict
 
+from GameSentenceMiner.obs import desktop_session
+
 
 def enabled() -> bool:
     return os.environ.get("GSM_NATIVE_OVERLAY") == "1"
@@ -30,9 +32,19 @@ def command(processor, action="configure", **request) -> dict:
             area, "overlay_coordinate_space", "window" if area.window_geometry else "monitor"
         )
     monitor = processor.window_monitor
-    target = getattr(monitor, "target_hwnd", None)
-    source = (getattr(monitor, "last_target_info", None) or {}).get("source_name") or gsm_state.current_game
     backend = getattr(config.advanced, "screenshot_capture_backend_v2", "auto")
+    if desktop_session.enabled():
+        state = desktop_session.snapshot()
+        scene, target, source = state["scene"], state["target_id"], state["source_name"] or state["scene"]
+        kind, available = state["capture_kind"], state["available"]
+        if state.get("obs_fallback_available"):
+            kind, available = "obs", True
+    else:
+        target = getattr(monitor, "target_hwnd", None)
+        source = (getattr(monitor, "last_target_info", None) or {}).get("source_name") or gsm_state.current_game
+        scene = gsm_state.current_game
+        available = bool(get_overlay_capture_state(monitor)["available"])
+        kind = "obs" if not target and source else "window"
     return {
         "type": "native-overlay-command",
         "action": action,
@@ -40,11 +52,11 @@ def command(processor, action="configure", **request) -> dict:
             "settings": settings,
             "language": config.general.target_language,
             "profile": get_app_directory(),
-            "scene": gsm_state.current_game,
+            "scene": scene,
             "target_id": target,
             "source_name": source,
-            "capture_kind": "obs" if backend == "obs" or (not target and source) else "window",
-            "available": bool(get_overlay_capture_state(monitor)["available"]),
+            "capture_kind": "obs" if backend == "obs" else kind,
+            "available": available,
             "areas": areas,
         },
         **request,
@@ -58,23 +70,21 @@ async def send(processor, action="configure", **request):
 
 
 async def accept_result(processor, payload):
-    """Keep mining and translation context in sync with completed native scans."""
+    """Record unbacked native overlay scans (no line_id) for mining and skip recovery.
+
+    Text-driven scans (line_id present) are handled end-to-end in Rust without
+    bouncing results, logs, or recycled-line status back through Python.
+    """
     if not enabled() or not isinstance(payload, dict) or payload.get("is_final") is not True:
+        return
+    if payload.get("line_id") is not None:
         return
     rows = payload.get("data")
     if not isinstance(rows, list) or len(rows) > 4096:
         return
     text = "\n".join(row["text"] for row in rows if isinstance(row, dict) and isinstance(row.get("text"), str))
-    if len(text) > 100_000:
+    if not text.strip() or len(text) > 100_000:
         return
     processor.last_oneocr_result = text
     processor.last_lens_result = ""
-    line_id = payload.get("line_id")
-    processor.last_overlay_line_id = str(line_id) if line_id is not None else None
-    processor.last_overlay_latest_text = payload.get("latest_text") or text
-    processor.sentence_is_recycled = processor._is_sentence_recycled(processor.last_overlay_latest_text)
-    processor._send_sentence_recycled_status(
-        line_id=processor.last_overlay_line_id, sentence=processor.last_overlay_latest_text
-    )
-    if line_id is None:
-        await processor._record_overlay_scan(text, source=payload.get("source"))
+    await processor._record_overlay_scan(text, source=payload.get("source"))

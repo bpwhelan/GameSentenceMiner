@@ -38,7 +38,7 @@ pub fn sync_python_display_locale(electron_locale: &str, config_path: &Path) -> 
     })
 }
 
-fn active_profile<'a>(config: &'a Value) -> Option<&'a Map<String, Value>> {
+pub(crate) fn active_profile(config: &Value) -> Option<&Map<String, Value>> {
     let root = config.as_object()?;
     let Some(configs) = root.get("configs").and_then(Value::as_object) else {
         return Some(root);
@@ -110,11 +110,52 @@ pub fn resolve_hachidori_enabled_from_config_data(config_data: &Value) -> bool {
         && experimental.get("enable_hachidori").and_then(Value::as_bool) == Some(true)
 }
 
+// Same accepted values as CommonLanguages in the mining profile schema.
+pub fn is_learning_language(code: &str) -> bool {
+    const CODES: &str = "af ak am apd ar arq ary arz as azb be bg bgc bho bm bn bo brx bs ca ceb cnr crs cs ctg cy da \
+        dcc de doi dz ee el en es et eu fa fi fj fo fr ga gan gd gl gu ha hak he hi hns hr ht hu hy \
+        id ig is it ja jam jv ka kea kg kk kl km kmr kn ko kok ks lb ln lo lt lua lv mad mag mai mfe \
+        mg mi min mk ml mn mni mr mt my nan ne nl no nr or pap pbu pcm pl pnb ps pt ro ru rw sat sd \
+        si sk skr sl sm sn so sq sr ss st su sv sw syl ta te th ti tl tn to ts twi ug uk ur uz ve vi \
+        wo wuu xh yo yue zh zu";
+    CODES.split_ascii_whitespace().any(|entry| entry == code)
+}
+
+pub fn save_target_language(path: &Path, language: &str) -> Result<()> {
+    if !is_learning_language(language) {
+        return Err("Unsupported learning language.".into());
+    }
+    with_lock(path, || {
+        let mut doc = read_object(path)?;
+        if !path.try_exists().map_err(|e| e.to_string())? {
+            doc = json!({"current_profile":"Default","configs":{"Default":{}}});
+        }
+        let profile = if doc.get("configs").is_some() || doc.get("current_profile").is_some() {
+            let current = doc["current_profile"].as_str().unwrap_or("Default").to_owned();
+            let profiles = doc["configs"].as_object_mut().ok_or("Invalid profile collection")?;
+            let name = if profiles.contains_key(&current) { current.as_str() } else { "Default" };
+            profiles.get_mut(name).ok_or("No active profile found")?
+        } else {
+            // Profile-less files keep their original shape until the backend migrates them.
+            &mut doc
+        };
+        let profile = profile.as_object_mut().ok_or("Invalid active profile")?;
+        let general = profile.entry("general").or_insert_with(|| json!({}));
+        let fields = general.as_object_mut().ok_or("Invalid general settings")?;
+        fields.insert("target_language".into(), json!(language));
+        write_atomic(path, &doc)
+    })
+}
+
 pub fn get_configured_target_language(config_path: &Path) -> String {
     let Ok(config) = read_object(config_path) else {
         return "ja".into();
     };
-    active_profile(&config)
+    target_language_from_config(&config)
+}
+
+pub(crate) fn target_language_from_config(config: &Value) -> String {
+    active_profile(config)
         .and_then(|profile| profile.get("general"))
         .and_then(|general| general.get("target_language"))
         .and_then(Value::as_str)
@@ -286,6 +327,31 @@ mod tests {
         let profiles = get_gsm_profile_names(&config_path);
         assert_eq!(profiles["currentProfile"], json!("JP"));
         assert_eq!(profiles["profileScenes"]["JP"], json!(["Scene A"]));
+    }
+
+    #[test]
+    fn saves_learning_language_in_new_legacy_and_named_profiles() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        save_target_language(&path, "ko").unwrap();
+        assert_eq!(read_object(&path).unwrap()["configs"]["Default"]["general"]["target_language"], "ko");
+        for (before, pointer) in [
+            (json!({"general":{"other":3},"extra":4}), "/general/target_language"),
+            (json!({"current_profile":"Game","configs":{"Game":{"general":{"other":3}},"Default":{"general":{"target_language":"ja"}}}}), "/configs/Game/general/target_language"),
+        ] {
+            write_atomic(&path, &before).unwrap();
+            save_target_language(&path, "yue").unwrap();
+            let mut expected = before;
+            let section = expected.pointer_mut(pointer.rsplit_once('/').unwrap().0).unwrap();
+            section["target_language"] = json!("yue");
+            assert_eq!(read_object(&path).unwrap(), expected);
+            assert!(save_target_language(&path, "invalid").is_err());
+            assert_eq!(read_object(&path).unwrap(), expected);
+        }
+        let damaged = r#"{"general":[]}"#;
+        fs::write(&path, damaged).unwrap();
+        assert!(save_target_language(&path, "fr").is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), damaged);
     }
 
     #[test]

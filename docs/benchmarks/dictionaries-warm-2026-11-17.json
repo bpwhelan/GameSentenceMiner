@@ -1,0 +1,167 @@
+{
+  "date": "2026-11-17",
+  "platform": "Windows",
+  "command": "node scripts/benchmark-dictionaries.mjs <report.json>",
+  "fixture": "Six imported dictionaries, eight words, twelve senses per word per dictionary.",
+  "measurement": "24 measured hovers per view after one warm-up pass. Elapsed time starts with the mouse event and ends when matching glossary content appears in the popup DOM. Times include the configured scan delay. No compositor or display refresh timing.",
+  "before": [
+    {
+      "reader": "yomitan",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 3.3,
+        "p95Ms": 10.3
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 0.9,
+        "p95Ms": 1.1
+      },
+      "found": 104,
+      "warmHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 26.3,
+          "p95Ms": 28.8
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 26.3,
+          "p95Ms": 28.8
+        }
+      },
+      "warmSplitHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 24.4,
+          "p95Ms": 25.5
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 160.5,
+          "p95Ms": 164
+        }
+      },
+      "warmCollapsedHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 40.6,
+          "p95Ms": 49.1
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 40.6,
+          "p95Ms": 49.1
+        }
+      },
+      "invalidation": "passed"
+    },
+    {
+      "reader": "hachidori",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 2.25,
+        "p95Ms": 3.58
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 1.7,
+        "p95Ms": 2.28
+      },
+      "found": 104,
+      "warmHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 11.3,
+          "p95Ms": 13
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 11.3,
+          "p95Ms": 13
+        }
+      },
+      "invalidation": "passed"
+    }
+  ],
+  "after": [
+    {
+      "reader": "yomitan",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 3.7,
+        "p95Ms": 13.9
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 1,
+        "p95Ms": 1.4
+      },
+      "found": 104,
+      "warmHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 26,
+          "p95Ms": 26.6
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 26,
+          "p95Ms": 26.6
+        }
+      },
+      "warmSplitHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 25.3,
+          "p95Ms": 28.2
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 29.9,
+          "p95Ms": 36.5
+        }
+      },
+      "warmCollapsedHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 32.6,
+          "p95Ms": 34
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 32.6,
+          "p95Ms": 34
+        }
+      },
+      "invalidation": "passed"
+    },
+    {
+      "reader": "hachidori",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 2.13,
+        "p95Ms": 3.39
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 1.68,
+        "p95Ms": 2.08
+      },
+      "found": 104,
+      "warmHover": {
+        "firstDefinition": {
+          "count": 24,
+          "medianMs": 8.8,
+          "p95Ms": 10.9
+        },
+        "allDefinitions": {
+          "count": 24,
+          "medianMs": 8.8,
+          "p95Ms": 10.9
+        }
+      },
+      "invalidation": "passed"
+    }
+  ]
+}

@@ -9,7 +9,6 @@ import sys
 import tomllib
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -17,8 +16,8 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
-def _typescript_constant(source: str, name: str) -> str | None:
-    match = re.search(rf"\bconst\s+{re.escape(name)}\s*=\s*['\"]([^'\"]+)['\"]", source)
+def _rust_string_constant(source: str, name: str) -> str | None:
+    match = re.search(rf'\bconst\s+{re.escape(name)}:\s*&str\s*=\s*"([^"]+)"', source)
     return match.group(1) if match else None
 
 
@@ -35,7 +34,6 @@ def get_policy_violations() -> list[str]:
     violations: list[str] = []
     pyproject = tomllib.loads(_read("pyproject.toml"))
     lock = tomllib.loads(_read("uv.lock"))
-    package_json = json.loads(_read("package.json"))
 
     locked_uv_versions = {package.get("version") for package in lock.get("package", []) if package.get("name") == "uv"}
     if len(locked_uv_versions) != 1:
@@ -65,31 +63,23 @@ def get_policy_violations() -> list[str]:
             f"expected {expected_required_uv_version!r}, found {required_uv_version!r}"
         )
 
-    downloader_source = _read("electron-src/main/python/python_downloader.ts")
-    python_ops_source = _read("electron-src/main/services/python_ops.ts")
-    downloader_uv_version = _typescript_constant(downloader_source, "UV_VERSION")
-    embedded_uv_version = _typescript_constant(python_ops_source, "PINNED_UV_VERSION")
-    for label, version in (
-        ("managed uv downloader", downloader_uv_version),
-        ("managed venv uv bootstrap", embedded_uv_version),
-    ):
-        if version != locked_uv_version:
-            violations.append(f"{label} must use uv {locked_uv_version}; found {version!r}")
+    installer_source = _read("native/gsm-packages/src/python.rs").split("#[cfg(test)]", 1)[0]
+    managed_uv_version = _rust_string_constant(installer_source, "UV_VERSION")
+    if managed_uv_version != locked_uv_version:
+        violations.append(f"Managed installer must use uv {locked_uv_version}; found {managed_uv_version!r}")
 
     pinned_python_version = _read(".python-version").strip()
-    downloader_python_version = _typescript_constant(downloader_source, "PYTHON_VERSION")
+    downloader_python_version = _rust_string_constant(installer_source, "PYTHON_VERSION")
     if downloader_python_version != pinned_python_version:
         violations.append(
             "Managed Python and .python-version must match; "
             f"expected {pinned_python_version!r}, found {downloader_python_version!r}"
         )
 
-    extra_file_sources = {
-        entry.get("from") for entry in package_json.get("build", {}).get("extraFiles", []) if isinstance(entry, dict)
-    }
+    extra_file_sources = set(json.loads(_read("package.json")).get("desktopRootFiles", []))
     for required_file in ("pyproject.toml", "uv.lock", ".python-version"):
         if required_file not in extra_file_sources:
-            violations.append(f"Electron package must bundle {required_file}")
+            violations.append(f"Desktop package must bundle {required_file}")
 
     root_project = next(
         (package for package in lock.get("package", []) if package.get("name") == "gamesentenceminer"),
@@ -129,9 +119,9 @@ def get_policy_violations() -> list[str]:
         for command in commands:
             violations.append(f"{path} contains an unfrozen dependency sync: {command}")
 
-    if "'--frozen'" not in python_ops_source:
+    if '"--frozen"' not in installer_source:
         violations.append("Managed runtime sync must pass --frozen")
-    if "['-m', 'pip', 'check']" not in python_ops_source:
+    if '["-m", "pip", "check"]' not in installer_source:
         violations.append("Managed runtime sync must validate the result with pip check")
 
     return violations

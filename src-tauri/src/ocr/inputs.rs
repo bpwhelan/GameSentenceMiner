@@ -198,6 +198,7 @@ fn run(app: tauri::AppHandle, worker: Ocr) {
         let target = state.config["target_id"].as_u64();
         let endpoint = state.config["input_url"].as_str().unwrap_or("").to_owned();
         drop(state);
+        let mut received_input = false;
         if listen {
             if connected != endpoint {
                 socket = None;
@@ -225,6 +226,7 @@ fn run(app: tauri::AppHandle, worker: Ocr) {
             if let Some(ws) = socket.as_mut() {
                 match ws.read() {
                     Ok(Message::Text(message)) => {
+                        received_input = true;
                         if let Ok(message) = serde_json::from_str::<Value>(&message) {
                             let is_keyboard = message["type"] == "keyboard_event";
                             let actions = if is_keyboard {
@@ -296,7 +298,7 @@ fn run(app: tauri::AppHandle, worker: Ocr) {
                         socket = None;
                         dispatcher = Dispatcher::default();
                     }
-                    _ => {}
+                    Ok(_) => received_input = true,
                 }
             }
         } else {
@@ -349,17 +351,85 @@ fn run(app: tauri::AppHandle, worker: Ocr) {
                 }
             }
         }
-        // Bounded socket waits; no extra keyboard polling loop or capture session.
-        let s = lock.lock().unwrap();
-        drop(
-            wake.wait_timeout(s, Duration::from_millis(if listen { 10 } else { 250 }))
-                .unwrap(),
-        );
+        wait_for_input(&worker.0, listen, received_input);
     }
 }
+
+fn wait_for_input(shared: &Shared, listen: bool, received_input: bool) {
+    // A moving controller can send hundreds of axis messages per second even
+    // when OCR's gamepad bindings are disabled. Drain queued messages promptly;
+    // the socket's bounded read timeout already waits when there is no input.
+    // The outer loop still checks shutdown, context, and clipboard every pass.
+    if received_input {
+        return;
+    }
+    let (lock, wake) = &**shared;
+    let s = lock.lock().unwrap();
+    drop(
+        wake.wait_timeout(s, Duration::from_millis(if listen { 10 } else { 250 }))
+            .unwrap(),
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn area_hotkey_is_not_delayed_by_controller_axis_traffic() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut socket = tungstenite::accept(stream).unwrap();
+            for index in 0..240 {
+                socket
+                    .send(Message::Text(
+                        json!({"type":"axis","device":"pad","axis":"left_x","value":index})
+                            .to_string()
+                            .into(),
+                    ))
+                    .unwrap();
+            }
+            socket
+                .send(Message::Text(
+                    json!({"type":"keyboard_event","key":"F15","pressed":true,"modifiers":{}})
+                        .to_string()
+                        .into(),
+                ))
+                .unwrap();
+        });
+        let stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let (mut socket, _) =
+            tungstenite::client(format!("ws://{address}"), MaybeTlsStream::Plain(stream)).unwrap();
+        let shared = Arc::new((Mutex::new(Inner::default()), Condvar::new()));
+        let mut keyboard =
+            super::super::keyboard::Keyboard::new(&json!({"areaSelectOcrHotkey":"F15"}));
+        let started = Instant::now();
+        let mut actions = Vec::new();
+        for _ in 0..241 {
+            let Message::Text(message) = socket.read().unwrap() else {
+                panic!("Expected input");
+            };
+            let message: Value = serde_json::from_str(&message).unwrap();
+            actions.extend(keyboard.receive(&message, true));
+            wait_for_input(&shared, true, true);
+        }
+        server.join().unwrap();
+        assert_eq!(actions, ["area_select_ocr"]);
+        eprintln!(
+            "Area-select hotkey after 240 controller messages: {:?}",
+            started.elapsed()
+        );
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "Hotkey waited {:?} behind controller traffic",
+            started.elapsed()
+        );
+    }
     #[test]
     fn chords_are_device_local_edge_triggered_and_snapshots_do_not_fire() {
         let settings = json!({"manualOcrGamepad":"LB+A"});

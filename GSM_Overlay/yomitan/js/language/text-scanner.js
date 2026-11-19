@@ -28,6 +28,7 @@ import {TextSourceElement} from '../dom/text-source-element.js';
 const SCAN_RESOLUTION_EXCLUDED_LANGUAGES = new Set(['ja', 'zh', 'yue', 'ko']);
 const KEYBOARD_MODIFIER_SET = new Set(['alt', 'ctrl', 'meta', 'shift']);
 const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
+const GSM_FEED_TEXT_SELECTOR = '[data-gsm-reader-scan="shift"]';
 
 /**
  * @augments EventDispatcher<import('text-scanner').Events>
@@ -96,6 +97,10 @@ export class TextScanner extends EventDispatcher {
         this._textSourceCurrentSelected = false;
         /** @type {boolean} */
         this._pendingLookup = false;
+        /** @type {?{x: number, y: number, inputInfo: import('text-scanner').InputInfo}} */
+        this._pendingMouseMove = null;
+        /** @type {number} */
+        this._searchRevision = 0;
         /** @type {?import('text-scanner').SelectionRestoreInfo} */
         this._selectionRestoreInfo = null;
 
@@ -247,6 +252,7 @@ export class TextScanner extends EventDispatcher {
      */
     setEnabled(enabled) {
         this._enabled = enabled;
+        if (!enabled) { this.clearMousePosition(); }
 
         const value = enabled && this._isPrepared;
         if (this._enabledValue === value) { return; }
@@ -391,6 +397,9 @@ export class TextScanner extends EventDispatcher {
     /** */
     clearSelection() {
         if (!this._canClearSelection) { return; }
+        this._scanTimerClear();
+        this._pendingMouseMove = null;
+        ++this._searchRevision;
         if (this._textSourceCurrent !== null) {
             if (this._textSourceCurrentSelected) {
                 this._textSourceCurrent.deselect();
@@ -407,7 +416,10 @@ export class TextScanner extends EventDispatcher {
 
     /** */
     clearMousePosition() {
+        this._scanTimerClear();
         this._lastMouseMove = null;
+        this._pendingMouseMove = null;
+        ++this._searchRevision;
     }
 
     /**
@@ -456,6 +468,7 @@ export class TextScanner extends EventDispatcher {
      * @param {boolean} disallowExpandStartOffset disallows expanding the start offset of the range
      */
     async search(textSource, inputDetail, showEmpty = false, disallowExpandStartOffset = false) {
+        this._pendingMouseMove = null;
         const inputInfo = this._createInputInfo(null, 'script', 'script', true, [], [], inputDetail);
         await this._search(textSource, this._searchTerms, this._searchKanji, inputInfo, showEmpty, disallowExpandStartOffset);
     }
@@ -478,6 +491,8 @@ export class TextScanner extends EventDispatcher {
      * @param {import('text-scanner').InputInfoDetail?} [inputDetail]
      */
     async searchAtTextSource(textSource, inputDetail) {
+        this._scanTimerClear();
+        this._pendingMouseMove = null;
         const inputInfo = this._createInputInfo(null, 'mouse', 'click', false, [], [], inputDetail);
         await this._search(textSource, this._searchTerms, this._searchKanji, inputInfo);
     }
@@ -507,9 +522,17 @@ export class TextScanner extends EventDispatcher {
      * @param {boolean} disallowExpandStartOffset disallows expanding the start offset of the range
      */
     async _search(textSource, searchTerms, searchKanji, inputInfo, showEmpty = false, disallowExpandStartOffset = false) {
+        const revision = ++this._searchRevision;
         try {
             safePerformance.mark('scanner:_search:start');
             const isAltText = textSource instanceof TextSourceElement;
+            // Selection hotkeys, clicks, pen and touch can bypass mouse input matching.
+            const scope = globalThis.document?.documentElement?.dataset?.gsmReaderScope;
+            if (typeof scope !== 'undefined') {
+                const node = isAltText ? textSource.element : textSource.range.commonAncestorContainer;
+                const element = node instanceof Element ? node : node.parentElement;
+                if (scope !== 'feed' || !element?.isConnected || !element.closest(GSM_FEED_TEXT_SELECTOR)) { return; }
+            }
             if (inputInfo.pointerType === 'touch') {
                 if (isAltText) {
                     return;
@@ -542,6 +565,7 @@ export class TextScanner extends EventDispatcher {
 
             const getSearchContextPromise = this._getSearchContext();
             const getSearchContextResult = getSearchContextPromise instanceof Promise ? await getSearchContextPromise : getSearchContextPromise;
+            if (revision !== this._searchRevision || (inputInfo.eventType === 'mouseMove' && this._pendingMouseMove !== null)) { return; }
             const {detail} = getSearchContextResult;
             const optionsContext = this._createOptionsContextForInput(getSearchContextResult.optionsContext, inputInfo);
 
@@ -552,6 +576,9 @@ export class TextScanner extends EventDispatcher {
             /** @type {'terms'|'kanji'} */
             let type = 'terms';
             const result = await this._findDictionaryEntries(textSource, searchTerms, searchKanji, optionsContext);
+            // Do not paint a word the mouse has left while its lookup was running.
+            // The latest ready pointer scan runs as soon as this one releases the slot.
+            if (revision !== this._searchRevision || (inputInfo.eventType === 'mouseMove' && this._pendingMouseMove !== null)) { return; }
             if (result !== null) {
                 ({dictionaryEntries, sentence, type} = result);
             } else if (showEmpty || (textSource !== null && isAltText && await this._isTextLookupWorthy(textSource.content))) {
@@ -559,6 +586,7 @@ export class TextScanner extends EventDispatcher {
                 dictionaryEntries = [];
                 sentence = {text: '', offset: 0};
             }
+            if (revision !== this._searchRevision || (inputInfo.eventType === 'mouseMove' && this._pendingMouseMove !== null)) { return; }
 
             if (dictionaryEntries !== null && sentence !== null) {
                 this._inputInfoCurrent = inputInfo;
@@ -637,6 +665,10 @@ export class TextScanner extends EventDispatcher {
      * @returns {boolean}
      */
     _modifierKeySet(activeModifiers) {
+        const point = this._lastMouseMove;
+        if (point !== null && this._isGsmHomeReadingPoint(point.clientX, point.clientY)) {
+            return activeModifiers.includes('shift');
+        }
         /** @type {string[]} */
         const settingsModifiers = [];
         for (const settingsInput of this._inputs) {
@@ -666,6 +698,7 @@ export class TextScanner extends EventDispatcher {
         const nextActive = active === true;
         if (this._gsmGamepadNavigationActive === nextActive) { return; }
         this._gsmGamepadNavigationActive = nextActive;
+        if (nextActive) { this.clearMousePosition(); }
         console.info(`[GSM][TextScanner] controller navigation ${nextActive ? 'ON' : 'OFF'} (${source})`);
     }
 
@@ -720,6 +753,12 @@ export class TextScanner extends EventDispatcher {
         return this._syncGsmGamepadNavigationActiveFromDom();
     }
 
+    /** @returns {boolean} */
+    _isGsmGamepadNavigationActive() {
+        if (this._gsmGamepadNavigationActive === true) { return true; }
+        return typeof document !== 'undefined' && document.documentElement?.dataset?.gsmGamepadNavigationActive === 'true';
+    }
+
     /**
      * @param {KeyboardEvent|PointerEvent|TouchEvent} event
      * @returns {{modifiers: import('input').Modifier[], modifierKeys: import('input').ModifierKey[]}}
@@ -741,6 +780,8 @@ export class TextScanner extends EventDispatcher {
      * @param {KeyboardEvent} e
      */
     _onKeyDown(e) {
+        const point = this._lastMouseMove;
+        if (!this._scanWithoutMousemove && (point === null || !this._isGsmHomeReadingPoint(point.clientX, point.clientY))) { return; }
         const {modifierKeys: modifiers} = this._getEffectiveInputModifiers(e);
         if (this._lastMouseMove !== null && modifiers.length > 0 && this._modifierKeySet(modifiers)) {
             if (this._inputtingText()) { return; }
@@ -821,6 +862,9 @@ export class TextScanner extends EventDispatcher {
 
     /** */
     _onMouseOut() {
+        // Popup placement and native mouse forwarding can emit exits while a
+        // direct controller lookup is pending. They do not cancel that lookup.
+        if (this._isGsmGamepadNavigationActive()) { return; }
         this._scanTimerClear();
         this.clearMousePosition();
     }
@@ -1067,15 +1111,19 @@ export class TextScanner extends EventDispatcher {
      * @returns {void}
      */
     _onMousePointerMove(e) {
+        // The controller owns the source selection until navigation ends.
+        // An empty hover scan here would dismiss its newly opened popup.
+        if (this._isGsmGamepadNavigationActive()) { return; }
+        this._pendingMouseMove = null;
         this._scanTimerClear();
         if (this._isGsmMagpiePopupMouseSuppressed()) {
-            this._lastMouseMove = null;
+            this.clearMousePosition();
             return;
         }
         this._lastMouseMove = e;
 
         const inputInfo = this._getMatchingInputGroupFromEvent('mouse', 'mouseMove', e);
-        if (inputInfo === null) { return; }
+        if (inputInfo === null) { ++this._searchRevision; return; }
 
         void this._searchAtFromMouseMove(e.clientX, e.clientY, inputInfo);
     }
@@ -1099,8 +1147,7 @@ export class TextScanner extends EventDispatcher {
         if (data?.type !== 'gsm-magpie-pointer-state' || typeof data.captured !== 'boolean') { return; }
         this._gsmMagpiePopupMouseCaptured = data.captured;
         if (data.captured) {
-            this._scanTimerClear();
-            this._lastMouseMove = null;
+            this.clearMousePosition();
         }
     }
 
@@ -1294,9 +1341,9 @@ export class TextScanner extends EventDispatcher {
         eventListenerInfos.push(...this._getClickEventListeners(capture));
         if (!this._searchOnClickOnly) {
             eventListenerInfos.push(...this._getPointerEventListeners(capture));
-            if (this._scanWithoutMousemove) {
-                eventListenerInfos.push(...this._getKeyboardEventListeners(capture));
-            }
+            // Home can opt in after this scanner is attached (React mounts later).
+            // _onKeyDown still honors scanWithoutMousemove everywhere else.
+            eventListenerInfos.push(...this._getKeyboardEventListeners(capture));
         }
         if (this._searchOnClick) {
             eventListenerInfos.push(...this._getSearchOnClickEventListeners(capture));
@@ -1496,6 +1543,7 @@ export class TextScanner extends EventDispatcher {
      */
     async _searchAt(x, y, inputInfo) {
         if (this._pendingLookup) { return; }
+        const revision = this._searchRevision;
 
         try {
             safePerformance.mark('scanner:_searchAt:start');
@@ -1513,6 +1561,7 @@ export class TextScanner extends EventDispatcher {
             if (typeof this._ignorePoint === 'function' && await this._ignorePoint(x, y)) {
                 return;
             }
+            if (revision !== this._searchRevision || this._pendingMouseMove !== null) { return; }
 
             const textSource = this._textSourceGenerator.getRangeFromPoint(x, y, {
                 deepContentScan: this._deepContentScan,
@@ -1537,6 +1586,9 @@ export class TextScanner extends EventDispatcher {
             log.error(e);
         } finally {
             this._pendingLookup = false;
+            const pending = this._pendingMouseMove;
+            this._pendingMouseMove = null;
+            if (pending !== null) { void this._searchAt(pending.x, pending.y, pending.inputInfo); }
         }
     }
 
@@ -1546,14 +1598,18 @@ export class TextScanner extends EventDispatcher {
      * @param {import('text-scanner').InputInfo} inputInfo
      */
     async _searchAtFromMouseMove(x, y, inputInfo) {
-        if (this._pendingLookup || this._isGsmMagpiePopupMouseSuppressed()) { return; }
+        if (this._isGsmGamepadNavigationActive() || this._isGsmMagpiePopupMouseSuppressed()) { return; }
 
-        if (inputInfo.passive && !await this._scanTimerWait()) {
+        if (inputInfo.passive && this._delay > 0 && !await this._scanTimerWait()) {
             // Aborted
             return;
         }
 
-        if (!this._isGsmMagpiePopupMouseSuppressed()) {
+        if (!this._isGsmGamepadNavigationActive() && !this._isGsmMagpiePopupMouseSuppressed()) {
+            if (this._pendingLookup) {
+                this._pendingMouseMove = {x, y, inputInfo};
+                return;
+            }
             await this._searchAt(x, y, inputInfo);
         }
     }
@@ -1659,7 +1715,33 @@ export class TextScanner extends EventDispatcher {
      */
     _getMatchingInputGroupFromEvent(pointerType, eventType, event) {
         const {modifiers, modifierKeys} = this._getEffectiveInputModifiers(event);
+        if (pointerType === 'mouse') {
+            const pointer = /** @type {PointerEvent} */ (event);
+            const scope = globalThis.document?.documentElement?.dataset?.gsmReaderScope;
+            if (scope === 'disabled') { return null; }
+            if (this._isGsmHomeReadingPoint(pointer.clientX, pointer.clientY)) {
+                // Home owns its gesture; never rewrite the shared overlay profile.
+                return (
+                    pointer.shiftKey && pointer.buttons === 0 ?
+                    this._createInputInfo(null, pointerType, eventType, false, modifiers, modifierKeys) :
+                    null
+                );
+            }
+            if (scope === 'feed') { return null; }
+        }
         return this._getMatchingInputGroup(pointerType, eventType, modifiers, modifierKeys);
+    }
+
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @returns {boolean}
+     */
+    _isGsmHomeReadingPoint(x, y) {
+        return (
+            typeof document !== 'undefined' &&
+            Boolean(document.elementFromPoint(x, y)?.closest(GSM_FEED_TEXT_SELECTOR))
+        );
     }
 
     /**

@@ -78,6 +78,15 @@ describe("OCR captured text", () => {
     expect(entries[0].textContent).toContain("Menu capture");
   });
 
+  it("uses the native OCR capture time for history", async () => {
+    const capturedAt = Date.UTC(2026, 9, 22, 15, 40, 7);
+    await render();
+    await act(async () => {
+      result("認識した文章", { capturedAt, emittedAt: capturedAt + 800, source: "ocr" });
+    });
+    expect(container.querySelector("time")?.dateTime).toBe(new Date(capturedAt).toISOString());
+  });
+
   it("ignores malformed and empty events, deduplicates deliveries, and bounds the history", async () => {
     await render();
     await act(async () => {
@@ -115,6 +124,8 @@ describe("OCR captured text", () => {
     expect(status()).toContain("Text in an ignored area skipped");
     await act(async () => emit("ocr-log", "Seems like Text we already sent"));
     expect(status()).toContain("Repeated text skipped");
+    await act(async () => emit("ocr-log", "[py:ocr] 2026-10-22 13:20:09 | OCR | BACKGROUND | No text detected, sleeping."));
+    expect(status()).toContain("No text detected");
     expect(container.querySelectorAll(".desk-text-entry")).toHaveLength(0);
   });
 

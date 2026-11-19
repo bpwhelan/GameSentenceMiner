@@ -3,6 +3,7 @@ import type { ReaderAction, ReaderConnection, ReaderLine, ReaderState } from '..
 import { invokeIpc, onIpc } from './ipc';
 import { applyReaderEvent, emptyReaderState, restoreReaderState } from './readerState';
 import { startVisiblePolling } from './visiblePolling';
+import { useDocumentVisible } from './useDocumentVisible';
 
 export function useReader(active: boolean) {
   const [state, setState] = useState<ReaderState>(emptyReaderState);
@@ -14,7 +15,11 @@ export function useReader(active: boolean) {
   const [playing, setPlaying] = useState<string | null>(null);
   const [preparing, setPreparing] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
-  const current = useRef(state); current.current = state;
+  const current = useRef(state);
+  const visible = useDocumentVisible();
+  const presenting = active && visible;
+  const presentingRef = useRef(presenting); presentingRef.current = presenting;
+  const persistTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const connectionRef = useRef<ReaderConnection | null>(null);
   const selectionVersion = useRef(0);
   const selectionPending = useRef(false);
@@ -23,6 +28,22 @@ export function useReader(active: boolean) {
   const pendingAudio = useRef<string | null>(null);
   const audioTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(false);
+  const persist = useCallback(() => {
+    clearTimeout(persistTimer.current);
+    if (!connectionRef.current) return;
+    try { localStorage.setItem(connectionRef.current.storageKey, JSON.stringify(current.current)); }
+    catch { if (mounted.current && presentingRef.current) setNotice('reader.historyUnavailable'); }
+  }, []);
+  // Keep intake/corrections and persistence live without rebuilding hidden React trees.
+  const updateState = useCallback((update: ReaderState | ((before: ReaderState) => ReaderState)) => {
+    const next = typeof update === 'function' ? update(current.current) : update;
+    if (next === current.current) return;
+    current.current = next;
+    if (presentingRef.current) setState(next);
+    clearTimeout(persistTimer.current);
+    persistTimer.current = setTimeout(persist, 700);
+  }, [persist]);
+  useEffect(() => { if (presenting) setState(current.current); }, [presenting]);
   const resetAudio = useCallback(() => {
     pendingAudio.current = null;
     if (audioTimeout.current) clearTimeout(audioTimeout.current);
@@ -55,7 +76,7 @@ export function useReader(active: boolean) {
             if (typeof value.text_intake_paused === 'boolean') setPaused(value.text_intake_paused);
             if (Array.isArray(value.timed_out_ids) && value.timed_out_ids.length) {
               const expired = new Set(value.timed_out_ids);
-              setState(before => {
+              updateState(before => {
                 if (value.session_id !== before.sessionId || !before.lines.some(item => item.state !== 'expired' && expired.has(item.id))) return before;
                 return { ...before, lines: before.lines.map(item => expired.has(item.id) ? { ...item, state: 'expired' } : item) };
               });
@@ -66,7 +87,7 @@ export function useReader(active: boolean) {
     };
     const stop = startVisiblePolling(syncState, 2500);
     return () => { disposed = true; stop(); };
-  }, [active]);
+  }, [active, updateState]);
 
   useEffect(() => {
     mounted.current = true;
@@ -83,7 +104,7 @@ export function useReader(active: boolean) {
         connectionRef.current = config;
         if (loadedKey !== config.storageKey) {
           loadedKey = config.storageKey;
-          try { setState(restoreReaderState(localStorage.getItem(loadedKey))); } catch { setState(emptyReaderState()); }
+          try { updateState(restoreReaderState(localStorage.getItem(loadedKey))); } catch { updateState(emptyReaderState()); }
           setSelected(new Set());
         }
         const ws = new WebSocket(config.websocketUrl); socket = ws;
@@ -97,7 +118,7 @@ export function useReader(active: boolean) {
           let payload: Record<string, unknown>;
           try { payload = JSON.parse(event.data); } catch { return; }
           if (!payload || typeof payload !== 'object') return;
-          setState(before => applyReaderEvent(before, payload));
+          updateState(before => applyReaderEvent(before, payload));
           if (payload.event === 'reset_checkboxes') { selectionVersion.current++; setSelected(new Set()); }
           if (payload.event === 'audio_ready' && payload.line_id === pendingAudio.current) {
             try {
@@ -130,22 +151,15 @@ export function useReader(active: boolean) {
       generation++; clearTimeout(retry); if (socket) { socket.onclose = null; socket.close(); }
       void connect();
     });
+    window.addEventListener('pagehide', persist);
     return () => {
       disposed = true; mounted.current = false; generation++; clearTimeout(retry); off();
       if (socket) { socket.onclose = null; socket.close(); }
       audioRef.current?.pause(); if (audioTimeout.current) clearTimeout(audioTimeout.current);
-      try { if (loadedKey) localStorage.setItem(loadedKey, JSON.stringify(current.current)); } catch { /* Storage may be unavailable. */ }
+      window.removeEventListener('pagehide', persist);
+      persist();
     };
-  }, [resetAudio]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!connectionRef.current) return;
-      try { localStorage.setItem(connectionRef.current.storageKey, JSON.stringify(state)); }
-      catch { setNotice('reader.historyUnavailable'); }
-    }, 700);
-    return () => clearTimeout(timer);
-  }, [state]);
+  }, [resetAudio, updateState, persist]);
 
   const select = useCallback(async (next: Set<string>) => {
     if (selectionPending.current) return;

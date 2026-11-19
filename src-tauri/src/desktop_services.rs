@@ -14,7 +14,7 @@ use gsm_packages::{
 use gsm_settings::{
     gsm_config::{
         clamp_backup_retention, desktop_settings_snapshot, get_configured_single_port,
-        get_configured_target_language, get_legacy_notification_features, gsm_backend_url,
+        get_configured_target_language, get_legacy_notification_features, save_target_language,
         sync_python_display_locale,
     },
     notifications::{
@@ -221,6 +221,7 @@ pub async fn invoke(
         }
         "logs.openFolder" => Some(handle_logs_open_folder(app)),
         "logs.export" => Some(Ok(handle_logs_export(app).await)),
+        "logs.getRecent" => Some(Ok(json!(crate::desktop_log::recent_terminal_logs()))),
         "settings.notifications.get"
         | "settings.notifications.save"
         | "settings.notifications.preview" => Some(handle_notifications(app, channel, args).await),
@@ -766,19 +767,8 @@ async fn handle_onboarding(
                     .to_owned());
             }
             let status = result["status"].clone();
-            if status["restarting"] == true {
-                let host = app.state::<crate::overlay_host::OverlayHost>();
-                let previous = host.status();
-                if previous["isRunning"] == true {
-                    host.stop(app).await;
-                    host.start(
-                        app,
-                        Some(false),
-                        previous["source"].as_str().unwrap_or("manual"),
-                    )
-                    .await?;
-                }
-            }
+            // Reader changes reattach through DictionaryManager. Toggling the
+            // overlay would destroy unrelated capture and input session state.
             Ok(status)
         }
         "settings.onboarding.get" => {
@@ -812,53 +802,18 @@ async fn handle_onboarding(
             .map_err(|e| e.to_string())?
         }
         "settings.onboarding.sudachi" => {
-            let payload = args.first().cloned().unwrap_or(Value::Null);
-            let url = gsm_backend_url(&paths.active.join("config.json"), "/api/onboarding/sudachi");
-            let client = app
-                .state::<crate::desktop_state::DesktopState>()
-                .http
-                .clone();
-            let resp = client
-                .post(&url)
-                .timeout(Duration::from_secs(10))
-                .json(&payload)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            let status = resp.status();
-            let body = resp.json::<Value>().await.map_err(|e| e.to_string())?;
-            if !status.is_success() {
-                return Err(format!("HTTP {status}: {body}"));
-            }
-            Ok(body)
+            let payload = args.first().ok_or("Invalid Sudachi setup action.")?;
+            app.state::<crate::sudachi_setup::SudachiSetup>().handle(app, payload).await
         }
         "settings.onboarding.language" => {
-            let lang = args
-                .first()
-                .and_then(Value::as_str)
-                .ok_or_else(|| "Invalid learning language.".to_string())?
-                .to_owned();
-            let url = gsm_backend_url(
-                &paths.active.join("config.json"),
-                "/api/onboarding/language",
-            );
-            let client = app
-                .state::<crate::desktop_state::DesktopState>()
-                .http
-                .clone();
-            let resp = client
-                .post(&url)
-                .timeout(Duration::from_secs(10))
-                .json(&json!({ "language": lang }))
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            let status = resp.status();
-            let body = resp.json::<Value>().await.map_err(|e| e.to_string())?;
-            if !status.is_success() {
-                return Err(format!("HTTP {status}: {body}"));
-            }
-            Ok(body)
+            let language = args.first().and_then(Value::as_str).ok_or("Invalid learning language.")?.to_owned();
+            let result = tokio::task::spawn_blocking(move || {
+                save_target_language(&paths.active.join("config.json"), &language)?;
+                Ok::<_, String>(json!({"success": true, "language": language}))
+            }).await.map_err(|e| e.to_string())??;
+            // A running backend picks up the saved profile. Offline startup reads it from disk.
+            let _ = crate::runtime::backend_command(app, "reload_settings", Value::Null).await;
+            Ok(result)
         }
         _ => Err(format!("Unsupported onboarding channel: {channel}")),
     }
@@ -1165,16 +1120,9 @@ async fn handle_open_gsm_settings(app: &tauri::AppHandle, args: &[Value]) -> Res
         .and_then(|o| o.get("subtabKey"))
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let _ = crate::runtime::backend_command(
-        app,
-        "open_settings",
-        json!({
-            "root_tab_key": root_tab_key,
-            "subtab_key": subtab_key,
-        }),
-    )
-    .await;
-    Ok(Value::Null)
+    crate::gui_dialog::open(app, crate::gui_dialog::Dialog::Settings {
+        root_tab_key: root_tab_key.into(), subtab_key: subtab_key.into(),
+    }).await
 }
 
 async fn handle_select_backup_dir(app: &tauri::AppHandle) -> Result<Value, String> {
@@ -1818,23 +1766,14 @@ async fn handle_anki_beacon_install(app: &tauri::AppHandle) -> Value {
     let install_dir = std::env::temp_dir().join("GameSentenceMiner");
     let file_path = install_dir.join("Anki.Beacon.ankiaddon");
     let gsm_port = get_configured_single_port(&paths_for(app).active.join("config.json"));
-    let client = app
-        .state::<crate::desktop_state::DesktopState>()
-        .http
-        .clone();
-
     let res: Result<PathBuf, String> = async {
         std::fs::create_dir_all(&install_dir).map_err(|e| e.to_string())?;
-        let resp = client
-            .get(ANKI_BEACON_ADDON_URL)
-            .timeout(Duration::from_secs(60))
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-            .map_err(|e| e.to_string())?;
-        let bytes = resp.bytes().await.map_err(|e| e.to_string())?;
         let out_path = file_path.clone();
         tokio::task::spawn_blocking(move || {
+            let staging = tempfile::tempdir_in(&install_dir).map_err(|err| err.to_string())?;
+            let archive = staging.path().join("Anki.Beacon.ankiaddon");
+            gsm_packages::downloads::download(ANKI_BEACON_ADDON_URL, &archive, None, 32 * 1024 * 1024, &|_, _| {})?;
+            let bytes = std::fs::read(archive).map_err(|err| err.to_string())?;
             write_configured_anki_beacon_addon(&bytes, &out_path, gsm_port)
         })
         .await

@@ -137,11 +137,11 @@ additionally limits messages to 32 MiB and pending requests to 32.
 
 ```powershell
 node --test GSM_Overlay/tests/*.test.cjs
-cargo test --manifest-path GSM_Overlay/input_server/Cargo.toml
+cargo test --workspace --manifest-path GSM_Overlay/input_server/Cargo.toml
 
 # Exercise the real tokenizer using an already installed dictionary:
 $env:GSM_TEST_SUDACHI_DICTIONARY = "$env:APPDATA/GameSentenceMiner/sudachi/v20260116-core/system_core.dic"
-cargo test --manifest-path GSM_Overlay/input_server/Cargo.toml vocabulary::tests -- --include-ignored
+cargo test -p gsm-sudachi --manifest-path GSM_Overlay/input_server/Cargo.toml vocabulary::tests -- --include-ignored
 
 # Exercise the actual server protocol and SQLite store in a temporary directory:
 $env:GSM_VOCABULARY_TEST_BINARY = (Resolve-Path GSM_Overlay/input_server/target/debug/gsm_overlay_server.exe).Path

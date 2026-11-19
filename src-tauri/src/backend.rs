@@ -117,6 +117,17 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
         .cloned()
         .map(Value::Object)
         .unwrap_or(json!({}));
+    package_defaults(app, &mut spec)?;
+    spec["session"] = serde_json::to_value(
+        app.state::<crate::install_session::InstallSessions>()
+            .model
+            .lease(),
+    )
+    .map_err(|e| e.to_string())?;
+    owner.start(spec)
+}
+
+pub(crate) fn package_defaults(app: &tauri::AppHandle, spec: &mut Value) -> Result<(), String> {
     let paths = &app.state::<crate::settings::Settings>().paths;
     if spec.get("extras").is_none() {
         spec["extras"] = gsm_settings::preferences::Preferences::new(&paths.active)
@@ -136,14 +147,17 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
             .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
             .is_some_and(|v| v["branch"].as_str().is_some_and(|s| !s.trim().is_empty()))));
     }
-    spec["session"] = serde_json::to_value(
-        app.state::<crate::install_session::InstallSessions>()
-            .model
-            .lease(),
-    )
-    .map_err(|e| e.to_string())?;
-    owner.start(spec)
+    Ok(())
 }
+pub(crate) fn python_cwd(app: &tauri::AppHandle) -> std::path::PathBuf {
+    let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
+    if crate::python_install::project_root(app) == *root {
+        root.clone()
+    } else {
+        app.state::<crate::settings::Settings>().paths.active.clone()
+    }
+}
+
 async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<Value, String> {
     match action {
         "prepare" => {
@@ -193,6 +207,27 @@ async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<
             crate::input_server::apply_env(app, &mut env);
             env.insert("GSM_ELECTRON".into(), "1".into());
             env.insert("GSM_NATIVE_OVERLAY".into(), "1".into());
+            env.insert("GSM_NATIVE_OBS_OUTPUTS".into(), "1".into());
+            env.insert("GSM_NATIVE_GAME_SESSION".into(), "1".into());
+            env.insert("GSM_NATIVE_HISTORY".into(), "1".into());
+            env.insert("GSM_NATIVE_SEARCH".into(), "1".into());
+            env.insert("GSM_NATIVE_MAINTENANCE".into(), "1".into());
+            env.insert("GSM_NATIVE_TOKENIZATION".into(), "1".into());
+            env.insert("GSM_NATIVE_DASHBOARD_STATS".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_REPORTS".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_SYNC".into(), "1".into());
+            env.insert("GSM_NATIVE_WORD_INDEX".into(), "1".into());
+            env.insert("GSM_NATIVE_WORD_BACKFILL".into(), "1".into());
+            env.insert("GSM_NATIVE_DAILY_ROLLUP".into(), "1".into());
+            env.insert("GSM_NATIVE_CRON".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_MEDIA".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_POLL".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_MONITOR".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_EDIT".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_GROUPING".into(), "1".into());
+            env.insert("GSM_NATIVE_ANKI_CARDS".into(), "1".into());
+            env.insert("GSM_NATIVE_TEXT_CORRELATION".into(), "1".into());
+            env.insert("GSM_NATIVE_REPLAY_ACQUISITION".into(), "1".into());
             env.insert(
                 "GSM_DATA_DIR".into(),
                 paths.active.to_string_lossy().into_owned(),
@@ -212,11 +247,7 @@ async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<
             if cfg!(debug_assertions) {
                 argv.push("--dev");
             }
-            let cwd = if crate::python_install::project_root(app) != root {
-                paths.active.clone()
-            } else {
-                root
-            };
+            let cwd = python_cwd(app);
             crate::runtime::get(app)?.call("process.start",json!({"id":"backend","command":args["prepared"]["pythonPath"],
                 "args":argv,"cwd":cwd,"env":env,"windowsHide":true,"recoverRuntimeCrashes":true,
                 "gracefulStop":{"topic":"backend.command","data":{"function":"quit"},"timeoutMs":5000}})).await

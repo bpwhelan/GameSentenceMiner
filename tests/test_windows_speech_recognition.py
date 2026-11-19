@@ -95,11 +95,24 @@ def _write_test_direct_live_captions_archive(path):
         archive.writestr(f"{package}/svad.quantized.onnx", b"model")
 
 
-def test_ensure_direct_live_captions_bundle_downloads_extracts_and_reuses_cache(tmp_path):
+def test_ensure_direct_live_captions_bundle_downloads_extracts_and_reuses_cache(tmp_path, monkeypatch):
     source_archive = tmp_path / "source.zip"
     cache_dir = tmp_path / "cache"
     _write_test_direct_live_captions_archive(source_archive)
     progress = []
+    original_replace = speech.os.replace
+    attempts = []
+
+    def temporarily_locked(source, target):
+        if target == cache_dir / "DirectLiveCaptions":
+            attempts.append(target)
+            if len(attempts) == 1:
+                error = PermissionError("Sharing violation")
+                error.winerror = 32
+                raise error
+        return original_replace(source, target)
+
+    monkeypatch.setattr(speech.os, "replace", temporarily_locked)
 
     result = ensure_direct_live_captions_bundle(
         cache_dir,
@@ -108,6 +121,7 @@ def test_ensure_direct_live_captions_bundle_downloads_extracts_and_reuses_cache(
     )
 
     assert result == cache_dir / "DirectLiveCaptions"
+    assert len(attempts) >= 2
     assert (result / "Microsoft.CognitiveServices.Speech.core.dll").is_file()
     assert discover_speech_model("ja", str(cache_dir)) == result / (
         "MicrosoftWindows.Speech.ja-JP.1_1.0.19.0_x64__cw5n1h2txyewy"
@@ -115,6 +129,7 @@ def test_ensure_direct_live_captions_bundle_downloads_extracts_and_reuses_cache(
     assert discover_speech_runtime(str(cache_dir)) == result
     assert not (cache_dir / "DirectLiveCaptions.zip").exists()
     assert progress[-1][0] == progress[-1][1]
+    assert source_archive.is_file()
 
     # A complete cache should not contact the URL again, even if the original
     # archive has since disappeared.

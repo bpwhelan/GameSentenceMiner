@@ -23,8 +23,8 @@ fn identity(app: &tauri::AppHandle) -> String {
     format!(
         "{}.native{}{}",
         app.config().identifier,
-        if cfg!(debug_assertions) { ".dev" } else { "" },
-        if cfg!(debug_assertions) && std::env::var_os("GSM_SMOKE_TEST").is_some() {
+        if crate::LOCAL_BUILD { ".dev" } else { "" },
+        if crate::LOCAL_BUILD && std::env::var_os("GSM_SMOKE_TEST").is_some() {
             ".test"
         } else {
             ""

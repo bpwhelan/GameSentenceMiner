@@ -5,14 +5,14 @@ const CONTROLS = 'button, input, select, textarea, a[href], [contenteditable="tr
 const GAME_TEXT = '.text-box, .nav-char-box, .big-interactive-area, #text';
 const LOOKUP_TEXT = '.text-box, .nav-char-box, #text';
 
-function isClickableHoverTarget(target, clickThroughText = true) {
+function isClickableHoverTarget(target, clickThroughText = false) {
   if (!target?.closest) return false;
   if (target.closest(`${DICTIONARY_SURFACES}, ${CONTROLS}`)) return true;
   if (target.closest(GAME_TEXT)) return !clickThroughText;
   return !!target.closest('.interactive');
 }
 
-function createTextHoverController({ window: win, document: doc, onIgnore, isClickThroughEnabled = () => true }) {
+function createTextHoverController({ window: win, document: doc, onIgnore, isClickThroughEnabled = () => false }) {
   let projected = false, dispatching = false, lastPoint = null, lastTarget = null;
   let lastSignature = '', interactive = false, publishedIgnore = null;
   let popupMouseCaptured = false;
@@ -98,7 +98,7 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
     if (projected) {
       // Once Magpie releases capture, native enter/leave events must still
       // reach the popup frame and toolbar controls (including their ancestors).
-      if (!lastPoint?.captured && isClickableHoverTarget(event.target)) return;
+      if (!lastPoint?.captured && isClickableHoverTarget(event.target, true)) return;
       // Magpie's hardware cursor can still be in source space. The projected
       // samples below are the sole root-page hover stream during that session.
       event.stopImmediatePropagation();

@@ -65,7 +65,11 @@ function looksTechnical(text: string): boolean {
     // Some emulator APIs concatenate filenames and full paths without separators.
     const drivePath = text.search(/[a-z]:[\\/]/iu);
     if (drivePath > 0 && /^[\w.-]+\.(?:bin|dat|dll|exe)$/iu.test(text.slice(0, drivePath))) return true;
-    if (/^(?:[^\s\\/:*?"<>|]+[\\/])*[^\s\\/:*?"<>|]+\.(?:exe|dll|bin|dat|pak|png|jpe?g|dds|bmp|ogg|wav|mp3|mp4|ttf|otf|json|xml|ini|log|ks|nsp|xci|assetbundle)$/iu.test(text)) return true;
+    if (/^(?:[^\s\\/:*?"<>|]+[\\/])*[^\s\\/:*?"<>|]+\.(?:exe|dll|bin|dat|pak|png|jpe?g|dds|bmp|ogg|wav|mp3|mp4|ttf|otf|json|xml|ini|log|ks|nsp|xci|uux|assetbundle)$/iu.test(text)) return true;
+    // Runtime class lists can appear as one joined identifier in a hook preview.
+    const identifier = text.replace(/(?:\.{3,}|…)$/u, '');
+    if (identifier.length >= 24 && /^C[A-Z][a-z][a-zA-Z\d]*$/u.test(identifier)
+        && (identifier.match(/C(?=[A-Z][a-z])/gu)?.length ?? 0) >= 3) return true;
     if (/^(?:0x[\da-f]{6,}|[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/iu.test(text)) return true;
     if (/^\[(?:debug|trace|info|warn(?:ing)?|error)\]/iu.test(text)) return true;
     if (text.length >= 16 && /^[\da-f]+$/iu.test(text) && /\d/u.test(text)) return true;

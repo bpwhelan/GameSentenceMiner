@@ -1,3 +1,4 @@
+import {createLookupCache} from "./gsm/lookup-cache.mjs"; // GSM lookup cache
 import { actualIndexPolicy, planIndexStorage, residentHashBudgetBytes } from "./dictionary-index-storage.js";
 import { encodeBase64 } from "./base64.js";
 import { readDebugLog, recordDebugFailure, setDebugLogLanguages } from "./debug-log.js";
@@ -4225,13 +4226,13 @@ const HANDLERS = {
 
   async hd_lookup(message) {
     await ensureLoaded();
-    const json = engine.ccall(
+    const json = gsmLookup(
       "hdw_lookup",
       "string",
       ["string", "number", "number", "string"],
       lookupArguments(message),
     );
-    throwIfEngineFailed("hdw_lookup");
+    // GSM cached hdw_lookup: native errors are checked only when executing the call.
     const reply = withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup"), message));
     return kanaRuby(message) ? withFurigana(reply) : reply;
   },
@@ -4292,13 +4293,13 @@ const HANDLERS = {
     if (!entry) {
       return { results: [], dictionaryCount };
     }
-    const json = engine.ccall(
+    const json = gsmLookup(
       "hdw_lookup_dictionary",
       "string",
       ["string", "string", "number", "number", "string"],
       [args[0], text(entry.path), ...args.slice(1)],
     );
-    throwIfEngineFailed("hdw_lookup_dictionary");
+    // GSM cached hdw_lookup_dictionary: native errors are checked only when executing the call.
     const reply = withDefinitionTags(withoutPersonalDictionary(termLookupReply(json, "hdw_lookup_dictionary"), message));
     return kanaRuby(message) ? withFurigana(reply) : reply;
   },
@@ -4803,3 +4804,6 @@ export function startEngine() {
   importKanjiReadings().catch(() => {});
   return booted;
 }
+
+const gsmLookupCache = createLookupCache(); // GSM lookup cache
+const gsmLookup = (...args) => gsmLookupCache.call(generation, engine, throwIfEngineFailed, ...args); // GSM lookup cache

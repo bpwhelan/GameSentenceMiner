@@ -347,7 +347,7 @@ def build_image_fingerprint(image_path: Path) -> dict:
 def build_default_engines(reference_engine: str) -> list[str]:
     ensure_gsm_imports()
     # Keep defaults tightly focused for OCR bake-offs against Lens.
-    seed = ["screenai", "oneocr", "meikiocr", "mlkitocr"]
+    seed = ["screenai", "oneocr", "meikiocr"]
     normalized = []
     for e in seed:
         name = normalize_engine_name(e)
@@ -981,7 +981,7 @@ def main() -> int:
     parser.add_argument(
         "--model",
         default="",
-        help="Local OCR engine to test in --test-filter mode (e.g. oneocr, meikiocr, mlkitocr).",
+        help="Local OCR engine to test in --test-filter mode (e.g. oneocr, meikiocr, screenai).",
     )
     args = parser.parse_args()
     print(f"Python executable: {sys.executable}")

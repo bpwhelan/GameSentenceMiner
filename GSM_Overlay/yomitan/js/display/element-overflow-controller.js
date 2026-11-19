@@ -87,6 +87,8 @@ export class ElementOverflowController {
             ...entry.querySelectorAll('.definition-item-inner'),
             ...entry.querySelectorAll('.kanji-glyph-data'),
         ];
+        const measure = [];
+        const collapse = [];
         for (const element of elements) {
             const {parentNode} = element;
             if (parentNode === null) { continue; }
@@ -98,12 +100,11 @@ export class ElementOverflowController {
             if (dictionaryInfo.force) {
                 element.classList.add('collapsible', 'collapsible-forced');
             } else {
-                this._updateElement(element);
-                this._elements.push(element);
+                measure.push(element);
             }
 
             if (dictionaryInfo.collapsed) {
-                element.classList.add('collapsed');
+                collapse.push(element);
             }
 
             const button = element.querySelector('.expansion-button');
@@ -111,6 +112,9 @@ export class ElementOverflowController {
                 this._eventListeners.addEventListener(button, 'click', this._onToggleButtonClickBind, false);
             }
         }
+        this._updateElements(measure);
+        for (const element of measure) { this._elements.push(element); }
+        for (const element of collapse) { element.classList.add('collapsed'); }
 
         if (this._elements.length > 0 && this._windowEventListeners.size === 0) {
             this._windowEventListeners.addEventListener(window, 'resize', this._onWindowResizeBind, false);
@@ -155,20 +159,21 @@ export class ElementOverflowController {
 
     /** */
     _update() {
-        for (const element of this._elements) {
-            this._updateElement(element);
-        }
+        this._updateElements(this._elements);
     }
 
     /**
-     * @param {Element} element
+     * @param {Element[]} elements
      */
-    _updateElement(element) {
-        const {classList} = element;
-        classList.add('collapse-test');
-        const collapsible = element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth;
-        classList.toggle('collapsible', collapsible);
-        classList.remove('collapse-test');
+    _updateElements(elements) {
+        // Measure every definition against the same layout before changing it.
+        for (const element of elements) { element.classList.add('collapse-test'); }
+        const overflows = elements.map((element) => element.scrollHeight > element.clientHeight || element.scrollWidth > element.clientWidth);
+        for (let i = 0; i < elements.length; ++i) {
+            const {classList} = elements[i];
+            classList.toggle('collapsible', overflows[i]);
+            classList.remove('collapse-test');
+        }
     }
 
     /**

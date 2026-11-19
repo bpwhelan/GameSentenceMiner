@@ -17,12 +17,19 @@ import { getDevPreviewTab } from "./lib/devPreview";
 import { TextHookTab } from "./components/tabs/TextHookTab";
 import { TextProcessingTab } from "./components/tabs/TextProcessingTab";
 import { HomeTab } from "./components/tabs/HomeTab";
-import { startVisiblePolling } from './lib/visiblePolling';
+import { isDocumentVisible, NATIVE_VISIBILITY_EVENT, startVisiblePolling } from './lib/visiblePolling';
 import { DeferredPanel } from './components/DeferredPanel';
 import { SpeechRecognitionTab } from "./components/tabs/SpeechRecognitionTab";
 import { useTranslation } from "./i18n";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "./lib/theme";
 import { createBufferedTerminalWriter } from "./lib/bufferedTerminal";
+import {
+  formatOriginAnsi,
+  normalizeOriginSource,
+  parseLogLevelFromLine,
+  splitLogOrigin,
+  stripAnsi,
+} from "./lib/logFormat";
 import { LOGS_TERMINAL_HISTORY_LIMIT, LOGS_TERMINAL_BUFFER_CHARACTERS } from "./lib/debugHistory";
 import type { DesktopUpdateChangelogSnapshot } from "../../shared/changelog";
 import type { InstallSessionSnapshot } from "../../shared/install_session";
@@ -239,7 +246,7 @@ function ConsolePanel({
     };
     const output = createBufferedTerminalWriter(
       (data) => ensureTerminal().write(data),
-      () => activeRef.current && document.visibilityState !== "hidden",
+      () => activeRef.current && isDocumentVisible(),
       {
         maxLines: LOGS_TERMINAL_HISTORY_LIMIT,
         maxCharacters: LOGS_TERMINAL_BUFFER_CHARACTERS,
@@ -256,10 +263,10 @@ function ConsolePanel({
       channel?: TerminalChannel;
       level?: string;
       source?: string;
+      seq?: number;
     };
 
-    const stripAnsi = (value: string): string =>
-      value.replace(/\u001b\[[0-9;]*m/g, "");
+    const seenSeqs = new Set<number>();
 
     const parseTerminalPayload = (
       payload: unknown,
@@ -277,21 +284,14 @@ function ConsolePanel({
                 : fallbackStream,
           channel: record.channel === "background" ? "background" : record.channel === "basic" ? "basic" : undefined,
           level: typeof record.level === "string" ? record.level.toUpperCase() : undefined,
-          source: typeof record.source === "string" ? record.source : undefined
+          source: typeof record.source === "string" ? record.source : undefined,
+          seq: typeof record.seq === "number" && Number.isFinite(record.seq) ? record.seq : undefined,
         };
       }
       return {
         message: String(payload ?? ""),
         stream: fallbackStream
       };
-    };
-
-    const parseLevelFromLine = (line: string): string | undefined => {
-      const clean = stripAnsi(line);
-      const match = clean.match(
-        /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\s+\|\s+[^|]+\|\s+([A-Z_]+)\s+\|/
-      );
-      return match ? match[1].toUpperCase() : undefined;
     };
 
     const inferChannel = (
@@ -325,31 +325,33 @@ function ConsolePanel({
       updateProgressStarted.current = false;
     };
 
-    const printDownloadStatus = (value: string) => {
+    const printDownloadStatus = (value: string, origin: string | null) => {
       const trimmed = value.trimEnd();
       if (!downloadStarted.current) {
         downloadStarted.current = true;
         output.write("\r\n");
       }
-      output.write(`\x1b[32m${trimmed}\x1b[0m\r`);
+      const prefix = origin ? `${formatOriginAnsi(origin)} ` : "";
+      output.write(`${prefix}\x1b[32m${trimmed}\x1b[0m\r`);
     };
 
-    const printVADStatus = (value: string) => {
-      if (value.startsWith("Transcription:")) {
+    const printVADStatus = (value: string, origin: string | null) => {
+      const clean = stripAnsi(value);
+      if (clean.startsWith("Transcription:")) {
         if (!transcribeStarted.current) {
           output.write("\r\n");
         }
         transcribeStarted.current = true;
         vadStarted.current = false;
         adjustmentStarted.current = false;
-      } else if (value.startsWith("VAD:")) {
+      } else if (clean.startsWith("VAD:")) {
         if (!vadStarted.current) {
           output.write("\r\n");
         }
         vadStarted.current = true;
         transcribeStarted.current = false;
         adjustmentStarted.current = false;
-      } else if (value.startsWith("Adjustment:")) {
+      } else if (clean.startsWith("Adjustment:")) {
         if (!adjustmentStarted.current) {
           output.write("\r\n");
         }
@@ -358,10 +360,11 @@ function ConsolePanel({
         vadStarted.current = false;
       }
 
-      output.write(`\x1b[32m${value.trimEnd()}\x1b[0m\r`);
+      const prefix = origin ? `${formatOriginAnsi(origin)} ` : "";
+      output.write(`${prefix}\x1b[32m${value.trimEnd()}\x1b[0m\r`);
     };
 
-    const printUpdateProgress = (value: string): boolean => {
+    const printUpdateProgress = (value: string, origin: string | null): boolean => {
       const clean = stripAnsi(value).trim();
       const match = clean.match(/^UpdateProgress:\s*(\d+)\/(\d+)\s*(.*)$/);
       if (!match) {
@@ -380,7 +383,8 @@ function ConsolePanel({
         output.write("\r\n");
       }
       updateProgressStarted.current = true;
-      output.write(`\r\x1b[2K\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m`);
+      const prefix = origin ? `${formatOriginAnsi(origin)} ` : "";
+      output.write(`\r\x1b[2K${prefix}\x1b[32mUpdate: [${bar}] ${percent}%${label ? ` ${label}` : ""}\x1b[0m`);
 
       if (current >= total) {
         output.write("\r\n");
@@ -389,35 +393,52 @@ function ConsolePanel({
       return true;
     };
 
-    const writeLine = (data: string, level: string | undefined, stream: TerminalStream) => {
-      const text = data.endsWith("\n") || data.endsWith("\r") ? data : `${data}\r\n`;
+    const writeLine = (
+      body: string,
+      level: string | undefined,
+      stream: TerminalStream,
+      origin: string | null
+    ) => {
+      const text = body.endsWith("\n") || body.endsWith("\r") ? body : `${body}\r\n`;
       const normalized = (level ?? "").toUpperCase();
+      const isBackground = normalized === "BACKGROUND";
+      const prefix = origin ? `${formatOriginAnsi(origin, isBackground)} ` : "";
 
-      if (normalized === "ERROR" || stream === "stderr") {
-        output.write(`\x1b[91m${text}\x1b[0m`);
+      if (normalized === "ERROR" || normalized === "CRITICAL" || stream === "stderr") {
+        output.write(`${prefix}\x1b[91m${text}\x1b[0m`);
         return;
       }
-      if (normalized === "WARNING") {
-        output.write(`\x1b[33m${text}\x1b[0m`);
+      if (normalized === "WARNING" || normalized === "WARN") {
+        output.write(`${prefix}\x1b[33m${text}\x1b[0m`);
         return;
       }
       if (normalized === "SUCCESS") {
-        output.write(`\x1b[32m${text}\x1b[0m`);
+        output.write(`${prefix}\x1b[32m${text}\x1b[0m`);
         return;
       }
-      if (normalized === "BACKGROUND") {
-        output.write(`\x1b[90m${text}\x1b[0m`);
+      if (isBackground) {
+        output.write(`${prefix}\x1b[90m${text}\x1b[0m`);
         return;
       }
       if (normalized === "TEXT_RECEIVED") {
-        output.write(`\x1b[36m${text}\x1b[0m`);
+        output.write(`${prefix}\x1b[36m${text}\x1b[0m`);
         return;
       }
-      output.write(`\x1b[37m${text}\x1b[0m`);
+      output.write(`${prefix}\x1b[37m${text}\x1b[0m`);
     };
 
     const handleTerminalEvent = (payload: unknown, fallbackStream: TerminalStream) => {
       const event = parseTerminalPayload(payload, fallbackStream);
+      if (typeof event.seq === "number") {
+        if (seenSeqs.has(event.seq)) {
+          return;
+        }
+        seenSeqs.add(event.seq);
+        if (seenSeqs.size > 1000) {
+          const oldest = seenSeqs.values().next().value;
+          if (typeof oldest === "number") seenSeqs.delete(oldest);
+        }
+      }
       const data = event.message ?? "";
       if (!data.trim()) {
         return;
@@ -427,7 +448,12 @@ function ConsolePanel({
         onRequestConsole();
       }
 
-      const level = event.level ?? parseLevelFromLine(data);
+      const { origin: embeddedOrigin, rest } = splitLogOrigin(data);
+      const origin = embeddedOrigin ?? normalizeOriginSource(event.source);
+      const body = embeddedOrigin ? rest : data;
+      const cleanBody = stripAnsi(body);
+
+      const level = event.level ?? parseLogLevelFromLine(data);
       const channel = inferChannel(event, level);
 
       if (consoleModeRef.current === "simple" && channel === "background") {
@@ -435,32 +461,33 @@ function ConsolePanel({
       }
 
       if (
-        data.includes("Download:") ||
-        data.includes("Downloading:") ||
-        data.includes("Downloaded:")
+        cleanBody.includes("Download:") ||
+        cleanBody.includes("Downloading:") ||
+        cleanBody.includes("Downloaded:")
       ) {
-        printDownloadStatus(data);
+        printDownloadStatus(body, origin);
         return;
       }
 
       if (
-        data.startsWith("Transcription:") ||
-        data.startsWith("Transcribe:") ||
-        data.startsWith("VAD:") ||
-        data.startsWith("Adjustment:")
+        cleanBody.startsWith("Transcription:") ||
+        cleanBody.startsWith("Transcribe:") ||
+        cleanBody.startsWith("VAD:") ||
+        cleanBody.startsWith("Adjustment:")
       ) {
-        printVADStatus(data);
+        printVADStatus(body, origin);
         return;
       }
 
-      if (printUpdateProgress(data)) {
+      if (printUpdateProgress(body, origin)) {
         return;
       }
 
       resetInlineStatus();
-      writeLine(data, level, event.stream ?? fallbackStream);
+      writeLine(body, level, event.stream ?? fallbackStream, origin);
     };
 
+    let disposed = false;
     const offStdout = window.ipcRenderer.on(
       "terminal-output",
       (_event, payload) => {
@@ -474,6 +501,21 @@ function ConsolePanel({
         handleTerminalEvent(payload, "stderr");
       }
     );
+
+    void Promise.resolve(window.ipcRenderer.invoke("settings.getSettings"))
+      .then((settings: any) => {
+        if (!disposed && settings && typeof settings === "object" && settings.consoleMode) {
+          consoleModeRef.current = settings.consoleMode;
+        }
+        return window.ipcRenderer.invoke("logs.getRecent");
+      })
+      .then((recent: unknown) => {
+        if (disposed || !Array.isArray(recent)) return;
+        for (const entry of recent) {
+          handleTerminalEvent(entry, "stdout");
+        }
+      })
+      .catch(() => {});
 
     const handleContextMenu = async (event: MouseEvent) => {
       event.preventDefault();
@@ -498,13 +540,16 @@ function ConsolePanel({
     window.addEventListener("resize", handleResize);
     window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
     document.addEventListener("visibilitychange", output.flush);
+    window.addEventListener(NATIVE_VISIBILITY_EVENT, output.flush);
 
     return () => {
+      disposed = true;
       offStdout();
       offStderr();
       window.removeEventListener("resize", handleResize);
       window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
       document.removeEventListener("visibilitychange", output.flush);
+      window.removeEventListener(NATIVE_VISIBILITY_EVENT, output.flush);
       terminalRef.current?.removeEventListener("contextmenu", handleContextMenu);
       if (resizeTimerRef.current) {
         clearTimeout(resizeTimerRef.current);

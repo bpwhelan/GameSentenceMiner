@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,42 @@ from PIL import Image
 from GameSentenceMiner.ocr import gsm_ocr
 from GameSentenceMiner.owocr.owocr import ocr as ocr_module
 from GameSentenceMiner.owocr.owocr import ocr_runtime
+
+
+@pytest.mark.parametrize("location", ["home", "data", "profile", "override"])
+def test_google_vision_loads_the_documented_service_account_key(monkeypatch, tmp_path, location):
+    home = tmp_path / "home"
+    data = tmp_path / "data"
+    profile = tmp_path / "profile"
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("GSM_DATA_DIR", str(data))
+    monkeypatch.delenv("GSM_PROFILE_DIR", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+    if location == "profile":
+        monkeypatch.setenv("GSM_PROFILE_DIR", str(profile))
+    if location == "override":
+        monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", str(tmp_path / "other_key.json"))
+    key = {
+        "home": home / ".config" / "google_vision.json",
+        "data": data / "google_vision.json",
+        "profile": profile / "google_vision.json",
+        "override": tmp_path / "other_key.json",
+    }[location]
+    key.parent.mkdir(parents=True, exist_ok=True)
+    key.touch()
+    read_key = []
+    monkeypatch.setattr(
+        ocr_module,
+        "_load_google_vision_dependencies",
+        lambda: {
+            "service_account": SimpleNamespace(Credentials=SimpleNamespace(from_service_account_file=read_key.append)),
+            "vision": SimpleNamespace(ImageAnnotatorClient=lambda credentials: object()),
+            "ServiceUnavailable": RuntimeError,
+        },
+    )
+
+    assert ocr_module.GoogleVision().available
+    assert read_key == [str(key)]
 
 
 @pytest.fixture

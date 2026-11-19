@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import argparse
-import json
 import re
-import sys
 import unicodedata
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import replace
+from typing import Any
 
 from GameSentenceMiner.native.text import remove_repeated_chars, remove_repeated_lines
 from GameSentenceMiner.util.config.configuration import (
@@ -15,11 +14,54 @@ from GameSentenceMiner.util.config.configuration import (
     get_config,
     logger,
 )
-from GameSentenceMiner.util.language_filter import filter_target_language
+from GameSentenceMiner.util.language_filter import LANGUAGE_FILTER_MODES, filter_target_language
 
 HTML_TAG_WILDCARD_PATTERNS = {"<.*>", "<.+>"}
 DOLLAR_CAPTURE_GROUP_PATTERN = re.compile(r"(?<!\\)\$(\d+)")
 BRACKETED_TEXT_PATTERN = re.compile(r"[^\r\n「」]{0,8}「(?P<text>.*)」", re.DOTALL)
+
+_PROCESSOR_FIELDS = {
+    "remove_repeated_chars": "remove_repeated_chars",
+    "remove_repeated_lines": "remove_repeated_lines_v2",
+    "remove_control_chars": "remove_control_chars",
+    "language_filter": "language_filter",
+    "remove_non_japanese": "remove_non_japanese",
+    "remove_newlines": "remove_newlines",
+    "remove_numbers": "remove_numbers",
+    "remove_english": "remove_english",
+    "remove_curly_braces": "remove_curly_braces",
+    "remove_angle_brackets": "remove_angle_brackets",
+    "extract_bracketed_text": "extract_bracketed_text",
+    "extract_lines": "extract_lines",
+    "unicode_normalize": "unicode_normalize",
+}
+
+
+def processor_states(config: TextProcessing) -> dict[str, bool]:
+    return {
+        processor: (
+            bool(config.string_replacement and config.string_replacement.enabled)
+            if processor == "string_replacement"
+            else bool(getattr(config, _PROCESSOR_FIELDS[processor]))
+        )
+        for processor in config.processor_order
+        if processor == "string_replacement" or processor in _PROCESSOR_FIELDS
+    }
+
+
+def with_processor_overrides(config: TextProcessing, overrides: object) -> TextProcessing:
+    if not isinstance(overrides, dict) or not overrides:
+        return config
+    changes: dict[str, Any] = {
+        _PROCESSOR_FIELDS[processor]: enabled
+        for processor, enabled in overrides.items()
+        if processor in _PROCESSOR_FIELDS and isinstance(enabled, bool)
+    }
+    if isinstance(enabled := overrides.get("string_replacement"), bool):
+        changes["string_replacement"] = replace(config.string_replacement or StringReplacement(), enabled=enabled)
+    if (mode := overrides.get("language_filter_mode")) in LANGUAGE_FILTER_MODES:
+        changes["language_filter_config"] = replace(config.language_filter_config, mode=mode)
+    return replace(config, **changes) if changes else config
 
 
 def apply_text_processing(text: str, config: TextProcessing | None, *, target_language: str | None = None) -> str:
@@ -27,25 +69,15 @@ def apply_text_processing(text: str, config: TextProcessing | None, *, target_la
         return text
 
     for processor_id in config.processor_order:
-        text = _run_processor(text, processor_id, config, target_language=target_language)
+        text = run_text_processor(text, processor_id, config, target_language=target_language)
         if not text:
             break
     return text
 
 
-def preview_text_processing_request(payload: dict[str, Any]) -> dict[str, str]:
-    text = payload.get("text", "")
-    if text is None:
-        text = ""
-    elif not isinstance(text, str):
-        text = str(text)
-
-    raw_config = payload.get("config")
-    config = TextProcessing.from_dict(raw_config) if isinstance(raw_config, dict) else None
-    return {"result": apply_text_processing(text, config, target_language=payload.get("target_language"))}
-
-
-def _run_processor(text: str, processor_id: str, config: TextProcessing, *, target_language: str | None = None) -> str:
+def run_text_processor(
+    text: str, processor_id: str, config: TextProcessing, *, target_language: str | None = None
+) -> str:
     """Run a single processor by ID if it is enabled."""
     if processor_id == "string_replacement":
         if config.string_replacement and config.string_replacement.enabled:
@@ -102,9 +134,8 @@ def _run_processor(text: str, processor_id: str, config: TextProcessing, *, targ
                 config.extract_lines_config.max_lines,
                 config.extract_lines_config.from_end,
             )
-    elif processor_id == "unicode_normalize":
-        if config.unicode_normalize:
-            return unicode_normalize(text, config.unicode_normalize_config.form)
+    elif processor_id == "unicode_normalize" and config.unicode_normalize:
+        return unicode_normalize(text, config.unicode_normalize_config.form)
     return text
 
 
@@ -255,28 +286,3 @@ def unicode_normalize(text: str, form: str = "NFKC") -> str:
     if form not in ("NFD", "NFC", "NFKD", "NFKC"):
         form = "NFKC"
     return unicodedata.normalize(form, text)
-
-
-def _main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--preview-json", action="store_true")
-    args = parser.parse_args(argv)
-
-    if not args.preview_json:
-        parser.print_help(sys.stderr)
-        return 2
-
-    try:
-        payload = json.load(sys.stdin)
-        if not isinstance(payload, dict):
-            raise ValueError("Preview payload must be a JSON object")
-        response = preview_text_processing_request(payload)
-        print(json.dumps(response, ensure_ascii=False), flush=True)
-        return 0
-    except Exception as exc:
-        print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr, flush=True)
-        return 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(_main())

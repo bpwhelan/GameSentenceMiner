@@ -2,8 +2,10 @@
 use chrono::{Datelike, Local, NaiveDate};
 use gsm_settings::preferences::Preferences;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Mutex,
+    time::{Duration, Instant},
 };
 use tauri::{Manager, WebviewWindow};
 
@@ -18,6 +20,7 @@ pub enum SeasonalEvent {
 pub struct IconPresentation {
     use_rare_icon: bool,
     random_style: Mutex<String>,
+    icon_downloads: Mutex<HashMap<String, Option<Instant>>>,
 }
 
 impl IconPresentation {
@@ -28,6 +31,7 @@ impl IconPresentation {
         Self {
             use_rare_icon,
             random_style: Mutex::new(String::new()),
+            icon_downloads: Mutex::new(HashMap::new()),
         }
     }
 
@@ -171,13 +175,56 @@ pub fn current_window_icon_path(app: &tauri::AppHandle) -> PathBuf {
     let presentation = app.state::<IconPresentation>();
     let resolved = presentation.resolved_random_style(&configured);
     let assets_dir = app.state::<crate::desktop_state::DesktopState>().assets_dir();
-    get_window_icon_path(
+    let desired = get_window_icon_path(
         &assets_dir,
         &configured,
         &resolved,
         active_seasonal_event(disabled),
         presentation.use_rare_icon,
-    )
+    );
+    available_icon(app, &desired).unwrap_or_else(|| assets_dir.join(format!("gsm.{}", icon_extension())))
+}
+
+fn available_icon(app: &tauri::AppHandle, desired: &Path) -> Option<PathBuf> {
+    if desired.is_file() {
+        return Some(desired.to_owned());
+    }
+    let id = format!("icons/{}", desired.file_name()?.to_str()?);
+    if !gsm_packages::downloads::contains(&id) {
+        return None;
+    }
+    let cache = gsm_packages::download_cache().ok()?;
+    if let Some(path) = gsm_packages::downloads::cached_asset(&cache, &id, None) {
+        return Some(path);
+    }
+    let style = app.state::<IconPresentation>();
+    let mut downloads = style.icon_downloads.lock().unwrap();
+    if downloads.get(&id).is_some_and(|state| {
+        state.is_none_or(|retry| Instant::now() < retry)
+    }) {
+        return None;
+    }
+    downloads.insert(id.clone(), None);
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = gsm_packages::downloads::ensure_asset(&cache, &id, None);
+        let style = app.state::<IconPresentation>();
+        let mut downloads = style.icon_downloads.lock().unwrap();
+        if let Err(error) = result {
+            downloads.insert(id.clone(), Some(Instant::now() + Duration::from_secs(60)));
+            crate::desktop_log::stderr_only(
+                "identity",
+                "WARNING",
+                format!("Could not load {id}: {error}"),
+            );
+            return;
+        }
+        downloads.remove(&id);
+        drop(downloads);
+        let handle = app.clone();
+        let _ = app.run_on_main_thread(move || refresh_icon_presentation(&handle));
+    });
+    None
 }
 
 pub fn current_tray_icon_path(app: &tauri::AppHandle, state_suffix: Option<&str>) -> PathBuf {
@@ -186,14 +233,19 @@ pub fn current_tray_icon_path(app: &tauri::AppHandle, state_suffix: Option<&str>
     let event = active_seasonal_event(disabled);
     if let Some(suffix) = state_suffix {
         let candidate = get_status_tray_icon_path(&assets_dir, suffix, event);
-        if candidate.is_file() {
-            return candidate;
+        if let Some(path) = available_icon(app, &candidate) {
+            return path;
+        }
+        let fallback = get_status_tray_icon_path(&assets_dir, suffix, None);
+        if fallback.is_file() {
+            return fallback;
         }
     }
     let resolved = app
         .state::<IconPresentation>()
         .resolved_random_style(&configured);
-    get_tray_base_icon_path(&assets_dir, &configured, &resolved, event)
+    let desired = get_tray_base_icon_path(&assets_dir, &configured, &resolved, event);
+    available_icon(app, &desired).unwrap_or_else(|| assets_dir.join(format!("gsm.{}", icon_extension())))
 }
 
 pub fn apply_icon_style(app: &tauri::AppHandle, next_icon_style: Option<&str>) -> Result<(), String> {
@@ -264,7 +316,7 @@ pub fn init_process_identity(_app: &tauri::AppHandle) {
     {
         use windows::core::HSTRING;
         use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
-        let app_id = get_windows_app_id(!cfg!(debug_assertions));
+        let app_id = get_windows_app_id(!crate::LOCAL_BUILD);
         let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(app_id)) };
     }
     #[cfg(target_os = "linux")]
@@ -292,7 +344,7 @@ pub fn apply_window_app_details(
             .map(|p| quote_windows_argument(p))
             .collect::<Vec<_>>()
             .join(" ");
-        let app_id = get_windows_app_id(!cfg!(debug_assertions)).to_owned();
+        let app_id = get_windows_app_id(!crate::LOCAL_BUILD).to_owned();
         let icon_resource = format!("{},0", icon_path.to_string_lossy());
         let target = window.clone();
         let _ = window.run_on_main_thread(move || {

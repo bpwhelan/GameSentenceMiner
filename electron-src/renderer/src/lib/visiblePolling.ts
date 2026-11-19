@@ -1,9 +1,16 @@
 /** UI refreshes sleep while hidden and never overlap a slow IPC/network request. */
+declare global {
+  interface Window { __GSM_NATIVE_WINDOW_VISIBLE__?: boolean }
+}
+
+export const NATIVE_VISIBILITY_EVENT = 'gsm-native-visibilitychange';
+export const isDocumentVisible = () => document.visibilityState !== 'hidden' && window.__GSM_NATIVE_WINDOW_VISIBLE__ !== false;
+
 export function startVisiblePolling(poll: () => void | Promise<unknown>, intervalMs: number): () => void {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
   let pending = false;
-  const visible = () => document.visibilityState !== 'hidden';
+  const visible = isDocumentVisible;
   const run = async () => {
     if (stopped || pending || !visible()) return;
     pending = true;
@@ -20,11 +27,13 @@ export function startVisiblePolling(poll: () => void | Promise<unknown>, interva
     if (visible()) void run();
   };
   document.addEventListener('visibilitychange', changed);
+  window.addEventListener(NATIVE_VISIBILITY_EVENT, changed);
   void run();
   return () => {
     stopped = true;
     clearTimeout(timer);
     document.removeEventListener('visibilitychange', changed);
+    window.removeEventListener(NATIVE_VISIBILITY_EVENT, changed);
   };
 }
 

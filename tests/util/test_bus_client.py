@@ -101,6 +101,21 @@ def broker():
     b.stop()
 
 
+def test_first_connection_callbacks_registered_before_and_after_handshake(broker):
+    c = bc.BusClient(client_id="tester", port=broker.port, token=TOKEN)
+    ready = threading.Event()
+    c.on_first_connection(ready.set)
+    assert not ready.is_set()
+    c.start()
+    try:
+        assert ready.wait(5) and c.connected
+        ready.clear()
+        c.on_first_connection(ready.set)
+        assert ready.is_set()
+    finally:
+        c.stop()
+
+
 @pytest.fixture
 def client(broker):
     c = bc.BusClient(client_id="tester", port=broker.port, token=TOKEN)

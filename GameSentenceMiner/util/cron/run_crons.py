@@ -36,9 +36,7 @@ from GameSentenceMiner.util.database.cron_table import CronTable
 MAX_QUEUE_WAIT_SECONDS = 0.5
 SCHEDULE_CHECK_INTERVAL_SECONDS = 60
 CRON_TABLE_REFRESH_INTERVAL_SECONDS = 900
-# A single task running longer than this is almost certainly stuck. We can't kill the
-# thread, but we log a warning (and keep re-warning) so it shows up in users' logs. The
-# recurring culprit is a user plugin with a blocking/looping main().
+# Report long-running tasks so a stalled job is visible in the scheduler logs.
 SLOW_TASK_WARN_SECONDS = 60.0
 
 
@@ -46,7 +44,6 @@ class Crons(enum.Enum):
     POPULATE_GAMES = "populate_games"
     JITEN_SYNC = "jiten_sync"
     DAILY_STATS_ROLLUP = "daily_stats_rollup"
-    USER_PLUGINS = "user_plugins"
     JITEN_UPGRADER = "jiten_upgrader"
     DAILY_GOALS_COMPLETION = "daily_goals_completion"
     TOKENIZE_BACKFILL = "tokenize_backfill"
@@ -74,10 +71,7 @@ class MockCron:
 # optional callbacks derive success/log lines from that result.
 
 
-# Lower priority runs first when several tasks are due in the same batch. Plugins go
-# first (users expect their own code to win), then the daily stats rollup; everything
-# else runs at the default priority afterwards in registry order.
-PRIORITY_HIGH = 0
+# Run daily stats first when several tasks fall due in the same batch.
 PRIORITY_ROLLUP = 10
 PRIORITY_DEFAULT = 100
 PRIORITY_LOW = 1000
@@ -108,12 +102,6 @@ def _run_daily_rollup() -> dict:
     from GameSentenceMiner.util.cron.daily_rollup import run_daily_rollup
 
     return run_daily_rollup()
-
-
-def _run_user_plugins() -> dict:
-    from GameSentenceMiner.util.cron.user_plugins import execute_user_plugins
-
-    return execute_user_plugins()
 
 
 def _run_jiten_upgrader() -> dict:
@@ -195,12 +183,6 @@ _TASK_REGISTRY: dict[str, _TaskDef] = {
         priority=PRIORITY_LOW,
     ),
     Crons.DAILY_STATS_ROLLUP.value: _TaskDef(runner=_run_daily_rollup, priority=PRIORITY_ROLLUP),
-    Crons.USER_PLUGINS.value: _TaskDef(
-        runner=_run_user_plugins,
-        success=lambda r: r.get("executed", False),
-        warn=lambda r: f"User plugins completed with warning: {r['error']}" if r.get("error") else None,
-        priority=PRIORITY_HIGH,
-    ),
     Crons.JITEN_UPGRADER.value: _TaskDef(
         runner=_run_jiten_upgrader,
         summary=lambda r: f"upgraded {r.get('upgraded_to_jiten', 0)} games, not found {r.get('not_found_on_jiten', 0)}",
@@ -328,11 +310,7 @@ class _CronTableCache:
 
 
 class CronScheduler:
-    """
-    Thread-based cron scheduler that checks cached cron rows every minute.
-    The enabled cron table cache refreshes every 15 minutes.
-    It uses a Queue to allow immediate execution of forced tasks.
-    """
+    """Schedule mining jobs in the desktop or in a standalone backend thread."""
 
     def __init__(
         self,
@@ -352,6 +330,7 @@ class CronScheduler:
         self._queue: queue.Queue[Crons] = queue.Queue(maxsize=128)
         self._deadline_scheduler: Optional[SchedulerActor] = None
         self._scheduler_acquired = False
+        self._desktop = None
 
         # Currently-running task, for diagnostics (skips / stop-while-busy).
         self._active_task: Optional[str] = None
@@ -366,6 +345,8 @@ class CronScheduler:
             logger.warning("CronScheduler is not running, task queued but won't run until start()")
         try:
             self._queue.put(task, timeout=0.25)
+            if self._desktop is not None:
+                self._desktop.wake()
         except queue.Full as error:
             raise MailboxFull("Cron command mailbox is backpressured") from error
 
@@ -398,17 +379,51 @@ class CronScheduler:
 
     def update_scheduled_cron(self, cron: CronTable) -> None:
         """Make a settings-driven cron change visible without waiting for cache expiry."""
-        self._cron_cache.update_cron(cron)
+        if self._desktop is not None:
+            self._desktop.wake(refresh=True)
+        else:
+            self._cron_cache.update_cron(cron)
+
+    def _execute_desktop_job(self, job):
+        # Rust conditionally advances the exact row it dispatched. The two
+        # service-specific timers depend on settings and sync results.
+        name = job["name"]
+        detail = _execute_cron(
+            MockCron(-1, name, name), _TASK_REGISTRY[name], self._set_active_task, isolate_background=True
+        )
+        finished = bool(detail.get("_executed"))
+        next_run = None
+        if finished and job["id"] is not None:
+            if name == "kechimochi_sync":
+                from GameSentenceMiner.util.cron.kechimochi_sync import reschedule_kechimochi_run
+
+                next_run = reschedule_kechimochi_run()
+            elif name == "tadoku_sync" and job["schedule"] == "daily":
+                from GameSentenceMiner.util.cron.tadoku_sync import _next_daily_run
+
+                next_run = _next_daily_run()
+        return finished, next_run
 
     def start(self):
         """Start the cron scheduler in the background."""
         with self._state_lock:
-            if self._thread and self._thread.is_alive():
+            if (self._thread and self._thread.is_alive()) or (self._desktop and not self._desktop.future.done()):
                 logger.warning("CronScheduler is already running")
                 return
 
             self._running = True
             self._stop_event.clear()
+            from GameSentenceMiner.native import cron
+
+            if cron.managed(CronTable._db):
+                self._desktop = cron.DesktopScheduler(
+                    self,
+                    CronTable._db,
+                    {key: task.priority for key, task in _TASK_REGISTRY.items()},
+                    self._execute_desktop_job,
+                )
+                return
+            self._desktop = None
             self._deadline_scheduler = acquire_runtime_scheduler()
             self._scheduler_acquired = True
             self._thread = threading.Thread(
@@ -427,19 +442,23 @@ class CronScheduler:
         )
 
     def shutdown(self):
-        """Signal the scheduler to wind down without blocking.
-
-        The scheduler thread is a daemon that will exit after its current task, so on
-        teardown (e.g. the async runner cancelling its tasks at process shutdown) there's
-        no need to block-join and warn — just set the stop event and return.
-        """
+        """Stop accepting scheduled work and let the active job wind down."""
         with self._state_lock:
             self._running = False
         self._stop_event.set()
+        if self._desktop is not None:
+            self._desktop.shutdown()
         self._release_deadline_scheduler(timeout=1)
 
     def stop(self, timeout: float = 2.0):
         """Stop the cron scheduler gracefully (blocks up to ``timeout`` for the thread)."""
+        if self._desktop is not None:
+            self.shutdown()
+            try:
+                self._desktop.future.result(timeout=timeout)
+            except TimeoutError:
+                logger.background("Cron shutdown is waiting for the active background task")
+            return
         with self._state_lock:
             thread = self._thread
             if not self._running and not (thread and thread.is_alive()):
@@ -563,6 +582,8 @@ class CronScheduler:
 
     def is_running(self) -> bool:
         with self._state_lock:
+            if self._desktop is not None:
+                return not self._desktop.stopped.is_set() and not self._desktop.future.done()
             return self._running
 
 
@@ -599,6 +620,25 @@ def _isolated_cron_process_entry(task_name: str, result_connection) -> None:
 
 def _can_isolate_task(task_def: "_TaskDef") -> bool:
     """Only module-owned registry wrappers are stable across Windows spawn."""
+    if task_def.runner is _run_anki_card_sync:
+        from GameSentenceMiner.native.history import manages_anki_sync
+        from GameSentenceMiner.util.database.db import GamesTable
+
+        if manages_anki_sync(GamesTable._db):
+            return False
+    if task_def.runner in (_run_populate_games, _run_tokenize_backfill, _run_daily_rollup):
+        from GameSentenceMiner.native import history
+        from GameSentenceMiner.util.database.games_table import GamesTable
+
+        if task_def.runner is _run_daily_rollup:
+            from GameSentenceMiner.util.config.configuration import get_stats_config
+
+            return not history.manages_daily_rollup(GamesTable._db, get_stats_config())
+        manages = history.manages_word_index if task_def.runner is _run_tokenize_backfill else history.managed
+        if manages(GamesTable._db):
+            # This task already runs on the desktop's blocking worker. An
+            # isolated Python process would lose its backend connection.
+            return False
     return task_def.runner.__module__ == __name__ and task_def.runner.__name__.startswith("_run_")
 
 

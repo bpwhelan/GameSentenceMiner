@@ -19,6 +19,7 @@ from functools import cmp_to_key
 
 from flask import Response, jsonify, request
 
+from GameSentenceMiner.native import history
 from GameSentenceMiner.util.config.configuration import logger, get_config
 from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
 from GameSentenceMiner.util.database.db import GameLinesTable
@@ -1364,6 +1365,9 @@ def register_tokenization_api_routes(app):
                 ), 200
 
             db = _get_db()
+            native_result = history.tokenization_status(db)
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             total = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table}")[0]
             tokenized = db.fetchone(f"SELECT COUNT(*) FROM {GameLinesTable._table} WHERE tokenized = 1")[0]
@@ -1410,6 +1414,10 @@ def register_tokenization_api_routes(app):
 
         try:
             db = _get_db()
+            today = datetime.datetime.now(datetime.UTC).astimezone().date()
+            snapshot = history.maturity_report(db, today)
+            if snapshot is not None:
+                return jsonify(snapshot), 200
             mature_word_dates = _get_first_mature_word_dates(db)
             unique_kanji_dates = _get_first_mature_kanji_dates(db)
 
@@ -1417,7 +1425,7 @@ def register_tokenization_api_routes(app):
             if not all_dates:
                 return jsonify(_empty_maturity_history_response()), 200
 
-            labels = _build_maturity_labels(min(all_dates), datetime.date.today())
+            labels = _build_maturity_labels(min(all_dates), today)
             response = _empty_maturity_history_response(labels)
             response["series"][_MATURE_WORDS_SERIES_KEY] = _build_maturity_series(
                 mature_word_dates, labels, "Mature Words"
@@ -1501,6 +1509,19 @@ def register_tokenization_api_routes(app):
             pos_filter = request.args.get("pos", None)
             exclude_pos = request.args.get("exclude_pos", None)
             search = request.args.get("search", None)
+
+            native_result = history.tokenization_words(
+                db,
+                limit=limit,
+                offset=offset,
+                days=int(days) if days is not None else None,
+                game_id=game_id,
+                pos=pos_filter,
+                exclude_pos=exclude_pos,
+                search=search,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             # Build WHERE clauses
             conditions = []
@@ -1658,6 +1679,16 @@ def register_tokenization_api_routes(app):
             days = request.args.get("days", None)
             game_id = request.args.get("game_id", None)
 
+            native_result = history.tokenization_kanji(
+                db,
+                limit=limit,
+                offset=offset,
+                days=int(days) if days is not None else None,
+                game_id=game_id,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
+
             conditions: list[str] = []
             params: list = []
 
@@ -1753,6 +1784,17 @@ def register_tokenization_api_routes(app):
             limit = min(int(request.args.get("limit", 50)), 200)
             offset = int(request.args.get("offset", 0))
             game_ids, has_game_scope = _parse_game_scope_args()
+
+            native_result = history.tokenization_search(
+                db,
+                query=q,
+                limit=limit,
+                offset=offset,
+                game_ids=game_ids,
+                has_game_scope=has_game_scope,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             # Look up the word in the words table
             word_row = db.fetchone(
@@ -1880,6 +1922,10 @@ def register_tokenization_api_routes(app):
             if not word_ids:
                 return jsonify({"cards": []}), 200
 
+            native_result = history.tokenization_word_card_data(db, word_ids=word_ids)
+            if native_result is not None:
+                return jsonify(native_result), 200
+
             card_data = _get_card_data_for_words(db, word_ids)
             cards = []
             for word_id in word_ids:
@@ -1930,6 +1976,17 @@ def register_tokenization_api_routes(app):
         try:
             db = _get_db()
             game_ids, has_game_scope = _parse_game_scope_args()
+
+            native_result = history.tokenization_word_detail(
+                db,
+                word=word,
+                game_ids=game_ids,
+                has_game_scope=has_game_scope,
+            )
+            if native_result is not None:
+                if native_result.get("not_found"):
+                    return jsonify({"error": "Word not found"}), 404
+                return jsonify(native_result), 200
 
             use_cached_total = _has_word_stats_cache(db) and not has_game_scope
             if use_cached_total:
@@ -2042,6 +2099,10 @@ def register_tokenization_api_routes(app):
         try:
             db = _get_db()
             limit = min(int(request.args.get("limit", 20)), 100)
+
+            native_result = history.tokenization_words_by_game(db, limit=limit)
+            if native_result is not None:
+                return jsonify(native_result), 200
 
             rows = db.fetchall(
                 f"""
@@ -2173,6 +2234,14 @@ def register_tokenization_api_routes(app):
         try:
             db = _get_db()
             filters = _parse_words_not_in_anki_filters(paginated=True)
+            native_result = history.tokenization_words_not_in_anki(
+                db,
+                filters,
+                today=datetime.date.today(),
+                export_csv=False,
+            )
+            if native_result is not None:
+                return jsonify(native_result), 200
             result = _query_words_not_in_anki(db, filters)
 
             words = []
@@ -2213,6 +2282,16 @@ def register_tokenization_api_routes(app):
         try:
             db = _get_db()
             filters = _parse_words_not_in_anki_filters(paginated=False)
+            native_result = history.tokenization_words_not_in_anki(
+                db,
+                filters,
+                today=datetime.date.today(),
+                export_csv=True,
+            )
+            if native_result is not None and isinstance(native_result.get("csv"), str):
+                response = Response(native_result["csv"], content_type="text/csv; charset=utf-8")
+                response.headers["Content-Disposition"] = f'attachment; filename="{_WORDS_NOT_IN_ANKI_CSV_FILENAME}"'
+                return response
             result = _query_words_not_in_anki(db, filters)
             game_headers, sentence_cells = _query_words_not_in_anki_export_game_sentences(
                 db,

@@ -413,8 +413,15 @@ def test_v2_ingress_does_not_run_background_integrations_before_admission(monkey
 
 
 @pytest.mark.parametrize("source", ["texthook", "ocr", "ocr_manual", "secondary", "screen_cropper"])
-@pytest.mark.parametrize("raw, expected", [("<b>日本語</b>", "日本語"), ("<br>", "")])
-def test_ingress_returns_the_shared_filter_result_for_hook_and_ocr(monkeypatch, source, raw, expected):
+@pytest.mark.parametrize(
+    "raw, expected, overrides",
+    [
+        ("<b>日本語</b>", "日本語", None),
+        ("<br>", "", None),
+        ("<b>日本語</b>", "日本語", {"remove_angle_brackets": False}),
+    ],
+)
+def test_ingress_returns_the_filter_result_for_hook_and_ocr(monkeypatch, source, raw, expected, overrides):
     from GameSentenceMiner.text_pipeline.models import IngressAck, IngressResult, IngressStatus
     from GameSentenceMiner.util.config.configuration import TextProcessing
 
@@ -436,7 +443,17 @@ def test_ingress_returns_the_shared_filter_result_for_hook_and_ocr(monkeypatch, 
     monkeypatch.setattr(gametext, "is_text_intake_paused", lambda: False)
     monkeypatch.setattr(gametext.ocr_benchmark.recorder, "observe", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(gametext, "get_authoritative_text_runtime", lambda: Runtime())
-    result = gametext.ingest_text_v2_payload({"text": raw, "source": source, "observationId": "preview"})
+    result = gametext.ingest_text_v2_payload(
+        {
+            "text": raw,
+            "source": source,
+            "observationId": "preview",
+            "_nativeHook": True,
+            "processorOverrides": overrides,
+        }
+    )
+    if overrides and source == "texthook":
+        expected = raw
 
     assert result["raw_text"] == raw
     assert result["processed_text"] == expected

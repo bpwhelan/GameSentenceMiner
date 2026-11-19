@@ -175,3 +175,7 @@ electron-src/assets/prerelease.json
 /build/size-audit/
 
 /native/gsm-capture/target/
+
+# Cargo build output for native crates and local OCR diagnostics
+/native/*/target/
+/.tmp-native-*.json

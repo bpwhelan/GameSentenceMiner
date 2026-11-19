@@ -48,21 +48,30 @@ const PRELOAD_PLATFORM_JSON: &str = if cfg!(windows) {
     "\"linux\""
 };
 
-pub(crate) fn apply_preload_tokens(template: &str, token: &str) -> String {
+fn desktop_preload(token: &str, restrict_to_feed: bool) -> String {
     let token_json = json!(token).to_string();
-    template
+    let dev_origin = if cfg!(debug_assertions) {
+        std::env::var("VITE_DEV_SERVER_URL").ok()
+            .and_then(|raw| url::Url::parse(&raw).ok())
+            .map(|url| url.origin().ascii_serialization())
+    } else {
+        None
+    };
+    PRELOAD_JS_TEMPLATE
+        .replace("__GSM_RESTRICT_TO_FEED__", if restrict_to_feed { "true" } else { "false" })
         .replace("__GSM_WINDOW_TOKEN__", &token_json)
         .replace("__GSM_PLATFORM__", PRELOAD_PLATFORM_JSON)
+        .replace("__GSM_DEV_ORIGIN__", &json!(dev_origin).to_string())
 }
 
 pub(crate) fn render_desktop_preload(token: &str) -> String {
-    apply_preload_tokens(PRELOAD_JS_TEMPLATE, token)
+    desktop_preload(token, false)
 }
 
 pub(crate) fn render_desktop_window_preload(token: &str, theme: Option<&str>) -> String {
-    let base = render_desktop_preload(token);
+    let base = desktop_preload(token, true);
     let theme_json = json!(theme.filter(|s| !s.is_empty()).unwrap_or("gsm-dark")).to_string();
-    format!("{base}\nwindow.gsmEnv.theme={theme_json};\n{FIND_IN_PAGE_JS}\n")
+    format!("{base}\nif (window.gsmEnv) window.gsmEnv.theme={theme_json};\n{FIND_IN_PAGE_JS}\n")
 }
 
 fn desktop_base_preload(token: &str) -> String {
@@ -262,6 +271,7 @@ mod tests {
         assert!(script.contains("update-window-shape"));
         assert!(!script.contains("__GSM_WINDOW_TOKEN__"));
         assert!(!script.contains("__GSM_PLATFORM__"));
+        assert!(!script.contains("__GSM_DEV_ORIGIN__"));
         assert!(!script.contains("node:fs"));
         println!(
             "[bench] overlay_main_init_script len_bytes={} build_ms={:.3}",

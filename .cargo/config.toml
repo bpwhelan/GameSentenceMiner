@@ -1,3 +1,7 @@
+[build]
+# Share the desktop cache between Tauri CLI and the stable restartable build.
+target-dir = "src-tauri/target/native-dev"
+
 [env]
 # sdl2-sys bundles SDL 2.26, whose CMake minimum predates CMake 4's policy floor.
 # This also applies when building the input server with --manifest-path here.

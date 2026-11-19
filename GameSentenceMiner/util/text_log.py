@@ -7,8 +7,7 @@ from datetime import datetime, timedelta
 from html.parser import HTMLParser
 from typing import Optional
 
-import rapidfuzz
-
+from GameSentenceMiner.native.text import select_card_line
 from GameSentenceMiner.util.config.configuration import get_config, gsm_state, logger
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
 from GameSentenceMiner.util.models.model import AnkiCard
@@ -426,6 +425,8 @@ def _highlight_context_score(
     if not normalized_line or not normalized_sentence:
         return 0.0
 
+    from rapidfuzz.fuzz import ratio
+
     best_score = 0.0
     for sentence_start, sentence_end in expression_spans:
         expression = normalized_sentence[sentence_start:sentence_end]
@@ -439,7 +440,7 @@ def _highlight_context_score(
             ]
             if min(len(compared_line), len(compared_sentence)) < max(CONTAINMENT_MIN_CHARS, len(expression)):
                 continue
-            best_score = max(best_score, rapidfuzz.fuzz.ratio(compared_line, compared_sentence))
+            best_score = max(best_score, ratio(compared_line, compared_sentence))
     return best_score
 
 
@@ -462,7 +463,9 @@ def _match_score(line_text: str, anki_sentence: str) -> float:
     normalized_anki = normalize_text_for_comparison(anki_sentence)
     if not normalized_line or not normalized_anki:
         return 0.0
-    return rapidfuzz.fuzz.ratio(normalized_line, normalized_anki)
+    from rapidfuzz.fuzz import ratio
+
+    return ratio(normalized_line, normalized_anki)
 
 
 # Do not use partial_ratio here, ever
@@ -482,7 +485,9 @@ def lines_match(texthooker_sentence, anki_sentence, similarity_threshold=80) -> 
             and compact_texthooker_sentence == compact_anki_sentence
         )
 
-    similarity = rapidfuzz.fuzz.ratio(texthooker_sentence, anki_sentence)
+    from rapidfuzz.fuzz import ratio
+
+    similarity = ratio(texthooker_sentence, anki_sentence)
     # logger.debug(f"Comparing sentences: '{texthooker_sentence}' and '{anki_sentence}' - Similarity: {similarity}")
     return (
         _is_contained(anki_sentence, texthooker_sentence)
@@ -584,7 +589,52 @@ def find_matching_line(
         if respect_replay_window
         else None
     )
+    punctuation = "" if normalized_anki_sentence else "".join(anki_sentence.split())
 
+    def rows():
+        for line in reversed(lines):
+            if time_window is not None and line.time < time_window:
+                continue
+            text = normalize_text_for_comparison(line.text)
+            compact = "".join(str(line.text).split()) if punctuation and not text else ""
+            yield line, line.id, text, compact
+
+    def reference():
+        return _rank_card_lines_python(
+            lines,
+            time_window,
+            anki_sentence,
+            normalized_anki_sentence,
+            normalized_context_sentence,
+            mined_expression_spans,
+            normalized_expression,
+            has_bold_expression,
+            prefer_recent,
+            minimum_score,
+        )
+
+    return select_card_line(
+        rows(),
+        (normalized_anki_sentence, punctuation, normalized_expression),
+        (normalized_context_sentence, mined_expression_spans, has_bold_expression),
+        prefer_recent,
+        minimum_score,
+        reference,
+    )
+
+
+def _rank_card_lines_python(
+    lines,
+    time_window,
+    anki_sentence,
+    normalized_anki_sentence,
+    normalized_context_sentence,
+    mined_expression_spans,
+    normalized_expression,
+    has_bold_expression,
+    prefer_recent,
+    minimum_score,
+):
     # Collect every valid candidate before ranking. A short recycled fragment
     # (e.g. "性質を……入れ替える？") can be contained in a longer mined sentence,
     # while an NVL sentence can legitimately contain several sequential events.

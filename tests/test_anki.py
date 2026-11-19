@@ -53,9 +53,6 @@ ffmpeg_stub.encode_screenshot = lambda path: path
 media_pkg = ModuleType("GameSentenceMiner.util.media")
 media_pkg.ffmpeg = ffmpeg_stub
 
-model_stub = ModuleType("GameSentenceMiner.util.models.model")
-model_stub.AnkiCard = object
-
 desktop_events_stub = ModuleType("GameSentenceMiner.util.communication.desktop_events")
 desktop_events_stub.card_error = lambda *args, **kwargs: None
 desktop_events_stub.app_error = lambda *args, **kwargs: None
@@ -93,7 +90,6 @@ _STUB_MODULES = {
     "GameSentenceMiner.util.database.db": db_stub,
     "GameSentenceMiner.util.media": media_pkg,
     "GameSentenceMiner.util.media.ffmpeg": ffmpeg_stub,
-    "GameSentenceMiner.util.models.model": model_stub,
     "GameSentenceMiner.util.platform": platform_pkg,
     "GameSentenceMiner.util.communication.desktop_events": desktop_events_stub,
     "GameSentenceMiner.util.stats.live_stats": live_stats_stub,

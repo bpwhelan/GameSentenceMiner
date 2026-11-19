@@ -155,17 +155,19 @@ profiles and unknown fields. A damaged file fails instead of becoming defaults.
 The text-processing edit is a narrow compatibility patch in the current Python
 profile, not a migration of profile identities or a new public Python-shaped API.
 
-`gsm-runtime::task` owns bounded one-shot jobs, input/output pipes, deadlines and
-process-tree cleanup. Previews run the same Python processing module as before,
-using the installed managed interpreter (or the development environment in a
-debug build), without asking Node to find or start Python. Preview failures and
-missing installation state are reported to the tab. Python still owns processing
-and recognition algorithms; this migration removes their desktop Node dependency.
+The desktop previews text in process with the Rust `gsm-text-preview` crate, using
+the submitted rules and the active profile's learning language. The crate also
+provides a standalone JSON preview command (`gsm-text-preview --preview-json`).
+The shared fixture checks the native preview and Python's live mining processor.
 
-The old TypeScript handlers, latest-text cache and sentence-exclusion writer are
-removed. Package policy rejects their stale compiler output. The Tauri check in
-`node scripts/test-native-desktop.mjs tabs` rejects any attempt to call those old
-Node handlers and verifies native work while the test service is blocked.
+The setup wizard saves the learning language directly in the profile and notifies
+a running backend to reload it. Japanese dictionary setup uses the native input
+service for status and installation, including selection changes and progress.
+
+Run `cargo test --locked --manifest-path native/gsm-text-preview/Cargo.toml` for
+preview parity. Run `node scripts/test-native-desktop.mjs workspace` against a
+staged desktop for the Python-free IPC checks. Set `GSM_TEST_SUDACHI_DICTIONARY`
+to a matching small system dictionary to exercise installation from a local copy.
 
 ## Capture and OBS ownership
 
@@ -238,8 +240,13 @@ A separate Rust executable, `gsm-agent-host`, hosts Frida Core 17.16.4. Its C AB
 and official devkits are pinned, with verified SHA-256 downloads. Keeping the
 helper separate avoids loading Frida's bundled GLib and C runtime into the Tauri
 window process. Tauri links only the supervisor and protocol portion of the crate.
-The helper has no Node or Electron child. Native build/staging scripts include
-its matching executable and Frida licence notices.
+The helper has no Node or Electron child. It is downloaded on first use into
+`<shared data>/texthook/frida/17.16.4/<platform>/<archive SHA-256>/`, alongside
+Luna/Textractor downloads, and reused offline across profiles and desktop updates.
+Installers include only `native/agent-runtime.json`, which pins the platform,
+protocol, archive and individual file hashes. The separate release ZIP contains
+the helper and Frida licence notices. Development builds prepare that ZIP locally
+and install it through the same verified cache path when first used.
 
 The native supervisor owns helper launch, authenticated loopback control,
 reconnection, cancellation, configuration and cached status. Detached sessions

@@ -19,11 +19,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+from GameSentenceMiner.native import history
 from GameSentenceMiner.util.config.configuration import (
     get_stats_config,
     logger,
 )
-from GameSentenceMiner.util.database.db import GameLinesTable
+from GameSentenceMiner.util.database.db import DB_PRIORITY_LOW, GameLinesTable
 from GameSentenceMiner.util.database.game_daily_rollup_table import (
     GameDailyRollupTable,
 )
@@ -32,12 +33,6 @@ from GameSentenceMiner.util.database.stats_rollup_table import StatsRollupTable
 from GameSentenceMiner.util.stats.stats_util import (
     count_cards_from_line,
     count_cards_from_lines,
-)
-from GameSentenceMiner.web.stats import (
-    calculate_actual_reading_time,
-    calculate_hourly_activity,
-    calculate_hourly_reading_speed,
-    calculate_kanji_frequency,
 )
 
 
@@ -73,6 +68,8 @@ def analyze_sessions(lines: List) -> Dict:
     Returns:
         Dictionary with session statistics
     """
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+
     if not lines or len(lines) < 2:
         return {
             "count": 1 if lines else 0,
@@ -150,6 +147,8 @@ def analyze_hourly_data(lines: List) -> Dict:
     Returns:
         Dictionary with hourly activity and speed data
     """
+    from GameSentenceMiner.web.stats import calculate_hourly_activity, calculate_hourly_reading_speed
+
     if not lines:
         return {"hourly_activity": {}, "hourly_speeds": {}}
 
@@ -175,6 +174,8 @@ def analyze_game_activity(lines: List, date_str: str) -> Dict:
     Returns:
         Dictionary with game activity data
     """
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+
     if not lines:
         return {"completed": 0, "started": 0, "details": {}, "game_ids": []}
 
@@ -284,6 +285,8 @@ def analyze_kanji_data(lines: List) -> Dict:
     Returns:
         Dictionary with kanji frequency data
     """
+    from GameSentenceMiner.web.stats import calculate_kanji_frequency
+
     if not lines:
         return {"unique_count": 0, "frequencies": {}}
 
@@ -413,6 +416,8 @@ def analyze_genre_activity(lines: List, date_str: str) -> Dict:
             }
         }
     """
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+
     if not lines:
         return {"genre_details": {}}
 
@@ -499,6 +504,8 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
             }
         }
     """
+    from GameSentenceMiner.web.stats import calculate_actual_reading_time
+
     if not lines:
         return {"type_details": {}}
 
@@ -559,6 +566,29 @@ def analyze_type_activity(lines: List, date_str: str) -> Dict:
     return {"type_details": dict(type_stats)}
 
 
+def _desktop_settings(config):
+    from GameSentenceMiner.util.config.feature_flags import is_tokenization_enabled
+
+    return {
+        "today": datetime.now().astimezone().date().isoformat(),
+        "session_gap": config.session_gap_seconds,
+        "tokenized": is_tokenization_enabled(),
+        "reduce_repetitions": config.regex_out_repetitions,
+        "extra_punctuation": (config.extra_punctuation_regex or "").strip(),
+    }
+
+
+def _desktop_day(date_str, config):
+    # Resolve each local midnight separately so DST days may span 23 or 25 hours.
+    day = datetime.strptime(date_str, "%Y-%m-%d")  # noqa: DTZ007
+    return {
+        **_desktop_settings(config),
+        "date": day.date().isoformat(),
+        "start": day.timestamp(),
+        "end": (day + timedelta(days=1)).timestamp(),
+    }
+
+
 def calculate_daily_stats(date_str: str) -> Dict:
     """
     Calculate comprehensive daily statistics for a given date using existing functions.
@@ -570,6 +600,11 @@ def calculate_daily_stats(date_str: str) -> Dict:
         Dictionary with all 27 fields for StatsRollupTable
     """
     logger.debug(f"Calculating daily stats for {date_str}")
+    config = get_stats_config()
+    if history.manages_daily_rollup(GameLinesTable._db, config):
+        stats = history.request("calculateRollupDay", **_desktop_day(date_str, config))
+        if stats is not None:
+            return stats
 
     # Convert date to timestamp range
     date_start = datetime.strptime(date_str, "%Y-%m-%d").timestamp()
@@ -722,7 +757,14 @@ def _build_game_daily_rollup_rows(date_str: str, per_game_daily_rollups: dict) -
 
 def replace_rollup_for_date(date_str: str) -> dict:
     """Read inputs and replace both rollups in the same writer transaction."""
-    return GameLinesTable._db.run_transaction(lambda conn: _replace_rollup_for_date(date_str))
+    db = GameLinesTable._db
+    config = get_stats_config()
+    if history.manages_daily_rollup(db, config):
+        fields = _desktop_day(date_str, config)
+        result = db.run_external_write(lambda: history.request("replaceRollupDay", **fields), priority=DB_PRIORITY_LOW)
+        if result is not None:
+            return result
+    return db.run_transaction(lambda conn: _replace_rollup_for_date(date_str))
 
 
 def _replace_rollup_for_date(date_str: str) -> dict:
@@ -855,6 +897,29 @@ def run_daily_rollup() -> Dict:
 
     try:
         # Get the first date where user has data
+        db = GameLinesTable._db
+        config = get_stats_config()
+        if history.manages_daily_rollup(db, config):
+            # Register with the database queue before dispatch so a close or
+            # restore can invalidate the job. Release it while Rust works.
+            generation = db.run_external_write(lambda: history.request("beginRollup"), priority=DB_PRIORITY_LOW)
+            summary = history.request(
+                "rebuildRollups", generation=generation, timeout=None, **_desktop_settings(config)
+            )
+            for date in summary.pop("fallback_dates"):
+                # Only days whose regex exceeded the native backtracking limit
+                # reach this path. Their native transaction has rolled back.
+                try:
+                    result = db.run_transaction(
+                        lambda _, day=date: _replace_rollup_for_date(day), priority=DB_PRIORITY_LOW
+                    )
+                    summary["processed"] += int(result["created"])
+                    summary["overwritten"] += int(result["updated"])
+                except Exception:  # noqa: BLE001 - one failed historical day must not discard the rest
+                    logger.exception(f"Error processing {date}")
+                    summary["errors"] += 1
+            summary["elapsed_time"] = time.time() - start_time
+            return summary
         first_date = get_first_data_date()
 
         if first_date is None:

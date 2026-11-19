@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::Manager;
@@ -707,39 +707,12 @@ fn close_toast(app: &tauri::AppHandle) {
 }
 
 pub fn resolved_executable_for_relaunch() -> Result<PathBuf, String> {
-    if cfg!(debug_assertions) {
-        if let Some(root) = std::env::var_os("GSM_APP_ROOT") {
-            let dir = Path::new(&root).join("src-tauri/target/desktop-runs");
-            let prefix = format!(
-                "{}-{}-",
-                if cfg!(windows) {
-                    "win32"
-                } else if cfg!(target_os = "macos") {
-                    "darwin"
-                } else {
-                    "linux"
-                },
-                if cfg!(target_arch = "x86_64") {
-                    "x64"
-                } else if cfg!(target_arch = "aarch64") {
-                    "arm64"
-                } else {
-                    std::env::consts::ARCH
-                }
-            );
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries.flatten() {
-                    if entry.file_name().to_string_lossy().starts_with(&prefix) {
-                        let candidate = entry.path().join("gsm-desktop.exe");
-                        if candidate.is_file() {
-                            return Ok(candidate);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    std::env::current_exe().map_err(|e| e.to_string())
+    let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+    // Windows shortcuts use the stable copy. Privilege changes need the
+    // immutable executable for the build that owns the running desktop.
+    #[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
+    let executable = crate::dev_launch::helper_path(&executable, "gsm-desktop.exe")?;
+    Ok(executable)
 }
 
 pub fn clean_relaunch_args(raw: &[String]) -> Vec<String> {

@@ -5,6 +5,7 @@ import "./SpeechRecognitionTab.css";
 
 import { useTranslation } from "../../i18n";
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { originCategory, splitLogOrigin } from "../../lib/logFormat";
 import { useBufferedState } from "../../lib/useBufferedState";
 import { DEBUG_LOG_HISTORY_LIMIT, DEBUG_TEXT_HISTORY_LIMIT } from "../../lib/debugHistory";
 import type { ObsScene } from "../../types/models";
@@ -337,10 +338,11 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
     const lines: Array<SpeechLogLine & { text: string; partial: boolean }> = [];
     for (const line of logs) {
       if (line.level !== "result") continue;
+      const { rest } = splitLogOrigin(line.message);
       const entry = {
         ...line,
-        text: line.message.replace(/^\[(?:final|partial)\]\s*/i, ""),
-        partial: /^\[partial\]/i.test(line.message),
+        text: rest.replace(/^\[(?:final|partial)\]\s*/i, ""),
+        partial: /^\[partial\]/i.test(rest),
       };
       if (lines[lines.length - 1]?.partial) lines[lines.length - 1] = entry;
       else lines.push(entry);
@@ -678,15 +680,29 @@ export function SpeechRecognitionTab({ active }: { active: boolean }) {
                     <p>{t("speechRecognition.console.empty")}</p>
                   </div>
                 ) : (
-                  logs.map((line) => (
-                    <div
-                      key={line.id}
-                      className={`speech-recognition-log speech-recognition-log--${line.level}`}
-                    >
-                      <time>{new Date(line.timestamp).toLocaleTimeString()}</time>
-                      <span>{line.message}</span>
-                    </div>
-                  ))
+                  logs.map((line) => {
+                    const { origin, rest } = splitLogOrigin(line.message);
+                    return (
+                      <div
+                        key={line.id}
+                        className={`speech-recognition-log speech-recognition-log--${line.level}`}
+                      >
+                        <time>{new Date(line.timestamp).toLocaleTimeString()}</time>
+                        <span>
+                          {origin ? (
+                            <>
+                              <span className={`log-origin-badge log-origin-badge--${originCategory(origin)}`}>
+                                [{origin}]
+                              </span>{" "}
+                              {rest}
+                            </>
+                          ) : (
+                            line.message
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </section>

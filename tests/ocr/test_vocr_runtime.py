@@ -56,12 +56,16 @@ def downloads(monkeypatch, tmp_path):
     monkeypatch.setattr(installer, "validate_installation", lambda *a, **kw: None)
     calls = []
 
-    def download(request, **kwargs):
-        name = urlsplit(request.full_url).path.rsplit("/", 1)[-1]
+    def download(url, destination, sha256, *, limit):
+        name = urlsplit(url).path.rsplit("/", 1)[-1]
         calls.append(name)
-        return io.BytesIO(assets[name])
+        data = assets[name]
+        if len(data) > limit or hashlib.sha256(data).hexdigest() != sha256:
+            raise OSError("Invalid download")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
 
-    monkeypatch.setattr(installer.urllib.request, "urlopen", download)
+    monkeypatch.setattr(installer, "download_file", download)
     return SimpleNamespace(directory=tmp_path, calls=calls, assets=assets)
 
 
@@ -103,10 +107,8 @@ def test_failed_install_preserves_previous_choice_and_can_retry(downloads, monke
         valid = downloads.assets["vocr-runtime-win32-x64.zip"]
         downloads.assets["vocr-runtime-win32-x64.zip"] = b"damaged archive"
     elif failure == "network":
-        download = installer.urllib.request.urlopen
-        monkeypatch.setattr(
-            installer.urllib.request, "urlopen", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline"))
-        )
+        download = installer.download_file
+        monkeypatch.setattr(installer, "download_file", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
     else:
         monkeypatch.setattr(
             installer, "validate_installation", lambda *a, **kw: (_ for _ in ()).throw(OSError("bad DLL"))
@@ -118,7 +120,7 @@ def test_failed_install_preserves_previous_choice_and_can_retry(downloads, monke
     if failure == "checksum":
         downloads.assets["vocr-runtime-win32-x64.zip"] = valid
     elif failure == "network":
-        monkeypatch.setattr(installer.urllib.request, "urlopen", download)
+        monkeypatch.setattr(installer, "download_file", download)
     monkeypatch.setattr(installer, "validate_installation", validate)
     installer.ensure_installation(downloads.directory, model="large")
     assert vita_ocr.read_installation(downloads.directory)["model"] == "large"

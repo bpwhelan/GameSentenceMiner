@@ -24,6 +24,7 @@ except ImportError:  # pragma: no cover - exercised only without python-xlib
     _xdisplay = None
     _HAS_XLIB = False
 
+from GameSentenceMiner.obs import desktop_session
 from GameSentenceMiner.obs import (
     get_window_info_from_source,
     get_linux_capture_window_info,
@@ -715,6 +716,8 @@ def _normalize_overlay_pause_source(source: Optional[str]) -> str:
 def _resolve_pause_target_hwnd(hwnd: Optional[int]) -> Optional[int]:
     if hwnd:
         return hwnd
+    if desktop_session.enabled():
+        return desktop_session.validated_hwnd(desktop_session.snapshot())
     monitor = get_window_state_monitor()
     if monitor and monitor.target_hwnd:
         return monitor.target_hwnd
@@ -1001,6 +1004,9 @@ def detect_linux_game_executable(context: str = "detect game exe") -> str:
 
 def _resolve_linux_pid_from_obs(context: str) -> int:
     """Automatic target: the PID of the window OBS is capturing (X11 only)."""
+    if desktop_session.enabled():
+        pid = desktop_session.snapshot().get("target_pid")
+        return _refine_proton_pid(pid) if pid and pid != os.getpid() else 0
     if not _HAS_XLIB or not is_linux() or is_wayland():
         return 0
     try:

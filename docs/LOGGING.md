@@ -77,3 +77,14 @@ except Exception:
 preserving them in the file. `logger.display(...)` is console-only. File records
 include milliseconds, severity, process ID, component, source module, function,
 and line number. Tracebacks are retained without dumping local variable values.
+
+## Origin prefixes
+
+Logs include a leading bracketed origin tag so Python, Rust, Frida, renderer,
+and Electron messages are easy to tell apart in the Logs, OCR, TextHook, and
+Speech Recognition consoles as well as on disk:
+
+- `[py:backend]`, `[py:ocr]`, `[py:overlay]`, `[py:ocr-selector]`, `[py:speech]` — Python processes and helpers
+- `[rust:<component>]` — Native Rust desktop components and crates (e.g. `[rust:startup]`, `[rust:backend]`, `[rust:obs]`, `[rust:overlay]`, `[rust:ocr]`, `[rust:ocr-coordinator]`, `[rust:gsm-texthook]`, `[rust:gsm-agent]`, `[rust:input-server]`, `[rust:python-install]`, `[rust:updater]`)
+- `[frida:agent]` — Output from injected Agent Frida scripts
+- `[renderer:<window>]` — Renderer console and load diagnostics written to `desktop.log`

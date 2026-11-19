@@ -85,3 +85,24 @@ def test_qt_windows_follow_saved_theme_without_changing_settings(tmp_path):
     window.hide()
     window.deleteLater()
     app.processEvents()
+
+
+def test_show_does_not_reapply_unchanged_stylesheet(tmp_path):
+    app = QApplication.instance() or QApplication([])
+
+    class Window(QWidget):
+        stylesheet_updates = 0
+
+        def setStyleSheet(self, stylesheet):
+            self.stylesheet_updates += 1
+            super().setStyleSheet(stylesheet)
+
+    window = Window()
+    qt_theme.apply_compact_theme(window, config_path=tmp_path / "config.json")
+    for _ in range(2):
+        window.show()
+        app.processEvents()
+        window.hide()
+    assert window.stylesheet_updates == 1
+    window.deleteLater()
+    app.processEvents()

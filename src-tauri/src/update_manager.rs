@@ -305,7 +305,11 @@ impl UpdateManager {
                     }
                 }
                 Err(error) => {
-                    eprintln!("Failed to check for application updates: {error}");
+                    crate::desktop_log::warn(
+                        app,
+                        "updater",
+                        format!("Failed to check for application updates: {error}"),
+                    );
                     guard.app_status.checked_at = Some(iso_now_utc());
                     guard.app_status.error = Some(error);
                 }
@@ -369,7 +373,7 @@ impl UpdateManager {
     }
 
     async fn download_and_install_update(&self, app: &tauri::AppHandle) -> Result<(), String> {
-        let update = self
+        let mut update = self
             .0
             .state
             .lock()
@@ -394,17 +398,23 @@ impl UpdateManager {
         self.emit_app_status(app);
 
         let install_res: Result<(), String> = async {
-            let mut downloaded: u64 = 0;
-            let last_bucket = std::sync::atomic::AtomicI32::new(-1);
-            let bytes = update
+            let origin = update.download_url.clone();
+            let mut result = None;
+            let mirror_revision = gsm_packages::downloads::revision(&update.signature);
+            for source in gsm_packages::downloads::sources(origin.as_str(), Some(&mirror_revision)) {
+                update.download_url = source.parse::<url::Url>().map_err(|err| err.to_string())?;
+                let mut downloaded: u64 = 0;
+                let mut last_bucket = -1;
+                // The plugin verifies the original update signature for every mirror.
+                let attempt = update
                 .download(
                     |chunk_len, content_len| {
                         downloaded = downloaded.saturating_add(chunk_len as u64);
                         if let Some(total) = content_len.filter(|&t| t > 0) {
                             let pct = ((downloaded as f64 / total as f64) * 100.0) as i32;
                             let bucket = pct / 10;
-                            if bucket > last_bucket.load(Ordering::Relaxed) {
-                                last_bucket.store(bucket, Ordering::Relaxed);
+                            if bucket > last_bucket {
+                                last_bucket = bucket;
                                 println!(
                                     "[Updater] Download {}%: {}/{} bytes",
                                     pct.min(100),
@@ -416,7 +426,15 @@ impl UpdateManager {
                     },
                     || {},
                 )
-                .await
+                .await;
+                let done = attempt.is_ok();
+                result = Some(attempt);
+                if done {
+                    break;
+                }
+            }
+            let bytes = result
+                .ok_or("No download source for the signed update")?
                 .map_err(|e| e.to_string())?;
 
             // Wait for any in-flight backend update before tearing down child processes.
@@ -493,6 +511,8 @@ impl UpdateManager {
         let status = self.check_for_available_updates(app, force_dev).await?;
         if status.app.update_available && status.app.preview != Some(true) {
             self.download_and_install_update(app).await?;
+        } else if status.backend.update_available && status.app.preview != Some(true) {
+            self.update_gsm(app, true, false).await;
         }
         self.get_update_status(app).await
     }
@@ -709,7 +729,11 @@ impl UpdateManager {
                 );
                 sessions.notify();
             }
-            eprintln!("Python backend update failed: {error}");
+            crate::desktop_log::error(
+                app,
+                "updater",
+                format!("Python backend update failed: {error}"),
+            );
         }
     }
 
@@ -721,7 +745,7 @@ impl UpdateManager {
         &self,
         app: &tauri::AppHandle,
         app_version_changed: bool,
-        has_pending_desktop_update: bool,
+        _has_pending_desktop_update: bool,
         force_update: bool,
     ) -> bool {
         let flag_path = app
@@ -731,12 +755,6 @@ impl UpdateManager {
             .join("update_python.flag");
         let flag_exists = flag_path.is_file();
         let force = should_force_startup_backend_update(app_version_changed, flag_exists, force_update);
-        let auto_update = read_auto_update_gsm_app(app);
-
-        if !force && !auto_update && !has_pending_desktop_update {
-            return true;
-        }
-
         self.update_gsm(app, false, force).await;
         if !self.last_backend_update_was_successful() {
             return false;
@@ -909,16 +927,6 @@ pub fn read_pull_prereleases(app: &tauri::AppHandle) -> bool {
         .flatten()
         .and_then(|v| v.as_bool())
         .unwrap_or(false)
-}
-
-fn read_auto_update_gsm_app(app: &tauri::AppHandle) -> bool {
-    let active = &app.state::<crate::settings::Settings>().paths.active;
-    Preferences::new(active)
-        .get("autoUpdateGSMApp")
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true)
 }
 
 fn read_python_extras_pref(app: &tauri::AppHandle) -> Vec<String> {

@@ -1,0 +1,254 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "dialogue-mixed": {
+      "iterations_per_run": 36,
+      "verified_result": {
+        "decisions_and_events": "6e96eca121cd28ba4fa24f6b9943e29cc85b0ae28cdcb4f7d63d9654b68ccb11",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 20.660236622622463,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.98046875,
+            "intake_peak_mib": 36.98046875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 20.568891462365475,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 36.6875,
+            "intake_peak_mib": 36.6875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 21.709194956156914,
+            "cpu_us_per_observation": 20.093878600823047,
+            "intake_baseline_mib": 36.12890625,
+            "intake_peak_mib": 36.12890625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 20.66,
+          "cpu_us_per_observation": 20.094,
+          "intake_baseline_mib": 36.688,
+          "intake_peak_mib": 36.688
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 27.19898405344127,
+            "cpu_us_per_observation": 24.112654320987655,
+            "intake_baseline_mib": 36.1875,
+            "intake_peak_mib": 36.1875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 22.022646604874268,
+            "cpu_us_per_observation": 22.10326646090535,
+            "intake_baseline_mib": 36.296875,
+            "intake_peak_mib": 36.296875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 23.47650462882488,
+            "cpu_us_per_observation": 24.112654320987655,
+            "intake_baseline_mib": 36.1640625,
+            "intake_peak_mib": 36.1640625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 23.477,
+          "cpu_us_per_observation": 24.113,
+          "intake_baseline_mib": 36.188,
+          "intake_peak_mib": 36.188
+        }
+      }
+    },
+    "dialogue-long": {
+      "iterations_per_run": 18,
+      "verified_result": {
+        "decisions_and_events": "c94e4b662ea6d7e7233560e24bbed6b117562fbb5b27ada92978cadcd9b0d3e9",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 102.68225308624815,
+            "cpu_us_per_observation": 104.48816872427983,
+            "intake_baseline_mib": 37.671875,
+            "intake_peak_mib": 37.671875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 107.19848251028452,
+            "cpu_us_per_observation": 104.48816872427983,
+            "intake_baseline_mib": 37.16015625,
+            "intake_peak_mib": 37.28515625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 106.35205761312963,
+            "cpu_us_per_observation": 104.48816872427983,
+            "intake_baseline_mib": 37.83984375,
+            "intake_peak_mib": 37.83984375
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 106.352,
+          "cpu_us_per_observation": 104.488,
+          "intake_baseline_mib": 37.672,
+          "intake_peak_mib": 37.672
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 103.16949588187478,
+            "cpu_us_per_observation": 100.46939300411523,
+            "intake_baseline_mib": 38.65625,
+            "intake_peak_mib": 38.65625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 112.853960904562,
+            "cpu_us_per_observation": 92.43184156378601,
+            "intake_baseline_mib": 38.078125,
+            "intake_peak_mib": 38.078125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 110.1760030924721,
+            "cpu_us_per_observation": 108.50694444444444,
+            "intake_baseline_mib": 38.30078125,
+            "intake_peak_mib": 38.3046875
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 110.176,
+          "cpu_us_per_observation": 100.469,
+          "intake_baseline_mib": 38.301,
+          "intake_peak_mib": 38.305
+        }
+      }
+    },
+    "dialogue-mixed-broker": {
+      "iterations_per_run": 4,
+      "verified_result": {
+        "decisions_and_events": "6e96eca121cd28ba4fa24f6b9943e29cc85b0ae28cdcb4f7d63d9654b68ccb11",
+        "decisions": {
+          "accepted": 108,
+          "duplicate": 108
+        },
+        "metrics": {
+          "accepted": 108,
+          "duplicates": 108,
+          "rejected": 0,
+          "appended": 84,
+          "updated": 24,
+          "frozen": 11
+        }
+      },
+      "python": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 20.06354167894676,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.41796875,
+            "intake_peak_mib": 36.41796875
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 20.043171321891283,
+            "cpu_us_per_observation": 18.08449074074074,
+            "intake_baseline_mib": 36.2265625,
+            "intake_peak_mib": 36.2265625
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 24.07395833061956,
+            "cpu_us_per_observation": 36.16898148148148,
+            "intake_baseline_mib": 36.2890625,
+            "intake_peak_mib": 36.2890625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 20.064,
+          "cpu_us_per_observation": 18.084,
+          "intake_baseline_mib": 36.289,
+          "intake_peak_mib": 36.289
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "observations": 216,
+            "us_per_observation": 435.372453702493,
+            "cpu_us_per_observation": 560.6192129629629,
+            "intake_baseline_mib": 36.42578125,
+            "intake_peak_mib": 36.42578125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 413.87106480046725,
+            "cpu_us_per_observation": 434.02777777777777,
+            "intake_baseline_mib": 36.4375,
+            "intake_peak_mib": 36.4453125
+          },
+          {
+            "observations": 216,
+            "us_per_observation": 416.0571759173224,
+            "cpu_us_per_observation": 560.6192129629629,
+            "intake_baseline_mib": 36.52734375,
+            "intake_peak_mib": 36.5390625
+          }
+        ],
+        "median": {
+          "observations": 216,
+          "us_per_observation": 416.057,
+          "cpu_us_per_observation": 560.619,
+          "intake_baseline_mib": 36.438,
+          "intake_peak_mib": 36.445
+        }
+      }
+    }
+  },
+  "desktop_sha256": "7acf9dde99ff57ba80c892a31240c2889b50093e1fdd9cc0b6fbaa1a6d453a7e",
+  "native_extension_sha256": "b858586f8b6eb25694ec045ecb9753c68994c58cf0f36cdc190c4d841966c908"
+}

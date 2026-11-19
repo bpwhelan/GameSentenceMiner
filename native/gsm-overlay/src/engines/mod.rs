@@ -1,8 +1,10 @@
 mod composite;
 mod lens;
+mod line_cache;
 #[cfg(target_os = "macos")]
 mod livetext;
 pub mod meiki;
+mod mida;
 mod oneocr;
 mod remote;
 mod screenai;
@@ -12,11 +14,18 @@ use anyhow::{Result, bail};
 use image::RgbaImage;
 use std::path::{Path, PathBuf};
 
+/// OneOCR is shared by capture workers. Its explicit destructor can release the
+/// process-wide pipeline once neither worker has used it for the idle interval.
+pub fn release_idle_models(idle_for: std::time::Duration) -> bool {
+    oneocr::release_idle(idle_for)
+}
+
 pub struct Engines {
     root: PathBuf,
     remote: Option<remote::Remote>,
-    options: serde_json::Value,
     meiki: Option<meiki::Meiki>,
+    mida: Option<mida::Finder>,
+    mida_reader: Option<vocr::Vocr>,
     vocr: Option<vocr::Vocr>,
     finder: Option<vocr::Finder>,
     lens: Option<lens::Lens>,
@@ -26,18 +35,49 @@ impl Engines {
         Self {
             root: profile.to_owned(),
             remote: None,
-            options: serde_json::Value::Null,
             meiki: None,
+            mida: None,
+            mida_reader: None,
             vocr: None,
             finder: None,
             lens: None,
         }
     }
-    pub fn configure(&mut self, options: &serde_json::Value) {
-        let next = serde_json::json!({"engine_config_path":options["engine_config_path"],"engine_defaults":options["engine_defaults"]});
-        if self.options != next {
+    /// Keep both passes/composite dependencies, but drop models left behind by
+    /// an engine change. Recognition itself must not evict the other pass.
+    pub fn retain_for(&mut self, selected: &[&str]) {
+        if !selected
+            .iter()
+            .any(|name| matches!(*name, "meikiocr" | "meiki_text_detector"))
+        {
+            self.meiki = None;
+        }
+        if !selected
+            .iter()
+            .any(|name| matches!(*name, "mida_detector" | "mida_vocr"))
+        {
+            self.mida = None;
+        }
+        if !selected.contains(&"mida_vocr") {
+            self.mida_reader = None;
+        }
+        if !selected.contains(&"vitaocr") {
+            self.vocr = None;
+        }
+        if !selected
+            .iter()
+            .any(|name| matches!(*name, "vocr_detector" | "vocr_lens"))
+        {
+            self.finder = None;
+        }
+        if !selected
+            .iter()
+            .any(|name| matches!(*name, "lens" | "glens" | "vocr_lens"))
+        {
+            self.lens = None;
+        }
+        if !selected.iter().any(|name| matches!(*name, "bing" | "gvision")) {
             self.remote = None;
-            self.options = next;
         }
     }
     pub fn recognize(
@@ -48,6 +88,7 @@ impl Engines {
     ) -> Result<Recognition> {
         match engine {
             "oneocr" => {
+                #[cfg(windows)]
                 crate::models::ensure_oneocr()?;
                 oneocr::ocr_image(image)
             }
@@ -71,6 +112,28 @@ impl Engines {
                 } else {
                     self.meiki.as_mut().unwrap().recognize(image)
                 }
+            }
+            "mida_detector" | "mida_vocr" => {
+                if self.mida.is_none() {
+                    self.mida = Some(mida::Finder::new(&self.root.join("ocr"))?);
+                }
+                let boxes = self.mida.as_mut().unwrap().detect(image)?;
+                if engine == "mida_detector" {
+                    return Ok(Recognition {
+                        detections: boxes.iter().map(|b| b.edges()).collect(),
+                        ..Default::default()
+                    });
+                }
+                if self.mida_reader.is_none() {
+                    self.mida_reader = Some(vocr::Vocr::large_fast()?);
+                }
+                let mut result = self
+                    .mida_reader
+                    .as_mut()
+                    .unwrap()
+                    .read_lines(image, boxes, true)?;
+                result.model = serde_json::json!({"size":"large","mode":"fast","finder":"mida","revision":vocr::selection::REVISION});
+                Ok(result)
             }
             "vitaocr" => {
                 let selected = vocr::selection::Tier::read(&self.root)?;
@@ -114,14 +177,14 @@ impl Engines {
             }
             #[cfg(target_os = "macos")]
             "alivetext" => livetext::recognize(image, language),
-            "bing" | "mlkitocr" | "azure" | "gvision" | "ocrspace" | "gemini" | "local_llm_ocr" => {
+            "bing" | "gvision" => {
                 if self.remote.is_none() {
-                    self.remote = Some(remote::Remote::new(&self.root, &self.options)?);
+                    self.remote = Some(remote::Remote::new(&self.root)?);
                 }
                 self.remote
                     .as_mut()
                     .unwrap()
-                    .recognize(image, engine, language)
+                    .recognize(image, engine)
             }
             _ => bail!("Unsupported native overlay OCR engine: {engine}"),
         }

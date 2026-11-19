@@ -142,6 +142,32 @@ app.whenReady().then(async () => {
       return text;
     };
   })()`);
+  const magpieLookup = await lookupWindow.webContents.executeJavaScript(`(() => {
+    const display = { physicalBounds: { x: -1920, y: 164 }, physicalSize: { width: 1920, height: 1080 } };
+    renderFixture(${JSON.stringify({ data: [line('日本語', 0.2, 0.4, 0.3, 0.1)] })}, { display });
+    const box = document.querySelector('.text-box');
+    const range = document.createRange();
+    range.selectNodeContents(box);
+    const glyphCenter = () => {
+      const rect = range.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    };
+    const original = glyphCenter();
+    const before = scanPoint(original);
+    applyFixtureMagpieInfo({
+      sourceWindowLeftEdgePosition: -1728, sourceWindowTopEdgePosition: 272,
+      sourceWindowRightEdgePosition: -768, sourceWindowBottomEdgePosition: 812,
+      magpieWindowLeftEdgePosition: -1920, magpieWindowTopEdgePosition: 164,
+      magpieWindowRightEdgePosition: 0, magpieWindowBottomEdgePosition: 1244,
+    });
+    const scaled = scanPoint(glyphCenter());
+    const stale = scanPoint(original);
+    applyFixtureMagpieInfo(null);
+    return { before, scaled, stale, restored: scanPoint(original) };
+  })()`);
+  assert.deepEqual(magpieLookup, { before: '日本', scaled: '日本', stale: null, restored: '日本' });
+  console.log('Magpie scaling moves the active lookup target without a new OCR result.');
+
   let lookupChecks = 0;
   for (const vertical of [false, true]) {
     const words = Array.from('なんで本当に').map((text, i) => ({ text, bounding_rect: {

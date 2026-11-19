@@ -12,7 +12,9 @@ import { findAgentScriptById } from "./agent_script_resolver.js";
 import { getBaseDir } from "./data_dir.js";
 import type { DesktopUpdateChangelogPendingRecord } from "../shared/changelog.js";
 import {
+    DEFAULT_ADVANCED_MAIN_OCR,
     getDefaultStabilityOcr,
+    replaceRetiredOcrEngine,
     withBasicOcrPlatformDefaults,
 } from "../shared/ocr_defaults.js";
 
@@ -278,7 +280,7 @@ export const store = new Store<StoreConfig>({
             advanced_debug_logging: false,
             useOnlineOcr: false,
             ocr1: DEFAULT_STABILITY_OCR,
-            ocr2: DEFAULT_STABILITY_OCR,
+            ocr2: DEFAULT_ADVANCED_MAIN_OCR,
             menuAreaOcrEngine: "main",
             language: "ja",
             ocr_screenshots: false,
@@ -331,7 +333,7 @@ export const store = new Store<StoreConfig>({
             advancedMode: false,
             scanRate_basic: 0.5,
             ocr1_advanced: DEFAULT_STABILITY_OCR,
-            ocr2_advanced: "glens",
+            ocr2_advanced: DEFAULT_ADVANCED_MAIN_OCR,
             scanRate_advanced: 0.5
         },
         customPythonPackage: "GameSentenceMiner",
@@ -1192,6 +1194,8 @@ export function getOCRConfig(): OCRConfig {
     let config = store.get("OCR");
     config = {
         ...config,
+        ocr1_advanced: config.ocr1_advanced && replaceRetiredOcrEngine(config.ocr1_advanced),
+        ocr2_advanced: config.ocr2_advanced && replaceRetiredOcrEngine(config.ocr2_advanced),
         addAreaOcrHotkey: config.addAreaOcrHotkey ?? "Alt+Shift+N",
         addAreaOcrGamepad: config.addAreaOcrGamepad ?? "",
     };

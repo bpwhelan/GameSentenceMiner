@@ -283,9 +283,20 @@ def start_ipc_listener_in_thread(
 
         client.handle("ocr.native.context", handle_context)
         client.handle("ocr.native.result", handle_result)
+
+        async def rank_legacy_hooks(message):
+            # Older desktops request rankings over the bus. Current desktops rank locally.
+            from GameSentenceMiner.util.texthook_matching import handle_rank_hooks
+
+            return await handle_rank_hooks(message)
+
+        client.handle("texthook.rank", rank_legacy_hooks, concurrent=True)
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
         client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)
+        from GameSentenceMiner.ui.desktop_dialog import handle_dialog
+
+        client.handle("gui.dialog", handle_dialog, concurrent=True)
         from GameSentenceMiner.ocr.benchmark import BENCHMARK_TOPIC, handle_benchmark_request
 
         client.handle(BENCHMARK_TOPIC, handle_benchmark_request)

@@ -4,11 +4,9 @@ Measures extreme production of new text, never a user's reading speed. Clocks
 are local monotonic receipt times. The text coordinator owns this state.
 """
 
-import unicodedata
 from collections import deque
 from dataclasses import dataclass, field
 from itertools import pairwise
-from statistics import median
 
 from .models import SourceKind
 
@@ -25,8 +23,64 @@ AUTOMATIC_SOURCES = frozenset(
 WINDOW_NS = 1_500_000_000
 
 
-def compact_text(text: str) -> str:
+def _compact_reference(text: str) -> str:
+    import unicodedata
+
     return "".join(c for c in unicodedata.normalize("NFKC", text) if c.isalnum())
+
+
+def compact_text(text: str) -> str:
+    from GameSentenceMiner.native import ocr
+    from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
+
+    compact = getattr(ocr._extension, "compact_dialogue", None)
+    if compact is not None and get_native_mode("text") is NativeMode.NATIVE:
+        result = compact(text)
+        if result is not None:
+            return result
+    return _compact_reference(text)
+
+
+class _NativeDetector:
+    def __init__(self, engine):
+        self._engine = engine
+        self.suspended = self.confirmed = False
+
+    def observe(self, source, text, now_ns, *, skip_control=False):
+        kind, instance = source
+        key = instance.encode("utf-8", "surrogatepass")
+        result = self._engine.observe(kind.value, key, text, now_ns, skip_control, False)
+        if result is None:
+            # Use the installed Python Unicode tables for compatibility forms
+            # and combining sequences outside the native fast path.
+            result = self._engine.observe(kind.value, key, _compact_reference(text), now_ns, skip_control, True)
+        added, self.suspended, self.confirmed = result
+        return added
+
+    def quiet(self, now_ns):
+        return self._engine.quiet(now_ns)
+
+    @property
+    def reason(self):
+        return self._engine.reason
+
+    @property
+    def quiet_ns(self):
+        return self._engine.quiet_ns
+
+    def reset(self):
+        self._engine.reset()
+        self.suspended = self.confirmed = False
+
+
+def make_detector():
+    from GameSentenceMiner.native import ocr
+    from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
+
+    engine = getattr(ocr._extension, "DialogueSkipDetector", None)
+    if engine is not None and get_native_mode("text") is NativeMode.NATIVE:
+        return _NativeDetector(engine())
+    return SkipDetector()
 
 
 @dataclass
@@ -49,10 +103,12 @@ class SkipDetector:
 
     def observe(self, source: tuple, text: str, now_ns: int, *, skip_control: bool = False) -> bool:
         """Return whether the payload adds evidence (duplicates add none)."""
-        text = compact_text(text)
+        text = _compact_reference(text)
+        if not text:
+            return False
         activity = self.sources.setdefault(source, SourceActivity())
         previous = activity.text
-        if not text or text == previous or previous.startswith(text):
+        if text == previous or previous.startswith(text):
             return False
         extends = bool(previous and text.startswith(previous))
         novel = text[len(previous) :] if extends else text
@@ -98,6 +154,8 @@ class SkipDetector:
             times = [s[0] for s in substantial]
             gaps = [b - a for a, b in pairwise(times) if b > a]
             if gaps:
+                from statistics import median
+
                 self.quiet_ns = int(min(2_500_000_000, max(WINDOW_NS, median(gaps) * 3)))
         if len(self.sources) > 32:
             self.sources.pop(next(iter(self.sources)))

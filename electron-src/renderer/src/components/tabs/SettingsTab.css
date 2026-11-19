@@ -464,3 +464,26 @@
     gap: 5px;
   }
 }
+.settings-resource-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-resource-table :is(th, td) {
+  padding: 0.625rem 0.5rem;
+  text-align: start;
+}
+
+.settings-resource-table :is(th, td):not(:first-child) {
+  text-align: end;
+}
+
+.settings-resource-table tbody th {
+  font-weight: inherit;
+}
+
+.settings-resource-table tfoot {
+  border-top: 1px solid currentColor;
+  font-weight: 600;
+}

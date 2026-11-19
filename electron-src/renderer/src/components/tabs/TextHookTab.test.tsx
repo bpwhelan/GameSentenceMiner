@@ -226,6 +226,128 @@ describe("TextHookTab", () => {
     expect(container.querySelector(".texthook-log-line")).toBe(retainedLogRow);
   });
 
+  it("updates the hook ranking automatically and applies filter changes when the user chooses the hook", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    const processorOverrides = { remove_control_chars: true, language_filter: true, language_filter_mode: "trim" };
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return { ...(await original(channel)), sessionId: "12" };
+      if (channel === "texthook.getRecommendations") return null;
+      if (channel === "texthook.selectHook") return { success: true, processorOverrides };
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    expect(container.textContent).toContain("ScreenAI compares hooks automatically");
+    expect(container.textContent).not.toContain("Find hook with OCR");
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [
+          { id: "5", function: "Menu", preview: "Start a new game", samples: ["Start a new game"] },
+          { id: "9", function: "Dialogue", preview: "Visible hook text", samples: ["Visible hook text"] },
+        ],
+      });
+      ipcListeners.get("texthook.recommendations")?.({}, {
+        status: "ok", sessionId: "12", sceneId: "scene-1",
+        matches: [{ hookId: "5", tier: "exact", ocrText: "Start a new game", processorOverrides: {} }],
+      });
+    });
+    expect(Array.from(container.querySelectorAll(".texthook-hook-id"), (el) => el.textContent)).toEqual(["#5", "#9"]);
+    await act(async () => {
+      ipcListeners.get("texthook.recommendations")?.({}, {
+        status: "ok", sessionId: "12", sceneId: "scene-1",
+        matches: [{ hookId: "9", tier: "filtered", ocrText: "Save 1234567890", output: "Save 1234567890", changes: processorOverrides, processorOverrides }],
+      });
+    });
+
+    expect(Array.from(container.querySelectorAll(".texthook-hook-id"), (el) => el.textContent)).toEqual(["#9", "#5"]);
+    expect(container.textContent).toContain("Turn on Remove Control Characters");
+    expect(container.textContent).toContain("Turn on Target Language Filter");
+    expect(container.textContent).toContain("Trim other languages from block edges");
+    expect(container.textContent).toContain("On screen · Save 1234567890");
+    expect(invokeMock).not.toHaveBeenCalledWith("texthook.selectHook", expect.anything(), expect.anything());
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".texthook-hook-button")?.click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("texthook.selectHook", "9", {
+      sessionId: "12", sceneId: "scene-1", processorOverrides,
+    });
+    expect(container.textContent).toContain("Hook selected. ScreenAI checks stopped.");
+    expect(container.textContent).toContain("GSM saves the selected hook and its filters after three different lines.");
+    expect(invokeMock.mock.calls.some(([channel]) => channel === "texthook.saveProfile")).toBe(false);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".texthook-save-hook")?.click();
+      await flushAsyncWork();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", expect.objectContaining({
+      hookId: "9", sceneId: "scene-1", processorOverrides,
+    }));
+
+    await act(async () => {
+      ipcListeners.get("texthook.status")?.({}, { running: true, engine: "luna", pid: 1234, sessionId: "13" });
+    });
+    await act(async () => {
+      ipcListeners.get("texthook.recommendations")?.({}, {
+        status: "ok", sessionId: "12", sceneId: "scene-1",
+        matches: [{ hookId: "9", tier: "exact", ocrText: "Save 1234567890", processorOverrides: {} }],
+      });
+    });
+    expect(container.textContent).not.toContain("On screen · Save 1234567890");
+  });
+
+  it("puts likely language matches first and keeps likely noise filtered during OCR ranking", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") return { ...(await original(channel)), sessionId: "12" };
+      return original(channel, ...args);
+    });
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    const hook = (id: string, preview: string) => ({ id, function: `Hook ${id}`, preview, samples: [preview] });
+    const path = "E:\\Japanese Stuff Visual Novels\\Muv-Luv";
+    const cleaned = "……うそ〜ん";
+    const garbled = "\u0003\u0003\u0003\u0003" + cleaned;
+    await act(async () => {
+      ipcListeners.get("texthook.hooks")?.({}, {
+        selectedHookId: null,
+        hooks: [
+          hook("0", "CObjectOceanCMoveAcsOngenCFrameBufferCBoxOceanCParseBgBoxCImgAreaBoxCDbBrowseBox..."),
+          hook("1", "q0000031.uux"),
+          hook("2", "q0000031.uux"),
+          hook("3", path),
+          hook("4", "今日は一緒に帰ろう。"),
+          hook("5", "Start a new game"),
+          hook("6", "この村ではあまり雨が降らない。"),
+          hook("7", ""),
+          hook("8", garbled),
+        ],
+      });
+      ipcListeners.get("texthook.recommendations")?.({}, {
+        status: "ok", sessionId: "12", sceneId: "scene-1",
+        matches: [
+          { hookId: "3", tier: "exact", output: path, sample: path, processorOverrides: {} },
+          { hookId: "5", tier: "exact", processorOverrides: {} },
+          { hookId: "6", tier: "fuzzy", processorOverrides: {} },
+          { hookId: "8", tier: "filtered", output: cleaned, sample: garbled, processorOverrides: { remove_control_chars: true } },
+          { hookId: "7", tier: "unmatched", processorOverrides: {} },
+          { hookId: "4", tier: "unmatched", processorOverrides: {} },
+        ],
+      });
+    });
+    const rowIds = () => Array.from(container.querySelectorAll(".texthook-hook-id"), (el) => el.textContent);
+    expect(rowIds()).toEqual(["#6", "#8", "#4", "#5"]);
+    expect(container.querySelector('.texthook-hook-row [aria-label="Select hook #4: Hook 4"]')?.textContent)
+      .toContain("Likely language match");
+    expect(container.textContent).toContain("Show likely noise (4)");
+    await act(async () => { container.querySelector<HTMLInputElement>("#texthook-show-noise")?.click(); });
+    expect(rowIds()).toEqual(["#6", "#8", "#4", "#5", "#3", "#0", "#1", "#2"]);
+  });
+
   it.each(["luna", "textractor"])("ranks %s hooks and lets users reveal and select likely noise", async (engine) => {
     const original = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
@@ -427,6 +549,26 @@ describe("TextHookTab", () => {
     expect(document.activeElement).toBe(toggle);
     expect(container.querySelector(".texthook-log")).toBe(log);
     expect(log.textContent).toContain("Still receiving messages");
+  });
+
+  it("renders styled origin badges for origin-tagged texthook logs", async () => {
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#texthook-log-toggle")!.click();
+      ipcListeners.get("texthook.log")?.({}, { level: "info", message: "[rust:gsm-texthook] Hook attached" });
+      ipcListeners.get("texthook.log")?.({}, { level: "info", message: "[frida:agent] Attach: present hook" });
+    });
+    const badges = Array.from(container.querySelectorAll(".log-origin-badge")).map((el) => ({
+      text: el.textContent,
+      className: el.className,
+    }));
+    expect(badges).toEqual([
+      { text: "[rust:gsm-texthook]", className: "log-origin-badge log-origin-badge--rust" },
+      { text: "[frida:agent]", className: "log-origin-badge log-origin-badge--frida" },
+    ]);
   });
 
   it("explains which hook engine to use and links to Text Processing when help is expanded", async () => {

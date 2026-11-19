@@ -62,7 +62,6 @@ class AnkiFieldGroupingDialog(QDialog):
             if tags:
                 details = f"{details}  [{tags}]"
             self.target_combo.addItem(f"Note {note_id} — {details}", note_id)
-        self.target_combo.setToolTip("When several duplicate notes exist, select which original note to merge into.")
         form.addRow("Merge into:", self.target_combo)
 
         self.order_combo = QComboBox()

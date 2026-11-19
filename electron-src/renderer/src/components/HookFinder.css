@@ -1,0 +1,50 @@
+.texthook-hook-quality {
+  display: block;
+  margin-top: 3px;
+  color: var(--gsm-text-muted);
+  font-size: 10px;
+}
+
+.texthook-hook-quality--match {
+  color: var(--gsm-accent-text);
+}
+
+.texthook-noise-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.hook-finder-status,
+.hook-match-details {
+  color: var(--gsm-text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.hook-finder-status {
+  margin: 0 0 12px;
+}
+
+.hook-match-details {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  margin-top: 4px;
+}
+
+.hook-match-tier:is(.hook-match-tier--exact, .hook-match-tier--fuzzy, .hook-match-tier--filtered),
+.hook-match-filter {
+  color: var(--gsm-accent-text);
+}
+
+.hook-match-evidence {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}

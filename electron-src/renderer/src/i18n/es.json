@@ -1003,6 +1003,8 @@
       "singlePassFlow": "Flujo de una pasada:",
       "stabilityOcr": "OCR de estabilidad:",
       "mainOcr": "OCR principal:",
+      "stabilityOcrHelp": "Ayuda sobre el OCR de estabilidad",
+      "googleVisionHelp": "Ayuda para configurar Google Vision",
       "twoPassOcr": "OCR de dos pasadas:",
       "optimizeSecondScan": "Optimizar segundo escaneo:",
       "ocrClipboardImages": "OCR de imágenes del portapapeles:"
@@ -1137,9 +1139,7 @@
       "exportAreas": "Copia los rectángulos OCR de la escena actual al portapapeles como JSON.",
       "docs": "Abre la guía de OCR con ayuda de configuración, notas de motores y flujos de trabajo.",
       "advancedMode": "Muestra la selección de motor y el ajuste de comparación. El modo básico mantiene visibles los ajustes comunes y oculta los controles expertos.",
-      "basicScanRate": "Con qué frecuencia escanea OCR en modo básico.\n• Lo más rápido posible (0): sin retraso de escaneo; puede exponer problemas de UTF-8/codificación y usa más CPU\n• Rápido: sondeo rápido para texto reactivo\n• Normal: equilibrado para la mayoría de diálogos\n• Lento/Muy lento: mejor para texto que aparece gradualmente",
       "advancedScanRate": "Intervalo de sondeo de OCR en segundos. Los valores bajos escanean más a menudo y reaccionan más rápido, pero usan más recursos. Los valores altos escanean menos y pueden sentirse más tranquilos con texto lento.",
-      "language": "Selecciona el idioma para el procesamiento OCR. Esto garantiza que solo se capturen bloques con los caracteres correctos. Todos los idiomas de escritura latina (inglés, español, francés, alemán, etc.) están cubiertos por inglés.",
       "baseScale": "Controla cuánto se escala la captura antes de escanear.\n• Menor = escaneos más rápidos, menos CPU, pero puede omitir texto pequeño\n• Mayor = más preciso con fuentes pequeñas, pero usa más CPU\n\n50% -> Rápido | 75% -> Equilibrado | 100% -> Más lento\n\nConsejo: si OCR omite kanji pequeños o caracteres, intenta aumentar este valor.",
       "furiganaFilter": "Filtra caracteres más pequeños que el tamaño de texto seleccionado. Si desaparece diálogo real, baja este valor o ponlo en 0.\n\nConsejo: haz clic en Vista previa para abrir una ventana que ayuda a elegir la mejor sensibilidad para el juego actual.",
       "furiganaPreview": "Abre una ventana de vista previa para ajustar la sensibilidad de furigana con un carácter de muestra del juego actual.",
@@ -1152,8 +1152,8 @@
       "keepNewlineMenu": "Conserva saltos de línea en resultados de OCR de menú.",
       "keepNewlineAreaSelect": "Conserva saltos de línea en capturas OCR de selección manual de área.",
       "twoPassOCR": "La opción OCR 1 se ejecuta con la frecuencia configurada. Si el modo de dos pasadas está activado y el texto no cambia en el siguiente escaneo, hará un segundo escaneo con el motor OCR principal.",
-      "stabilityOcr": "Se ejecuta primero para vigilar cambios y estabilidad del texto. Los motores rápidos funcionan mejor aquí. En Windows se recomienda OneOCR.",
-      "mainOcr": "Este motor envía el resultado OCR final al websocket o al portapapeles. Elige la opción más precisa que funcione bien con tu juego.",
+      "stabilityOcr": "El OCR de estabilidad detecta cambios y espera a que el texto se estabilice antes de ejecutar el OCR principal. La velocidad y el uso de CPU varían según el motor. ScreenAI es el motor predeterminado.",
+      "googleVisionKey": "Descarga la clave JSON de la cuenta de servicio de un proyecto de Google Cloud con Vision API habilitada. Guárdala en {homePath} o como {filename} en la carpeta de datos de GSM o del perfil portátil.",
       "optimizeSecondScan": "Recorta la imagen para el segundo escaneo y mejora el rendimiento (solo si el primero es OneOCR). Si el texto del juego es inusual y no se captura parte del texto, prueba a desactivarlo.",
       "ocrScreenshots": "Si está activado, OCR también procesará capturas de pantalla tomadas desde el portapapeles.",
       "manualHotkey": "Ejecuta una vez el OCR principal (OCR 2) en las áreas verdes configuradas. Durante el OCR automático, omite las comprobaciones de estabilidad y agujero negro. Pulsa Escape para borrar.",
@@ -1161,13 +1161,9 @@
       "areaSelectHotkey": "Al pulsarlo, permite seleccionar un área temporal para hacer OCR una sola vez. Útil para menús. Pulsa Escape para borrar.",
       "wholeWindowHotkey": "Ejecuta un escaneo OCR único en toda la fuente OCR activa (normalmente la fuente de juego de OBS), ignorando los rectángulos de área. Pulsa Escape para borrar.",
       "pauseHotkey": "Pausa o reanuda el escaneo OCR en todas partes. Útil durante cinemáticas o cuando quieres apartar temporalmente el OCR. Pulsa Escape para borrar.",
-      "processPriority": "Define la prioridad del proceso Python de OCR en Windows. Los valores altos pueden mejorar la respuesta de OCR, pero pueden reducir la respuesta del sistema.",
       "defaultSceneFurigana": "Se usa cuando una escena aún no tiene un archivo de configuración guardado. Las escenas existentes conservan su propio valor guardado.",
-      "obsCapturePreprocess": "Aplica preprocesamiento a las capturas de OBS antes de recortarlas para OCR. Escala de grises + Autocontraste + Enfoque puede mejorar el OCR de subtítulos en escenas con ruido.",
       "ignoreRun1Logs": "Oculta líneas de terminal OCR que contienen \"OCR Run 1: Text recognized...\" para reducir ruido duplicado cuando OCR de dos pasadas está activado. Las líneas Run 2 siguen resaltadas en verde.",
       "advancedDebugLogging": "Escribe líneas JSON estructuradas para captura OCR, estabilidad, decisiones de OCR2, cola, filtrado, deduplicación y entrega en un archivo dedicado por ejecución. La consola muestra su ruta al comenzar.",
-      "installDependency": "Instala dependencias OCR opcionales en el entorno Python de GSM. Si no estás seguro, elige una opción recomendada.",
-      "uninstallDependency": "Elimina dependencias OCR opcionales del entorno Python de GSM.",
       "replacements": "Abre la página de reglas de reemplazo OCR para corregir errores recurrentes después del reconocimiento.",
       "openConfigFile": "Abre el archivo JSON activo de configuración OCR de Electron.",
       "openConfigFolder": "Abre la carpeta de configuración OCR que guarda archivos de áreas por escena.",
@@ -1249,13 +1245,8 @@
       "oneocr": "OneOCR",
       "screenai": "ScreenAI OCR",
       "meikiocr": "Meiki OCR",
-      "gemini": "Gemini",
-      "gvision": "Google Vision",
-      "azure": "Azure Análisis de Imagen",
-      "ocrspace": "OCRSpace",
-      "local_llm_ocr": "LLM OCR local",
+      "gvision": "Google Vision (requiere clave de cuenta de servicio)",
       "alivetext": "Apple Live Text",
-      "mlkitocr": "MLKit OCR",
       "meiki_text_detector": "Meiki Detector de Texto"
     },
     "languages": {
@@ -1293,9 +1284,7 @@
     "dependencies": {
       "install": {
         "fasterPng": "PNG más rápido (Recomendado en Windows 11)",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision (requiere clave de cuenta de servicio)"
       },
       "remove": {
         "owocr": "OWOCR Base",
@@ -1303,9 +1292,7 @@
         "oneocr": "OneOCR",
         "fasterPng": "PNG más rápido",
         "transformers": "Filtrado preciso",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision"
       }
     },
     "notices": {

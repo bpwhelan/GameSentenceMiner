@@ -1,9 +1,13 @@
 //! OBS ownership lives here: supervision, storage, installation, scene policy and devices.
 //! Node's remaining application services may call this API, but are never a fallback.
 mod config;
+mod outputs;
 mod process;
 mod runtime;
 mod scenes;
+mod session;
+mod session_profile;
+mod session_target;
 mod switcher;
 use crate::obs_service::ObsService;
 use serde_json::{json, Value};
@@ -39,10 +43,12 @@ struct State {
 }
 #[derive(Default)]
 struct Inner {
+    session: session::Session,
     state: Mutex<State>,
     client: ObsService,
     connecting: AsyncMutex<()>,
-    lifecycle: AsyncMutex<()>,
+    lifecycle: tokio::sync::RwLock<()>,
+    recording: AsyncMutex<()>,
     probe: AsyncMutex<()>,
     scene_edit: AsyncMutex<()>,
     suspended_clients: Mutex<(bool, bool)>,
@@ -113,6 +119,8 @@ impl Obs {
             }
         }
         if !self.0.started.swap(true, Ordering::SeqCst) {
+            let sampler = self.clone();
+            tauri::async_runtime::spawn(sampler.sample_session(app.clone()));
             let controller = self.clone();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -149,6 +157,32 @@ impl Obs {
         let controller = self.clone();
         let event_app = app.clone();
         let events = Arc::new(move |name: &str, data: Value| {
+            match name {
+                "CurrentProgramSceneChanged" => controller
+                    .0
+                    .session
+                    .invalidate(Some((text(&data, "sceneName"), text(&data, "sceneUuid")))),
+                "CurrentSceneCollectionChanged" | "ConnectionClosed" => {
+                    controller.0.session.invalidate(Some(("", "")))
+                }
+                "SceneNameChanged"
+                | "SceneItemCreated"
+                | "SceneItemRemoved"
+                | "SceneItemEnableStateChanged"
+                    if data["sceneUuid"] == controller.game_session()["scene_id"]
+                        || data["sceneName"] == controller.game_session()["scene"]
+                        || data["oldSceneName"] == controller.game_session()["scene"] =>
+                {
+                    controller.0.session.invalidate(None)
+                }
+                "InputSettingsChanged" | "InputNameChanged"
+                    if data["inputName"] == controller.game_session()["source_name"]
+                        || data["oldInputName"] == controller.game_session()["source_name"] =>
+                {
+                    controller.0.session.invalidate(None)
+                }
+                _ => {}
+            }
             if name == "CurrentProgramSceneChanged" {
                 controller.scene_event(&event_app, &data);
             }
@@ -236,7 +270,7 @@ impl Obs {
                 let _ = self.cleanup_helpers(&app).await;
             }
             if let Err(error) = self.tick_switcher(&app).await {
-                eprintln!("[OBS scene switcher] {error}");
+                crate::desktop_log::warn(&app, "obs", format!("Scene switcher: {error}"));
             }
         }
     }
@@ -269,7 +303,7 @@ impl Obs {
         process::find(&executable, remembered)
     }
     async fn launch(&self, app: &tauri::AppHandle, options: Value) -> Result<Value, String> {
-        let _guard = self.0.lifecycle.lock().await;
+        let _guard = self.0.lifecycle.write().await;
         self.launch_inner(app, options).await
     }
     async fn launch_inner(&self, app: &tauri::AppHandle, options: Value) -> Result<Value, String> {
@@ -477,16 +511,16 @@ impl Obs {
                 Ok(result)
             }
             "obs.close" => {
-                let _guard = self.0.lifecycle.lock().await;
+                let _guard = self.0.lifecycle.write().await;
                 self.close_inner(app, arg).await
             }
             "obs.runtime.wait" => {
-                let _guard = self.0.lifecycle.lock().await;
+                let _guard = self.0.lifecycle.write().await;
                 Ok(Value::Null)
             }
             "obs.runtime.status" => self.runtime_status(),
             "obs.runtime.check" => {
-                let _guard = self.0.lifecycle.lock().await;
+                let _guard = self.0.lifecycle.write().await;
                 self.check_release(app).await?;
                 self.runtime_status()
             }

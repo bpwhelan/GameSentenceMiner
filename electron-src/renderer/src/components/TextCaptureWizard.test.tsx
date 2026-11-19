@@ -760,6 +760,27 @@ describe("TextCaptureWizard", () => {
     });
   });
 
+  it("keeps OCR as the startup choice after trying a new hook", async () => {
+    const hook = { id: "new-hook", function: "Dialogue", preview: "会話です", samples: ["会話です"] };
+    mockSceneContext({
+      "texthook.getStatus": {
+        running: true, engine: "textractor", exeName: "ExampleGame.exe", pid: 123, selectedHookId: null,
+      },
+      "texthook.listHooks": { hooks: [hook], selectedHookId: null },
+      "texthook.selectHook": { success: true },
+    });
+    await renderWizard();
+    await clickButton(container, "Texthook");
+    await clickButton(container, hook.preview);
+    await clickButton(container, "Continue to OCR");
+    await clickButton(container, "Use OCR and finalize");
+    await clickButton(container, "Save and close");
+
+    expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", {
+      exeName: "ExampleGame.exe", sceneId: exampleScene.id, engine: "textractor", autoHook: false,
+    });
+  });
+
   it("uses the running Agent script without misattributing its hook to Luna", async () => {
     const scriptPath = "C:\\Agent\\data\\scripts\\PC_Steam_Example_Game.js";
     const hook = { id: "agent-hook", function: "Dialogue", preview: "会話", samples: ["会話"] };
@@ -1061,6 +1082,28 @@ describe("TextCaptureWizard", () => {
     expect(invokeMock).toHaveBeenCalledWith("texthook.saveProfile", expect.objectContaining({
       engine: "agent", agentScriptPath: scriptPath, autoHook: true,
     }));
+  });
+
+  it("filters and ranks live hooks by the target language in the wizard", async () => {
+    const menu = { id: "menu", function: "Menu text", preview: "Start a new game", samples: ["Start a new game"] };
+    const dialogue = { id: "dialogue", function: "Dialogue text", preview: "今日はいい天気ですね。", samples: ["今日はいい天気ですね。"] };
+    const asset = { id: "asset", function: "WideCharToMultiByte", preview: "q0000031.uux", samples: ["q0000031.uux"] };
+    mockSceneContext({
+      "texthook.getSettings": { targetLanguage: "ja" },
+      "texthook.getStatus": { running: true, engine: "luna", exeName: "ExampleGame.exe", pid: 123, sessionId: "11" },
+      "texthook.listHooks": { hooks: [menu, asset, dialogue], selectedHookId: null },
+      "texthook.getRecommendations": {
+        status: "ok", sessionId: "11", sceneId: exampleScene.id,
+        matches: [{ hookId: "menu", tier: "exact", processorOverrides: {} }],
+      },
+    });
+    await renderWizard();
+    await clickButton(container, "Texthook");
+    const rows = () => Array.from(container.querySelectorAll(".capture-wizard-hook strong"), (row) => row.textContent);
+    expect(rows()).toEqual([dialogue.preview, menu.preview]);
+    expect(container.textContent).toContain("Show likely noise (1)");
+    await act(async () => { container.querySelector<HTMLInputElement>("#capture-wizard-show-noise")?.click(); });
+    expect(rows()).toEqual([dialogue.preview, menu.preview, asset.preview]);
   });
 
   it("keeps a clicked hook row selected when continuing through the footer and saving", async () => {

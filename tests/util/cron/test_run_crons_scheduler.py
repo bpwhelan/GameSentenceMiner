@@ -6,12 +6,67 @@ from GameSentenceMiner.util.cron import run_crons
 from GameSentenceMiner.util.database.cron_table import CronTable
 
 
+def test_native_game_linker_uses_parent_backend_and_other_crons_stay_isolated(monkeypatch):
+    from GameSentenceMiner.native import history
+
+    tasks = run_crons._TASK_REGISTRY
+    linker = tasks[run_crons.Crons.POPULATE_GAMES.value]
+    monkeypatch.setattr(history, "managed", lambda db: True)
+    assert not run_crons._can_isolate_task(linker)
+    assert run_crons._can_isolate_task(tasks[run_crons.Crons.DAILY_STATS_ROLLUP.value])
+    monkeypatch.setattr(history, "managed", lambda db: False)
+    assert run_crons._can_isolate_task(linker)
+
+
+def test_retired_user_script_jobs_cannot_run_after_upgrade(tmp_path, monkeypatch):
+    from GameSentenceMiner.util.database.sqlite_core import SQLiteDB
+
+    with SQLiteDB(str(tmp_path / "gsm.db")) as db:
+        db.execute("CREATE TABLE cron_table(name TEXT,enabled INTEGER)", commit=True)
+        db.executemany(
+            "INSERT INTO cron_table VALUES (?,1)",
+            [("plugins",), ("user_plugins",), ("daily_stats_rollup",)],
+            commit=True,
+        )
+        script = tmp_path / "plugins.py"
+        script.write_text("raise AssertionError('must never execute')", encoding="utf-8")
+        monkeypatch.setattr(CronTable, "_db", db)
+        CronTable.retire_user_script_schedules()
+        CronTable.retire_user_script_schedules()
+        assert db.fetchall("SELECT name FROM cron_table") == [("daily_stats_rollup",)]
+        assert {"plugins", "user_plugins"}.isdisjoint(run_crons._TASK_REGISTRY)
+        assert script.read_text(encoding="utf-8") == "raise AssertionError('must never execute')"
+
+
 def test_tadoku_task_summary_reports_threshold_skip_reason():
     task = run_crons._TASK_REGISTRY[run_crons.Crons.TADOKU_SYNC.value]
 
     assert task.summary({"skipped": True, "reason": "no whitelisted game has 5,000 total characters"}) == (
         "skipped: no whitelisted game has 5,000 total characters"
     )
+
+
+def test_desktop_receipt_uses_service_deadlines_only_for_completed_scheduled_work(monkeypatch):
+    from GameSentenceMiner.util.cron import kechimochi_sync, tadoku_sync
+
+    scheduler = run_crons.CronScheduler()
+    calls = []
+
+    def execute(cron, task, progress, *, isolate_background):
+        calls.append((cron.id, cron.name, isolate_background))
+        return {"_executed": True, "success": False}
+
+    monkeypatch.setattr(run_crons, "_execute_cron", execute)
+    monkeypatch.setattr(tadoku_sync, "_next_daily_run", lambda: 100.5)
+    monkeypatch.setattr(kechimochi_sync, "reschedule_kechimochi_run", lambda: 200.25)
+    job = {"id": 4, "name": "tadoku_sync", "schedule": "daily"}
+    assert scheduler._execute_desktop_job(job) == (True, 100.5)
+    assert scheduler._execute_desktop_job(job | {"id": None}) == (True, None)
+    assert scheduler._execute_desktop_job(job | {"schedule": "hourly"}) == (True, None)
+    assert scheduler._execute_desktop_job(job | {"name": "kechimochi_sync"}) == (True, 200.25)
+    assert all(row_id == -1 and isolated for row_id, _, isolated in calls)
+    monkeypatch.setattr(run_crons, "_execute_cron", lambda *args, **kwargs: {"_failed": True})
+    assert scheduler._execute_desktop_job(job) == (False, None)
 
 
 def test_scheduler_runs_initial_check_on_dedicated_thread(monkeypatch):
@@ -269,8 +324,8 @@ def test_cron_table_cache_reuses_enabled_crons_until_refresh(monkeypatch):
         return [
             SimpleNamespace(
                 id=1,
-                name=run_crons.Crons.USER_PLUGINS.value,
-                description="Custom user plugins",
+                name=run_crons.Crons.POPULATE_GAMES.value,
+                description="Populate games",
                 enabled=True,
                 next_run=clock["wall"] - 1,
             )
@@ -341,7 +396,7 @@ def test_quarter_hourly_cron_schedule_advances_15_minutes(monkeypatch):
 
     class DummyCron:
         id = 1
-        name = "user_plugins"
+        name = "populate_games"
         schedule = "quarter_hourly"
         enabled = True
         last_run = None

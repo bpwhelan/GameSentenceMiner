@@ -283,7 +283,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "afkTimer": 5,
         "dictionaryReaderSelection": "yomitan",
         "focusOverlayOnYomitanLookup": false,
-        "textHoverClickThrough": true,
+        "textHoverClickThrough": false,
         "hideYomitanAfterMine": false,
         "routeAllHotkeysThroughInputServer": false,
         "manualMode": false,
@@ -314,6 +314,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "vnGuideMode": "auto",
         "vnGuideDisplayStyle": "card",
         "vnGuideAutoAdvance": true,
+        "vnGuideClickThroughOnChoice": true,
         "vnGuideToggleHotkey": "Alt+Shift+G",
         "vnGuideNextHotkey": "Alt+Shift+Right",
         "vnGuideBackHotkey": "Alt+Shift+Left",
@@ -364,7 +365,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "platformOverride": Value::Null,
         "magpieCompatibility": true,
         // GSM-owned OCR defaults mirrored locally for immediate UI readiness
-        "engine_v2": "oneocr",
+        "engine_v2": if cfg!(windows) { "oneocr" } else { "meikiocr" },
         "monitor_to_capture": 0,
         "monitor_to_capture_id": "",
         "periodic": false,
@@ -1357,6 +1358,18 @@ pub fn resolve_hotkey_conflicts(settings: &mut Map<String, Value>) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_click_through_defaults_off_and_loads_saved_choices() {
+        let directory = tempfile::tempdir().unwrap();
+        let read_preference = || load_settings_from_disk(directory.path(), 7275)["textHoverClickThrough"].as_bool();
+        assert_eq!(read_preference(), Some(false));
+        for enabled in [true, false] {
+            let saved = json!({"textHoverClickThrough": enabled});
+            fs::write(settings_file_path(directory.path()), saved.to_string()).unwrap();
+            assert_eq!(read_preference(), Some(enabled));
+        }
+    }
 
     #[test]
     fn imports_legacy_dismissals_indicators_and_controller_names_before_defaults() {

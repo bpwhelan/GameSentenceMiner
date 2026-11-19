@@ -21,7 +21,12 @@ import {log} from './log.js';
  * This class safely handles performance methods.
  */
 class SafePerformance {
-    constructor() {}
+    constructor() {
+        /** @type {Map<string, number>} */
+        this._markCounts = new Map();
+        /** @type {Map<string, number>} */
+        this._measureCounts = new Map();
+    }
 
     /**
      * @param {string} markName
@@ -30,6 +35,10 @@ class SafePerformance {
      */
     mark(markName, markOptions) {
         try {
+            if (this._rollOver(this._markCounts, markName)) {
+                // eslint-disable-next-line no-restricted-syntax
+                performance.clearMarks(markName);
+            }
             // eslint-disable-next-line no-restricted-syntax
             return performance.mark(markName, markOptions);
         } catch (e) {
@@ -46,6 +55,10 @@ class SafePerformance {
      */
     measure(measureName, startOrMeasureOptions, endMark) {
         try {
+            if (this._rollOver(this._measureCounts, measureName)) {
+                // eslint-disable-next-line no-restricted-syntax
+                performance.clearMeasures(measureName);
+            }
             // eslint-disable-next-line no-restricted-syntax
             return performance.measure(measureName, startOrMeasureOptions, endMark);
         } catch (e) {
@@ -59,6 +72,20 @@ class SafePerformance {
     now() {
         // eslint-disable-next-line no-restricted-syntax
         return performance.now();
+    }
+
+    /**
+     * Bound the timeline in long-lived scanners and dictionary workers. Clear
+     * each name only when replacing it so an in-flight measurement can still
+     * find its start mark. Recent entries remain available for diagnostics.
+     * @param {Map<string, number>} counts
+     * @param {string} name
+     * @returns {boolean}
+     */
+    _rollOver(counts, name) {
+        const count = counts.get(name) ?? 0;
+        counts.set(name, count === 64 ? 1 : count + 1);
+        return count === 64;
     }
 }
 

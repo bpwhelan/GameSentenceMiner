@@ -15,6 +15,7 @@ pub fn select(cancel: &dyn Fn() -> bool) -> Result<Option<RgbaImage>, String> {
 #[cfg(windows)]
 mod win {
     use super::*;
+    use gsm_capture::desktop::DesktopBitmap;
     use std::ffi::c_void;
     use windows::{
         core::w,
@@ -22,97 +23,93 @@ mod win {
             Foundation::*,
             Graphics::{Dwm::*, Gdi::*},
             System::LibraryLoader::GetModuleHandleW,
-            UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*},
+            UI::{
+                Controls::{
+                    BeginBufferedPaint, BufferedPaintInit, BufferedPaintUnInit, EndBufferedPaint,
+                    BPBF_COMPATIBLEBITMAP,
+                },
+                Input::KeyboardAndMouse::*,
+                WindowsAndMessaging::*,
+            },
         },
     };
     struct Picker {
-        image: RgbaImage,
-        bright: Vec<u32>,
-        dark: Vec<u32>,
-        paint: Vec<u32>,
+        image: DesktopBitmap,
+        dimmed: DesktopBitmap,
         start: Option<(i32, i32)>,
         point: (i32, i32),
-        selected: Option<[u32; 4]>,
+        selected: Option<RECT>,
     }
+
+    fn selection_rect(
+        (width, height): (u32, u32),
+        start: Option<(i32, i32)>,
+        (x, y): (i32, i32),
+    ) -> Option<RECT> {
+        let (sx, sy) = start?;
+        let rect = RECT {
+            left: sx.min(x).clamp(0, width as i32),
+            top: sy.min(y).clamp(0, height as i32),
+            right: sx.max(x).clamp(0, width as i32),
+            bottom: sy.max(y).clamp(0, height as i32),
+        };
+        (rect.right - rect.left >= 3 && rect.bottom - rect.top >= 3).then_some(rect)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
         #[test]
         fn reversed_drag_clamps_to_physical_pixels_and_clicks_cancel() {
-            let mut p = Picker {
-                image: RgbaImage::new(100, 50),
-                bright: vec![],
-                dark: vec![],
-                paint: vec![],
-                start: Some((80, 40)),
-                point: (-10, -20),
-                selected: None,
+            let select = |point| {
+                selection_rect((100, 50), Some((80, 40)), point)
+                    .map(|r| [r.left, r.top, r.right, r.bottom])
             };
-            assert_eq!(p.rect(), Some([0, 0, 80, 40]));
-            p.point = (81, 41);
-            assert_eq!(p.rect(), None);
-            p.point = (120, 60);
-            assert_eq!(p.rect(), Some([80, 40, 100, 50]));
+            assert_eq!(select((-10, -20)), Some([0, 0, 80, 40]));
+            assert_eq!(select((81, 41)), None);
+            assert_eq!(select((120, 60)), Some([80, 40, 100, 50]));
         }
     }
     impl Picker {
-        fn rect(&self) -> Option<[u32; 4]> {
-            let (sx, sy) = self.start?;
-            let (x, y) = self.point;
-            let w = self.image.width() as i32;
-            let h = self.image.height() as i32;
-            let r = [
-                sx.min(x).clamp(0, w) as u32,
-                sy.min(y).clamp(0, h) as u32,
-                sx.max(x).clamp(0, w) as u32,
-                sy.max(y).clamp(0, h) as u32,
-            ];
-            (r[2] - r[0] >= 3 && r[3] - r[1] >= 3).then_some(r)
+        fn rect(&self) -> Option<RECT> {
+            selection_rect(self.image.dimensions(), self.start, self.point)
         }
-        unsafe fn draw(&mut self, hwnd: HWND) {
-            self.paint.copy_from_slice(&self.dark);
-            let width = self.image.width() as usize;
-            if let Some([x, y, r, b]) = self.rect() {
-                for row in y..b {
-                    let offset = row as usize * width;
-                    self.paint[offset + x as usize..offset + r as usize]
-                        .copy_from_slice(&self.bright[offset + x as usize..offset + r as usize]);
-                    self.paint[offset + x as usize] = 0x00ff3b30;
-                    self.paint[offset + r as usize - 1] = 0x00ff3b30;
-                }
-                for col in x..r {
-                    self.paint[y as usize * width + col as usize] = 0x00ff3b30;
-                    self.paint[(b as usize - 1) * width + col as usize] = 0x00ff3b30;
+        unsafe fn draw(&self, dc: HDC, dirty: RECT) {
+            let Some(rect) = self.rect() else {
+                self.dimmed.blit(dc, dirty);
+                return;
+            };
+            // Compose the dirty area before publishing it so the dimmed
+            // background never flashes through a selection during a drag.
+            let mut buffer_dc = HDC::default();
+            let buffer =
+                BeginBufferedPaint(dc, &dirty, BPBF_COMPATIBLEBITMAP, None, &mut buffer_dc);
+            if buffer != 0 {
+                self.draw_selection(buffer_dc, dirty, rect);
+                if EndBufferedPaint(buffer, true).is_ok() {
+                    return;
                 }
             }
-            let mut ps = PAINTSTRUCT::default();
-            let dc = BeginPaint(hwnd, &mut ps);
-            let mut info = BITMAPINFO::default();
-            info.bmiHeader = BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: self.image.width() as i32,
-                biHeight: -(self.image.height() as i32),
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            };
-            StretchDIBits(
-                dc,
-                0,
-                0,
-                self.image.width() as i32,
-                self.image.height() as i32,
-                0,
-                0,
-                self.image.width() as i32,
-                self.image.height() as i32,
-                Some(self.paint.as_ptr().cast()),
-                &info,
-                DIB_RGB_COLORS,
-                SRCCOPY,
-            );
-            let _ = EndPaint(hwnd, &ps);
+            self.draw_selection(dc, dirty, rect);
+        }
+
+        unsafe fn draw_selection(&self, dc: HDC, dirty: RECT, rect: RECT) {
+            self.dimmed.blit(dc, dirty);
+            self.image.blit(dc, rect);
+            let _ = SetDCBrushColor(dc, COLORREF(0x0030_3bff));
+            let _ = FrameRect(dc, &rect, HBRUSH(GetStockObject(DC_BRUSH).0));
+        }
+    }
+
+    struct BufferedPaintThread;
+    impl BufferedPaintThread {
+        fn init() -> Option<Self> {
+            unsafe { BufferedPaintInit() }.ok().map(|()| Self)
+        }
+    }
+    impl Drop for BufferedPaintThread {
+        fn drop(&mut self) {
+            let _ = unsafe { BufferedPaintUnInit() };
         }
     }
     unsafe extern "system" fn procedure(
@@ -129,35 +126,43 @@ mod win {
         if state.is_null() {
             return DefWindowProcW(hwnd, msg, wparam, lparam);
         }
-        let state = &mut *state;
+        let pointer = || {
+            (
+                (lparam.0 as u16 as i16) as i32,
+                ((lparam.0 >> 16) as u16 as i16) as i32,
+            )
+        };
         match msg {
             WM_ERASEBKGND => return LRESULT(1),
             WM_PAINT => {
-                state.draw(hwnd);
+                let mut ps = PAINTSTRUCT::default();
+                let dc = BeginPaint(hwnd, &mut ps);
+                if !dc.0.is_null() {
+                    (*state).draw(dc, ps.rcPaint);
+                }
+                let _ = EndPaint(hwnd, &ps);
                 return LRESULT(0);
             }
             WM_LBUTTONDOWN => {
-                state.point = (
-                    (lparam.0 as u16 as i16) as i32,
-                    ((lparam.0 >> 16) as u16 as i16) as i32,
-                );
+                let state = &mut *state;
+                state.point = pointer();
                 state.start = Some(state.point);
                 SetCapture(hwnd);
             }
             WM_MOUSEMOVE => {
-                state.point = (
-                    (lparam.0 as u16 as i16) as i32,
-                    ((lparam.0 >> 16) as u16 as i16) as i32,
-                );
-                if state.start.is_some() {
-                    let _ = InvalidateRect(Some(hwnd), None, false);
+                let state = &mut *state;
+                let old = state.rect();
+                state.point = pointer();
+                let new = state.rect();
+                if old != new {
+                    for rect in [old, new].iter().flatten() {
+                        let _ = InvalidateRect(Some(hwnd), Some(rect), false);
+                    }
                 }
             }
             WM_LBUTTONUP => {
-                state.point = (
-                    (lparam.0 as u16 as i16) as i32,
-                    ((lparam.0 >> 16) as u16 as i16) as i32,
-                );
+                let state = &mut *state;
+                state.point = pointer();
                 state.selected = state.rect();
                 let _ = ReleaseCapture();
                 let _ = DestroyWindow(hwnd);
@@ -186,20 +191,19 @@ mod win {
         // Tauri windows may use logical units; the native picker and capture
         // always use physical pixels, including mixed-DPI/negative-origin displays.
         let _dpi = DpiScope::new();
+        if cancel() {
+            return Ok(None);
+        }
         let started = std::time::Instant::now();
-        let snapshot = gsm_capture::desktop_snapshot()?;
+        let (snapshot, left, top) = gsm_capture::desktop::capture()?;
         let captured_ms = started.elapsed().as_secs_f64() * 1000.;
         if cancel() {
             return Ok(None);
         }
-        let size = snapshot.image.dimensions();
-        pick(
-            snapshot.image,
-            snapshot.left,
-            snapshot.top,
-            cancel,
-            |hwnd| ready(hwnd, size, captured_ms, 0.),
-        )
+        let size = snapshot.dimensions();
+        pick(snapshot, left, top, cancel, |hwnd, compose_ms| {
+            ready(hwnd, size, captured_ms, compose_ms)
+        })
     }
 
     struct DpiScope(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT);
@@ -222,30 +226,22 @@ mod win {
         }
     }
     fn pick(
-        image: RgbaImage,
+        image: DesktopBitmap,
         left: i32,
         top: i32,
         cancel: &dyn Fn() -> bool,
-        ready: impl FnOnce(HWND),
+        ready: impl FnOnce(HWND, f64),
     ) -> Result<Option<RgbaImage>, String> {
         let (w, h) = image.dimensions();
-        let bright: Vec<_> = image
-            .pixels()
-            .map(|p| (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32)
-            .collect();
-        let dark: Vec<_> = image
-            .pixels()
-            .map(|p| {
-                ((p[0] as u32 * 45 / 100) << 16)
-                    | ((p[1] as u32 * 45 / 100) << 8)
-                    | (p[2] as u32 * 45 / 100)
-            })
-            .collect();
+        let started = std::time::Instant::now();
+        let dimmed = image.dimmed()?;
+        let compose_ms = started.elapsed().as_secs_f64() * 1000.;
+        if cancel() {
+            return Ok(None);
+        }
         let mut picker = Box::new(Picker {
             image,
-            paint: dark.clone(),
-            bright,
-            dark,
+            dimmed,
             start: None,
             point: (0, 0),
             selected: None,
@@ -290,7 +286,8 @@ mod win {
             let _ = SetForegroundWindow(hwnd);
             let _ = InvalidateRect(Some(hwnd), None, false);
             let _ = UpdateWindow(hwnd);
-            ready(hwnd);
+            let _buffered_paint = BufferedPaintThread::init();
+            ready(hwnd, compose_ms);
             let mut message = MSG::default();
             loop {
                 let received = GetMessageW(&mut message, None, 0, 0).0;
@@ -309,8 +306,10 @@ mod win {
                 let _ = DestroyWindow(hwnd);
             }
         }
-        Ok(picker.selected.map(|[x, y, r, b]| {
-            image::imageops::crop_imm(&picker.image, x, y, r - x, b - y).to_image()
+        Ok(picker.selected.map(|r| {
+            picker
+                .image
+                .crop_rgba([r.left as u32, r.top as u32, r.right as u32, r.bottom as u32])
         }))
     }
     #[cfg(test)]
@@ -382,7 +381,8 @@ mod win {
         let _dpi = DpiScope::new();
         for color in [[200u8, 100, 50, 255], [40, 180, 220, 255]] {
             let source = RgbaImage::from_pixel(200, 120, image::Rgba(color));
-            pick(source, 100, 100, &|| false, |hwnd| {
+            let bitmap = DesktopBitmap::from_rgba(&source).unwrap();
+            pick(bitmap, 100, 100, &|| false, |hwnd, _| {
                 unsafe {
                     let _ = DwmFlush();
                 }
@@ -431,7 +431,8 @@ mod win {
         let _dpi = DpiScope::new();
         let source = RgbaImage::from_fn(200, 120, |x, y| image::Rgba([x as u8, y as u8, 42, 255]));
         for cancel in [true, false, true, false] {
-            let image = pick(source.clone(), 100, 100, &|| false, |hwnd| unsafe {
+            let bitmap = DesktopBitmap::from_rgba(&source).unwrap();
+            let image = pick(bitmap, 100, 100, &|| false, |hwnd, _| unsafe {
                 if cancel {
                     PostMessageW(
                         Some(hwnd),
@@ -441,15 +442,38 @@ mod win {
                     )
                     .unwrap();
                 } else {
-                    PostMessageW(
-                        Some(hwnd),
+                    SendMessageW(
+                        hwnd,
                         WM_LBUTTONDOWN,
-                        WPARAM(0),
-                        LPARAM(10 | (20 << 16)),
-                    )
-                    .unwrap();
-                    PostMessageW(Some(hwnd), WM_MOUSEMOVE, WPARAM(0), LPARAM(90 | (80 << 16)))
-                        .unwrap();
+                        Some(WPARAM(0)),
+                        Some(LPARAM(10 | (20 << 16))),
+                    );
+                    let drag = |x: i32, y: i32| {
+                        SendMessageW(
+                            hwnd,
+                            WM_MOUSEMOVE,
+                            Some(WPARAM(0)),
+                            Some(LPARAM((x | (y << 16)) as isize)),
+                        );
+                        let _ = UpdateWindow(hwnd);
+                        let dc = GetDC(Some(hwnd));
+                        let pixels = [GetPixel(dc, 10, 20), GetPixel(dc, 60, 60)];
+                        ReleaseDC(Some(hwnd), dc);
+                        pixels
+                    };
+                    let [border, inside] = drag(90, 80);
+                    let [_, outside] = drag(40, 45);
+                    let [old_border, _] = drag(11, 21);
+                    let [reopened_border, restored_inside] = drag(90, 80);
+                    // A locked or non-interactive desktop can reject GDI readback.
+                    if inside.0 != u32::MAX {
+                        assert_eq!(border.0, 0x0030_3bff);
+                        assert_eq!(inside.0, 0x002a_3c3c);
+                        assert_eq!(outside.0, 0x0012_1b1b);
+                        assert_eq!(old_border.0, 0x0012_0904);
+                        assert_eq!(reopened_border, border);
+                        assert_eq!(restored_inside, inside);
+                    }
                     PostMessageW(Some(hwnd), WM_LBUTTONUP, WPARAM(0), LPARAM(90 | (80 << 16)))
                         .unwrap();
                 }
@@ -466,11 +490,11 @@ mod win {
         }
         let cancelled = std::sync::atomic::AtomicBool::new(false);
         let image = pick(
-            source,
+            DesktopBitmap::from_rgba(&source).unwrap(),
             100,
             100,
             &|| cancelled.load(std::sync::atomic::Ordering::Relaxed),
-            |_| cancelled.store(true, std::sync::atomic::Ordering::Relaxed),
+            |_, _| cancelled.store(true, std::sync::atomic::Ordering::Relaxed),
         )
         .unwrap();
         assert!(

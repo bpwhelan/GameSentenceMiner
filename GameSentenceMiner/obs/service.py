@@ -10,6 +10,9 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
 
 import obsws_python as obs
+from GameSentenceMiner.native import anki_monitor
+from GameSentenceMiner.obs import desktop_session
+from GameSentenceMiner.obs import outputs
 from obsws_python.util import to_snake_case
 
 from GameSentenceMiner.util.config.configuration import (
@@ -504,11 +507,14 @@ class OBSService:
                 if self.check_output:
                     _sync_obs_recording_directory(client, service=self)
 
-                response = client.get_current_program_scene()
-                scene_name = response.scene_name if response else ""
+                if desktop_session.enabled():
+                    scene_name = desktop_session.snapshot()["scene"]
+                else:
+                    response = client.get_current_program_scene()
+                    scene_name = response.scene_name if response else ""
                 with self._state_lock:
                     self.state.current_scene = scene_name
-                if scene_name:
+                if scene_name and not desktop_session.enabled():
                     gsm_state.current_game = scene_name
                 self._refresh_scene_items(scene_name, client=client)
 
@@ -519,7 +525,9 @@ class OBSService:
                 try:
                     replay_status = client.get_replay_buffer_status()
                     with self._state_lock:
-                        self.state.replay_buffer_active = replay_status.output_active if replay_status else None
+                        outputs.set_replay_buffer_active(
+                            self.state, replay_status.output_active if replay_status else None
+                        )
                 except Exception:
                     pass
 
@@ -537,16 +545,27 @@ class OBSService:
     # -- default event handlers ----------------------------------------------
 
     def _register_default_handlers(self):
-        self.on("CurrentProgramSceneChanged", self._handle_current_program_scene_changed)
+        if not desktop_session.enabled():
+            self.on("SceneNameChanged", self._handle_scene_name_changed)
+            self.on("CurrentProgramSceneChanged", self._handle_current_program_scene_changed)
         self.on("SceneItemCreated", self._handle_scene_item_change)
         self.on("SceneItemRemoved", self._handle_scene_item_change)
         self.on("SceneItemEnableStateChanged", self._handle_scene_item_change)
-        self.on("SceneNameChanged", self._handle_scene_name_changed)
         self.on("InputActiveStateChanged", self._handle_input_active_state_changed)
         self.on("InputShowStateChanged", self._handle_input_show_state_changed)
         self.on("ReplayBufferStateChanged", self._handle_replay_buffer_state_changed)
         self.on("RecordStateChanged", self._handle_record_state_changed)
         self.on("RecordFileChanged", self._handle_record_file_changed)
+
+    def apply_desktop_scene(self, scene):
+        from types import SimpleNamespace
+
+        if scene:
+            self._handle_current_program_scene_changed(SimpleNamespace(scene_name=scene))
+        else:
+            with self._state_lock:
+                self.state.current_scene = ""
+                self.state.current_source_name = None
 
     def _handle_current_program_scene_changed(self, data):
         logger.info("Handling CurrentProgramSceneChanged event." + str(data))
@@ -558,7 +577,8 @@ class OBSService:
             self.state.current_scene = scene_name
             self.state.current_source_name = None
 
-        gsm_state.current_game = scene_name
+        if not desktop_session.enabled():
+            gsm_state.current_game = scene_name
 
         try:
             self._refresh_scene_items(scene_name)
@@ -623,7 +643,10 @@ class OBSService:
             self.state.input_show_by_name[input_name] = bool(is_showing)
 
     def _handle_replay_buffer_state_changed(self, data):
+        with outputs.replay_action_lock:
+            self._apply_replay_buffer_state_changed(data)
 
+    def _apply_replay_buffer_state_changed(self, data):
         output_active = getattr(data, "output_active", None)
         if output_active is None:
             return
@@ -635,7 +658,7 @@ class OBSService:
         # "stopped outside GSM" or touch auto-start state they never use.
         if not self.check_output:
             with self._state_lock:
-                self.state.replay_buffer_active = bool(output_active)
+                outputs.set_replay_buffer_active(self.state, bool(output_active))
             return
 
         now = time.monotonic()
@@ -677,7 +700,7 @@ class OBSService:
             self._auto_start_paused_by_external_replay_stop = True
 
         with self._state_lock:
-            self.state.replay_buffer_active = bool(output_active)
+            outputs.set_replay_buffer_active(self.state, bool(output_active))
 
     def _handle_record_state_changed(self, data):
         import GameSentenceMiner.obs as _obs_pkg
@@ -728,7 +751,7 @@ class OBSService:
         if rba is not None:
             rba = bool(rba)
             with self._state_lock:
-                self.state.replay_buffer_active = rba
+                outputs.set_replay_buffer_active(self.state, rba)
         return rba
 
     # -- scene items & source helpers ----------------------------------------
@@ -895,7 +918,7 @@ class OBSService:
 
         if replay_status:
             with self._state_lock:
-                self.state.replay_buffer_active = replay_status.output_active
+                outputs.set_replay_buffer_active(self.state, replay_status.output_active)
 
     # -- source probing ------------------------------------------------------
 
@@ -1168,7 +1191,7 @@ class OBSService:
         with self._state_lock:
             current_scene = self.state.current_scene
 
-        if resolved.refresh_current_scene:
+        if resolved.refresh_current_scene and not desktop_session.enabled():
             from GameSentenceMiner.obs.actions import get_current_scene
 
             refreshed = get_current_scene()
@@ -1217,6 +1240,9 @@ def _bind_obs_service_clients():
     else:
         _obs_pkg.connection_pool = None
         _obs_pkg.event_client = None
+    # The constructor probes replay state before this service is published.
+    # Re-read the gate now that the monitor can see the new service.
+    anki_monitor.wake()
 
 
 def _recover_obs_service_clients_sync() -> bool:
@@ -1500,7 +1526,8 @@ async def connect_to_obs(
                     try:
                         from GameSentenceMiner.obs.actions import start_recording
 
-                        start_recording(True)
+                        # The desktop reply arrives on this same transport loop.
+                        await asyncio.to_thread(start_recording, True)
                     except Exception:
                         pass
                 break
@@ -1512,6 +1539,7 @@ async def connect_to_obs(
                     _obs_pkg.connection_pool = None
                     _obs_pkg.event_client = None
                     _obs_pkg.obs_service = None
+                    anki_monitor.wake(replay_changed=True)
                     break
                 await asyncio.sleep(1)
     finally:
@@ -1585,6 +1613,7 @@ def connect_to_obs_sync(
                     _obs_pkg.connection_pool = None
                     _obs_pkg.event_client = None
                     _obs_pkg.obs_service = None
+                    anki_monitor.wake(replay_changed=True)
                     break
                 time.sleep(1)
     finally:
@@ -1597,6 +1626,7 @@ def disconnect_from_obs():
     if _obs_pkg.obs_service:
         _obs_pkg.obs_service.disconnect()
         _obs_pkg.obs_service = None
+        anki_monitor.wake(replay_changed=True)
     _obs_pkg.connection_pool = None
     _obs_pkg.event_client = None
     logger.info("Disconnected from OBS WebSocket.")
@@ -1646,7 +1676,7 @@ def _restart_replay_buffer_for_directory(client, service):
     client.start_replay_buffer()
     if service:
         with service._state_lock:
-            service.state.replay_buffer_active = True
+            outputs.set_replay_buffer_active(service.state, True)
         service._auto_start_paused_by_external_replay_stop = False
     gsm_state.replay_buffer_stopped_timestamp = None
 

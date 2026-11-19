@@ -1,5 +1,12 @@
 import fs from 'node:fs/promises';
+import {readFileSync} from 'node:fs';
 import path from 'node:path';
+
+const downloadCatalog = JSON.parse(readFileSync(new URL('../native/gsm-downloads/assets.json', import.meta.url)));
+const downloadableFiles = new Set(Object.values(downloadCatalog).map(asset => asset.source));
+for (const id of Object.keys(downloadCatalog)) {
+  if (id.startsWith('icons/')) downloadableFiles.add('assets/' + id.slice('icons/'.length));
+}
 
 const generatedDirectories = new Set([
   'node_modules',
@@ -45,14 +52,16 @@ export const forbiddenDependencies = [
 export function includeSource(relative, platform = process.platform) {
   const name = slash(relative);
   if (!name) return true;
+  if (downloadableFiles.has(name)) return false;
   for (const prefix of forbiddenRuntimeDirectories) {
     if (name === prefix || name.startsWith(prefix + '/')) return false;
   }
   if (name.split('/').some(part => generatedDirectories.has(part))) return false;
   if (/\.(?:pyc|pyo|map|pdb|obj|ilk|exp|d\.ts|tsbuildinfo)$|\.(?:test|spec)\.[^/]+$/.test(name)) return false;
+  if (name === 'native/gsm-agent' || name.startsWith('native/gsm-agent/') || /(?:^|\/)gsm-agent-(?:host(?:\.exe)?|runtime-[^/]+\.zip)$/.test(name)) return false;
   if (/^native\/gsm-(settings|packages)(\/|$)/.test(name)) return false;
   if (name.startsWith('native/gsm-runtime/') || name === 'native/gsm-runtime') return false;
-  if (['GSM_Overlay/window.js', 'GameSentenceMiner/owocr/rapidocr_japan_PP-OCRv4_rec_infer.onnx'].includes(name)) return false;
+  if (name === 'GSM_Overlay/window.js') return false;
   if (name === 'GameSentenceMiner/mecab' || name.startsWith('GameSentenceMiner/mecab/')) return false;
   if (name.endsWith('/mecab_bridge.py') || /(?:^|\/)system_(?:small|core|full)\.dic$/.test(name)) return false;
   return true;
@@ -81,6 +90,7 @@ export async function auditNativePackage(directory, options = process.platform) 
       if (entry.isDirectory() && (await fs.readdir(filename)).length === 0) continue;
       if (
         !includeSource(relative, platform) ||
+        (relative.startsWith('assets/') && !includeSource('electron-src/' + relative, platform)) ||
         relative === 'dist/renderer/legacy/changelog' ||
         relative === 'dist/renderer/legacy/texthook'
       ) {

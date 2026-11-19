@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeDevCommand": "npm run dev:prepare && npm run dev:renderer",
+    "additionalWatchFolders": [
+      "../native/gsm-settings/src", "../native/gsm-packages/src", "../native/gsm-history/src",
+      "../native/gsm-text-preview/src", "../native/gsm-runtime/src", "../native/gsm-agent/src",
+      "../native/gsm-capture/src", "../native/gsm-texthook/src",
+      "../native/gsm-overlay/src", "../native/gsm-native/src",
+      "../GSM_Overlay/input_server/language/src"
+    ]
+  }
+}

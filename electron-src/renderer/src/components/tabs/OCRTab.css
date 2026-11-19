@@ -983,6 +983,27 @@
   border-radius: 0;
   background: transparent;
 }
+.ocr-engine-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ocr-desk button.help-tip {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--gsm-text-secondary);
+  font-size: 12px;
+  line-height: 1;
+  cursor: help;
+}
 .ocr-desk .ocr-pipeline-control--toggle {
   flex-direction: row-reverse;
   align-items: center;

@@ -43,6 +43,7 @@ _OVERLAY_ATTR_BY_ENGINE = {
     OverlayEngine.MEIKIOCR.value: "meikiocr",
     OverlayEngine.SCREENAI.value: "screenai",
     OverlayEngine.VITAOCR.value: "vitaocr",
+    OverlayEngine.MIDA_VOCR.value: "vitaocr",
 }
 
 # Map a configured ocr2 engine name (OCR tab values) -> overlay engine enum value.
@@ -53,6 +54,7 @@ _OCR2_TO_OVERLAY = {
     "meikiocr": OverlayEngine.MEIKIOCR.value,
     "screenai": OverlayEngine.SCREENAI.value,
     "vitaocr": OverlayEngine.VITAOCR.value,
+    "mida_vocr": OverlayEngine.MIDA_VOCR.value,
 }
 
 _lens_lock = threading.Lock()
@@ -104,7 +106,7 @@ def _overlay_local_engine(overlay) -> tuple[Any, Optional[str]]:
     ):
         inst = getattr(overlay, _OVERLAY_ATTR_BY_ENGINE[value], None)
         if inst is not None:
-            return inst, value
+            return inst, getattr(inst, "name", value) if value == OverlayEngine.VITAOCR.value else value
     return None, None
 
 

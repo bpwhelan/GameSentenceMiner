@@ -160,7 +160,10 @@ class FrameWorker(QThread):
             "json",
             self.source_path,
         ]
-        result = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+        result = self._run_batch(command, self.latest_generation, timeout=30)
+        if result is None:
+            return
+        result.check_returncode()
         info = json.loads(result.stdout)
         self.duration = float(info["format"]["duration"])
         if not math.isfinite(self.duration) or self.duration <= 0:
@@ -176,15 +179,15 @@ class FrameWorker(QThread):
     def _obsolete(self, generation):
         return self.cancelled.is_set() or generation != self.latest_generation
 
-    def _run_batch(self, command, generation):
+    def _run_batch(self, command, generation, timeout=60):
         if self._obsolete(generation):
             return None
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         started = time.monotonic()
         try:
             while not self._obsolete(generation):
-                if time.monotonic() - started > 60:
-                    raise subprocess.TimeoutExpired(command, 60)
+                if time.monotonic() - started > timeout:
+                    raise subprocess.TimeoutExpired(command, timeout)
                 try:
                     stdout, stderr = process.communicate(timeout=0.1)
                     return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
@@ -270,6 +273,8 @@ class FrameWorker(QThread):
     def run(self):
         try:
             self._probe()
+            if self.cancelled.is_set():
+                return
             self.probed.emit(self.session, self.duration, self.fps, "")
         except Exception as exc:  # noqa: BLE001 - surface probe errors to the dialog
             self.probed.emit(self.session, 0.0, 0.0, str(exc))
@@ -442,6 +447,13 @@ class ScreenshotSelectorDialog(QDialog):
             self._retired.remove(worker)
         if self is not _screenshot_selector_instance and not self._active and not self._retired:
             _extra_dialogs.discard(self)
+
+    def finish_workers(self):
+        """Join cancelled decoders before a one-shot host destroys its Qt application."""
+        self._stop_worker()
+        for worker in tuple(self._retired):
+            worker.wait()
+            self._cleanup_worker(worker)
 
     def _on_probed(self, session, duration, fps, error):
         if session != self._session or not self._active:

@@ -9,7 +9,11 @@ test('includeSource excludes Node runtime, JS backend, build caches, sourcemaps,
   assert.equal(includeSource('dist/renderer/index.html'), true);
   assert.equal(includeSource('assets/scripts/legacy_dictionary_export.py'), true);
   assert.equal(includeSource('GameSentenceMiner/gsm.py'), true);
-  assert.equal(includeSource('GameSentenceMiner/assets/vocr/small-faithful.onnx'), true);
+  assert.equal(includeSource('GameSentenceMiner/assets/vocr/small-faithful.onnx'), false);
+  assert.equal(includeSource('GameSentenceMiner/assets/vocr/manifest.json'), true);
+  assert.equal(includeSource('assets/gsm_cute.ico'), false);
+  assert.equal(includeSource('assets/gsm.ico'), true);
+  assert.equal(includeSource('GSM_Overlay/yomitan/fonts/NotoSansJP-Regular.ttf'), false);
   assert.equal(includeSource('GSM_Overlay/hachidori/SOURCE.json'), true);
   assert.equal(includeSource('runtime/node.exe'), false);
   assert.equal(includeSource('runtime/node'), false);
@@ -33,6 +37,13 @@ test('excludes MeCab and runtime Sudachi dictionaries on every platform', () => 
     }
     assert.equal(includeSource('GSM_Overlay/input_server/mecab_bridge.py', platform), false);
     assert.equal(includeSource('GameSentenceMiner/sudachi/system_small.dic', platform), false);
+  }
+});
+
+test('Agent / Frida runtime is downloaded, while its pinned metadata is packaged', () => {
+  assert.equal(includeSource('native/agent-runtime.json'), true);
+  for (const name of ['native/gsm-agent/gsm-agent-host.exe', 'native/gsm-agent/gsm-agent-host', 'assets/gsm-agent-runtime-win32-x64.zip']) {
+    assert.equal(includeSource(name), false, name);
   }
 });
 

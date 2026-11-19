@@ -3,8 +3,8 @@
 Agents can request a full desktop restart, including GSM's backend and managed
 helpers, through the running app's authenticated local message bus.
 
-Start GSM once with this feature included (`npm start`). Subsequent agent changes
-can use the command below from the repository root:
+Start GSM once from the checkout with `npm start` or `npm run start:optimized`.
+Subsequent agent changes can use the command below from the repository root:
 
 ```powershell
 npm run agent:restart -- --build --reason "The OCR fix is ready to try"
@@ -60,12 +60,33 @@ normally the command resolves GSM's relocated data directory automatically.
 For a launch using `-profile`, pass that profile folder with `--data-dir`.
 See [Portable profiles](PORTABLE_PROFILES.md) for isolated development and language data.
 
-Use `npm start` for this workflow. `npm run dev` owns a watcher-driven restart loop
+Use `npm start` or `npm run start:optimized` for this workflow. `npm run dev` owns a watcher-driven restart loop
 and is deliberately rejected, since rebuilding watched files could otherwise
 restart the desktop before the warning. Manually started tools follow their normal
 startup settings; this command does not promise to restore an unsaved UI session.
 An independently launched overlay or other tool is outside the main app's managed
 processes and must be restarted separately when its code changes.
+
+## Optimized local builds
+
+Use `npm run start:optimized` to build and run the Windows, macOS, or Linux desktop
+from this checkout with Cargo's release profile. The desktop, input server, and
+Agent helper use release builds. The app uses your existing GSM profile and the
+checkout's Python backend.
+
+If GSM is already running from the checkout, stage the optimized build and use
+the normal restart warning to switch over:
+
+```powershell
+npm run build:tauri:optimized
+npm run agent:restart -- --handoff --reason "Optimized GSM build is ready"
+```
+
+`npm start` and `agent:restart -- --build` reuse the last successfully built
+profile. To switch back, run `npm run build:tauri -- --debug` and restart GSM.
+`npm run dev` always uses the debug profile and Vite hot reload.
+
+## How restarts work
 
 Development builds run the native Tauri executable; Node is used by the build and
 development launcher scripts, not by the running desktop services. Each completed
@@ -75,7 +96,23 @@ next build. The build also compiles the shared input/Sudachi helper and copies i
 alongside the desktop executable. Development launches use that matching helper,
 not older packaged copies left under `GSM_Overlay/input_server/bin`. The launcher
 and development restart resolve the latest successful
-build through its platform-specific pointer. Installed apps restart their own
+build through its platform-specific pointer. On Windows, that immutable build
+bootstraps a stable `desktop-runs/win32-<arch>-current` launch copy after the old
+desktop process exits. Only the desktop executable is replaced there, preserving
+the path Windows uses for tray visibility preferences. Its helpers run from the
+matching immutable build recorded in `build-source.txt`. Detached game hooks may
+outlive the desktop; their executables are never overwritten during relaunch.
+Older helper copies left in the stable folder are ignored. You may need to pin
+the tray icon once after first switching to this path; subsequent builds reuse
+it. Building while GSM runs still only writes to the immutable build directory.
+The Agent/Frida helper is prepared as a separate local ZIP during development.
+Immutable desktop builds contain its pinned `agent-runtime.json`; first use
+verifies and installs it into the shared `texthook/frida` cache. Detached sessions
+keep their cached executable when a later desktop build selects a new runtime.
+If another desktop instance is using the stable copy, close that desktop before
+launching a different build; a detached game-hook helper no longer blocks it.
+
+Installed apps restart their own
 installed executable. Neither launch path starts Electron.
 
 The backend stops first so its replay-buffer manager cannot restart OBS outputs.

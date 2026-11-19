@@ -9,7 +9,8 @@ pub fn get(app: &tauri::AppHandle) -> Result<Arc<gsm_runtime::Runtime>, String> 
 }
 impl Runtime {
     pub fn shutdown(&self) {
-        if let Some(runtime) = self.0.lock().unwrap().take() {
+        let runtime = self.0.lock().unwrap().take();
+        if let Some(runtime) = runtime {
             runtime.shutdown();
         }
     }
@@ -39,6 +40,34 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
             *current = Some(Arc::new(gsm_runtime::Runtime::start(
                 args.clone(),
                 move |event, data| {
+                    if data["id"] == "backend" {
+                        if matches!(event, "bus.connected" | "bus.disconnected") {
+                            let epoch = (event == "bus.connected").then(|| data["epoch"].as_u64()).flatten();
+                            app.state::<crate::anki_sync::SyncLane>().connection(epoch);
+                            app.state::<crate::anki_poll::monitor::Monitor>().connection(epoch);
+                        }
+                        match event {
+                            "bus.connected" => app.state::<crate::cron::Scheduler>().connection(data["epoch"].as_u64()),
+                            "bus.disconnected" => app.state::<crate::cron::Scheduler>().connection(None),
+                            "process.exit" => app.state::<crate::cron::Scheduler>().close(),
+                            _ => {}
+                        }
+                    }
+                    if event == "bus.disconnected" && data["id"] == "backend" {
+                        let desktop = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = desktop.state::<crate::word_index::WordIndex>().flush().await;
+                            let _ = tauri::async_runtime::spawn_blocking(move || {
+                                let _ = desktop.state::<Arc<gsm_history::History>>().close();
+                            }).await;
+                        });
+                    }
+                    if event == "process.exit" {
+                        if data["id"] == "backend" {
+                            app.state::<crate::anki_poll::Notes>().backend_exited();
+                        }
+                        app.state::<crate::gui_dialog::DialogHost>().observe(event, &data);
+                    }
                     crate::backend::observe(&app, event, &data);
                     crate::python_ops::observe_runtime_event(&app, event, &data);
                     crate::mining_workspace::observe(&app, event, &data);
@@ -158,6 +187,8 @@ fn preview(app: &tauri::AppHandle, data: &Value) {
         != Some(app.state::<crate::texthook::TextHook>().generation())
     {
         return;
+    } else {
+        crate::texthook_coordinator::observe_hook_ack(app, payload, ack);
     }
     let processed = json!({
         "text": ack["processed_text"],

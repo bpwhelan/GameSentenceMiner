@@ -1,0 +1,243 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "cron-scheduler": {
+      "iterations_per_run": 24,
+      "verified_result": {
+        "linked": 25,
+        "startup_jobs": [
+          "daily_stats_rollup",
+          "daily_goals_completion",
+          "daily_goals_completion"
+        ],
+        "unchanged_manual_schedules": 3
+      },
+      "python": {
+        "samples": [
+          {
+            "startup_ms": 28.238400002010167,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.2480000006908085,
+            "forced_cpu_ms": 2.6041666666666665,
+            "idle_cpu_ms_4s": 0.0,
+            "idle_python_timeouts_4s": 7,
+            "python_cron_threads": 1,
+            "settled_uss_mib": 48.19140625,
+            "retired_job_and_barrier_ms": 860.5214999988675,
+            "retired_job_python_processes": 1
+          },
+          {
+            "startup_ms": 26.047499995911494,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.63761250001456,
+            "forced_cpu_ms": 1.953125,
+            "idle_cpu_ms_4s": 62.5,
+            "idle_python_timeouts_4s": 7,
+            "python_cron_threads": 1,
+            "settled_uss_mib": 48.1015625,
+            "retired_job_and_barrier_ms": 869.3916000192985,
+            "retired_job_python_processes": 1
+          },
+          {
+            "startup_ms": 24.31780000915751,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.3071916669626567,
+            "forced_cpu_ms": 1.3020833333333333,
+            "idle_cpu_ms_4s": 46.875,
+            "idle_python_timeouts_4s": 7,
+            "python_cron_threads": 1,
+            "settled_uss_mib": 48.4921875,
+            "retired_job_and_barrier_ms": 813.1023999885656,
+            "retired_job_python_processes": 1
+          },
+          {
+            "startup_ms": 27.75489998748526,
+            "startup_cpu_ms": 15.625,
+            "forced_wall_ms": 2.3608208333219713,
+            "forced_cpu_ms": 1.3020833333333333,
+            "idle_cpu_ms_4s": 62.5,
+            "idle_python_timeouts_4s": 7,
+            "python_cron_threads": 1,
+            "settled_uss_mib": 48.44921875,
+            "retired_job_and_barrier_ms": 876.1322999780532,
+            "retired_job_python_processes": 1
+          },
+          {
+            "startup_ms": 25.73999998276122,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.266470832789006,
+            "forced_cpu_ms": 1.953125,
+            "idle_cpu_ms_4s": 0.0,
+            "idle_python_timeouts_4s": 7,
+            "python_cron_threads": 1,
+            "settled_uss_mib": 48.30859375,
+            "retired_job_and_barrier_ms": 839.9349999963306,
+            "retired_job_python_processes": 1
+          }
+        ],
+        "median": {
+          "startup_ms": 26.047,
+          "startup_cpu_ms": 0.0,
+          "forced_wall_ms": 2.307,
+          "forced_cpu_ms": 1.953,
+          "idle_cpu_ms_4s": 46.875,
+          "idle_python_timeouts_4s": 7,
+          "python_cron_threads": 1,
+          "settled_uss_mib": 48.309,
+          "retired_job_and_barrier_ms": 860.521,
+          "retired_job_python_processes": 1
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "startup_ms": 22.79309998266399,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.2478666663422096,
+            "forced_cpu_ms": 1.3020833333333333,
+            "idle_cpu_ms_4s": 15.625,
+            "idle_python_timeouts_4s": 0,
+            "python_cron_threads": 0,
+            "settled_uss_mib": 48.15625,
+            "retired_job_and_barrier_ms": 1.6485999803990126,
+            "retired_job_python_processes": 0
+          },
+          {
+            "startup_ms": 19.922699982998893,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.254479166974003,
+            "forced_cpu_ms": 1.3020833333333333,
+            "idle_cpu_ms_4s": 0.0,
+            "idle_python_timeouts_4s": 0,
+            "python_cron_threads": 0,
+            "settled_uss_mib": 48.453125,
+            "retired_job_and_barrier_ms": 2.820199995767325,
+            "retired_job_python_processes": 0
+          },
+          {
+            "startup_ms": 21.597799990558997,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.2556749997117245,
+            "forced_cpu_ms": 2.6041666666666665,
+            "idle_cpu_ms_4s": 0.0,
+            "idle_python_timeouts_4s": 0,
+            "python_cron_threads": 0,
+            "settled_uss_mib": 47.86328125,
+            "retired_job_and_barrier_ms": 2.83129999297671,
+            "retired_job_python_processes": 0
+          },
+          {
+            "startup_ms": 25.531999999657273,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.2898791673166365,
+            "forced_cpu_ms": 1.3020833333333333,
+            "idle_cpu_ms_4s": 0.0,
+            "idle_python_timeouts_4s": 0,
+            "python_cron_threads": 0,
+            "settled_uss_mib": 48.0078125,
+            "retired_job_and_barrier_ms": 2.720799995586276,
+            "retired_job_python_processes": 0
+          },
+          {
+            "startup_ms": 21.05830001528375,
+            "startup_cpu_ms": 0.0,
+            "forced_wall_ms": 2.3933499990865434,
+            "forced_cpu_ms": 0.6510416666666666,
+            "idle_cpu_ms_4s": 46.875,
+            "idle_python_timeouts_4s": 0,
+            "python_cron_threads": 0,
+            "settled_uss_mib": 48.5234375,
+            "retired_job_and_barrier_ms": 1.2604000221472234,
+            "retired_job_python_processes": 0
+          }
+        ],
+        "median": {
+          "startup_ms": 21.598,
+          "startup_cpu_ms": 0.0,
+          "forced_wall_ms": 2.256,
+          "forced_cpu_ms": 1.302,
+          "idle_cpu_ms_4s": 0.0,
+          "idle_python_timeouts_4s": 0,
+          "python_cron_threads": 0,
+          "settled_uss_mib": 48.156,
+          "retired_job_and_barrier_ms": 2.721,
+          "retired_job_python_processes": 0
+        }
+      }
+    },
+    "cron-rollup": {
+      "iterations_per_run": 1,
+      "result_sha256": "a5e9d301704221cfbf36f15b4b8eb9c3e9b7e6e02c96b85c6beeb4498eb34c0d",
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 45.471099991118535,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 51.421875
+          },
+          {
+            "wall_ms": 42.03010001219809,
+            "cpu_ms": 46.875,
+            "settled_uss_mib": 51.4765625
+          },
+          {
+            "wall_ms": 42.097699973965064,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 51.9921875
+          },
+          {
+            "wall_ms": 39.64020000421442,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 51.73046875
+          },
+          {
+            "wall_ms": 40.95729999244213,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 52.21484375
+          }
+        ],
+        "median": {
+          "wall_ms": 42.03,
+          "cpu_ms": 15.625,
+          "settled_uss_mib": 51.73
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 41.13179998239502,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 52.9765625
+          },
+          {
+            "wall_ms": 41.60739999497309,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 53.02734375
+          },
+          {
+            "wall_ms": 42.088700021849945,
+            "cpu_ms": 46.875,
+            "settled_uss_mib": 52.8359375
+          },
+          {
+            "wall_ms": 43.14470000099391,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 52.78125
+          },
+          {
+            "wall_ms": 39.17249999358319,
+            "cpu_ms": 46.875,
+            "settled_uss_mib": 52.6328125
+          }
+        ],
+        "median": {
+          "wall_ms": 41.607,
+          "cpu_ms": 31.25,
+          "settled_uss_mib": 52.836
+        }
+      }
+    }
+  },
+  "desktop_sha256": "3db710d04fbdd23a14e9d3c1edb468f269c1d7e6597e25c911810708f3f879c6"
+}

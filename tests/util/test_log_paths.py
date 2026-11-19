@@ -130,3 +130,49 @@ def test_backend_embedded_ocr_is_routed_to_ocr_log_and_helpers_keep_callsite(tmp
     assert "__main__:<module>:2 | backend callsite" in backend
     assert "embedded OCR result" not in backend
     assert "embedded OCR result" in (tmp_path / "logs" / "ocr.log").read_text()
+
+
+def test_python_logs_include_origin_prefix_for_console_and_file(tmp_path):
+    backend_script = (
+        "from GameSentenceMiner.util.logging_config import logger\n"
+        "logger.info('backend origin check')\n"
+        "logger.complete()\n"
+    )
+    backend_res = subprocess.run(
+        [sys.executable, "-c", backend_script],
+        env={**os.environ, "GSM_DATA_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert backend_res.returncode == 0, backend_res.stderr
+    assert any(
+        line.startswith("[py:backend] ") and "backend origin check" in line for line in backend_res.stdout.splitlines()
+    ), backend_res.stdout
+    backend_file = (tmp_path / "logs" / "backend.log").read_text(encoding="utf-8")
+    assert any(
+        line.startswith("[py:backend] ") and "backend origin check" in line for line in backend_file.splitlines()
+    ), backend_file
+
+    ocr_script = (
+        "import sys\n"
+        "sys.argv[0] = 'GameSentenceMiner/ocr/gsm_ocr.py'\n"
+        "from GameSentenceMiner.util.logging_config import logger\n"
+        "logger.info('ocr origin check')\n"
+        "logger.complete()\n"
+    )
+    ocr_res = subprocess.run(
+        [sys.executable, "-c", ocr_script],
+        env={**os.environ, "GSM_DATA_DIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert ocr_res.returncode == 0, ocr_res.stderr
+    assert any(line.startswith("[py:ocr] ") and "ocr origin check" in line for line in ocr_res.stdout.splitlines()), (
+        ocr_res.stdout
+    )
+    ocr_file = (tmp_path / "logs" / "ocr.log").read_text(encoding="utf-8")
+    assert any(line.startswith("[py:ocr] ") and "ocr origin check" in line for line in ocr_file.splitlines()), ocr_file

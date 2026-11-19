@@ -724,7 +724,7 @@ def show_furigana_filter_preview(
     return selected_value
 
 
-def main():
+def main() -> int:
     """Main execution function."""
     # Parse command line arguments
     current_furigana_sensitivity = 0
@@ -752,7 +752,7 @@ def main():
             screenshot_img, title_suffix = get_overlay_preview_capture()
         except Exception as e:
             logger.error(f"Failed to get overlay screenshot: {e}")
-            return
+            return 1
     else:
         try:
             logger.info("Connecting to OBS...")
@@ -766,14 +766,14 @@ def main():
             logger.error(
                 f"Failed to connect to OBS. Please ensure OBS is running and the WebSocket server is enabled. Error: {e}"
             )
-            return
+            return 1
 
         logger.info("Taking OBS screenshot...")
         screenshot_img = obs.get_screenshot_PIL(compression=90, img_format="jpg")
 
         if not screenshot_img:
             logger.error("Failed to get screenshot from OBS.")
-            return
+            return 1
 
     # Scale down the image for performance using shared logic
     scaled = scale_dimensions_to_minimum_bounds(screenshot_img.width, screenshot_img.height)
@@ -806,8 +806,8 @@ def main():
     if result == QDialog.DialogCode.Accepted:
         print(f"RESULT:[{dialog.slider.value()}]")
 
-    sys.exit(0)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

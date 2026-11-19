@@ -1,14 +1,15 @@
 """Meiki v0.1 detector variants with the upstream recognition pipeline."""
 
 import hashlib
+from pathlib import Path
 
 import cv2
 import meikiocr.ocr as upstream
 import numpy as np
 import onnxruntime as ort
-from huggingface_hub import hf_hub_download
-from huggingface_hub.errors import LocalEntryNotFoundError
 
+from GameSentenceMiner.native.downloads import huggingface_model
+from GameSentenceMiner.util.data_directory import get_app_directory
 from GameSentenceMiner.util.gpu_runtime import onnx_providers
 
 DETECTION_REPO = "rtr46/meiki.text.detect.v0"
@@ -32,17 +33,23 @@ def create_detection_session(model, provider="CPUExecutionProvider"):
         raise ValueError("Choose a MeikiOCR detector: small or large")
     width, height, digest = MODELS[model]
     filename = f"meiki.text.detect.v0.1.{width}x{height}.onnx"
-    download = {"repo_id": DETECTION_REPO, "filename": filename, "revision": DETECTION_REVISION}
-    try:
-        path = hf_hub_download(**download, local_files_only=True)
-    except LocalEntryNotFoundError:
-        path = hf_hub_download(**download)
+    path = huggingface_model(
+        DETECTION_REPO,
+        filename,
+        Path(get_app_directory()) / "ocr_models" / filename,
+        revision=DETECTION_REVISION,
+        sha256=digest,
+    )
     with open(path, "rb") as file:
         if hashlib.file_digest(file, "sha256").hexdigest() != digest:
             raise ValueError(f"MeikiOCR model checksum failed for {filename}")
     return ort.InferenceSession(
         path, sess_options=session_options(), providers=onnx_providers(provider == "CUDAExecutionProvider")
     )
+
+
+def recognition_model(filename):
+    return huggingface_model(upstream.REC_MODEL_REPO, filename, Path(get_app_directory()) / "ocr_models" / filename)
 
 
 class MeikiOCRPipeline(upstream.MeikiOCR):
@@ -53,12 +60,12 @@ class MeikiOCRPipeline(upstream.MeikiOCR):
         self.det_session = create_detection_session(model_name, provider)
         options = session_options()
         self.rec_session = ort.InferenceSession(
-            upstream._get_model_path(upstream.REC_MODEL_REPO, upstream.REC_MODEL_NAME),
+            recognition_model(upstream.REC_MODEL_NAME),
             sess_options=options,
             providers=onnx_providers(provider == "CUDAExecutionProvider"),
         )
         self.vrec_session = ort.InferenceSession(
-            upstream._get_model_path(upstream.REC_MODEL_REPO, upstream.VREC_MODEL_NAME),
+            recognition_model(upstream.VREC_MODEL_NAME),
             sess_options=options,
             providers=onnx_providers(provider == "CUDAExecutionProvider"),
         )

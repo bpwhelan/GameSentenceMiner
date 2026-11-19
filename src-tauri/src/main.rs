@@ -15,9 +15,13 @@ mod jiten_webview;
 mod capture_windows;
 mod commands;
 mod desktop_changelog;
+mod desktop_log;
 mod desktop_services;
 mod desktop_state;
+#[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
+mod dev_launch;
 mod dictionary_host;
+mod dictionary_service;
 mod game_background;
 mod game_launcher;
 mod game_privileges;
@@ -26,6 +30,19 @@ mod input_server;
 mod install_session;
 mod launchers_ui;
 mod mining_workspace;
+mod gui_dialog;
+mod anki_cards;
+mod text_correlation;
+mod anki_connect;
+mod anki_edit;
+mod anki_group;
+mod anki_media;
+mod anki_poll;
+mod anki_sync;
+mod mining_history;
+mod cron;
+mod word_index;
+mod memory;
 mod native;
 mod notification_audio;
 mod obs;
@@ -37,11 +54,14 @@ mod overlay;
 mod overlay_host;
 mod overlay_jiten;
 mod overlay_magpie;
+mod overlay_pointer;
 mod overlay_preload;
 mod overlay_settings;
 mod overlay_tray;
 mod overlay_vn_guide;
 mod process_probe;
+#[cfg(windows)]
+mod resource_usage;
 mod python_install;
 mod python_ops;
 mod reader_service;
@@ -49,6 +69,7 @@ mod runtime;
 mod settings;
 mod settings_tools;
 mod smoke_test;
+mod sudachi_setup;
 mod texthook;
 mod texthook_coordinator;
 mod tray;
@@ -63,7 +84,7 @@ mod windows_tray;
 
 use serde_json::{json, Value};
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::Command,
     sync::{Arc, Mutex},
 };
@@ -84,12 +105,7 @@ async fn renderer_log(
     window: tauri::WebviewWindow,
 ) -> Result<(), String> {
     authorize(&window, &token)?;
-    eprintln!(
-        "[{} {}] {}",
-        window.label(),
-        level,
-        message.chars().take(16000).collect::<String>()
-    );
+    desktop_log::renderer(window.label(), &level, &message);
     Ok(())
 }
 
@@ -316,16 +332,58 @@ fn wait_for_relaunch_parent_pid(raw_args: &[String]) {
     }
 }
 
+const LOCAL_BUILD: bool = cfg!(any(debug_assertions, feature = "local-build"));
+
+fn app_root_override() -> Option<PathBuf> {
+    std::env::var_os("GSM_APP_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| {
+            LOCAL_BUILD.then(|| {
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .parent()
+                    .unwrap()
+                    .to_path_buf()
+            })
+        })
+}
+
 fn main() {
     let raw_args: Vec<String> = std::env::args().collect();
     if let Some(code) = game_launcher::maybe_run_unelevated_helper(&raw_args) {
         std::process::exit(code);
     }
     #[cfg(windows)]
-    wait_for_relaunch_parent_pid(&raw_args);
+    {
+        wait_for_relaunch_parent_pid(&raw_args);
+        if std::env::var_os("GSM_SMOKE_TEST").is_some() {
+            if let Err(error) = smoke_test::own_process_tree() {
+                desktop_log::stderr_only(
+                    "main",
+                    "ERROR",
+                    format!("Could not isolate the smoke test process tree: {error}"),
+                );
+                std::process::exit(1);
+            }
+        }
+    }
+    #[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
+    match dev_launch::bootstrap(&raw_args) {
+        Ok(Some(code)) => std::process::exit(code),
+        Ok(None) => {}
+        Err(error) => {
+            desktop_log::stderr_only("main", "ERROR", format!("Could not launch GSM: {error}"));
+            std::process::exit(1);
+        }
+    }
     let relaunch = Arc::new(Mutex::new(None));
     let setup_relaunch = relaunch.clone();
     let mut context = tauri::generate_context!();
+    // Tauri owns the dev server address; legacy page guards consume the same
+    // origin until the remaining compatibility views have moved to commands.
+    #[cfg(debug_assertions)]
+    if let Some(url) = &context.config().build.dev_url {
+        std::env::set_var("VITE_DEV_SERVER_URL", url.as_str());
+    }
     // Explicit profiles have independent service ownership, including when
     // their folder was selected on the command line rather than in the env.
     let mut profile = std::env::var("GSM_PROFILE_DIR").ok();
@@ -398,8 +456,13 @@ fn main() {
         .register_uri_scheme_protocol("gsm", move |_context, request| {
             protocol_assets.response(request)
         })
-        .register_uri_scheme_protocol("gsm-yomitan", move |_context, request| {
-            yomitan_assets.response(request)
+        .register_asynchronous_uri_scheme_protocol("gsm-yomitan", move |_context, request, responder| {
+            if assets::yomitan_font_request(&request) {
+                let assets = yomitan_assets.clone();
+                tauri::async_runtime::spawn_blocking(move || responder.respond(assets.response(request)));
+            } else {
+                responder.respond(yomitan_assets.response(request));
+            }
         })
         .register_uri_scheme_protocol("gsm-hachidori", move |_context, request| {
             hachidori_assets.response(request)
@@ -419,11 +482,11 @@ fn main() {
                     );
                 }
             })?;
-            let root = std::env::var_os("GSM_APP_ROOT")
-                .map(PathBuf::from)
+            let root = app_root_override()
                 .unwrap_or(app.path().resource_dir()?.join("app"));
             gsm_overlay::engines::vocr::set_asset_directory(
                 root.join("GameSentenceMiner/assets/vocr"),
+                gsm_packages::download_cache().map_err(std::io::Error::other)?,
             )
             .map_err(std::io::Error::other)?;
             for (id, relative) in [
@@ -447,8 +510,33 @@ fn main() {
             app.manage(runtime::Runtime::default());
             app.manage(backend::BackendState::default());
             app.manage(mining_workspace::MiningWorkspace::default());
+            app.manage(gui_dialog::DialogHost::default());
+            let history = std::sync::Arc::new(gsm_history::History::default());
+            app.manage(history.clone());
+            app.manage(cron::Scheduler::default());
+            app.manage(anki_poll::Notes::default());
+            app.manage(anki_poll::monitor::Monitor::default());
+            app.manage(anki_sync::SyncLane::default());
+            app.manage(anki_group::MergeLane::default());
             app.manage(python_install::PythonInstall::default());
             let paths = gsm_settings::paths::Paths::resolve().map_err(std::io::Error::other)?;
+            desktop_log::init(paths.active.join("logs"));
+            desktop_log::info(
+                app.handle(),
+                "startup",
+                format!(
+                    "Desktop session started (v{}, PID {}, data: {})",
+                    app.package_info().version,
+                    std::process::id(),
+                    paths.active.display()
+                ),
+            );
+            let language = std::sync::Arc::new(gsm_sudachi::LanguageService::new(
+                paths.active.clone(), paths.active.join("dictionaries/sudachi"),
+            ));
+            tauri::async_runtime::spawn(gsm_sudachi::LanguageService::unload_when_idle(std::sync::Arc::downgrade(&language)));
+            app.manage(word_index::WordIndex::start(paths.active.join("gsm.db"), history, language.clone()));
+            app.manage(language);
             std::env::set_var("GSM_NATIVE_OVERLAY", "1");
             std::env::set_var("GSM_NATIVE_DATA_DIR", &paths.active);
             std::env::set_var("GSM_NATIVE_SHARED_DATA_DIR", &paths.shared);
@@ -477,19 +565,22 @@ fn main() {
             app.manage(install_session::InstallSessions::new(app.handle().clone()));
             app.manage(hook_updates::HookUpdates::default());
             app.manage(input_server::InputServer::default());
+            app.manage(sudachi_setup::SudachiSetup::default());
             app.manage(game_privileges::GamePrivileges::default());
             app.manage(game_launcher::GameLauncher::default());
             app.manage(game_background::GameBackground::default());
-            app.manage(active_game::ActiveGame::default());
             app.manage(texthook_coordinator::TexthookCoordinator::default());
             app.manage(ocr_coordinator::OcrCoordinator::default());
             app.manage(auto_launcher::AutoLauncher::default());
             app.manage(dictionary_host::DictionaryManager::default());
             app.manage(reader_service::ReaderState::default());
             app.manage(overlay_host::OverlayHost::default());
+            memory::start(app.handle());
             input_server::start_background(app.handle());
             app_lifecycle::init_startup(app.handle()).map_err(std::io::Error::other)?;
             if std::env::var_os("GSM_SMOKE_TEST").is_none() {
+                dictionary_service::start(app.handle());
+                // Presentation is allocated by OverlayHost::start on first use.
                 app.state::<hook_updates::HookUpdates>()
                     .get(app.handle())
                     .start();
@@ -501,7 +592,11 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::overlay_lifecycle,
+            commands::dictionary_service,
             commands::backend_lifecycle,
+            commands::desktop_resource_usage,
+            commands::open_python_dialog,
             commands::python_environment,
             commands::installation_session,
             commands::mining_workspace,
@@ -523,6 +618,27 @@ fn main() {
                 tray::handle_menu_event(app, id);
             } else if app_lifecycle::is_app_menu_id(id) {
                 app_lifecycle::handle_app_menu_event(app, id);
+            }
+        })
+        .on_window_event(|window, event| {
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::Focused(true) => {
+                    if let Some(view) = app.get_webview_window(window.label()) {
+                        memory::restore(&view);
+                        memory::sync_visibility(&view);
+                    }
+                }
+                tauri::WindowEvent::Destroyed => {
+                    memory::forget(app, window.label());
+                    if let Some(manager) = app.try_state::<dictionary_host::DictionaryManager>() {
+                        manager.forget_window(app, window.label());
+                    }
+                    if let Some(desktop) = app.try_state::<desktop_state::DesktopState>() {
+                        desktop.unregister_window(window.label());
+                    }
+                }
+                _ => {}
             }
         })
         .build(context)
@@ -553,9 +669,9 @@ fn main() {
     });
     if let Some(args) = relaunch.lock().unwrap().take() {
         let mut executable = std::env::current_exe().expect("Desktop executable");
-        if cfg!(debug_assertions) {
-            if let Some(root) = std::env::var_os("GSM_APP_ROOT") {
-                let directory = PathBuf::from(root).join("src-tauri/target/desktop-runs");
+        if LOCAL_BUILD {
+            if let Some(root) = app_root_override() {
+                let directory = root.join("src-tauri/target/desktop-runs");
                 let platform = if cfg!(windows) {
                     "win32"
                 } else if cfg!(target_os = "macos") {
@@ -590,14 +706,16 @@ fn main() {
             }
         }
         let mut command = Command::new(executable);
-        command.args(args);
+        command.args(game_privileges::clean_relaunch_args(&args));
+        #[cfg(windows)]
+        command.arg(format!("--wait-pid={}", std::process::id()));
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
         if let Err(error) = command.spawn() {
-            eprintln!("Could not restart GSM: {error}");
+            desktop_log::stderr_only("main", "ERROR", format!("Could not restart GSM: {error}"));
             std::process::exit(1);
         }
     }

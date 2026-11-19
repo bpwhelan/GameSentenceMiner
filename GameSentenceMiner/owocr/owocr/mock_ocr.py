@@ -30,7 +30,6 @@ from .ocr import (
     post_process,
     input_to_pil_image,
     pil_image_to_bytes,
-    pil_image_to_numpy_array,
     ocr_result_to_oneocr_tuple,
     normalize_japanese_ocr_dashes,
     normalize_japanese_ocr_text_and_segments,
@@ -44,10 +43,7 @@ from .ocr import (
     TEXT_DETECTION_RESULT_SCHEMA,
     BaseTextDetector,
     MeikiTextDetector,
-    OpenCvEastTextDetector,
     # Engine classes (we'll wrap these)
-    MangaOcr,
-    MangaOcrSegmented,
     GoogleVision,
     GoogleLens,
     Bing,
@@ -56,16 +52,7 @@ from .ocr import (
     WinRTOCR,
     ScreenAIOCR,
     OneOCR,
-    MLKitOCR,
     MeikiOCR,
-    AzureImageAnalysis,
-    EasyOCR,
-    RapidOCR,
-    OCRSpace,
-    GeminiOCR,
-    GroqOCR,
-    OpenAICompatibleOCR,
-    draw_detections,
 )
 
 # ---------------------------------------------------------------------------
@@ -262,8 +249,6 @@ def _build_synthetic_detection_result(img=None):
 # ---------------------------------------------------------------------------
 
 _OCR_ENGINE_CLASSES = [
-    MangaOcr,
-    MangaOcrSegmented,
     GoogleVision,
     GoogleLens,
     Bing,
@@ -272,20 +257,11 @@ _OCR_ENGINE_CLASSES = [
     WinRTOCR,
     ScreenAIOCR,
     OneOCR,
-    MLKitOCR,
     MeikiOCR,
-    AzureImageAnalysis,
-    EasyOCR,
-    RapidOCR,
-    OCRSpace,
-    GeminiOCR,
-    GroqOCR,
-    OpenAICompatibleOCR,
 ]
 
 _TEXT_DETECTOR_CLASSES = [
     MeikiTextDetector,
-    OpenCvEastTextDetector,
 ]
 
 

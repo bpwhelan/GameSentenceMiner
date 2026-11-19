@@ -201,7 +201,6 @@ class RecommendedAnkiDialog(QDialog):
         self.deck_combo = QComboBox()
         self.deck_combo.setEditable(True)
         self.deck_combo.setCurrentText("GSM")
-        self.deck_combo.setToolTip("Choose an existing deck or enter a new name. GSM creates the deck if needed.")
         deck_row = QHBoxLayout()
         deck_row.addWidget(self.deck_combo, 1)
         self.check_button = QPushButton("Check Anki / refresh decks")

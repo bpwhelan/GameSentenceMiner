@@ -518,6 +518,13 @@ class ScreenshotCapture:
 
     def _get_monitored_hwnd(self, source_name: str) -> tuple[bool, int | None]:
         """Use the shared target, including an explicit decision to use no HWND."""
+        from GameSentenceMiner.obs import desktop_session
+
+        if desktop_session.enabled():
+            state = desktop_session.snapshot()
+            if source_name in (state["scene"], state["source_name"]):
+                return True, desktop_session.validated_hwnd(state)
+            return True, None
         from GameSentenceMiner.obs.active_game import get_obs_state
         from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
 

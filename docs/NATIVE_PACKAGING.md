@@ -5,6 +5,48 @@ builds the renderer and native helpers, stages resources, and produces the Tauri
 installer and portable archive. `npm run app:dist:signed` additionally creates
 signed updater artifacts. Nothing is published by these commands.
 
+Build reporting, asset collection and package smoke tests resolve Cargo's actual
+`target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR` overrides.
+With the checkout's current configuration, release bundles are under
+`src-tauri/target/native-dev/release/bundle`; older files under
+`src-tauri/target/release/bundle` are not the current build. Collected installers
+and portable ZIPs are written to `dist/native-release/<platform>-<arch>`.
+Portable packaging validates the native executable, renderer, Python project
+metadata and Agent runtime manifest; it does not require an app `package.json`.
+
+## Agent / Frida downloads
+
+Current installers do not contain Frida or `gsm-agent-host`. Staging builds a
+separate `gsm-agent-runtime-<platform>-<SHA-256>.zip` with the native helper and
+its license notices, then includes only `native/agent-runtime.json` in the app.
+Asset collection publishes that ZIP with the matching desktop release. Release
+validation requires all four platform ZIPs and checks their hashes before the
+release can be published. These changes supersede the historical Frida/Node
+payload measurements below.
+
+Starting Agent for the first time downloads, verifies and extracts the pinned
+runtime into `<shared data>/texthook/frida/<Frida version>/<platform>/<SHA-256>`.
+Later sessions verify and reuse that copy without a network request. Profiles
+share it with the normal/relocated installation, alongside Luna and Textractor.
+Only a changed runtime payload requires a new download. Existing detached
+sessions retain their executable. Ordinary native Luna/Textractor sessions,
+status checks, reconnects and Stop do not trigger a download; Wine PID discovery
+uses the same runtime as Agent. Wine's Windows Frida server also uses shared data.
+
+The installer pins both archive and extracted-file hashes. Failed downloads or
+extractions never activate a partial runtime, concurrent profiles serialize the
+same installation, and corrupt caches are repaired on the next start. Stopping
+Agent while a download is underway prevents a later attach.
+
+Development builds prepare a local runtime ZIP and manifest, then exercise the
+same installation/cache path on first use without downloading unpublished code.
+The runtime is no longer copied into every immutable desktop build directory.
+
+```powershell
+node --test scripts/package-agent-runtime.test.mjs scripts/native-package-policy.test.mjs
+cargo test --locked --manifest-path native/gsm-packages/Cargo.toml agent_runtime
+```
+
 ## Windows x64 measurements, 2026-11-12
 
 Measured against the original `GSM_2026.11.0_x64-setup.exe` in this checkout:
@@ -62,8 +104,7 @@ under `build/size-audit/`; those generated files are not committed or packaged.
 The abandoned `native/gsm-runtime` directory is never staged. It contained an
 unused executable, FFmpeg distribution and DirectML DLL totaling about 449 MiB
 in the audited checkout. Build objects, symbols, source maps, package tests and
-fixtures are excluded as well. The unused RapidOCR model and hardcoded overlay
-window diagnostic are also excluded.
+fixtures are excluded as well, along with the hardcoded overlay window diagnostic.
 
 ## Checks and size limits
 

@@ -8,13 +8,14 @@ import { MeikiOcrModel } from "./MeikiOcrModel";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { DOCS_URLS } from "../../../../shared/docs";
-import { getBasicMainOcr, getDefaultStabilityOcr, type OcrPlatform } from "../../../../shared/ocr_defaults";
+import { DEFAULT_ADVANCED_MAIN_OCR, DEFAULT_LOCAL_OCR, getBasicMainOcr, getDefaultStabilityOcr, replaceRetiredOcrEngine, type OcrPlatform } from "../../../../shared/ocr_defaults";
 import { invokeIpc, onIpc, platformFromEnv, sendIpc } from "../../lib/ipc";
 import type { ObsScene, SceneLaunchProfile, SceneOcrMode } from "../../types/models";
 import { useTranslation } from "../../i18n";
-import { tooltipProps } from "../Tooltip";
+import { HelpTip, tooltipProps } from "../Tooltip";
 import { getTerminalColors, THEME_CHANGED_EVENT } from "../../lib/theme";
 import { createBufferedTerminalWriter } from "../../lib/bufferedTerminal";
+import { formatOriginAnsi, splitLogOrigin, stripAnsi } from "../../lib/logFormat";
 import { DEBUG_LOG_HISTORY_LIMIT } from "../../lib/debugHistory";
 
 type ProcessPriority =
@@ -258,31 +259,33 @@ interface OcrScanTiming {
 }
 
 const MAIN_OCR_OPTIONS: Option[] = [
+  { value: "mida_vocr", labelKey: "ocr.engines.mida_vocr", label: "MIDA + VOCR6-L" },
   { value: "glens", label: "Google Lens" },
   { value: "bing", label: "Bing" },
   { value: "oneocr", label: "OneOCR" },
   { value: "screenai", label: "ScreenAI OCR" },
   { value: "meikiocr", label: "Meiki OCR" },
   { value: "vitaocr", label: "VOCR", labelKey: "ocr.engines.vitaocr" },
-  { value: "gemini", label: "Gemini" },
   { value: "gvision", label: "Google Vision" },
-  { value: "azure", label: "Azure Image Analysis" },
-  { value: "ocrspace", label: "OCRSpace" },
-  { value: "local_llm_ocr", label: "Local LLM OCR" },
-  { value: "alivetext", label: "Apple Live Text" },
-  { value: "mlkitocr", label: "MLKit OCR" }
+  { value: "alivetext", label: "Apple Live Text" }
 ];
 
 const STABILITY_OCR_OPTIONS: Option[] = [
+  { value: "mida_detector", labelKey: "ocr.engines.mida_detector", label: "MIDA" },
   { value: "vocr_detector", label: "VOCR Line Detector", labelKey: "ocr.engines.vocr_detector" },
   { value: "oneocr", label: "OneOCR" },
   { value: "screenai", label: "ScreenAI OCR" },
   { value: "meiki_text_detector", label: "Meiki Text Detector" },
   { value: "meikiocr", label: "Meiki OCR" },
   { value: "vitaocr", label: "VOCR", labelKey: "ocr.engines.vitaocr" },
-  { value: "alivetext", label: "Apple Live Text" },
-  { value: "local_llm_ocr", label: "Local LLM OCR" },
-  { value: "mlkitocr", label: "MLKit OCR" }
+  { value: "alivetext", label: "Apple Live Text" }
+];
+
+const OCR_PRESETS = [
+  { mainOcr: DEFAULT_ADVANCED_MAIN_OCR, stabilityOcr: DEFAULT_LOCAL_OCR, labelKey: "ocr.pipeline.lens" },
+  { mainOcr: "mida_vocr", stabilityOcr: "mida_detector", labelKey: "ocr.pipeline.horizontal" },
+  { mainOcr: "screenai", stabilityOcr: "meiki_text_detector", labelKey: "ocr.pipeline.multilingual" },
+  { mainOcr: "screenai", stabilityOcr: "mida_detector", labelKey: "ocr.pipeline.stableDialogue" }
 ];
 
 const LANGUAGE_OPTIONS: Option[] = [
@@ -326,9 +329,7 @@ const DEPENDENCY_INSTALL_OPTIONS: Option[] = [
     value: "pip install fpng-py",
     label: "Faster PNG (Recommended on Windows 11)"
   },
-  { value: "pip install owocr[gvision]", label: "Google Vision" },
-  { value: "pip install owocr[azure]", label: "Azure" },
-  { value: "pip install owocr[ocrspace]", label: "OCRSpace" }
+  { value: "pip install google-cloud-vision", label: "Google Vision" }
 ];
 
 const DEPENDENCY_REMOVE_OPTIONS: Option[] = [
@@ -337,9 +338,7 @@ const DEPENDENCY_REMOVE_OPTIONS: Option[] = [
   { value: "oneocr", label: "OneOCR" },
   { value: "fpng-py", label: "Faster PNG" },
   { value: "transformers sentencepiece", label: "Accurate Filtering" },
-  { value: "google-cloud-vision", label: "Google Vision" },
-  { value: "azure-ai-vision-imageanalysis", label: "Azure" },
-  { value: "ocrspace", label: "OCRSpace" }
+  { value: "google-cloud-vision", label: "Google Vision" }
 ];
 
 const COMPARISON_FIELDS: ComparisonFieldDefinition[] = [
@@ -545,18 +544,13 @@ const ENGINE_LABELS = new Map<string, string>([
 const ENGINE_COLORS: Record<string, string> = {
   oneocr: "\x1b[36m",
   glens: "\x1b[92m",
-  gemini: "\x1b[95m",
   bing: "\x1b[34m",
   screenai: "\x1b[96m",
   gvision: "\x1b[92m",
-  azure: "\x1b[96m",
-  ocrspace: "\x1b[93m",
-  local_llm_ocr: "\x1b[95m",
   meiki_text_detector: "\x1b[95m",
   meikiocr: "\x1b[95m",
   vitaocr: "\x1b[94m",
   vocr_detector: "\x1b[94m",
-  mlkitocr: "\x1b[94m",
   alivetext: "\x1b[96m"
 };
 
@@ -749,19 +743,21 @@ function normalizeOcrConfig(
         : "main",
     basicScanRate: numericValue(value?.scanRate_basic, scanRate),
     advancedScanRate: numericValue(value?.scanRate_advanced, scanRate),
-    mainOcr:
+    mainOcr: replaceRetiredOcrEngine(
       typeof value?.ocr2_advanced === "string"
         ? value.ocr2_advanced
-        : typeof value?.ocr2 === "string"
+        : value?.advancedMode && typeof value.ocr2 === "string"
           ? value.ocr2
-          : getBasicMainOcr(),
-    stabilityOcr:
+          : DEFAULT_ADVANCED_MAIN_OCR
+    ),
+    stabilityOcr: replaceRetiredOcrEngine(
       typeof value?.ocr1_advanced === "string"
         ? value.ocr1_advanced
-        : typeof value?.ocr1 === "string"
+        : value?.advancedMode && typeof value.ocr1 === "string"
           ? value.ocr1
-          : defaultStability,
-    twoPassOCR: Boolean(value?.twoPassOCR),
+          : defaultStability
+    ),
+    twoPassOCR: value?.twoPassOCR ?? true,
     optimizeSecondScan:
       value?.optimize_second_scan === undefined
         ? true
@@ -1006,9 +1002,7 @@ const COMPARISON_LAYOUT = splitComparisonFields();
 
 const OCR_TOOLTIP_KEYS = {
   advancedMode: "ocr.tooltips.advancedMode",
-  basicScanRate: "ocr.tooltips.basicScanRate",
   advancedScanRate: "ocr.tooltips.advancedScanRate",
-  language: "ocr.tooltips.language",
   baseScale: "ocr.tooltips.baseScale",
   furiganaFilter: "ocr.tooltips.furiganaFilter",
   sendToClipboard: "ocr.tooltips.sendToClipboard",
@@ -1023,7 +1017,6 @@ const OCR_TOOLTIP_KEYS = {
   textAppearsInstantly: "ocr.tooltips.textAppearsInstantly",
   twoPassOCR: "ocr.tooltips.twoPassOCR",
   stabilityOcr: "ocr.tooltips.stabilityOcr",
-  mainOcr: "ocr.tooltips.mainOcr",
   optimizeSecondScan: "ocr.tooltips.optimizeSecondScan",
   ocrScreenshots: "ocr.tooltips.ocrScreenshots",
   manualHotkey: "ocr.tooltips.manualHotkey",
@@ -1032,15 +1025,11 @@ const OCR_TOOLTIP_KEYS = {
   addAreaHotkey: "ocr.tooltips.addAreaHotkey",
   wholeWindowHotkey: "ocr.tooltips.wholeWindowHotkey",
   pauseHotkey: "ocr.tooltips.pauseHotkey",
-  processPriority: "ocr.tooltips.processPriority",
   defaultSceneFurigana: "ocr.tooltips.defaultSceneFurigana",
-  obsCapturePreprocess: "ocr.tooltips.obsCapturePreprocess",
   compactBoxes: "ocr.tooltips.compactBoxes",
   compactBoxesGap: "ocr.tooltips.compactBoxesGap",
   ignoreRun1Logs: "ocr.tooltips.ignoreRun1Logs",
   advancedDebugLogging: "ocr.tooltips.advancedDebugLogging",
-  installDependency: "ocr.tooltips.installDependency",
-  uninstallDependency: "ocr.tooltips.uninstallDependency",
   advancedRecognition: "ocr.tooltips.advancedRecognition",
   comparison: "ocr.tooltips.comparison"
 } as const;
@@ -1115,9 +1104,7 @@ const OCR_OUTPUT_MODES = [
 
 const DEPENDENCY_INSTALL_LABEL_KEYS: Record<string, string> = {
   "pip install fpng-py": "ocr.dependencies.install.fasterPng",
-  "pip install owocr[gvision]": "ocr.dependencies.install.googleVision",
-  "pip install owocr[azure]": "ocr.dependencies.install.azure",
-  "pip install owocr[ocrspace]": "ocr.dependencies.install.ocrspace"
+  "pip install google-cloud-vision": "ocr.dependencies.install.googleVision"
 };
 const DEPENDENCY_REMOVE_LABEL_KEYS: Record<string, string> = {
   owocr: "ocr.dependencies.remove.owocr",
@@ -1125,9 +1112,7 @@ const DEPENDENCY_REMOVE_LABEL_KEYS: Record<string, string> = {
   oneocr: "ocr.dependencies.remove.oneocr",
   "fpng-py": "ocr.dependencies.remove.fasterPng",
   "transformers sentencepiece": "ocr.dependencies.remove.transformers",
-  "google-cloud-vision": "ocr.dependencies.remove.googleVision",
-  "azure-ai-vision-imageanalysis": "ocr.dependencies.remove.azure",
-  ocrspace: "ocr.dependencies.remove.ocrspace"
+  "google-cloud-vision": "ocr.dependencies.remove.googleVision"
 };
 
 function WorkspaceIcon({ name }: { name: string }) {
@@ -1194,6 +1179,7 @@ export function OCRTab({ active }: OcrTabProps) {
   const [runtimeMessage, setRuntimeMessage] = useState("Idle");
   const [runtimeEngine, setRuntimeEngine] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
+  const [furiganaPreviewOpen, setFuriganaPreviewOpen] = useState(false);
   const [workspaceView, setWorkspaceView] = useState<WorkspaceViewId | "console">("capture");
   const lastWorkspaceView = useRef<WorkspaceViewId>("capture");
   useEffect(() => {
@@ -1731,13 +1717,19 @@ export function OCRTab({ active }: OcrTabProps) {
     const offLog = onIpc("ocr-log", (_event, payload) => {
       const rawLine = String(payload ?? "");
       const trimmedLine = rawLine.trim();
-      const lowerLine = trimmedLine.toLowerCase();
       if (!trimmedLine) {
+        return;
+      }
+      const { origin, rest } = splitLogOrigin(trimmedLine);
+      const contentLine = origin ? rest.trim() : trimmedLine;
+      const cleanContent = stripAnsi(contentLine);
+      const lowerLine = cleanContent.toLowerCase();
+      if (!cleanContent) {
         return;
       }
 
       const isNativeNoise =
-        /^I\d{4}\s/u.test(trimmedLine) || /^W\d{4}\s/u.test(trimmedLine);
+        /^I\d{4}\s/u.test(cleanContent) || /^W\d{4}\s/u.test(cleanContent);
       if (
         lowerLine.includes("failed to load cu") ||
         lowerLine.includes("please follow https://onnxruntime.ai")
@@ -1759,29 +1751,29 @@ export function OCRTab({ active }: OcrTabProps) {
         lowerLine.includes("created tensorflow lite xnnpack delegate for cpu") ||
         lowerLine.includes("standard_text_reorderer.cc:401") ||
         lowerLine.includes("invalid alignment between pre-joined atoms and icu symbols") ||
-        trimmedLine.includes("Multiple active video sources found in OBS")
+        cleanContent.includes("Multiple active video sources found in OBS")
       ) {
         return;
       }
       if (
         configRef.current.ignoreOcrRun1Text &&
-        OCR_RUN_1_RECOGNIZED_PATTERN.test(trimmedLine)
+        OCR_RUN_1_RECOGNIZED_PATTERN.test(cleanContent)
       ) {
         return;
       }
 
-      if (trimmedLine.endsWith("sleeping.")) {
+      if (cleanContent.endsWith("sleeping.")) {
         setRuntimeMessage("Sleeping: image empty or unchanged");
         return;
       }
 
-      if (trimmedLine.includes("COMMAND_FINISHED")) {
+      if (cleanContent.includes("COMMAND_FINISHED")) {
         setNotice({ type: "success", message: t("ocr.runtime.areaSelectionFinished") });
         return;
       }
 
-      const engineMatch = trimmedLine.includes("using")
-        ? trimmedLine.split("using")[1]?.split(":")[0]?.trim()
+      const engineMatch = cleanContent.includes("using")
+        ? cleanContent.split("using")[1]?.split(":")[0]?.trim()
         : "";
       const engineKey =
         MAIN_OCR_OPTIONS.find((option) => option.label === engineMatch)?.value ??
@@ -1789,13 +1781,13 @@ export function OCRTab({ active }: OcrTabProps) {
         "";
 
       if (
-        trimmedLine.endsWith(":") &&
+        cleanContent.endsWith(":") &&
         engineKey &&
         !pausedRef.current &&
-        !OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
+        !OCR_RUN_2_RECOGNIZED_PATTERN.test(cleanContent)
       ) {
         const engineLabel = getEngineLabel(engineKey);
-        const speed = trimmedLine.split(" in ")[1]?.split("s")[0]?.trim();
+        const speed = cleanContent.split(" in ")[1]?.split("s")[0]?.trim();
         const scanDurationSeconds = speed ? Number.parseFloat(speed) : Number.NaN;
         let displaySpeed = speed;
         if (Number.isFinite(scanDurationSeconds)) {
@@ -1846,9 +1838,11 @@ export function OCRTab({ active }: OcrTabProps) {
         return;
       }
 
-      if (trimmedLine.includes("Seems like Text we already sent")) {
+      const originPrefix = origin ? `${formatOriginAnsi(origin)} ` : "";
+
+      if (cleanContent.includes("Seems like Text we already sent")) {
         if (previousLogLineRef.current) {
-          appendTerminalLine(`\x1b[33m${previousLogLineRef.current} (Duplicate)\x1b[0m`);
+          appendTerminalLine(`${originPrefix}\x1b[33m${previousLogLineRef.current} (Duplicate)\x1b[0m`);
         }
         return;
       }
@@ -1856,12 +1850,12 @@ export function OCRTab({ active }: OcrTabProps) {
       const isMenuOnlyLog = lowerLine.includes(MENU_ONLY_LOG_MESSAGE.toLowerCase());
       const isBlackHoleLog = lowerLine.includes(BLACK_HOLE_LOG_MESSAGE.toLowerCase());
       const nextTerminalLine = isMenuOnlyLog
-        ? MENU_ONLY_CONSOLE_MESSAGE
+        ? `${originPrefix}${MENU_ONLY_CONSOLE_MESSAGE}`
         : isBlackHoleLog
-          ? BLACK_HOLE_CONSOLE_MESSAGE
-        : OCR_RUN_2_RECOGNIZED_PATTERN.test(trimmedLine)
-          ? `\x1b[92m${trimmedLine}\x1b[0m`
-          : replaceEngineLabelsWithAnsi(trimmedLine);
+          ? `${originPrefix}${BLACK_HOLE_CONSOLE_MESSAGE}`
+        : OCR_RUN_2_RECOGNIZED_PATTERN.test(cleanContent)
+          ? `${originPrefix}\x1b[92m${contentLine}\x1b[0m`
+          : `${originPrefix}${replaceEngineLabelsWithAnsi(contentLine)}`;
 
       appendTerminalLine(nextTerminalLine, {
         dedupeKey: isMenuOnlyLog
@@ -1870,7 +1864,7 @@ export function OCRTab({ active }: OcrTabProps) {
             ? BLACK_HOLE_LOG_MESSAGE
             : undefined
       });
-      previousLogLineRef.current = trimmedLine;
+      previousLogLineRef.current = contentLine;
     });
 
     const offStarted = onIpc("ocr-started", () => {
@@ -2076,6 +2070,24 @@ export function OCRTab({ active }: OcrTabProps) {
     }
   }, []);
 
+  const openFuriganaPreview = async () => {
+    setFuriganaPreviewOpen(true);
+    try {
+      const sensitivity = await invokeIpc<number | null>(
+        "run-furigana-window",
+        config.furiganaFilterSensitivity
+      );
+      if (typeof sensitivity === "number") {
+        setConfig((current) => ({ ...current, furiganaFilterSensitivity: sensitivity }));
+      }
+    } catch (error) {
+      console.error("Failed to open the furigana preview:", error);
+      setNotice({ type: "error", message: t("ocr.notices.furiganaPreviewFailed") });
+    } finally {
+      setFuriganaPreviewOpen(false);
+    }
+  };
+
   const runScreenSelector = useCallback(() => {
     appendTerminalLine("\x1b[36mOpening OCR area selector...\x1b[0m");
     sendIpc("ocr.run-screen-selector");
@@ -2276,10 +2288,7 @@ export function OCRTab({ active }: OcrTabProps) {
               </div>
             </div>
             <div className="desk-autostart">
-              <div
-                className="input-group tooltip-trigger tooltip-trigger--start"
-                {...tooltipProps(autostartTooltip)}
-              >
+              <div className="input-group">
                 <label htmlFor="ocr-autostart-mode">{t("ocr.sceneAndAreas.autostart")}</label>
                 <select
                   id="ocr-autostart-mode"
@@ -2576,10 +2585,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     </div>
                   ) : (
                     <div className="input-group">
-                      <label
-                        htmlFor="ocr-basic-speed"
-                        {...tooltipProps(ocrTooltips.basicScanRate)}
-                      >
+                      <label htmlFor="ocr-basic-speed">
                         {t("ocr.settings.scanSpeed")}
                       </label>
                       <select
@@ -2604,10 +2610,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     </div>
                   )}
                   <div className="input-group">
-                    <label
-                      htmlFor="ocr-language"
-                      {...tooltipProps(ocrTooltips.language)}
-                    >
+                    <label htmlFor="ocr-language">
                       {t("ocr.settings.language")}
                     </label>
                     <select
@@ -2665,6 +2668,31 @@ export function OCRTab({ active }: OcrTabProps) {
                       {t("ocr.pipeline.title")}
                     </h3>
                     <div className="ocr-pipeline-grid">
+                      <div className="input-group ocr-pipeline-control">
+                        <label htmlFor="ocr-preset">{t("ocr.pipeline.preset")}</label>
+                        <select
+                          id="ocr-preset"
+                          value={config.twoPassOCR && config.optimizeSecondScan
+                            ? OCR_PRESETS.find((preset) =>
+                                preset.mainOcr === config.mainOcr && preset.stabilityOcr === config.stabilityOcr
+                              )?.labelKey ?? ""
+                            : ""}
+                          onChange={(event) => {
+                            const preset = OCR_PRESETS.find((p) => p.labelKey === event.target.value);
+                            if (!preset) return;
+                            setConfig((current) => ({
+                              ...current,
+                              mainOcr: preset.mainOcr,
+                              stabilityOcr: preset.stabilityOcr,
+                              twoPassOCR: true,
+                              optimizeSecondScan: true
+                            }));
+                          }}
+                        >
+                          <option value="" disabled>{t("ocr.pipeline.custom")}</option>
+                          {OCR_PRESETS.map((p) => <option key={p.labelKey} value={p.labelKey}>{t(p.labelKey)}</option>)}
+                        </select>
+                      </div>
                       <div className="input-group ocr-pipeline-control ocr-pipeline-control--toggle">
                         <label
                           htmlFor="ocr-two-pass"
@@ -2687,12 +2715,10 @@ export function OCRTab({ active }: OcrTabProps) {
 
                       {config.twoPassOCR ? (
                         <div className="input-group ocr-pipeline-control ocr-engine-control">
-                          <label
-                            htmlFor="ocr-stability-engine"
-                            {...tooltipProps(ocrTooltips.stabilityOcr)}
-                          >
-                            {t("ocr.pipeline.stabilityOcr")}
-                          </label>
+                          <div className="ocr-engine-label">
+                            <label htmlFor="ocr-stability-engine">{t("ocr.pipeline.stabilityOcr")}</label>
+                            <HelpTip label={t("ocr.pipeline.stabilityOcrHelp")} text={ocrTooltips.stabilityOcr} />
+                          </div>
                           <select
                             id="ocr-stability-engine"
                             value={config.stabilityOcr}
@@ -2712,17 +2738,23 @@ export function OCRTab({ active }: OcrTabProps) {
                               </option>
                             ))}
                           </select>
-                          {config.stabilityOcr === "vocr_detector" ? <small>{t("ocr.pipeline.vocrDetectorHint")}</small> : null}
+                          {["vocr_detector", "mida_detector"].includes(config.stabilityOcr) ? <small>{t("ocr.pipeline.vocrDetectorHint")}</small> : null}
                         </div>
                       ) : null}
 
                       <div className="input-group ocr-pipeline-control ocr-engine-control">
-                        <label
-                          htmlFor="ocr-main-engine"
-                          {...tooltipProps(ocrTooltips.mainOcr)}
-                        >
-                          {t("ocr.pipeline.mainOcr")}
-                        </label>
+                        <div className="ocr-engine-label">
+                          <label htmlFor="ocr-main-engine">{t("ocr.pipeline.mainOcr")}</label>
+                          {config.mainOcr === "gvision" && (
+                            <HelpTip
+                              label={t("ocr.pipeline.googleVisionHelp")}
+                              text={t("ocr.tooltips.googleVisionKey", {
+                                filename: "google_vision.json",
+                                homePath: "~/.config/google_vision.json"
+                              })}
+                            />
+                          )}
+                        </div>
                         <select
                           id="ocr-main-engine"
                           value={config.mainOcr}
@@ -2745,6 +2777,19 @@ export function OCRTab({ active }: OcrTabProps) {
                         {config.mainOcr === "vitaocr" ? (
                           <small>{t("ocr.pipeline.vitaOcrHint")}</small>
                         ) : null}
+                        {config.mainOcr === "mida_vocr" && <small>{t("ocr.pipeline.midaHint")}</small>}
+                        {platform !== "win32" && (config.mainOcr === "oneocr" || (config.twoPassOCR && config.stabilityOcr === "oneocr")) && (
+                          <small>
+                            {t("ocr.pipeline.portableOneOcrHint", { path: "~/.config/oneocr/venv" })}{" "}
+                            <a href="https://github.com/AuroraWright/oneocr_reimpl/tree/f3698522a341bcbe5e61394f61e8ab3ef11efbe6#getting-the-models"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void invokeIpc("open-external-link", event.currentTarget.href);
+                              }}>
+                              {t("ocr.pipeline.portableOneOcrGuide")}
+                            </a>
+                          </small>
+                        )}
                       </div>
 
                       {config.twoPassOCR ? (
@@ -2845,19 +2890,13 @@ export function OCRTab({ active }: OcrTabProps) {
                               ...current,
                               furiganaFilterSensitivity: next
                             }));
-                            sendIpc("update-furigana-character", "龍", next);
                           }}
                         />
                         <button
                           type="button"
                           className="secondary"
-                          onClick={async () => {
-                            const next = await invokeIpc<number>("run-furigana-window");
-                            setConfig((current) => ({
-                              ...current,
-                              furiganaFilterSensitivity: integerValue(next, 0)
-                            }));
-                          }}
+                          disabled={furiganaPreviewOpen}
+                          onClick={() => void openFuriganaPreview()}
                         >
                           {t("ocr.settings.preview")}
                         </button>
@@ -2995,10 +3034,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
                   <div className="desk-field-grid desk-preprocess-grid">
                     <div className="input-group">
-                      <label
-                        htmlFor="obs-preprocess"
-                        {...tooltipProps(ocrTooltips.obsCapturePreprocess)}
-                      >
+                      <label htmlFor="obs-preprocess">
                         {t("ocr.debug.obsCapturePreprocess")}
                       </label>
                       <select
@@ -3369,7 +3405,6 @@ export function OCRTab({ active }: OcrTabProps) {
                                 aria-label={t("ocr.hotkeys.gamepadBindingAria", {
                                   action: actionLabel
                                 })}
-                                data-tip={t("ocr.hotkeys.gamepadBindingTitle")}
                                 onChange={(event) => {
                                   setConfig((current) => ({
                                     ...current,
@@ -3505,10 +3540,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   className="form-group ocr-form-group ocr-details-body desk-tools-panel"
                 >
                   <div className="input-group">
-                    <label
-                      htmlFor="process-priority"
-                      {...tooltipProps(ocrTooltips.processPriority)}
-                    >
+                    <label htmlFor="process-priority">
                       {t("ocr.debug.processPriority")}
                     </label>
                     <select
@@ -3583,10 +3615,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   className="form-group ocr-form-group ocr-details-body desk-tools-panel"
                 >
                   <div className="input-group wrap">
-                    <label
-                      htmlFor="dep-install"
-                      {...tooltipProps(ocrTooltips.installDependency)}
-                    >
+                    <label htmlFor="dep-install">
                       {t("ocr.debug.installDependency")}
                     </label>
                     <select
@@ -3613,10 +3642,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   </div>
 
                   <div className="input-group wrap">
-                    <label
-                      htmlFor="dep-remove"
-                      {...tooltipProps(ocrTooltips.uninstallDependency)}
-                    >
+                    <label htmlFor="dep-remove">
                       {t("ocr.debug.removeDependency")}
                     </label>
                     <select

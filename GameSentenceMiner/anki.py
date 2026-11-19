@@ -21,6 +21,8 @@ from queue import Empty, Full, Queue
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Dict, Any, List, Tuple, Optional
 
+from GameSentenceMiner.native import anki_monitor, anki_poll
+from GameSentenceMiner.native.runtime import backend_manages
 from GameSentenceMiner import obs
 from GameSentenceMiner.anki_setup import find_anki_field_mismatch
 from GameSentenceMiner.tokenizer import tokenizer
@@ -226,6 +228,30 @@ def _confirmation_cancel_action(result: Any) -> str:
     return ""
 
 
+def _remember_anki_notes(note_ids):
+    if anki_poll.managed():
+        anki_poll.acknowledge(note_ids)
+    else:
+        previous_note_ids.update(note_ids)
+
+
+def _forget_anki_note(note_id):
+    if anki_poll.managed():
+        anki_poll.acknowledge([note_id], known=False)
+    else:
+        previous_note_ids.discard(note_id)
+
+
+def _seed_recent_notes(*, replace):
+    global previous_note_ids
+    if anki_poll.managed():
+        anki_poll.query("replace" if replace else "extend", get_config().anki.url)
+    elif replace:
+        previous_note_ids = set(get_note_ids())
+    else:
+        previous_note_ids.update(get_note_ids())
+
+
 def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
     note_id = getattr(last_note, "noteId", None)
     if not note_id:
@@ -235,9 +261,9 @@ def _delete_cancelled_anki_note(last_note: "AnkiCard") -> bool:
     try:
         invoke("deleteNotes", notes=[note_id])
         try:
-            previous_note_ids.discard(int(note_id))
+            _forget_anki_note(int(note_id))
         except (TypeError, ValueError):
-            previous_note_ids.discard(note_id)
+            _forget_anki_note(note_id)
         logger.info(f"Deleted Anki note {note_id} after confirmation dialog exit.")
         return True
     except Exception as e:
@@ -280,7 +306,7 @@ def _normalize_field_grouping_word(value: str) -> str:
     return "".join(plain_text.split()).casefold()
 
 
-def _find_field_grouping_candidates(source_note: "AnkiCard") -> List[Dict[str, Any]]:
+def _find_field_grouping_candidates(source_note: "AnkiCard", *, oldest_only=False) -> List[Dict[str, Any]]:
     config = get_config()
     anki_config = config.anki
     if not bool(getattr(anki_config, "field_grouping_enabled", False)):
@@ -293,23 +319,38 @@ def _find_field_grouping_candidates(source_note: "AnkiCard") -> List[Dict[str, A
         source_word = source_note.get_field(word_field)
     except Exception:
         return []
+    model_name = str(getattr(source_note, "modelName", "") or getattr(anki_config, "note_type", "") or "").strip()
+    source_note_id = int(getattr(source_note, "noteId", 0) or 0)
+    sentence_field = str(getattr(anki_config, "sentence_field", "") or "").strip()
+    if backend_manages("GSM_NATIVE_ANKI_GROUPING") and 0 < source_note_id < 2**64:
+        from GameSentenceMiner.native import anki_grouping
+
+        candidates = anki_grouping.request(
+            anki_config.url,
+            "candidates",
+            source=source_note_id,
+            word=str(source_word or ""),
+            word_field=word_field,
+            model=model_name,
+            sentence_field=sentence_field,
+            oldest_only=oldest_only,
+        )
+        if candidates is not None:
+            return candidates
     normalized_source_word = _normalize_field_grouping_word(source_word)
     if not normalized_source_word:
         return []
 
-    model_name = str(getattr(source_note, "modelName", "") or getattr(anki_config, "note_type", "") or "").strip()
     search_terms = []
     if model_name:
         search_terms.append(f'note:"{_escape_anki_search_value(model_name)}"')
     search_terms.append(f'"{_escape_anki_search_value(word_field)}:{_escape_anki_search_value(source_word)}"')
     note_ids = invoke("findNotes", query=" ".join(search_terms)) or []
-    source_note_id = int(getattr(source_note, "noteId", 0) or 0)
     candidate_ids = [int(note_id) for note_id in note_ids if 0 < int(note_id) < source_note_id]
     if not candidate_ids:
         return []
 
     note_infos = invoke("notesInfo", notes=candidate_ids) or []
-    sentence_field = str(getattr(anki_config, "sentence_field", "") or "").strip()
     candidates = []
     for note_info in note_infos:
         note_id = int(note_info.get("noteId") or 0)
@@ -338,15 +379,19 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
     config = get_config()
     if not bool(getattr(config.anki, "field_grouping_enabled", False)):
         return None
+    automatic = bool(getattr(config.anki, "field_grouping_auto_merge", False))
     try:
-        candidates = _find_field_grouping_candidates(source_note)
+        if automatic and backend_manages("GSM_NATIVE_ANKI_GROUPING"):
+            candidates = _find_field_grouping_candidates(source_note, oldest_only=True)
+        else:
+            candidates = _find_field_grouping_candidates(source_note)
     except Exception as e:
         logger.warning(f"Could not search Anki for field-grouping duplicates: {e}")
         return None
     if not candidates:
         return None
 
-    if bool(getattr(config.anki, "field_grouping_auto_merge", False)):
+    if automatic:
         target = min(candidates, key=lambda candidate: int(candidate["note_id"]))
         result = {
             "target_note_id": int(target["note_id"]),
@@ -605,6 +650,41 @@ def _apply_field_grouping_merge(
     if not target_note_id or target_note_id == source_note_id:
         raise ValueError("The selected field-grouping target is invalid.")
 
+    if backend_manages("GSM_NATIVE_ANKI_GROUPING") and 0 < source_note_id < 2**64 and 0 < target_note_id < 2**64:
+        from GameSentenceMiner.native import anki_grouping
+
+        line_breaks = {
+            str(getattr(config.anki, key, "") or "").strip() for key in ("sentence_field", "sentence_furigana_field")
+        }
+        delete_duplicate = bool(decision.get("delete_duplicate", True))
+        merged = anki_grouping.request(
+            config.anki.url,
+            "merge",
+            source=source_note_id,
+            target=target_note_id,
+            fields=[
+                {
+                    "name": name,
+                    "value": _source_note_field_value(source_note, source_patch, name),
+                    "image": mode == "image",
+                    "line_breaks": name in line_breaks,
+                }
+                for name, mode in _field_grouping_fields(config)
+            ],
+            tags=[str(tag or "") for tag in [*(generated_tags or []), *(getattr(source_note, "tags", None) or [])]],
+            back=str(decision.get("order") or "").strip().lower() == FIELD_GROUPING_ORDER_BACK,
+            overwrite=bool(decision.get("overwrite") or getattr(config.anki, "field_grouping_overwrite", False)),
+            remove_overlay=bool(getattr(config.anki, "remove_overlay_tag", False)),
+            delete_duplicate=delete_duplicate,
+        )
+        if merged is not None:
+            if merged is not True:
+                raise RuntimeError("Unexpected Anki grouping receipt")
+            if delete_duplicate:
+                _forget_anki_note(source_note_id)
+            logger.info(f"Merged grouped context into Anki note {target_note_id}.")
+            return SimpleNamespace(noteId=target_note_id)
+
     target_infos = invoke("notesInfo", notes=[target_note_id]) or []
     if not target_infos:
         raise ValueError(f"The selected original Anki note {target_note_id} no longer exists.")
@@ -620,17 +700,12 @@ def _apply_field_grouping_merge(
         raise ValueError("No configured context fields contained data to merge.")
     _normalize_anki_sentence_line_breaks(merged_note, anki_cfg=config.anki)
     _release_note_from_browser(target_note_id)
-    invoke("updateNoteFields", note=merged_note)
-
     merged_tags = _field_grouping_tags(source_note, generated_tags)
-    if merged_tags:
-        invoke("addTags", tags=" ".join(merged_tags), notes=[target_note_id])
-    if bool(getattr(config.anki, "remove_overlay_tag", False)):
-        invoke("removeTags", tags="overlay", notes=[target_note_id])
+    _commit_anki_fields(merged_note, target_note_id, merged_tags, config.anki)
 
     if bool(decision.get("delete_duplicate", True)):
         invoke("deleteNotes", notes=[source_note_id])
-        previous_note_ids.discard(source_note_id)
+        _forget_anki_note(source_note_id)
         logger.info(f"Merged grouped context into Anki note {target_note_id} and deleted duplicate {source_note_id}.")
     else:
         logger.info(f"Merged grouped context into Anki note {target_note_id}; duplicate {source_note_id} was kept.")
@@ -2509,6 +2584,23 @@ def _process_audio(
             open_audio_in_external(anki_media_path)
 
 
+def _commit_anki_fields(note, note_id, tags, config, timing_context=None):
+    remove_overlay = bool(getattr(config, "remove_overlay_tag", False))
+    if backend_manages("GSM_NATIVE_ANKI_EDIT") and note.get("id") == note_id:
+        from GameSentenceMiner.native import anki_edit
+
+        if anki_edit.commit(
+            config.url, note, tags, remove_overlay, wait=_anki_monitor_stop.wait, timing_context=timing_context
+        ):
+            return
+    timing = {"timing_context": timing_context} if timing_context is not None else {}
+    invoke("updateNoteFields", note=note, **timing)
+    if tags:
+        invoke("addTags", tags=" ".join(tags), notes=[note_id], **timing)
+    if remove_overlay:
+        invoke("removeTags", tags="overlay", notes=[note_id], **timing)
+
+
 def _update_anki_note(
     last_note: AnkiCard,
     note: dict,
@@ -2518,12 +2610,8 @@ def _update_anki_note(
 ):
     config = get_config()
 
-    def invoke_with_optional_timing(action: str, **kwargs):
-        if timing_context is not None:
-            kwargs["timing_context"] = timing_context
-        return invoke(action, **kwargs)
-
-    selected_notes = invoke_with_optional_timing("guiSelectedNotes")
+    timing = {"timing_context": timing_context} if timing_context is not None else {}
+    selected_notes = invoke("guiSelectedNotes", **timing)
     if last_note.noteId in selected_notes:
         anki_actions.open_browser_window(1)
 
@@ -2532,15 +2620,12 @@ def _update_anki_note(
             note["fields"][field_name] = ""
 
     _normalize_anki_sentence_line_breaks(note, anki_cfg=config.anki)
-    invoke_with_optional_timing("updateNoteFields", note=note)
-
-    if not assets.audio_in_anki and config.anki.tag_unvoiced_cards:
+    tag_unvoiced = not assets.audio_in_anki and config.anki.tag_unvoiced_cards
+    _commit_anki_fields(
+        note, last_note.noteId, [*tags, "unvoiced"] if tag_unvoiced else tags, config.anki, timing_context
+    )
+    if tag_unvoiced:
         tags.append("unvoiced")
-
-    if tags:
-        invoke_with_optional_timing("addTags", tags=" ".join(tags), notes=[last_note.noteId])
-    if config.anki.remove_overlay_tag:
-        invoke_with_optional_timing("removeTags", tags="overlay", notes=[last_note.noteId])
 
     # Build detailed success log
     media_info = []
@@ -3134,10 +3219,7 @@ def store_media_file(
             )
 
             try:
-                with open(path, "rb") as src_file:
-                    file_content = src_file.read()
-                with open(new_path, "wb") as dst_file:
-                    dst_file.write(file_content)
+                shutil.copyfile(path, new_path)
                 try:
                     os.remove(path)
                 except Exception as remove_error:
@@ -3149,6 +3231,19 @@ def store_media_file(
                     f"Failed to read/write file to sanitized path: {rewrite_error}. Attempting upload with original path."
                 )
 
+        target = sanitized_filename if filename is not None else path
+        if backend_manages("GSM_NATIVE_ANKI_MEDIA"):
+            stat = os.stat(path)
+            return invoke(
+                "storeMediaFile",
+                filename=os.fspath(target),
+                _media_source={"path": os.path.abspath(path), "size": stat.st_size, "modified_ns": stat.st_mtime_ns},
+                retries=retries,
+                timeout=60,
+                timing_context=timing_context,
+                media_kind=media_kind,
+                file_size_bytes=stat.st_size,
+            )
         file_size = os.path.getsize(path) if path and os.path.exists(path) else 0
         with time_anki_card_block(
             timing_context,
@@ -3161,7 +3256,7 @@ def store_media_file(
 
         return invoke(
             "storeMediaFile",
-            filename=sanitized_filename if filename is not None else path,
+            filename=target,
             data=encoded_data,
             retries=retries,
             timeout=60,
@@ -3196,6 +3291,8 @@ def invoke(
     timing_context: Optional[AnkiCardTimingContext] = None,
     media_kind: str = "",
     file_size_bytes: int = 0,
+    _media_source: dict | None = None,
+    _project_cards: bool = False,
     **params,
 ):
     """Call an AnkiConnect action.
@@ -3225,9 +3322,24 @@ def invoke(
     while True:
         request_start = time.perf_counter()
         try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            response = resp.json()
+            response = None
+            if _project_cards:
+                from GameSentenceMiner.native import anki_cards
+
+                response = anki_cards.read(url, params["notes"])
+            if response is None and _media_source is None:
+                resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+                resp.raise_for_status()
+                response = resp.json()
+            elif _media_source is not None:
+                from GameSentenceMiner.util.communication import bus_client
+
+                response = bus_client.get_bus().request(
+                    bus_client.MAIN,
+                    "anki.storeMedia",
+                    {**_media_source, "filename": params["filename"], "url": url},
+                    timeout=timeout + 5,
+                )
 
             if not isinstance(response, dict) or len(response.keys()) != 2:
                 logger.error(f"Unexpected response from Anki: {response}")
@@ -3308,6 +3420,14 @@ def invoke(
 
 
 def get_last_anki_card() -> AnkiCard | dict:
+    if backend_manages("GSM_NATIVE_ANKI_CARDS"):
+        from GameSentenceMiner.native import anki_cards
+
+        reply = anki_cards.read(get_config().anki.url)
+        if "fallback_note" in reply:
+            return AnkiCard.from_dict(invoke("notesInfo", notes=[reply["fallback_note"]])[0])
+        rows = reply["result"]
+        return anki_cards.unpack(rows[0]) if rows else {}
     added_ids = invoke("findNotes", query="added:1")
     if not added_ids:
         return {}
@@ -3365,11 +3485,13 @@ def reset_anki_beacon_receiver_state():
         anki_beacon_state = AnkiBeaconState(baseline_seeded=not first_run)
     gsm_status.anki_beacon_connected = False
     _anki_monitor_wake.clear()
+    anki_monitor.wake()
 
 
 def reset_anki_polling_gate_state():
     global anki_polling_gate_state
     anki_polling_gate_state = AnkiPollingGateState()
+    anki_monitor.wake(replay_changed=True)
 
 
 def _coerce_note_id(note_id: Any) -> Optional[int]:
@@ -3414,6 +3536,7 @@ def record_anki_beacon_heartbeat(payload: Dict[str, Any], received_at: Optional[
     gsm_status.anki_connected = True
     gsm_status.anki_beacon_connected = True
     _anki_monitor_wake.set()
+    anki_monitor.wake()
 
 
 def get_anki_beacon_wait_timeout_seconds(now: Optional[datetime] = None) -> float:
@@ -3444,8 +3567,12 @@ def refresh_anki_beacon_connection_status(now: Optional[datetime] = None) -> boo
 
 def _is_anki_connect_reachable(timeout: float = 1.0) -> bool:
     try:
+        url = get_config().anki.url
+        monitored = anki_monitor.reachable(url, timeout)
+        if monitored is not None:
+            return monitored
         response = requests.post(
-            get_config().anki.url,
+            url,
             json=request("version"),
             headers={"Content-Type": "application/json"},
             timeout=timeout,
@@ -3511,6 +3638,7 @@ def handle_incoming_anki_event(payload: Dict[str, Any], received_at: Optional[da
             processed_push_note_keys.discard(note_key)
         raise RuntimeError("Anki event mailbox is backpressured") from error
     _anki_monitor_wake.set()
+    anki_monitor.wake()
     return "note_added"
 
 
@@ -3559,7 +3687,7 @@ def _ensure_anki_beacon_baseline() -> bool:
         return True
 
     try:
-        previous_note_ids.update(get_note_ids())
+        _seed_recent_notes(replace=False)
         first_run = False
         gsm_status.anki_connected = True
         with anki_beacon_state_lock:
@@ -3598,7 +3726,7 @@ def _process_next_anki_beacon_note(timeout_seconds: float = 0.0) -> bool:
             update_single_card(card, timing_context=timing_context)
         else:
             update_new_cards({note_id}, timing_context=timing_context)
-        previous_note_ids.add(note_id)
+        _remember_anki_notes([note_id])
         gsm_status.anki_connected = True
         return True
     except Exception:
@@ -3624,54 +3752,79 @@ def _trigger_incremental_anki_cache_sync(note_ids: List[int]) -> None:
 
 # Check for new Anki cards and save replay buffer if detected
 def check_for_new_cards():
-    global previous_note_ids, first_run, last_connection_error, errors_shown, final_warning_shown
-    current_note_ids = set()
+    global first_run, errors_shown, final_warning_shown
     try:
-        current_note_ids = get_note_ids()
+        if anki_poll.managed():
+            new_card_ids = anki_poll.query("extend" if first_run else "difference", get_config().anki.url)
+        else:
+            new_card_ids = get_note_ids() - previous_note_ids
         gsm_status.anki_connected = True
         errors_shown = 0
         final_warning_shown = False
     except Exception:
         gsm_status.anki_connected = False
-        if datetime.now() - last_connection_error > timedelta(seconds=10):
-            if final_warning_shown:
-                return False
-            if errors_shown >= 5:
-                logger.warning("Too many errors fetching Anki notes. Suppressing further warnings.")
-                final_warning_shown = True
-                return False
-            errors_shown += 1
-            logger.warning(
-                "Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, "
-                + f"and url/port is configured correctly in GSM Settings, This warning will be shown {5 - errors_shown} more times"
-            )
-            last_connection_error = datetime.now()
+        _log_anki_poll_failure()
         return False
-    new_card_ids = current_note_ids - previous_note_ids
     if new_card_ids and not first_run:
-        try:
-            update_new_cards(new_card_ids)
-        except Exception as e:
-            logger.error("Error updating new card, Reason:", e)
+        _handle_polled_notes(new_card_ids)
+    else:
+        _remember_anki_notes(new_card_ids)
     first_run = False
-    previous_note_ids.update(new_card_ids)  # Update the list of known notes
     return True
+
+
+def _handle_polled_notes(ids):
+    try:
+        update_new_cards(ids)
+    except Exception as error:
+        logger.error(f"Error updating new card: {error}")
+    _remember_anki_notes(ids)
+
+
+def _log_anki_poll_failure():
+    global last_connection_error, errors_shown, final_warning_shown
+    if final_warning_shown or datetime.now() - last_connection_error <= timedelta(seconds=10):
+        return
+    if errors_shown >= 5:
+        logger.warning("Too many errors fetching Anki notes. Suppressing further warnings.")
+        final_warning_shown = True
+        return
+    errors_shown += 1
+    logger.warning(
+        "Error fetching Anki notes, Make sure Anki is running, ankiconnect add-on is installed, "
+        + f"and url/port is configured correctly in GSM Settings, This warning will be shown {5 - errors_shown} more times"
+    )
+    last_connection_error = datetime.now()
 
 
 def update_new_cards(new_card_ids, timing_context: AnkiCardTimingContext | None = None):
     """Process multiple new cards by looping through each card ID."""
     # Get info for all new cards
-    cards_info = invoke("notesInfo", notes=list(new_card_ids), timing_context=timing_context)
+    options = {}
+    managed = backend_manages("GSM_NATIVE_ANKI_CARDS")
+    if managed:
+        from GameSentenceMiner.native import anki_cards
+
+        options["_project_cards"] = True
+    cards_info = invoke("notesInfo", notes=list(new_card_ids), timing_context=timing_context, **options)
 
     for card_dict in cards_info:
         try:
-            card = AnkiCard.from_dict(card_dict)
+            if managed and isinstance(card_dict, list):
+                card = anki_cards.unpack(card_dict)
+            else:
+                if managed and isinstance(card_dict, str):
+                    card_dict = json.loads(card_dict)
+                card = AnkiCard.from_dict(card_dict)
             if timing_context is None:
                 update_single_card(card)
             else:
                 update_single_card(card, timing_context=timing_context)
         except Exception as e:
-            logger.error(f"Error processing card {card_dict.get('noteId', 'unknown')}: {e}")
+            note_id = card_dict.get("noteId", "unknown") if isinstance(card_dict, dict) else "unknown"
+            if isinstance(card_dict, list) and card_dict:
+                note_id = card_dict[0]
+            logger.error(f"Error processing card {note_id}: {e}")
             continue
 
 
@@ -3936,14 +4089,16 @@ def queue_card_for_processing(
         timing_context,
         translation_future,
     )
-    if replay_path:
-        from GameSentenceMiner import replay_handler
+    from GameSentenceMiner.obs.outputs import native_replay_acquisition
 
-        enqueue = lambda item: replay_handler.process_replay_file(replay_path, item)  # noqa: E731
-    else:
-        enqueue = card_queue.append
+    native_save = not replay_path and native_replay_acquisition()
     try:
-        enqueue(card_queue_item)
+        if replay_path:
+            from GameSentenceMiner import replay_handler
+
+            replay_handler.process_replay_file(replay_path, card_queue_item)
+        elif not native_save:
+            card_queue.append(card_queue_item)
     except Exception as error:
         if translation_future is not None:
             translation_future.cancel()
@@ -3967,12 +4122,17 @@ def queue_card_for_processing(
         return
     try:
         with time_anki_card_block(timing_context, "anki.obs_save_replay_buffer", queue_depth=len(card_queue)):
-            obs.save_replay_buffer()
+            path = obs.save_replay_buffer()
+            if native_save:
+                from GameSentenceMiner import replay_handler
+
+                replay_handler.process_replay_file(path, card_queue_item)
     except Exception as e:
-        try:
-            card_queue.remove(card_queue_item)
-        except ValueError:
-            pass
+        if not native_save:
+            try:
+                card_queue.remove(card_queue_item)
+            except ValueError:
+                pass
         if reuse_key:
             if previous_entry:
                 sentence_audio_cache[reuse_key] = previous_entry
@@ -4234,7 +4394,7 @@ def _seed_anki_polling_baseline() -> bool:
     global previous_note_ids, first_run, errors_shown, final_warning_shown
 
     try:
-        previous_note_ids = set(get_note_ids())
+        _seed_recent_notes(replace=True)
         first_run = False
         gsm_status.anki_connected = True
         errors_shown = 0
@@ -4353,13 +4513,18 @@ def start_monitoring_anki():
 
 
 def stop_monitoring_anki() -> None:
+    anki_monitor.stop()
     _anki_monitor_stop.set()
     _anki_monitor_wake.set()
 
 
 def stop_anki_runtime() -> None:
+    anki_monitor.stop()
     _anki_monitor_stop.set()
     _anki_monitor_wake.set()
+    from GameSentenceMiner.native.history import stop_anki_sync
+
+    stop_anki_sync()
     translation_prefetch_executor.shutdown(wait=True, cancel_futures=False)
 
 

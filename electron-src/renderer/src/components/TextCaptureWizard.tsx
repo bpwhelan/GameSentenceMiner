@@ -6,6 +6,10 @@ import type { ObsCaptureMode, ObsScene, SceneLaunchProfile, SceneOcrMode } from 
 import { AgentScriptDisplay } from "./AgentScriptDisplay";
 import { AgentScriptSearchDialog } from "./AgentScriptSearchDialog";
 import {
+  HookFinderStatus, HookMatchDetails, HookNoiseToggle, HookQualityLabel, selectTextHook, useHookFinder, useRankedHookList,
+  type HookFinderSelection, type ProcessorOverrides,
+} from "./HookFinder";
+import {
   buildAgentScriptCandidateList,
   getHighConfidenceAgentScriptCandidate,
   normalizeAgentScriptPathForCompare,
@@ -87,6 +91,8 @@ interface RuntimeStatusRunning {
   hookCount: number;
   flushDelayMs?: number;
   agentScriptPath?: string;
+  sessionId?: string;
+  processorOverrides?: ProcessorOverrides | null;
 }
 
 interface RuntimeStatusStopped {
@@ -102,6 +108,7 @@ interface SavedHookProfile {
   copyToClipboard?: boolean;
   hookId?: string | null;
   hookFunction?: string | null;
+  processorOverrides?: ProcessorOverrides | null;
   manualHookCode?: string | null;
   agentScriptPath?: string | null;
   agentDetached?: boolean;
@@ -187,6 +194,8 @@ export function TextCaptureWizard({
   const [hookStatus, setHookStatus] = useState<RuntimeStatus>({ running: false });
   const [hooks, setHooks] = useState<HookEntry[]>([]);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
+  const [targetLanguage, setTargetLanguage] = useState("");
+  const [showLikelyNoise, setShowLikelyNoise] = useState(false);
   const [textSource, setTextSource] = useState<WizardTextSource>("none");
   const [textSourceChanged, setTextSourceChanged] = useState(false);
   const [saveAutomation, setSaveAutomation] = useState(true);
@@ -209,7 +218,11 @@ export function TextCaptureWizard({
   const [contextFailed, setContextFailed] = useState(false);
   const [savedHookProfile, setSavedHookProfile] = useState<SavedHookProfile | null>(null);
   const [savedSceneProfile, setSavedSceneProfile] = useState<SceneLaunchProfile | null>(null);
-  const [acceptedHook, setAcceptedHook] = useState<{ id: string | null; function: string | null } | null>(null);
+  const [acceptedHook, setAcceptedHook] = useState<{
+    id: string | null;
+    function: string | null;
+    processorOverrides?: ProcessorOverrides | null;
+  } | null>(null);
   const loadedSceneRef = useRef<string | null>(null);
   const previewInFlightRef = useRef(false);
   const ocrSelectorRequestedRef = useRef(false);
@@ -239,10 +252,19 @@ export function TextCaptureWizard({
   );
   const displayedAgentScript = selectedAgentScript || recommendedAgent?.path || "";
 
-  const visibleHooks = useMemo(
-    () => runtimeMatchesCapture ? hooks.filter(hasHookText) : [],
-    [hooks, runtimeMatchesCapture]
+  const rankHooks = hookStatus.running && hookStatus.engine !== "agent";
+  const finder = useHookFinder(
+    step === "hook" && runtimeMatchesCapture && rankHooks,
+    hookStatus.running ? hookStatus.sessionId : undefined,
+    activeScene?.id,
   );
+  const discovery = finder.result;
+  const { visibleHooks: rankedHooks, likelyNoiseCount } = useRankedHookList(hooks, {
+    targetLanguage, selectedHookId, showLikelyNoise, discovery,
+  });
+  const visibleHooks = runtimeMatchesCapture
+    ? (rankHooks ? rankedHooks : hooks.filter(hasHookText).map((hook) => ({ hook, quality: null, match: null })))
+    : [];
 
   const sourceLabel = useMemo(() => {
     const source = preserveLegacyHook ? savedSceneProfile?.textHookMode : textSource;
@@ -317,7 +339,11 @@ export function TextCaptureWizard({
         if (profile && ["luna", "textractor", "agent"].includes(profile.engine)) {
           setTextSource(profile.engine);
           setLaunchTextHook(profile.autoHook);
-          setAcceptedHook({ id: profile.hookId ?? null, function: profile.hookFunction ?? null });
+          setAcceptedHook({
+            id: profile.hookId ?? null,
+            function: profile.hookFunction ?? null,
+            processorOverrides: profile.processorOverrides,
+          });
           if (profile.engine === "agent") setSelectedAgentScript(profile.agentScriptPath ?? "");
           else setHookEngine(profile.engine);
         }
@@ -503,6 +529,15 @@ export function TextCaptureWizard({
   }, [refreshHookRuntime, step]);
 
   useEffect(() => {
+    if (step !== "hook") return;
+    let disposed = false;
+    void invokeIpc<{ targetLanguage?: string } | null>("texthook.getSettings").then((settings) => {
+      if (!disposed) setTargetLanguage(settings?.targetLanguage ?? "");
+    }).catch(() => {});
+    return () => { disposed = true; };
+  }, [step, activeScene?.id, currentGsmProfile]);
+
+  useEffect(() => {
     if (step !== "hook" || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine !== "agent") return;
     return onIpc("texthook.text", (_event, payload) => {
       const value = (payload as { text?: unknown } | null)?.text;
@@ -561,21 +596,26 @@ export function TextCaptureWizard({
   }, [t]);
 
   const selectHook = useCallback(
-    async (hookId: string) => {
+    async (hookId: string, selection?: HookFinderSelection) => {
       if (!runtimeMatchesCapture) return;
+      const context = loadedSceneRef.current;
       try {
-        const result = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
+        const result = await selectTextHook(hookId, selection);
+        if (loadedSceneRef.current !== context) return;
         if (!result?.success) throw new Error("Select failed");
         setSelectedHookId(hookId);
+        setHookStatus((current) => current.running
+          ? { ...current, selectedHookId: hookId, processorOverrides: result.processorOverrides }
+          : current);
         const hook = hooks.find((entry) => entry.id === hookId);
         if (hook && hookStatus.running && hookStatus.engine !== "agent") {
-          setAcceptedHook({ id: hook.id, function: hook.function });
+          setAcceptedHook({ id: hook.id, function: hook.function, processorOverrides: result.processorOverrides });
           setTextSource(hookStatus.engine);
           setTextSourceChanged(true);
           if (!hasTextHook) setLaunchTextHook(true);
         }
       } catch {
-        setStatusMessage(t("captureWizard.hook.refreshFailed"));
+        setStatusMessage(t("texthook.finder.selectFailed"));
       }
     },
     [hasTextHook, hooks, hookStatus, runtimeMatchesCapture, t]
@@ -612,7 +652,9 @@ export function TextCaptureWizard({
     if (!selectedHook || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine === "agent") return;
     setTextSource(hookStatus.engine);
     setTextSourceChanged(true);
-    setAcceptedHook({ id: selectedHook.id, function: selectedHook.function });
+    setAcceptedHook({
+      id: selectedHook.id, function: selectedHook.function, processorOverrides: hookStatus.processorOverrides,
+    });
     if (!hasTextHook) setLaunchTextHook(true);
     setStep("ocr");
   }, [hasTextHook, hookStatus, runtimeMatchesCapture, selectedHook]);
@@ -769,6 +811,7 @@ export function TextCaptureWizard({
           copyToClipboard: savedHookProfile?.copyToClipboard ?? false,
           hookId: textSource === "agent" ? null : acceptedHook?.id ?? null,
           hookFunction: textSource === "agent" ? null : acceptedHook?.function ?? null,
+          processorOverrides: textSource === "agent" ? null : acceptedHook?.processorOverrides ?? null,
           manualHookCode: savedHookProfile?.engine === textSource ? savedHookProfile.manualHookCode ?? null : null,
           agentScriptPath: textSource === "agent" ? selectedAgentScript.trim() : null,
           ...(savedHookProfile?.agentDetached !== undefined ? { agentDetached: savedHookProfile.agentDetached } : {})
@@ -776,9 +819,11 @@ export function TextCaptureWizard({
         if (!profileResult?.success) {
           throw new Error("Failed to save integrated text-hook profile");
         }
-      } else if (textSourceChanged && textSource === "ocr" && savedHookProfile && exeName) {
+      } else if (textSourceChanged && textSource === "ocr" && exeName && (savedHookProfile || acceptedHook?.id)) {
         const result = await invokeIpc<{ success?: boolean }>("texthook.saveProfile", {
-          ...savedHookProfile, exeName, sceneId: sceneForSave.id, autoHook: false
+          ...savedHookProfile,
+          engine: savedHookProfile?.engine ?? hookEngine,
+          exeName, sceneId: sceneForSave.id, autoHook: false,
         });
         if (!result?.success) throw new Error("Failed to disable previous text hook automation");
       }
@@ -796,6 +841,7 @@ export function TextCaptureWizard({
     closeWizard,
     contextFailed,
     hasTextHook,
+    hookEngine,
     launchOverlay,
     launchTextHook,
     ocrMode,
@@ -998,12 +1044,13 @@ export function TextCaptureWizard({
                   <p className="capture-wizard-instruction">{t("captureWizard.guided.agentRunning")}</p>
                 ) : hookStatus.running && visibleHooks.length === 0 ? (
                   <p className="capture-wizard-instruction">
-                    {t(hookStatus.running ? "captureWizard.hook.waiting" : "captureWizard.hook.startFirst")}
+                    {t(likelyNoiseCount > 0 ? "texthook.hooks.onlyNoise" : "captureWizard.hook.waiting")}
                   </p>
                 ) : null}
+                <HookFinderStatus finder={finder} hooks={visibleHooks} selectedHookId={selectedHookId} />
                 {visibleHooks.length > 0 ? (
                   <div className="capture-wizard-hook-list">
-                    {visibleHooks.map((hook) => {
+                    {visibleHooks.map(({ hook, quality, match }) => {
                       const selected = hook.id === selectedHookId;
                       return (
                         <button
@@ -1011,17 +1058,32 @@ export function TextCaptureWizard({
                           type="button"
                           className={`capture-wizard-hook ${selected ? "capture-wizard-hook--selected" : ""}`}
                           aria-pressed={selected}
-                          onClick={() => void selectHook(hook.id)}
+                          onClick={() => void selectHook(hook.id, discovery && match ? {
+                            sessionId: discovery.sessionId,
+                            sceneId: discovery.sceneId,
+                            processorOverrides: match.processorOverrides,
+                          } : undefined)}
                         >
                           <span className="capture-wizard-choice-body">
-                            <strong>{hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</strong>
+                            <strong title={match?.sample}>{match?.output || hook.preview || hook.samples[0] || t("captureWizard.hook.noPreview")}</strong>
                             <small>{hook.function}</small>
+                            <HookQualityLabel quality={quality} />
+                            <HookMatchDetails match={match} />
                           </span>
                           <span className="capture-wizard-choice-check" aria-hidden="true">{selected ? "✓" : ""}</span>
                         </button>
                       );
                     })}
                   </div>
+                ) : null}
+                {runtimeMatchesCapture && rankHooks && (likelyNoiseCount > 0 || showLikelyNoise) ? (
+                  <HookNoiseToggle
+                    id="capture-wizard-show-noise"
+                    count={likelyNoiseCount}
+                    targetLanguage={targetLanguage}
+                    checked={showLikelyNoise}
+                    onChange={setShowLikelyNoise}
+                  />
                 ) : null}
                 {hookStatus.running && runtimeMatchesCapture && hookStatus.engine !== "agent" ? (
                   <div className="capture-wizard-action-row">

@@ -74,7 +74,7 @@ function setup(t, settings = {}) {
     manualHotkeyPressed: false, manualModeToggleState: false,
     gamepadNavigationActive: false,
     overlayCaptureAvailable: true, trackedGameWindowState: 'active', isTexthookerMode: false,
-    customPageController: null, vnGuideController: null, vnGuideHud: null,
+    customPageController: null, vnGuideController: null, vnGuideHud: null, vnGuideChoiceClickThroughActive: false,
     trackedGameWindowStateUpdatedAt: 0,
     isOverlayVisible: false, resizeMode: false, yomitanShown: false,
     yomitanForegroundActive: false, yomitanRecoveryVersion: 0,
@@ -294,8 +294,8 @@ test('controller activation keeps focus through both activation messages and loo
   assert.equal(rendererMessages.filter(([channel]) => channel === 'show-overlay-hotkey').length, 1);
 });
 
-test('automatic dictionary lookup defaults to text click-through and permits only current renderer hover controls', t => {
-  const { context, state, send, rendererMessages } = setup(t, { manualMode: false });
+test('automatic dictionary lookup with click-through enabled permits only current renderer hover controls', t => {
+  const { context, state, send, rendererMessages } = setup(t, { manualMode: false, textHoverClickThrough: true });
   state.ignoreMouseEvents = true;
   state.focused = false;
   send('yomitan-event', true);
@@ -331,8 +331,9 @@ test('automatic hover replies never override explicit manual, controller, resize
   }
 });
 
-test('text click-through can be disabled while Magpie tracking stays available', t => {
-  const { context, state, send } = setup(t, { manualMode: false, textHoverClickThrough: false });
+test('text click-through defaults to off while Magpie tracking stays available', t => {
+  const { context, state, send } = setup(t, { manualMode: false });
+  assert.equal(context.userSettings.textHoverClickThrough, false);
   assert.equal(context.canRouteTextHover(), true);
   assert.equal(context.canTrackMagpiePointer(), true);
   context.ipcMain.emit('text-hover-ignore', { sender: context.mainWindow.webContents }, false, false);

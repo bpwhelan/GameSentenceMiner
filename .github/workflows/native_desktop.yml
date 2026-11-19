@@ -10,12 +10,16 @@ on:
       - 'native/gsm-agent/**'
       - 'native/gsm-runtime/**'
       - 'native/gsm-settings/**'
+      - 'native/gsm-text-preview/**'
+      - 'native/gsm-history/**'
       - 'native/gsm-packages/**'
+      - 'native/gsm-downloads/**'
       - 'native/gsm-native/src/**'
       - 'GameSentenceMiner/assets/vocr/**'
       - 'electron-src/**'
       - 'GSM_Overlay/**'
       - 'scripts/*native*'
+      - 'scripts/publish-download-assets.mjs'
       - 'package*.json'
       - '.github/workflows/*desktop*'
   workflow_dispatch:
@@ -125,14 +129,17 @@ jobs:
         run: |
           npm run test:ts -- --maxWorkers=2
           node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs
-          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs
+          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
           cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
           cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml
           cargo test --locked --manifest-path native/gsm-texthook/Cargo.toml
           cargo test --locked --manifest-path native/gsm-agent/Cargo.toml
           cargo test --locked --manifest-path native/gsm-runtime/Cargo.toml
           cargo test --locked --manifest-path native/gsm-settings/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-text-preview/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-history/Cargo.toml
           cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
       - name: Exercise native Python supervision and message delivery
         if: runner.os != 'Linux'
         run: |
@@ -141,6 +148,9 @@ jobs:
       - name: Exercise native windows, dictionaries, transfer, Home and overlay
         if: runner.os != 'Linux'
         run: npm run test:native
+      - name: Exercise the preview and onboarding with Python unavailable
+        if: runner.os == 'Windows'
+        run: node scripts/test-native-desktop.mjs workspace
       - name: Exercise Linux webviews under a window manager
         if: runner.os == 'Linux'
         run: bash scripts/test-native-linux.sh all
@@ -249,6 +259,16 @@ jobs:
           path: dist/native-release
       - name: Require a complete, consistently signed four-platform release
         run: node scripts/merge-native-updates.mjs
+      - name: Publish on-demand assets and mirror signed update downloads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          R2_STORAGE: ${{ secrets.R2_STORAGE }}
+        run: |
+          if [ -n "$R2_STORAGE" ]; then
+            sudo apt-get update
+            sudo apt-get install -y rclone
+          fi
+          node scripts/publish-download-assets.mjs --publish --release-dir dist/native-release
       - name: Prepare release notes and in-app changelog
         shell: bash
         env:

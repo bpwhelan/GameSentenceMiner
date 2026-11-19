@@ -12,20 +12,21 @@ impl Workspace {
         Self { base: base.into() }
     }
     pub fn text(&self) -> Result<Value> {
+        self.text_and_language().map(|(text, _)| text)
+    }
+    /// Read both settings from one revision of the active mining profile.
+    pub fn text_and_language(&self) -> Result<(Value, String)> {
         let document = read_object(&self.base.join("config.json"))?;
-        Ok(active_profile(&document)
+        let text = crate::gsm_config::active_profile(&document)
             .and_then(|p| p.get("text_processing"))
             .filter(|v| v.is_object())
             .cloned()
-            .unwrap_or_else(text_defaults))
+            .unwrap_or_else(text_defaults);
+        Ok((text, crate::gsm_config::target_language_from_config(&document)))
     }
     pub fn target_language(&self) -> Result<String> {
         let document = read_object(&self.base.join("config.json"))?;
-        Ok(active_profile(&document)
-            .and_then(|p| p["general"]["target_language"].as_str())
-            .filter(|s| !s.is_empty())
-            .unwrap_or("ja")
-            .into())
+        Ok(crate::gsm_config::target_language_from_config(&document))
     }
     pub fn save_text(&self, patch: &Value) -> Result<()> {
         if !patch.is_object() {
@@ -140,12 +141,6 @@ impl Workspace {
             Ok(document["games"].clone())
         })
     }
-}
-fn active_profile(document: &Value) -> Option<&Value> {
-    document
-        .get("configs")?
-        .get(document["current_profile"].as_str()?)
-        .filter(|v| v.is_object())
 }
 fn merge(target: &mut Value, patch: &Value) {
     if let Some(fields) = patch.as_object() {

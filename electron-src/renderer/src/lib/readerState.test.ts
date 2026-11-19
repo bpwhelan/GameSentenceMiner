@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyReaderEvent, emptyReaderState, restoreReaderState, selectReaderRange } from './readerState';
+import { applyReaderEvent, emptyReaderState, restoreReaderState, selectReaderRange, READER_HISTORY_CHARACTER_LIMIT } from './readerState';
 
 const line = (id: string, sequence: number, extra = {}) => ({
   id, session_id: 'session-a', text: `Sentence ${id}`, stream_sequence: sequence,
@@ -8,6 +8,14 @@ const line = (id: string, sequence: number, extra = {}) => ({
 const append = (data: unknown) => ({ event: 'text_v2_append', data });
 
 describe('desktop reader history', () => {
+  it('bounds large captured text by size and preserves the newest lines on restore', () => {
+    const state = applyReaderEvent(emptyReaderState(), { event: 'text_v2_snapshot', session_id: 'session-a', lines: Array.from({ length: 1000 }, (_, i) => line(String(i), i + 1, { text: '語'.repeat(10000) })) });
+    expect(state.lines.reduce((total, item) => total + item.text.length, 0)).toBeLessThanOrEqual(READER_HISTORY_CHARACTER_LIMIT);
+    expect(state.lines.at(-1)?.id).toBe('999');
+    const restored = restoreReaderState(JSON.stringify(state));
+    expect(restored.lines).toHaveLength(state.lines.length);
+    expect(restored.lines.at(-1)?.text).toBe('語'.repeat(10000));
+  });
   it('applies corrections in place and ignores an older reconnect snapshot', () => {
     let state = applyReaderEvent(emptyReaderState(), append(line('a', 1)));
     state = applyReaderEvent(state, { event: 'text_v2_update', data: line('a', 1, { text: 'Corrected', revision: 3 }) });

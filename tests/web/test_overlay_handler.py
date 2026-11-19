@@ -1,10 +1,45 @@
 import asyncio
 import json
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 from GameSentenceMiner.util.config.configuration import Overlay
 from GameSentenceMiner.web import overlay_handler as overlay_handler_module
+
+
+def test_native_overlay_result_does_not_log_or_bounce_back_for_text_scans(monkeypatch):
+    from GameSentenceMiner.util.config import configuration
+
+    monkeypatch.setenv("GSM_NATIVE_OVERLAY", "1")
+    logger = Mock()
+    monkeypatch.setattr(configuration, "logger", logger)
+    monkeypatch.setattr(overlay_handler_module, "logger", logger)
+    processor = SimpleNamespace(
+        _is_sentence_recycled=Mock(return_value=False),
+        _send_sentence_recycled_status=Mock(),
+        _record_overlay_scan=AsyncMock(),
+    )
+    monkeypatch.setattr(overlay_handler_module, "get_overlay_processor", lambda: processor)
+    summary = "Overlay OCR complete: oneocr sent 1 text boxes (total: 120ms, OCR: 30ms, tries: 2, source: texthook)"
+    handler = overlay_handler_module.OverlayRequestHandler()
+    for payload in (
+        {"data": [{"text": "日本語の文章"}], "line_id": "hook-line", "is_final": True, "scan_summary": summary},
+        {
+            "data": [{"text": "手動スキャン"}],
+            "line_id": None,
+            "is_final": True,
+            "source": "hotkey",
+            "scan_summary": summary,
+        },
+    ):
+        asyncio.run(handler.handle_message(json.dumps({"type": "native-overlay-result", "data": payload})))
+
+    # Rust owns overlay OCR logging and recycled-status rendering; Python must not re-log or echo back.
+    logger.info.assert_not_called()
+    processor._is_sentence_recycled.assert_not_called()
+    processor._send_sentence_recycled_status.assert_not_called()
+    processor._record_overlay_scan.assert_awaited_once_with("手動スキャン", source="hotkey")
+    assert processor.last_oneocr_result == "手動スキャン"
 
 
 def test_magpie_notification_wakes_the_existing_monitor(monkeypatch):
@@ -184,7 +219,7 @@ def test_quick_action_replay_uses_latest_line_without_requiring_an_external_play
         "get_config",
         lambda: SimpleNamespace(advanced=SimpleNamespace(audio_player_path="", video_player_path="")),
     )
-    monkeypatch.setattr(overlay_handler_module, "save_replay_buffer", lambda: calls.append("replay"), raising=False)
+    monkeypatch.setattr(service, "save_text_feed_replay", lambda pending: calls.append("replay"))
     monkeypatch.setattr(gsm_state, "line_for_audio", None)
     monkeypatch.setattr(gsm_state, "previous_line_for_audio", None)
     monkeypatch.setattr(gsm_state, "previous_line_for_screenshot", None)

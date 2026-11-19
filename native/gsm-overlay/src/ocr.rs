@@ -1,9 +1,34 @@
 //! OCR-tab computation. No window, webview, Python, or asynchronous runtime access.
-use crate::pipeline::Recognition;
+use crate::pipeline::{self, Recognition};
 use image::RgbaImage;
 use serde_json::Value;
+use std::time::{Duration, Instant};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 mod replacements;
+
+/// Cover the first pass's lines with the same 20 source-pixel margin on every side.
+pub fn second_pass_crop(image: &RgbaImage, first: &Recognition) -> Option<(RgbaImage, u32, u32)> {
+    let mut boxes = first
+        .lines
+        .iter()
+        .map(|line| line.bounds)
+        .chain(first.detections.iter().copied());
+    let [mut left, mut top, mut right, mut bottom] = boxes.next()?;
+    for [x0, y0, x1, y1] in boxes {
+        left = left.min(x0);
+        top = top.min(y0);
+        right = right.max(x1);
+        bottom = bottom.max(y1);
+    }
+    let x = (left - 20.).max(0.) as u32;
+    let y = (top - 20.).max(0.) as u32;
+    let r = (right + 20.).ceil().min(image.width() as f64) as u32;
+    let b = (bottom + 20.).ceil().min(image.height() as f64) as u32;
+    (r > x && b > y).then(|| {
+        let crop = image::imageops::crop_imm(image, x, y, r - x, b - y).to_image();
+        (crop, x, y)
+    })
+}
 
 pub fn number(settings: &Value, key: &str, default: f64) -> f64 {
     settings[key]
@@ -119,12 +144,18 @@ pub fn duplicate(previous: &[String], incoming: &[String], s: &Value) -> bool {
 pub struct Stability {
     pending: String,
     boxes: Vec<[f64; 4]>,
-    first_seen: f64,
+    first_seen: Option<(Instant, u128)>,
     stable: usize,
     processed: String,
 }
 impl Stability {
-    pub fn observe(&mut self, result: &Recognition, now: f64, s: &Value) -> bool {
+    pub fn observe(
+        &mut self,
+        result: &Recognition,
+        capture_started: Instant,
+        captured_at: u128,
+        s: &Value,
+    ) -> bool {
         let text = normalize(&result.text);
         let boxes: Vec<_> = if result.detections.is_empty() {
             result.lines.iter().map(|l| l.bounds).collect()
@@ -170,7 +201,7 @@ impl Stability {
                 || self.pending == self.processed
                 || (!evolving && !same_boxes)
             {
-                self.first_seen = now;
+                self.first_seen = Some((capture_started, captured_at));
             }
             self.stable = 1;
         }
@@ -187,12 +218,17 @@ impl Stability {
         if flag(s, "text_appears_instantly", false)
             || flag(s, "force_stable", false)
             || self.stable >= 2
-            || now - self.first_seen >= 4.
+            || self.first_seen.is_some_and(|(first, _)| {
+                capture_started.duration_since(first) >= Duration::from_secs(4)
+            })
         {
             self.processed = identity;
             return true;
         }
         false
+    }
+    pub fn first_seen_at(&self) -> Option<u128> {
+        self.first_seen.map(|(_, captured_at)| captured_at)
     }
     pub fn retry(&mut self) {
         self.processed.clear();
@@ -373,12 +409,13 @@ pub fn prepare(
         black_holes,
     })
 }
-/// Returns whether the furigana filter removed all eligible text.
+/// Returns whether the size threshold removed all eligible text.
 pub fn finish(
     result: &mut Recognition,
     prepared: &Prepared,
     settings: &Value,
     replacements: &Value,
+    apply_size_threshold: bool,
 ) -> Result<bool, String> {
     for line in &mut result.lines {
         let center = (
@@ -401,9 +438,8 @@ pub fn finish(
                 )
             })
             .unwrap_or((prepared.offset.0 as f64, prepared.offset.1 as f64));
-        crate::pipeline::remap_line(line, offset, (1., 1.));
+        pipeline::remap_line(line, offset, (1., 1.));
     }
-    let sensitivity = number(settings, "furigana_filter_sensitivity", 0.);
     let language = settings["language"]
         .as_str()
         .unwrap_or("ja")
@@ -428,7 +464,6 @@ pub fn finish(
         })
     };
     let exclusive_active = result.lines.iter().any(|l| in_exclusive(l.bounds));
-    let mut furigana_filtered = false;
     result.lines.retain(|l| {
         if exclusive_active && !in_exclusive(l.bounds) {
             return false;
@@ -437,23 +472,33 @@ pub fn finish(
             (l.bounds[0] + l.bounds[2]) / 2.,
             (l.bounds[1] + l.bounds[3]) / 2.,
         );
-        if prepared
+        !prepared
             .excluded
             .iter()
             .any(|r| x >= r[0] as f64 && x < r[2] as f64 && y >= r[1] as f64 && y < r[3] as f64)
-            || !l
-                .text
+            && l.text
                 .chars()
                 .any(|c| crate::text_filter::is_comparable(c, language))
-        {
-            return false;
-        }
-        let passes = sensitivity <= 0.
-            || (l.bounds[2] - l.bounds[0] > sensitivity && l.bounds[3] - l.bounds[1] > sensitivity);
-        furigana_filtered |= !passes;
-        passes
     });
-    let all_text_filtered = furigana_filtered && result.lines.is_empty();
+    if language == "ja" && result.lines.len() > 1 {
+        // Use layout to identify furigana, keeping the engine's order and word boxes.
+        let mut keep = vec![false; result.lines.len()];
+        for paragraph in pipeline::order_lines(&result.lines, language, true) {
+            for id in paragraph.lines.into_iter().flat_map(|line| line.source_ids) {
+                keep[id] = true;
+            }
+        }
+        let mut keep = keep.into_iter();
+        result.lines.retain(|_| keep.next().unwrap());
+    }
+    let has_text = !result.lines.is_empty();
+    let sensitivity = number(settings, "furigana_filter_sensitivity", 0.);
+    if apply_size_threshold && sensitivity > 0. {
+        result.lines.retain(|l| {
+            l.bounds[2] - l.bounds[0] > sensitivity && l.bounds[3] - l.bounds[1] > sensitivity
+        });
+    }
+    let all_text_filtered = has_text && result.lines.is_empty();
     let rules: Vec<(&str, &str)> = if let Some(rules) = replacements.as_array() {
         rules
             .iter()
@@ -514,6 +559,19 @@ mod tests {
     use super::*;
     use crate::pipeline::TextBox;
     use serde_json::json;
+    #[test]
+    fn second_pass_covers_lines_and_detections_and_clips_padding() {
+        let image = RgbaImage::new(100, 80);
+        assert!(second_pass_crop(&image, &Recognition::default()).is_none());
+        let mut found = line("文");
+        found.detections.push([40., 50., 98., 72.]);
+        let (crop, x, y) = second_pass_crop(&image, &found).unwrap();
+        assert_eq!((x, y, crop.dimensions()), (0, 0, (100, 80)));
+        found.lines.clear();
+        let (crop, x, y) = second_pass_crop(&image, &found).unwrap();
+        assert_eq!((x, y, crop.dimensions()), (20, 30, (80, 50)));
+    }
+
     fn line(text: &str) -> Recognition {
         Recognition::from_lines(vec![TextBox {
             text: text.into(),
@@ -522,16 +580,27 @@ mod tests {
         }])
     }
     #[test]
-    fn typewriter_waits_and_duplicate_frames_do_not_repeat_inference() {
+    fn typewriter_waits_and_keeps_the_first_capture_time() {
         let mut gate = Stability::default();
         let settings = json!({});
-        assert!(!gate.observe(&line("今日"), 0., &settings));
-        assert!(!gate.observe(&line("今日は晴れです"), 0.5, &settings));
-        assert!(gate.observe(&line("今日は晴れです"), 1., &settings));
-        assert!(!gate.observe(&line("今日は晴れです"), 1.5, &settings));
-        assert!(!gate.observe(&Recognition::default(), 2., &settings));
-        assert!(!gate.observe(&line("別の文章"), 2.5, &settings));
-        assert!(gate.observe(&line("別の文章"), 3., &settings));
+        let start = Instant::now();
+        let mut scan = |result: Recognition, ms: u64| {
+            let ready = gate.observe(
+                &result,
+                start + Duration::from_millis(ms),
+                10_000 + u128::from(ms),
+                &settings,
+            );
+            (ready, gate.first_seen_at())
+        };
+        assert_eq!(scan(line("今日"), 0), (false, Some(10_000)));
+        assert_eq!(scan(line("今日は晴れです"), 500), (false, Some(10_000)));
+        assert_eq!(scan(line("今日は晴れです"), 1000), (true, Some(10_000)));
+        assert_eq!(scan(line("今日は晴れです"), 1500), (false, Some(10_000)));
+        assert_eq!(scan(line("別の文章"), 2000), (false, Some(12_000)));
+        assert_eq!(scan(Recognition::default(), 2500), (false, None));
+        assert_eq!(scan(line("別の文章"), 3000), (false, Some(13_000)));
+        assert_eq!(scan(line("別の文章"), 3500), (true, Some(13_000)));
     }
     #[test]
     fn nfkc_and_punctuation_match_but_new_chunks_survive() {
@@ -587,13 +656,19 @@ mod tests {
     }
     #[test]
     fn forcing_stability_flushes_once_and_noisy_text_has_a_deadline() {
+        let start = Instant::now();
+        let later = |ms| start + Duration::from_millis(ms);
         let mut gate = Stability::default();
-        assert!(gate.observe(&line("今すぐ読み取る"), 0., &json!({"force_stable":true})));
-        assert!(!gate.observe(&line("今すぐ読み取る"), 0.5, &json!({"force_stable":true})));
+        let forced = json!({"force_stable":true});
+        assert!(gate.observe(&line("今すぐ読み取る"), start, 10_000, &forced));
+        assert_eq!(gate.first_seen_at(), Some(10_000));
+        assert!(!gate.observe(&line("今すぐ読み取る"), later(500), 10_500, &forced));
         let mut gate = Stability::default();
-        assert!(!gate.observe(&line("今夜は曇りです"), 0., &json!({})));
-        assert!(!gate.observe(&line("文字認識の揺れ"), 0.5, &json!({})));
-        assert!(gate.observe(&line("同じ領域の文章"), 4.1, &json!({})));
+        let settings = json!({});
+        assert!(!gate.observe(&line("今夜は曇りです"), start, 10_000, &settings));
+        assert!(!gate.observe(&line("文字認識の揺れ"), later(500), 10_500, &settings));
+        assert!(gate.observe(&line("同じ領域の文章"), later(4100), 14_100, &settings));
+        assert_eq!(gate.first_seen_at(), Some(10_000));
     }
     #[test]
     fn language_filter_and_source_coordinates_survive_a_crop() {
@@ -622,10 +697,52 @@ mod tests {
             &prepared,
             &json!({"language":"ja"}),
             &json!({}),
+            true,
         )
         .unwrap();
         assert_eq!(result.text, "日本語");
         assert_eq!(result.lines[0].bounds, [200., 300., 260., 330.]);
+    }
+    #[test]
+    fn furigana_filter_works_for_automatic_and_manual_scans() {
+        let image = RgbaImage::new(400, 200);
+        let prepared = prepare(&image, &Value::Null, false, false, &json!({})).unwrap();
+        let recognized = Recognition::from_lines(vec![
+            TextBox {
+                text: "かんじ".into(),
+                bounds: [20., 18., 50., 28.],
+                ..Default::default()
+            },
+            TextBox {
+                text: "漢字です".into(),
+                bounds: [20., 30., 100., 50.],
+                ..Default::default()
+            },
+            TextBox {
+                text: "たてがき".into(),
+                bounds: [324., 30., 334., 70.],
+                vertical: true,
+                ..Default::default()
+            },
+            TextBox {
+                text: "縦書きです".into(),
+                bounds: [300., 25., 320., 125.],
+                vertical: true,
+                ..Default::default()
+            },
+            TextBox {
+                text: "かなだけ".into(),
+                bounds: [20., 120., 60., 130.],
+                ..Default::default()
+            },
+        ]);
+        for (automatic, sensitivity) in [(false, 0), (false, 20), (true, 0)] {
+            let mut result = recognized.clone();
+            let settings = json!({"language":"ja-JP","furigana_filter_sensitivity":sensitivity});
+            assert!(!finish(&mut result, &prepared, &settings, &json!([]), automatic).unwrap());
+            assert_eq!(result.text, "漢字です\n縦書きです\nかなだけ");
+            assert_eq!(result.lines[1].bounds, [300., 25., 320., 125.]);
+        }
     }
     #[test]
     fn reports_when_the_furigana_filter_removes_all_eligible_text() {
@@ -638,6 +755,7 @@ mod tests {
                 &prepared,
                 &json!({"language":"ja","furigana_filter_sensitivity":30}),
                 &json!([]),
+                true,
             )
             .unwrap()
         );
@@ -650,6 +768,7 @@ mod tests {
                 &prepared,
                 &json!({"language":"ja","furigana_filter_sensitivity":12}),
                 &json!([]),
+                true,
             )
             .unwrap()
         );
@@ -662,6 +781,7 @@ mod tests {
                 &prepared,
                 &json!({"language":"ja","furigana_filter_sensitivity":30}),
                 &json!([]),
+                true,
             )
             .unwrap()
         );
@@ -687,6 +807,7 @@ mod tests {
             &prepared,
             &json!({"language":"ja"}),
             &json!([["日本語", "英語"], ["英語", "翻訳"]]),
+            true,
         )
         .unwrap();
         assert_eq!(result.text, "翻訳の文章");
@@ -716,7 +837,7 @@ mod tests {
                 ..Default::default()
             },
         ]);
-        finish(&mut r, &p, &json!({"language":"ja"}), &json!([])).unwrap();
+        finish(&mut r, &p, &json!({"language":"ja"}), &json!([]), true).unwrap();
         assert_eq!(r.text, "優先");
         assert_eq!(r.lines[0].bounds, [701., 801., 780., 830.]);
     }
@@ -725,10 +846,10 @@ mod tests {
         let image = RgbaImage::new(100, 100);
         let p=prepare(&image,&json!({"rectangles":[{"coordinates":[0,0,100,100]},{"coordinates":[40,0,50,30],"is_black_hole":true}]}),false,false,&json!({})).unwrap();
         let mut r = line("日本語");
-        finish(&mut r, &p, &json!({}), &json!([])).unwrap();
+        finish(&mut r, &p, &json!({}), &json!([]), true).unwrap();
         assert!(r.text.is_empty());
         let mut r = line("English");
-        finish(&mut r, &p, &json!({"language":"ja"}), &json!([])).unwrap();
+        finish(&mut r, &p, &json!({"language":"ja"}), &json!([]), true).unwrap();
         assert!(r.text.is_empty());
     }
 }

@@ -383,6 +383,7 @@
                       <option value="meikiocr">MeikiOCR</option>
                       <option value="screenai">ScreenAI</option>
                       <option value="vitaocr">VOCR (Japanese only, experimental)</option>
+                      <option value="mida_vocr">MIDA + VOCR (horizontal Japanese)</option>
                       <option value="vocr_lens">VOCR line detector → Google Lens</option>
                     </select>
                   </label>
@@ -655,13 +656,11 @@
                     <span class="label-text">
                       Click through overlay text
                       <div class="hotkey-info">
-                        On by default in automatic mode. Clicks on overlay text reach the game while hover lookups
-                        remain available. Turn off to select text or use click lookups.
-                        Dictionary popups and controls stay clickable.
-                        Applies on Windows and macOS; manual and controller interaction are unchanged.
+                        Off by default. In automatic mode on Windows and macOS, turn this on to send clicks
+                        through overlay text to the game. Hover lookups and dictionary controls work either way.
                       </div>
                     </span>
-                    <input type="checkbox" id="textHoverClickThrough" checked />
+                    <input type="checkbox" id="textHoverClickThrough" />
                   </label>
                 </div>
               </section>
@@ -914,26 +913,6 @@
                     </label>
                   </section>
 
-                  <section class="settings-page" data-page="gamepad-quick-actions">
-                    <h4>Quick actions</h4>
-                    <p class="hotkey-info">While controller navigation is active, press Start to open your shortcuts.
-                      Use the D-pad or either stick to move, your Confirm button to select, and Cancel to go back.
-                      The same menu works with keyboard navigation using Tab.</p>
-                    <label>
-                      <span class="label-text">Open / close quick actions</span>
-                      <input type="text" id="gamepadQuickActionsButton" class="gamepad-binding-input" value="Start" readonly="" placeholder="Click and press a controller combo" />
-                      <input type="text" id="keyboardQuickActionsKey" class="keyboard-binding-input" value="Tab" readonly="" placeholder="Click and press a key" />
-                    </label>
-                    <p class="hotkey-info">Select the buttons to include. Move enabled shortcuts up or down to arrange your menu.
-                      Translate &amp; explain includes all the Text Feed explanation options; you can also add them directly.</p>
-                    <div id="quick-actions-choices"></div>
-                    <label>
-                      <span class="label-text">Custom AI question
-                        <span class="hotkey-info">Saved here so you can ask it from the controller without typing.</span>
-                      </span>
-                      <input type="text" id="gamepadQuickActionsQuestion" maxlength="4000" value="Explain this sentence in simpler terms." />
-                    </label>
-                  </section>
                   <section class="settings-page" data-page="gamepad-bindings">
                     <div class="gamepad-binding-hint">
                       Click any binding slot to capture a controller combo or keyboard key. Press Backspace/Delete to
@@ -1753,6 +1732,26 @@
                     </div>
                   </div>
                 </section>
+                <section class="settings-page" data-page="gamepad-quick-actions">
+                  <h4>Quick actions</h4>
+                  <p class="hotkey-info">While controller navigation is active, press Start to open your shortcuts.
+                    Use the D-pad or either stick to move, your Confirm button to select, and Cancel to go back.
+                    The same menu works with keyboard navigation using Tab.</p>
+                  <label>
+                    <span class="label-text">Open / close quick actions</span>
+                    <input type="text" id="gamepadQuickActionsButton" class="gamepad-binding-input" value="Start" readonly="" placeholder="Click and press a controller combo" />
+                    <input type="text" id="keyboardQuickActionsKey" class="keyboard-binding-input" value="Tab" readonly="" placeholder="Click and press a key" />
+                  </label>
+                  <p class="hotkey-info">Select the buttons to include. Move enabled shortcuts up or down to arrange your menu.
+                    Translate &amp; explain includes all the Text Feed explanation options; you can also add them directly.</p>
+                  <div id="quick-actions-choices"></div>
+                  <label>
+                    <span class="label-text">Custom AI question
+                      <span class="hotkey-info">Saved here so you can ask it from the controller without typing.</span>
+                    </span>
+                    <input type="text" id="gamepadQuickActionsQuestion" maxlength="4000" value="Explain this sentence in simpler terms." />
+                  </label>
+                </section>
               </div>
 
               <!-- Widgets & tools -->
@@ -2112,6 +2111,16 @@
                       </div>
                     </span>
                     <input type="checkbox" id="vnGuideAutoAdvance" checked="" />
+                  </label>
+                  <label>
+                    <span class="label-text">
+                      Click through overlay text during choices
+                      <div class="hotkey-info">
+                        Send clicks to the game while VN Guide detects a choice. Your usual mouse setting resumes
+                        when the choice clears.
+                      </div>
+                    </span>
+                    <input type="checkbox" id="vnGuideClickThroughOnChoice" checked="" />
                   </label>
                   <p class="hotkey-info">
                     The guide stays available when manual mode hides the lookup overlay. Detection needs overlay OCR

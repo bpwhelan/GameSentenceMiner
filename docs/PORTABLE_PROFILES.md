@@ -52,7 +52,7 @@ profile root. The home-directory credentials/configuration files are not importe
 ## Shared installations
 
 The managed `python_venv`, `uv`, FFmpeg, Ocenaudio, text-hook engine binaries,
-Frida server, GPU support libraries, and Windows speech model/runtime downloads
+Agent/Frida runtime and Wine Frida server, GPU support libraries, and Windows speech model/runtime downloads
 are reused from the normal installation's data folder (including a relocated
 installation). Installed engine/runtime version metadata belongs to those shared
 installations; updating or repairing them affects every profile using them.

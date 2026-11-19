@@ -93,7 +93,7 @@ function getNativeOcr() {
             const scene = context?.scene ? { name: String(context.scene), id: '' } : await getCurrentScene();
             const settings = { ...getOCRConfig(), ...await readSceneSettings(scene) };
             if (!settings.advancedMode) { settings.twoPassOCR = true; settings.optimize_second_scan = true; }
-            return { profile: BASE_DIR, settings, engine_config_path: getOwocrConfigPath(), input_url: process.env.GSM_INPUT_SERVER_URL, obs: getElectronOBSStartupConfig(), areas: await getActiveOCRConfig(scene), replacements: Object.entries(readEnabledOcrReplacements()) };
+            return { profile: BASE_DIR, settings, input_url: process.env.GSM_INPUT_SERVER_URL, obs: getElectronOBSStartupConfig(), areas: await getActiveOCRConfig(scene), replacements: Object.entries(readEnabledOcrReplacements()) };
         },
         ingest: data => bus.request('backend', 'ocr.native.result', data, 2000),
         emit: handleOcrEvent,

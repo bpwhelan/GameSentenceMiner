@@ -60,6 +60,7 @@ class BusClient:
         version: str = "",
     ):
         self.client_id = client_id or os.environ.get("GSM_CLIENT_ID") or "python"
+        self._process_id = os.getpid()
         self.host = host
         self.port = int(port or os.environ.get("GSM_BROKER_PORT") or 0)
         self.token = token or os.environ.get("GSM_BROKER_TOKEN") or ""
@@ -72,6 +73,7 @@ class BusClient:
         self._main_future: Future[Any] | None = None
         self._stop = False
         self._connected = threading.Event()
+        self._first_connection: Future[None] = Future()
 
         self._subscribers: dict[str, list[EventHandler]] = {}
         self._request_handlers: dict[str, RequestHandler] = {}
@@ -125,6 +127,17 @@ class BusClient:
     def wait_connected(self, timeout: float | None = None) -> bool:
         return self._connected.wait(timeout)
 
+    def on_first_connection(self, callback: Callable[[], None]) -> None:
+        """Schedule startup work after the authenticated welcome, including late subscribers."""
+        self._first_connection.add_done_callback(lambda _: callback())
+
+    def submit(self, coro):
+        """Run a client-owned service on the existing transport event loop."""
+        if self._runtime is None:
+            coro.close()
+            raise RuntimeError("BusClient not started")
+        return self._runtime.submit(coro)
+
     @property
     def connected(self) -> bool:
         return self._connected.is_set()
@@ -154,16 +167,16 @@ class BusClient:
     def publish(self, dst: str, topic: str, data: Any = None, kind: str = "event") -> Future[Any] | None:
         return self._send_threadsafe(self._envelope(dst, topic, kind, data))
 
-    def request(self, dst: str, topic: str, data: Any = None, timeout: float = 15.0) -> Any:
+    def request(self, dst: str, topic: str, data: Any = None, timeout: float | None = 15.0) -> Any:
         """Blocking request/response for synchronous callers."""
         loop = self._loop
         if not loop:
             raise RuntimeError("BusClient not started")
         coro = self.request_async(dst, topic, data, timeout)
         fut: Future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return fut.result(timeout + 1.0)
+        return fut.result(None if timeout is None else timeout + 1.0)
 
-    async def request_async(self, dst: str, topic: str, data: Any = None, timeout: float = 15.0) -> Any:
+    async def request_async(self, dst: str, topic: str, data: Any = None, timeout: float | None = 15.0) -> Any:
         if not self.connected:
             raise ConnectionError("Desktop bus is not connected")
         msg = self._envelope(dst, topic, "request", data)
@@ -196,6 +209,8 @@ class BusClient:
                     ):
                         raise RuntimeError("Desktop bus rejected the handshake")
                     self._connected.set()
+                    if not self._first_connection.done():
+                        self._first_connection.set_result(None)
                     backoff = 1.0
                     logger.debug(f"BusClient '{self.client_id}' connected to {url}")
                     async for raw in ws:
@@ -325,6 +340,16 @@ class BusClient:
 
 # Process-wide singleton for convenience (mirrors the Node `bus` facade).
 _client: BusClient | None = None
+
+
+def owns_backend_connection() -> bool:
+    """Subprocesses can inherit the backend environment, but cannot use its socket."""
+    return (
+        _client is not None
+        and _client.client_id == "backend"
+        and _client._process_id == os.getpid()
+        and _client._main_future is not None
+    )
 
 
 def get_bus() -> BusClient:

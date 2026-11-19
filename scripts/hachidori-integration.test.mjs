@@ -4,9 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import vm from 'node:vm';
-import { patchContent, patchSearchShell, patchSearchFrame, patchNativeEngine, prepareIntegration } from './hachidori-integration.mjs';
+import { patchContent, patchSearchShell, patchSearchFrame, patchNativeEngine, patchEngineLookups, prepareIntegration } from './hachidori-integration.mjs';
 
 const vendor = new URL('../GSM_Overlay/hachidori/', import.meta.url);
+test('engine cache hooks only pure term reads, is idempotent and rejects upstream drift', async () => {
+    const source = await fs.readFile(new URL('engine-service.js', vendor), 'utf8');
+    const patched = patchEngineLookups(source);
+    assert.equal(patchEngineLookups(patched), patched);
+    assert.equal(patched.split('const json = gsmLookup(').length, 3);
+    assert.throws(() => patchEngineLookups(source.replaceAll('"hdw_lookup",', '"changed_lookup",')), /changed upstream/);
+});
 test('the overlay bridge accepts native hosts and rejects remote lookalikes', async () => {
     const source = await fs.readFile(new URL('../GSM_Overlay/integrations/hachidori/bridge.js', import.meta.url), 'utf8');
     const context = vm.createContext({ URL, module: { exports: {} } });

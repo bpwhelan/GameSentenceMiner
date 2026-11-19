@@ -48,6 +48,9 @@ describe('hook candidate quality', () => {
         '%$#@}{|%$#@}{|',
         '(unmanaged:qwindows.dll)(unmanaged:qwindows.dll)(unmanaged:qwindows.dll)',
         'playtime.binplaytime.binC:/Users/player/AppData/Roaming/yuzu/nand/system/Contents/data.bin',
+        'q0000031.uux',
+        'CObjectOceanCMoveAcsOngenCFrameBufferCBoxOceanCParseBgBoxCImgAreaBoxCDbBrowseBox...',
+        "E:\\Japanese Stuff Visual Novels\\Muv-Luv (Director's Cut) (Build 10364493) (2023....",
     ])('soft hides obvious noise: %s', (text) => {
         expect(assessHookQuality(hook('noise', text), 'ja').likelyNoise).toBe(true);
     });

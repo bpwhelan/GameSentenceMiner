@@ -21,6 +21,7 @@ import { DynamicProperty } from '../core/dynamic-property.js';
 import { EventDispatcher } from '../core/event-dispatcher.js';
 import { EventListenerCollection } from '../core/event-listener-collection.js';
 import { ExtensionError } from '../core/extension-error.js';
+import {log} from '../core/log.js';
 import { safePerformance } from '../core/safe-performance.js';
 import { deepEqual } from '../core/utilities.js';
 import { addFullscreenChangeEventListener, computeZoomScale, convertRectZoomCoordinates, getFullscreenElement } from '../dom/document-util.js';
@@ -119,6 +120,7 @@ export class Popup extends EventDispatcher {
         this._frame.className = 'yomitan-popup';
         this._frame.style.width = '0';
         this._frame.style.height = '0';
+        this._frame.style.setProperty('visibility', 'hidden', 'important');
         /** @type {boolean} */
         this._frameConnected = false;
         /** @type {boolean} */
@@ -1167,6 +1169,13 @@ export class Popup extends EventDispatcher {
         this._hidePopupOnCursorExit = scanning.hidePopupOnCursorExit;
         this._hidePopupOnCursorExitDelay = scanning.hidePopupOnCursorExitDelay;
         void this.updateTheme();
+
+        // The first WebView2 popup can take seconds to load and connect. Start
+        // the same hidden frame that showContent will use when the scan arrives.
+        const preload = typeof document.documentElement.dataset.gsmPreloadDictionaryPopup !== 'undefined';
+        if (preload && general.enable && this._depth === 0 && window === window.top && this._injectPromise === null) {
+            void this._inject().catch((error) => log.error(error));
+        }
     }
 
     /**

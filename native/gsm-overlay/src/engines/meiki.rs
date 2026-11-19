@@ -1,5 +1,6 @@
 //! Meiki's published detection and recognition ONNX models run directly in Rust.
 //! Tensor and coordinate conventions match rtr46/meikiocr (MIT).
+use super::line_cache::{self, LineCache};
 use crate::inference::Model;
 use crate::{
     models,
@@ -20,6 +21,7 @@ pub struct Meiki {
     detector: Model,
     horizontal: Option<Model>,
     vertical: Option<Model>,
+    cache: LineCache,
     pub model: Detector,
 }
 
@@ -45,6 +47,24 @@ fn tensor(
     resized_width: u32,
     resized_height: u32,
 ) -> Result<Tensor<f32>> {
+    resize_tensor(
+        image,
+        width,
+        height,
+        resized_width,
+        resized_height,
+        [0, 1, 2],
+    )
+}
+
+pub(super) fn resize_tensor(
+    image: &RgbaImage,
+    width: u32,
+    height: u32,
+    resized_width: u32,
+    resized_height: u32,
+    channels: [usize; 3],
+) -> Result<Tensor<f32>> {
     // Meiki's Python preprocessor uses cv2.INTER_LINEAR (pixel-center bilinear,
     // no downsampling antialias). imageops::Triangle uses a wider antialias
     // filter: it is slower and changes the model's input on large captures.
@@ -59,7 +79,7 @@ fn tensor(
     let stride = image.width() as usize * 4;
     for (y, &(y0, y1, b0, b1)) in vertical.iter().enumerate() {
         for (x, &(x0, x1, a0, a1)) in horizontal.iter().enumerate() {
-            for channel in 0..3 {
+            for (plane_index, channel) in channels.into_iter().enumerate() {
                 let top = pixels[y0 * stride + x0 * 4 + channel] as i32 * a0
                     + pixels[y0 * stride + x1 * 4 + channel] as i32 * a1;
                 let bottom = pixels[y1 * stride + x0 * 4 + channel] as i32 * a0
@@ -67,7 +87,7 @@ fn tensor(
                 // Match OpenCV's uchar vertical pass, including its intermediate
                 // truncation; a single final rounding changes some detector boxes.
                 let value = (((b0 * (top >> 4)) >> 16) + ((b1 * (bottom >> 4)) >> 16) + 2) >> 2;
-                data[channel * plane + y * width as usize + x] = value as f32 / 255.0;
+                data[plane_index * plane + y * width as usize + x] = value as f32 / 255.0;
             }
         }
     }
@@ -108,6 +128,7 @@ impl Meiki {
             detector,
             horizontal: None,
             vertical: None,
+            cache: LineCache::default(),
             model,
         })
     }
@@ -163,11 +184,19 @@ impl Meiki {
         let mut timer = crate::timing::Timer::new("meiki");
         let boxes = self.detect(image, 0.5)?;
         timer.mark("detection");
+        self.cache.begin();
         let mut lines = Vec::new();
         for bbox in boxes {
             let [x1, y1, x2, y2] = bbox;
             let (w, h) = ((x2 - x1) as u32, (y2 - y1) as u32);
             let vertical = h > w;
+            let key = line_cache::key(image, [x1 as u32, y1 as u32, w, h], None);
+            if let Some(line) = self.cache.get(&key) {
+                if !line.text.is_empty() {
+                    lines.push(line);
+                }
+                continue;
+            }
             let target = if vertical {
                 &mut self.vertical
             } else {
@@ -266,13 +295,15 @@ impl Meiki {
             }
             accepted.sort_by(|a, b| a.bounds[axis].total_cmp(&b.bounds[axis]));
             let text = accepted.iter().map(|c| c.text.as_str()).collect::<String>();
-            if !text.is_empty() {
-                lines.push(TextBox {
-                    text,
-                    bounds: bbox,
-                    words: accepted,
-                    vertical,
-                });
+            let line = TextBox {
+                text,
+                bounds: bbox,
+                words: accepted,
+                vertical,
+            };
+            self.cache.insert(key, &line);
+            if !line.text.is_empty() {
+                lines.push(line);
             }
         }
         timer.mark("recognition");

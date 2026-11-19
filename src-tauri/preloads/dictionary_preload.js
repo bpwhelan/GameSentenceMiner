@@ -77,7 +77,10 @@
       catch(error){console.error('Dictionary message failed',error);}
     }
     if(!asynchronous&&!answered)return {handled:false};
-    return Promise.race([response,new Promise((_,reject)=>setTimeout(()=>reject(Error('Dictionary response timed out')),55000))]);
+    let timer;
+    try {
+      return await Promise.race([response,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('Dictionary response timed out')),55000);})]);
+    } finally { clearTimeout(timer); }
   };
   const originalFetch=globalThis.fetch.bind(globalThis);
   globalThis.fetch=async(input,options)=>{

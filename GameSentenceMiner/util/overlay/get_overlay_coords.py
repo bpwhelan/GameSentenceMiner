@@ -131,12 +131,13 @@ try:
         MeikiOCR,
         ScreenAIOCR,
         VitaOCR,
+        MidaOCR,
         VOCRTextDetector,
     )
 except ImportError:
-    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR, VitaOCR, VOCRTextDetector = None, None, None, None, None, None
+    GoogleLens = get_regex = MeikiOCR = ScreenAIOCR = VitaOCR = MidaOCR = VOCRTextDetector = None
 except Exception as e:
-    GoogleLens, get_regex, MeikiOCR, ScreenAIOCR, VitaOCR, VOCRTextDetector = None, None, None, None, None, None
+    GoogleLens = get_regex = MeikiOCR = ScreenAIOCR = VitaOCR = MidaOCR = VOCRTextDetector = None
     logger.exception(f"Error importing OCR engines: {e}")
 
 # Conditionally import screenshot library
@@ -1131,10 +1132,7 @@ class OverlayProcessor:
         """Determines which engine to use based on platform and configuration."""
         overlay_config = get_overlay_config()
         engine = overlay_config.engine_v2
-        if not is_windows() and engine in [
-            OverlayEngine.ONEOCR.value,
-            OverlayEngine.LENS.value,
-        ]:
+        if not is_windows() and engine == OverlayEngine.LENS.value:
             logger.info(f"Forcing MeikiOCR on non-Windows platform (selected: {engine})")
             return OverlayEngine.MEIKIOCR.value
         return engine
@@ -1231,6 +1229,8 @@ class OverlayProcessor:
             self.meikiocr = MeikiOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.SCREENAI.value and ScreenAIOCR and not self.screenai:
             self.screenai = ScreenAIOCR(lang=get_config().general.target_language)
+        elif effective_engine == OverlayEngine.MIDA_VOCR.value and MidaOCR and not self.vitaocr:
+            self.vitaocr = MidaOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.VITAOCR.value and VitaOCR and not self.vitaocr:
             self.vitaocr = VitaOCR(lang=get_config().general.target_language, get_furigana_sens_from_file=False)
         elif effective_engine == OverlayEngine.VOCR_LENS.value and VOCRTextDetector and not self.vocr_detector:
@@ -1731,11 +1731,13 @@ class OverlayProcessor:
         if native_runtime.enabled():
             native_source = getattr(line, "source", None) or source
             native_source = getattr(native_source, "value", native_source)
+            line_text = getattr(line, "text", None)
             await native_runtime.send(
                 self,
                 "scan",
                 line_id=str(line.id) if line else None,
-                text=getattr(line, "text", None),
+                text=line_text,
+                is_sentence_recycled=self._is_sentence_recycled(line_text) if line_text else False,
                 precomputed=dict_from_ocr,
                 retries=local_ocr_retry,
                 manual=self._is_manual_overlay_source(native_source),
@@ -3276,7 +3278,7 @@ class OverlayProcessor:
                 if local_ocr_engine is self.meikiocr
                 else "screenai"
                 if local_ocr_engine is self.screenai
-                else "vitaocr"
+                else getattr(local_ocr_engine, "name", "vitaocr")
             )
             # Assume Text from Source is already Stable
             overlay_config = get_overlay_config()
@@ -3325,6 +3327,7 @@ class OverlayProcessor:
                 OverlayEngine.MEIKIOCR.value,
                 OverlayEngine.SCREENAI.value,
                 OverlayEngine.VITAOCR.value,
+                OverlayEngine.MIDA_VOCR.value,
             ]
             # logger.background(f"Using local OCR engine '{local_ocr_engine.readable_name}' with {tries} tries for overlay. TextSource: {line.source if line else source or 'N/A'}")
             last_result_flattened = ""
@@ -3709,12 +3712,7 @@ class OverlayProcessor:
 
             # Only return early if the effective engine is local-only (not Lens)
             # When Lens is configured, we want to continue to the Lens scan with the composite image
-            if effective_engine in [
-                OverlayEngine.ONEOCR.value,
-                OverlayEngine.MEIKIOCR.value,
-                OverlayEngine.SCREENAI.value,
-                OverlayEngine.VITAOCR.value,
-            ]:
+            if local_is_final_engine:
                 if not oneocr_final:
                     logger.background(
                         "Local OCR did not return any text boxes for overlay (source: {}, {}).",
@@ -3914,7 +3912,7 @@ class OverlayProcessor:
     async def reprocess_and_send_last_results(self):
         """Reprocesses the last known raw OCR results with updated window coordinates."""
         if native_runtime.enabled():
-            await native_runtime.send(self, "scan", retries=0)
+            await native_runtime.send(self, "reproject")
             return
         if getattr(self, "_skip_scan_suspended", False) or getattr(self, "_skip_recovery_task", None) is not None:
             return

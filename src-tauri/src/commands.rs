@@ -3,6 +3,60 @@
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::Manager;
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
+pub enum OverlayRequest {
+    Status,
+    SetEnabled { enabled: bool },
+    OpenSettings,
+}
+
+#[tauri::command]
+pub async fn overlay_lifecycle(
+    request: OverlayRequest,
+    token: String,
+    window: tauri::WebviewWindow,
+) -> Result<Value, String> {
+    authorize(&window, &token)?;
+    let app = window.app_handle();
+    let overlay = app.state::<crate::overlay_host::OverlayHost>();
+    match request {
+        OverlayRequest::Status => Ok(overlay.status()),
+        OverlayRequest::SetEnabled { enabled } => overlay.set_enabled(app, enabled).await,
+        OverlayRequest::OpenSettings => overlay
+            .open_settings(app, None)
+            .await
+            .map(|()| json!({"success":true})),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
+pub enum DictionaryRequest {
+    OpenSettings,
+    Lookup { text: String },
+}
+
+#[tauri::command]
+pub async fn dictionary_service(
+    request: DictionaryRequest,
+    token: String,
+    window: tauri::WebviewWindow,
+) -> Result<Value, String> {
+    authorize(&window, &token)?;
+    let app = window.app_handle();
+    match request {
+        DictionaryRequest::OpenSettings => app
+            .state::<crate::dictionary_host::DictionaryManager>()
+            .open_selected_extension_options(app)
+            .await
+            .map(|()| Value::Null),
+        DictionaryRequest::Lookup { text } => {
+            crate::reader_service::lookup_reader_dictionary(app, &text).await
+        }
+    }
+}
 fn authorize(window: &tauri::WebviewWindow, token: &str) -> Result<(), String> {
     crate::authorize(window, token)?;
     if window
@@ -15,6 +69,29 @@ fn authorize(window: &tauri::WebviewWindow, token: &str) -> Result<(), String> {
         return Err("This window cannot control desktop settings".into());
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn open_python_dialog(request: crate::gui_dialog::Dialog, token: String, window: tauri::WebviewWindow) -> Result<Value, String> {
+    authorize(&window, &token)?;
+    crate::gui_dialog::open(window.app_handle(), request).await
+}
+
+#[tauri::command]
+pub async fn desktop_resource_usage(
+    token: String,
+    window: tauri::WebviewWindow,
+) -> Result<Value, String> {
+    authorize(&window, &token)?;
+    #[cfg(windows)]
+    {
+        let usage = tauri::async_runtime::spawn_blocking(crate::resource_usage::measure)
+            .await
+            .map_err(|error| error.to_string())??;
+        serde_json::to_value(usage).map_err(|error| error.to_string())
+    }
+    #[cfg(not(windows))]
+    Err("Resource usage is currently available on Windows".into())
 }
 #[derive(Deserialize)]
 #[serde(tag="action",rename_all="camelCase")]

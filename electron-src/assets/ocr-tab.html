@@ -36,12 +36,17 @@
         justify-content: center;
         width: 18px;
         height: 18px;
+        padding: 0;
         border-radius: 50%;
         border: 1px solid rgba(255, 255, 255, 0.18);
         background: rgba(255, 255, 255, 0.05);
         color: #d7e7ff;
         font-size: 12px;
         font-weight: 700;
+    }
+
+    #ocr2-select-group:not(:has(option[value="gvision"]:checked)) #google-vision-help {
+        display: none;
     }
 
     .ocr-status-pills {
@@ -140,10 +145,7 @@
                             </span>
                         </h3>
                         <div id="scene-select-group" class="input-group">
-                            <label for="sceneSelect" class="tooltip-indicator">Game (OBS Scene):
-                                <span class="tooltiptext tooltiptext-right">Select the OBS Scene to Capture for OCR.
-                                    You can make a new Scene in the "Home" Tab</span>
-                            </label>
+                            <label for="sceneSelect">Game (OBS Scene):</label>
                             <select id="sceneSelect"></select>
                             <button id="refreshScenesBtn" class="secondary" title="Refresh scenes">↻</button>
                         </div>
@@ -199,15 +201,7 @@
                         </h3>
                         <div class="form-group">
                             <div id="text-appearance-speed-group" class="input-group">
-                                <label for="text-appearance-speed" class="tooltip-indicator">
-                                    Text Appearance Speed:
-                                    <span class="tooltiptext tooltiptext-right">
-                                        How quickly the text appears in your game.
-                                        <br>• Instant: For text that appears immediately - Most CPU usage
-                                        <br>• Normal: For most games with standard dialogue - Moderate CPU usage
-                                        <br>• Slow: For text that appears gradually - Least CPU usage
-                                    </span>
-                                </label>
+                                <label for="text-appearance-speed">Text Appearance Speed:</label>
                                 <select id="text-appearance-speed">
                                     <option value="0.2">Instant</option>
                                     <option value="0.5" selected>Normal</option>
@@ -263,60 +257,37 @@
             <div id="ocr-settings-grid-container" class="grid-container">
                 <div class="form-group">
                     <div id="ocr1-select-group" class="input-group">
-                        <label for="ocr1-input" class="tooltip-indicator">
-                            Text Stability:
-                            <span class="tooltiptext tooltiptext-right">
-                                This will run at the set scan rate, and when the text stabilizes, it will
-                                trigger the main OCR.
-                                This should preferably be a fast engine. On Windows, OneOCR is recommended.
-                            </span>
-                        </label>
+                        <label for="ocr1-input">Text Stability:</label>
+                        <button type="button" class="tooltip tooltip-right ocr-inline-help" aria-label="Stability OCR help" aria-describedby="stability-ocr-help-text">
+                            ?<span id="stability-ocr-help-text" class="tooltiptext" role="tooltip">Stability OCR checks for text changes and waits for the text to settle before Main OCR runs. Engines vary in speed and CPU usage. ScreenAI is the default.</span>
+                        </button>
                         <select id="ocr1-input">
                             <option value="" disabled selected>Select Stability OCR</option>
-                            <option value="oneocr">OneOCR (Recommended)</option>
-                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
+                            <option value="oneocr">OneOCR</option>
+                            <option value="screenai">ScreenAI OCR</option>
                             <option value="meiki_text_detector">Meiki Text Detector (Experimental, Faster)</option>
-                            <!-- <option value="opencv_east_text_detector">OpenCV EAST Text Detector (Fastest?)</option> -->
-                            <!-- <option value="opencv_classic_text_detector">OpenCV Classical CV Text Detector (Fast CPU)</option> -->
                             <option value="meikiocr">Meiki OCR (Experimental, JP Only, Use this if meikiocr main)</option>
                             <option value="alivetext">Apple Live Text (Mac Only)</option>
-                            <option value="local_llm_ocr">Local LLM OCR</option>
-                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
                         </select>
                     </div>
                     <div id="ocr2-select-group" class="input-group">
-                        <label for="ocr2-input" class="tooltip-indicator">Main OCR:
-                            <span class="tooltiptext tooltiptext-right">
-                                This engine will be used to send the result to clipboard/websocket. This should
-                                be an accurate engine. If Two Pass is enabled, it will be triggered after the
-                                text has stabilized on screen.
-                            </span>
-                        </label>
+                        <label for="ocr2-input">Main OCR:</label>
+                        <button type="button" id="google-vision-help" class="tooltip tooltip-right ocr-inline-help" aria-label="Google Vision setup help" aria-describedby="google-vision-help-text">
+                            ?<span id="google-vision-help-text" class="tooltiptext" role="tooltip">Download the Google Cloud service account JSON key for a project with the Vision API enabled. Save it as ~/.config/google_vision.json, or as google_vision.json in your GSM data or portable profile folder.</span>
+                        </button>
                         <select id="ocr2-input">
                             <option value="" disabled selected>Select Main OCR</option>
                             <option value="glens">Google Lens (Accurate, Recommended)</option>
                             <option value="bing">Bing (Accurate) </option>
-                            <option value="oneocr">OneOCR (Fast)</option>
-                            <option value="screenai">ScreenAI OCR (Good, Inconsistent)</option>
+                            <option value="oneocr">OneOCR</option>
+                            <option value="screenai">ScreenAI OCR</option>
                             <option value="meikiocr">Meiki OCR (Experimental, JP Only)</option>
-                            <option value="gemini">Gemini (Accurate, API Key Required)</option>
-                            <option value="gvision">Google Vision</option>
-                            <option value="azure">Azure Image Analysis</option>
-                            <option value="ocrspace">OCRSpace</option>
-                            <option value="local_llm_ocr">Local LLM OCR</option>
+                            <option value="gvision">Google Vision (service account key required)</option>
                             <option value="alivetext">Apple Live Text (Mac Only)</option>
-                            <option value="mlkitocr">MLKit OCR (Android Server Required)</option>
                         </select>
                     </div>
                     <div id="language-select-group" class="input-group">
-                        <label for="languageSelect", class="tooltip-indicator">
-                            Language:
-                            <span class="tooltiptext tooltiptext-right">
-                                Select the language for OCR Processing. This ensures only blocks with the correct characters are captured.
-                                <br>
-                                Note: All Latin Languages (English, Spanish, French, German, etc.) are supported under English.
-                            </span>
-                        </label>
+                        <label for="languageSelect">Language:</label>
                         <select id="languageSelect">
                             <option value="ja">Japanese</option>
                             <option value="zh">Chinese</option>
@@ -563,13 +534,7 @@
                     <span style="font-size: 12px; color: #00FF00;">OCR Run 2 recognized lines are highlighted in green.</span>
                 </div>
                 <div id="process-priority-group" class="input-group">
-                    <label for="process-priority" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        OCR Process Priority (Windows):
-                        <span class="tooltiptext">
-                            Sets the process priority for the OCR Python process on Windows.
-                            Higher values may improve OCR responsiveness but can reduce system responsiveness.
-                        </span>
-                    </label>
+                    <label for="process-priority">OCR Process Priority (Windows):</label>
                     <select id="process-priority">
                         <option value="low">Low</option>
                         <option value="below_normal">Below Normal</option>
@@ -589,13 +554,7 @@
                     <input type="number" id="default-scene-furigana-filter-sensitivity" min="0" max="100" step="1" value="0">
                 </div>
                 <div id="obs-capture-preprocess-group" class="input-group">
-                    <label for="obs-capture-preprocess" class="tooltip-indicator tooltip-bottom tooltip-right">
-                        OBS Capture Preprocess:
-                        <span class="tooltiptext">
-                            Applies preprocessing to OBS screenshots before OCR-area cropping.
-                            Grayscale + Autocontrast + Unsharp can improve subtitle OCR in noisy scenes.
-                        </span>
-                    </label>
+                    <label for="obs-capture-preprocess">OBS Capture Preprocess:</label>
                     <select id="obs-capture-preprocess">
                         <option value="none" selected>Off</option>
                         <option value="grayscale">Grayscale</option>
@@ -607,9 +566,7 @@
                     <select id="dependency-select">
                         <option value="pip install fpng-py">Faster PNG (Recommended if w11)
                         </option>
-                        <option value="pip install owocr[gvision]">Google Vision (apikey required)</option>
-                        <option value="pip install owocr[azure]">Azure (apikey required)</option>
-                        <option value="pip install owocr[ocrspace]">OCRSpace (apikey required)</option>
+                        <option value="pip install google-cloud-vision">Google Vision (service account key required)</option>
                     </select>
                     <button id="install-selected-dep" class="secondary">Install</button>
                     <div class="tooltip">❓
@@ -634,8 +591,6 @@
                             <option value="fpng-py">Faster PNG</option>
                             <option value="transformers sentencepiece">Accurate Filtering</option>
                             <option value="google-cloud-vision">Google Vision</option>
-                            <option value="azure-ai-vision-imageanalysis">Azure</option>
-                            <option value="ocrspace">OCRSpace</option>
                         </select>
                         <button id="uninstall-selected-dep" class="danger">Uninstall</button>
                     </div>

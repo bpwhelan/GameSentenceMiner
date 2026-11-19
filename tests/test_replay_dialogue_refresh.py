@@ -134,3 +134,29 @@ def test_future_capture_failure_does_not_leave_a_job_for_the_next_mined_card(mon
     future = replay_handler.request_session_review_replay(["target"])
     assert jobs == []
     assert str(future.exception(timeout=0)) == "OBS offline"
+
+
+def test_native_followup_can_finish_while_confirmation_occupies_card_worker(monkeypatch):
+    from threading import Event
+
+    release_card = Event()
+    blocked_card = replay_handler.card_executor.submit(release_card.wait, 5)
+    jobs = []
+    monkeypatch.setattr(replay_handler.anki, "card_queue", jobs)
+    monkeypatch.setattr(replay_handler, "native_replay_acquisition", lambda: True)
+    monkeypatch.setattr(replay_handler.obs, "save_replay_buffer", lambda: "followup.mov")
+    monkeypatch.setattr(
+        replay_handler.ReplayAudioExtractor,
+        "process_replay",
+        lambda self, path, queued_job: queued_job.future.set_result((queued_job.full_text, path)),
+    )
+    try:
+        future = replay_handler.request_dialogue_replay_refresh(
+            selected_lines=[], mined_line=None, full_text="dialogue", timing_context=None
+        )
+        assert future.result(timeout=2) == ("dialogue", "followup.mov")
+        assert not blocked_card.done()
+        assert not jobs
+    finally:
+        release_card.set()
+        blocked_card.result(timeout=2)

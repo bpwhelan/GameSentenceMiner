@@ -4,12 +4,55 @@ import os
 import sys
 from types import SimpleNamespace
 
+import pytest
 from PyQt6.QtCore import QEvent, QSignalBlocker, Qt
 from PyQt6.QtGui import QKeyEvent, QKeySequence
-from PyQt6.QtWidgets import QApplication, QCheckBox, QGroupBox, QMessageBox
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QWidget,
+)
 
 from GameSentenceMiner.ui.config_gui_qt import ClearableKeySequenceEdit, ConfigWindow
 from GameSentenceMiner.util.config.configuration import Anki, Locale
+
+
+def test_settings_dropdowns_and_their_form_labels_have_no_tooltips(monkeypatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    tab = QWidget()
+    form = QFormLayout(tab)
+    combo = QComboBox()
+    combo.setToolTip("Choose a model")
+    label = QLabel("Model")
+    label.setToolTip("Model help")
+    form.addRow(label, combo)
+
+    wrapped_label = QLabel("Backup model")
+    wrapped_label.setToolTip("Backup model help")
+    wrapped_field = QWidget()
+    QHBoxLayout(wrapped_field).addWidget(QComboBox())
+    form.addRow(wrapped_label, wrapped_field)
+
+    checkbox = QCheckBox("Enable")
+    checkbox.setToolTip("Enable this feature")
+    form.addRow(checkbox)
+
+    scroll = ConfigWindow._wrap_tab_in_scroll_area(None, tab)
+    try:
+        assert not combo.toolTip()
+        assert not label.toolTip()
+        assert not wrapped_label.toolTip()
+        assert checkbox.toolTip() == "Enable this feature"
+    finally:
+        scroll.close()
+        app.processEvents()
 
 
 def test_settings_save_preserves_desktop_text_processing_and_live_overlay_settings(monkeypatch) -> None:
@@ -506,7 +549,18 @@ def test_clearable_key_sequence_edit_clears_with_escape_or_backspace() -> None:
             app.processEvents()
 
 
-def test_on_profile_changed_notifies_profile_change_hooks() -> None:
+@pytest.mark.parametrize("managed", [False, True])
+def test_on_profile_changed_notifies_profile_change_hooks(monkeypatch, managed) -> None:
+    from GameSentenceMiner.obs import desktop_session
+
+    requested = []
+
+    def select_profile(name):
+        requested.append(name)
+        return {"profile": name}
+
+    monkeypatch.setattr(desktop_session, "enabled", lambda: managed)
+    monkeypatch.setattr(desktop_session, "select_profile", select_profile)
     calls: list[tuple[str, str]] = []
     saved_profiles: list[str] = []
     reloaded = []
@@ -539,18 +593,31 @@ def test_on_profile_changed_notifies_profile_change_hooks() -> None:
         _load_settings_to_ui_safely=lambda: None,
         refresh_obs_scenes=lambda **_kwargs: None,
         _update_window_title=lambda: None,
+        _maybe_prompt_relate_scene=lambda _: None,
     )
 
     ConfigWindow.add_profile_change_hook(window, lambda previous, new: calls.append((previous, new)))
     ConfigWindow._on_profile_changed(window)
 
     assert calls == [("Default", "Persona 3")]
-    assert saved_profiles == ["Persona 3"]
+    assert saved_profiles == ([] if managed else ["Persona 3"])
+    assert requested == (["Persona 3"] if managed else [])
     assert reloaded == [True]
     assert window.delete_profile_button.hidden is False
 
 
-def test_on_profile_changed_can_suppress_profile_change_hooks() -> None:
+@pytest.mark.parametrize("managed", [False, True])
+def test_on_profile_changed_can_suppress_profile_change_hooks(monkeypatch, managed) -> None:
+    from GameSentenceMiner.obs import desktop_session
+
+    requested = []
+
+    def select_profile(name):
+        requested.append(name)
+        return {"profile": name}
+
+    monkeypatch.setattr(desktop_session, "enabled", lambda: managed)
+    monkeypatch.setattr(desktop_session, "select_profile", select_profile)
     calls: list[tuple[str, str]] = []
     saved_profiles: list[str] = []
     reloaded = []
@@ -584,13 +651,15 @@ def test_on_profile_changed_can_suppress_profile_change_hooks() -> None:
         _load_settings_to_ui_safely=lambda: None,
         refresh_obs_scenes=lambda **_kwargs: None,
         _update_window_title=lambda: None,
+        _maybe_prompt_relate_scene=lambda _: None,
     )
 
     ConfigWindow.add_profile_change_hook(window, lambda previous, new: calls.append((previous, new)))
     ConfigWindow._on_profile_changed(window)
 
     assert calls == []
-    assert saved_profiles == ["Persona 3"]
+    assert saved_profiles == ([] if managed else ["Persona 3"])
+    assert requested == []
     assert reloaded == [True]
     assert window.delete_profile_button.hidden is False
 
@@ -838,6 +907,11 @@ def test_refresh_obs_scenes_keeps_saved_profile_scenes_when_obs_temporarily_retu
         "GameSentenceMiner.ui.config_gui_qt.obs.get_obs_scenes",
         lambda: next(scene_responses),
     )
+    pending = []
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.submit_background_work",
+        lambda job, **kwargs: pending.append(job),
+    )
 
     window = ConfigWindow()
     try:
@@ -846,6 +920,8 @@ def test_refresh_obs_scenes_keeps_saved_profile_scenes_when_obs_temporarily_retu
         window.settings.scenes = ["Scene A", "Missing Scene"]
 
         window.refresh_obs_scenes(force_reload=True)
+        pending.pop(0)()
+        app.processEvents()
 
         assert [window.obs_scene_list.item(i).text() for i in range(window.obs_scene_list.count())] == [
             "Scene A",
@@ -854,6 +930,8 @@ def test_refresh_obs_scenes_keeps_saved_profile_scenes_when_obs_temporarily_retu
         assert [item.text() for item in window.obs_scene_list.selectedItems()] == ["Scene A"]
 
         window.refresh_obs_scenes()
+        pending.pop(0)()
+        app.processEvents()
 
         assert [window.obs_scene_list.item(i).text() for i in range(window.obs_scene_list.count())] == [
             "Scene A",
@@ -862,4 +940,60 @@ def test_refresh_obs_scenes_keeps_saved_profile_scenes_when_obs_temporarily_retu
         assert window.settings.scenes == ["Scene A", "Missing Scene"]
     finally:
         window.close()
+        app.processEvents()
+
+
+def test_settings_show_before_external_lookups_finish(monkeypatch) -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(ConfigWindow, "get_online_models", lambda self: None)
+    monkeypatch.setattr(ConfigWindow, "_force_windows_foreground", lambda self: None)
+    pending = []
+    monkeypatch.setattr(
+        "GameSentenceMiner.ui.config_gui_qt.submit_background_work",
+        lambda job, **kwargs: pending.append(job),
+    )
+    checked = []
+
+    def latest_version():
+        checked.append("version")
+        return "test-version"
+
+    def obs_scenes():
+        checked.append("OBS")
+        return [{"sceneName": "Test scene"}]
+
+    def anki_request(url, **kwargs):
+        checked.append("Anki")
+        return SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"error": None, "result": ["Basic", "Fetched note type"]},
+        )
+
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.get_latest_version", latest_version)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.requests.post", anki_request)
+    monkeypatch.setattr("GameSentenceMiner.ui.config_gui_qt.obs.get_obs_scenes", obs_scenes)
+    window = ConfigWindow()
+    try:
+        window.show_window("anki", "general")
+
+        assert window.isVisible()
+        assert checked == []
+        assert window.anki_note_type_combo.currentText() == window.settings.anki.note_type
+
+        with QSignalBlocker(window.anki_note_type_combo), QSignalBlocker(window.anki_note_type_combo.lineEdit()):
+            window.anki_note_type_combo.setCurrentText("Edited note type")
+        for job in pending:
+            job()
+        app.processEvents()
+
+        assert sorted(checked) == ["Anki", "OBS", "version"]
+        assert window.latest_version_label.text() == "test-version"
+        assert window.obs_scene_list.item(0).text() == "Test scene"
+        assert window.req_note_type_combo.findText("Fetched note type") >= 0
+        assert window.anki_note_type_combo.currentText() == "Edited note type"
+        assert not window._auto_save_timer.isActive()
+    finally:
+        window.close()
+        window.deleteLater()
         app.processEvents()

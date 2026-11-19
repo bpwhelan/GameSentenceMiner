@@ -251,13 +251,16 @@ class _DesktopThemeController(QObject):
         for child in self.window.findChildren(QWidget):
             tone = child.property("gsmStatusTone")
             if tone:
-                child.setStyleSheet(_status_css(colors, tone, bool(child.property("gsmStatusBoxed"))))
+                style = _status_css(colors, tone, bool(child.property("gsmStatusBoxed")))
+                if child.styleSheet() != style:
+                    child.setStyleSheet(style)
             label_color = child.property("gsmLabelColor")
             if label_color in LABEL_COLOR_TOKENS:
                 style = f"color: {colors[LABEL_COLOR_TOKENS[label_color]]};"
                 if child.property("gsmLabelBold"):
                     style += " font-weight: bold;"
-                child.setStyleSheet(style)
+                if child.styleSheet() != style:
+                    child.setStyleSheet(style)
         from GameSentenceMiner.ui.audio_waveform_widget import AudioWaveformWidget
 
         for waveform in self.window.findChildren(AudioWaveformWidget):
@@ -284,7 +287,7 @@ class _DesktopThemeController(QObject):
 
     def eventFilter(self, watched, event):
         if event.type() in (QEvent.Type.Show, QEvent.Type.WindowActivate):
-            self.refresh(force=event.type() == QEvent.Type.Show)
+            self.refresh()
             self.timer.start()
         elif event.type() == QEvent.Type.Hide:
             self.timer.stop()

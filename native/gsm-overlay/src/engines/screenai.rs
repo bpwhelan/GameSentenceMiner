@@ -49,11 +49,17 @@ fn bounds(rect: &Option<Rect>) -> [f64; 4] {
     let Some(r) = rect else {
         return [0.0; 4];
     };
+    // ScreenAI specifies the top-left corner and rotates around it in degrees.
+    let (x, y) = (f64::from(r.x), f64::from(r.y));
+    let (width, height) = (f64::from(r.width.max(0)), f64::from(r.height.max(0)));
+    let (sin, cos) = f64::from(r.angle).to_radians().sin_cos();
+    let (width_x, width_y) = (width * cos, width * sin);
+    let (height_x, height_y) = (-height * sin, height * cos);
     [
-        r.x as f64,
-        r.y as f64,
-        (r.x + r.width) as f64,
-        (r.y + r.height) as f64,
+        x + width_x.min(0.) + height_x.min(0.),
+        y + width_y.min(0.) + height_y.min(0.),
+        x + width_x.max(0.) + height_x.max(0.),
+        y + width_y.max(0.) + height_y.max(0.),
     ]
 }
 fn parse_annotation(bytes: &[u8]) -> Result<Recognition> {
@@ -93,8 +99,8 @@ fn parse_annotation(bytes: &[u8]) -> Result<Recognition> {
 mod native_impl {
     use super::*;
     use libloading::Library;
-    use std::collections::HashMap;
     use std::ffi::{CStr, c_char, c_void};
+    use std::io::Read;
     use std::path::PathBuf;
     use std::sync::{Mutex, OnceLock};
 
@@ -177,14 +183,14 @@ mod native_impl {
 
     struct ResourceState {
         root: PathBuf,
-        cache: Mutex<HashMap<String, Vec<u8>>>,
     }
 
     static RESOURCES: OnceLock<ResourceState> = OnceLock::new();
 
     unsafe extern "C" fn resource_size(path: *const c_char) -> u32 {
-        resource_bytes(path)
-            .map(|bytes| bytes.len() as u32)
+        resource_path(path)
+            .and_then(|path| std::fs::metadata(path).ok())
+            .and_then(|meta| u32::try_from(meta.len()).ok())
             .unwrap_or(0)
     }
 
@@ -193,36 +199,33 @@ mod native_impl {
         requested_size: u32,
         target: *mut c_void,
     ) {
-        let Some(bytes) = resource_bytes(path) else {
+        if requested_size == 0 || target.is_null() {
+            return;
+        }
+        let Some(path) = resource_path(path) else {
             return;
         };
-        let size = bytes.len().min(requested_size as usize);
-        if size == 0 || target.is_null() {
-            return;
-        }
-        unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), target as *mut u8, size);
-        }
+        // ScreenAI owns this buffer. Read into it directly instead of retaining
+        // every model file and cloning it for both size and data callbacks.
+        let target =
+            unsafe { std::slice::from_raw_parts_mut(target as *mut u8, requested_size as usize) };
+        let _ = read_resource(&path, target);
     }
 
-    fn resource_bytes(path: *const c_char) -> Option<Vec<u8>> {
+    fn read_resource(path: &std::path::Path, target: &mut [u8]) -> std::io::Result<()> {
+        let mut file = std::fs::File::open(path)?;
+        let size = file.metadata()?.len().min(target.len() as u64) as usize;
+        file.read_exact(&mut target[..size])
+    }
+
+    fn resource_path(path: *const c_char) -> Option<PathBuf> {
         if path.is_null() {
             return None;
         }
         let raw = unsafe { CStr::from_ptr(path) }.to_string_lossy();
         let normalized = normalize_resource_path(&raw)?;
         let state = RESOURCES.get()?;
-        if let Ok(cache) = state.cache.lock()
-            && let Some(bytes) = cache.get(&normalized)
-        {
-            return Some(bytes.clone());
-        }
-        let file_path = state.root.join(&normalized);
-        let bytes = std::fs::read(file_path).ok()?;
-        if let Ok(mut cache) = state.cache.lock() {
-            cache.insert(normalized, bytes.clone());
-        }
-        Some(bytes)
+        Some(state.root.join(normalized))
     }
 
     fn normalize_resource_path(raw: &str) -> Option<String> {
@@ -255,10 +258,7 @@ mod native_impl {
                     resource_dir.display()
                 );
             }
-            let _ = RESOURCES.set(ResourceState {
-                root: resource_dir,
-                cache: Mutex::new(HashMap::new()),
-            });
+            let _ = RESOURCES.set(ResourceState { root: resource_dir });
 
             let api = Api::load(&library_path)?;
             unsafe {
@@ -330,6 +330,43 @@ mod native_impl {
             .as_ref()
             .expect("ScreenAI engine initialized")
             .recognize(image)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn rotated_ruby_uses_its_screen_bounds() {
+            let rect = Rect {
+                x: 85,
+                y: 119,
+                width: 22,
+                height: 62,
+                angle: 90.,
+            };
+            let actual = bounds(&Some(rect));
+            for (actual, expected) in actual.into_iter().zip([23., 119., 85., 141.]) {
+                assert!((actual - expected).abs() < 1e-9);
+            }
+        }
+
+        #[test]
+        fn resources_read_into_the_supplied_buffer_without_retaining_a_copy() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("model.bin");
+            std::fs::write(&path, [1, 2, 3, 4]).unwrap();
+            let mut shorter = [0; 2];
+            read_resource(&path, &mut shorter).unwrap();
+            assert_eq!(shorter, [1, 2]);
+            let mut longer = [9; 6];
+            read_resource(&path, &mut longer).unwrap();
+            assert_eq!(longer, [1, 2, 3, 4, 9, 9]);
+            std::fs::write(&path, [5, 6, 7, 8]).unwrap();
+            read_resource(&path, &mut shorter).unwrap();
+            assert_eq!(shorter, [5, 6]);
+            assert!(normalize_resource_path("../model.bin").is_none());
+        }
     }
 }
 

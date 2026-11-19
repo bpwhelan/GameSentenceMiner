@@ -100,8 +100,10 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
         typeof data.text !== "string" || !data.text.trim()
       ) return;
       const text = data.text;
-      const timestamp = "time" in data && typeof data.time === "string"
-        ? Date.parse(data.time) : NaN;
+      const capturedAt = "capturedAt" in data ? data.capturedAt : undefined;
+      const time = capturedAt ?? ("time" in data ? data.time : undefined);
+      const timestamp = typeof time === "number" || typeof time === "string"
+        ? new Date(time).getTime() : NaN;
       const deliveryId = "observationId" in data && typeof data.observationId === "string"
         ? data.observationId : undefined;
       const capture: Capture = {
@@ -239,7 +241,7 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
                   </svg>
                 </button>
                 <button type="button" aria-label={t("sentenceExclusions.lineActions")}
-                  title={t("sentenceExclusions.lineActions")} aria-haspopup="menu"
+                  aria-haspopup="menu"
                   aria-expanded={lineMenu?.capture.id === capture.id}
                   aria-controls={lineMenu?.capture.id === capture.id ? "ocr-line-menu" : undefined}
                   onClick={event => setLineMenu(lineMenu?.capture.id === capture.id ? null : { capture, anchor: event.currentTarget })}>

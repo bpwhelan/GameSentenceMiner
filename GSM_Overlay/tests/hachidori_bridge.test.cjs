@@ -1,6 +1,26 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { install, isGsmHost } = require('../integrations/hachidori/bridge.js');
+const { install, isGsmHost, homeScanOptions, pageScanAllowed } = require('../integrations/hachidori/bridge.js');
+
+test('the desktop accepts only feed text and disables lookup in embedded pages', () => {
+  const word = { closest: selector => selector === '[data-gsm-reader-scan="shift"]' ? word : null };
+  const control = { closest: () => null };
+  assert.equal(pageScanAllowed('feed', word), true);
+  assert.equal(pageScanAllowed('feed', control), false);
+  assert.equal(pageScanAllowed('feed', null), false);
+  assert.equal(pageScanAllowed('disabled', word), false);
+  assert.equal(pageScanAllowed(undefined, control), true);
+});
+
+test('Home uses Shift while preserving the configured overlay and popup controls', () => {
+  const options = { lookupMode: 'hover', activationKey: 'Alt', hoverEnabled: true };
+  const target = { closest: selector => selector === '[data-gsm-reader-scan="shift"]' ? {} : null };
+  assert.deepEqual(homeScanOptions(options, target), { ...options, lookupMode: 'activationSticky', activationKey: 'Shift' });
+  assert.equal(options.lookupMode, 'hover');
+  assert.equal(options.activationKey, 'Alt');
+  assert.equal(homeScanOptions(options, { closest: () => null }), options);
+  assert.equal(homeScanOptions(options, null), options);
+});
 
 function setup() {
   const events = new Map(), replies = [], calls = [];
@@ -31,6 +51,24 @@ function setup() {
   };
   return { bridge, api, window, document, events, replies, calls, send };
 }
+
+test('only a new, connected root word gets an early placement measurement', () => {
+  const {bridge, api} = setup();
+  const root = {}, child = {}, word = {connected: true}, next = {connected: true};
+  const measured = [];
+  api.state = () => ({levels: [root, child]});
+  api.anchorConnected = candidate => candidate.connected;
+  api.anchorRectFor = candidate => { measured.push(candidate); return {top: measured.length}; };
+  bridge.captureRootAnchor(root, word);
+  bridge.captureRootAnchor(child, next);
+  bridge.captureRootAnchor(root, word);
+  bridge.captureRootAnchor(root, {connected: false});
+  assert.deepEqual(root.placedAnchor, {candidate: word, rect: {top: 1}});
+  bridge.captureRootAnchor(root, next);
+  assert.deepEqual(root.placedAnchor, {candidate: next, rect: {top: 2}});
+  assert.deepEqual(measured, [word, next]);
+  assert.equal(child.placedAnchor, undefined);
+});
 
 test('only GSM overlay URLs get a privileged bridge', () => {
   assert.equal(isGsmHost('https://example.com/GSM_Overlay/index.html'), false);

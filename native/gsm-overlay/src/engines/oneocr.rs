@@ -7,6 +7,17 @@
 use crate::pipeline::Recognition;
 use anyhow::{Result, bail};
 use image::RgbaImage;
+use std::{
+    borrow::Cow,
+    sync::{Mutex, OnceLock},
+    time::{Duration, Instant},
+};
+#[cfg(unix)]
+mod portable;
+#[cfg(unix)]
+use portable::Engine;
+#[cfg(windows)]
+use windows_impl::Engine;
 
 #[cfg(windows)]
 mod windows_impl {
@@ -14,10 +25,9 @@ mod windows_impl {
     use crate::pipeline::TextBox;
     use anyhow::Context;
     use libloading::Library;
-    use std::borrow::Cow;
+
     use std::ffi::{CStr, CString, c_char};
     use std::path::PathBuf;
-    use std::sync::{Mutex, OnceLock};
 
     const DLL_NAME: &str = "oneocr.dll";
     const MODEL_NAME: &str = "oneocr.onemodel";
@@ -121,7 +131,7 @@ mod windows_impl {
         }
     }
 
-    struct Engine {
+    pub(super) struct Engine {
         api: Api,
         init_options: i64,
         pipeline: i64,
@@ -129,7 +139,7 @@ mod windows_impl {
     }
 
     impl Engine {
-        fn new() -> Result<Self> {
+        pub(super) fn new() -> Result<Self> {
             let directory = oneocr_directory()?;
             for required in [DLL_NAME, MODEL_NAME] {
                 if !directory.join(required).is_file() {
@@ -201,10 +211,7 @@ mod windows_impl {
             })
         }
 
-        fn recognize(&self, image: &RgbaImage) -> Result<Recognition> {
-            let original = image.dimensions();
-            let image = prepare_image(image);
-
+        pub(super) fn recognize(&self, image: &RgbaImage) -> Result<Recognition> {
             let structure = ImageStructure {
                 image_type: 3,
                 width: image.width() as i32,
@@ -228,29 +235,7 @@ mod windows_impl {
                 "run OneOCR",
             )?;
 
-            let parsed = self.read_result(result).map(|mut result| {
-                let (offset, scale) = if original.0 < 51 || original.1 < 51 {
-                    (
-                        (
-                            -(((image.width() - original.0) / 2) as f64),
-                            -(((image.height() - original.1) / 2) as f64),
-                        ),
-                        (1.0, 1.0),
-                    )
-                } else {
-                    (
-                        (0.0, 0.0),
-                        (
-                            original.0 as f64 / image.width() as f64,
-                            original.1 as f64 / image.height() as f64,
-                        ),
-                    )
-                };
-                for line in &mut result.lines {
-                    crate::pipeline::remap_line(line, offset, scale);
-                }
-                result
-            });
+            let parsed = self.read_result(result);
             unsafe { (self.api.release_result)(result) };
             parsed
         }
@@ -366,35 +351,6 @@ mod windows_impl {
         }
     }
 
-    fn prepare_image(image: &RgbaImage) -> Cow<'_, RgbaImage> {
-        let mut width = image.width();
-        let mut height = image.height();
-        if width < 51 || height < 51 {
-            width = width.max(51);
-            height = height.max(51);
-            let mut padded = RgbaImage::from_pixel(width, height, image::Rgba([0, 0, 0, 255]));
-            image::imageops::overlay(
-                &mut padded,
-                image,
-                ((width - image.width()) / 2) as i64,
-                ((height - image.height()) / 2) as i64,
-            );
-            return Cow::Owned(padded);
-        }
-        if width > 10_000 || height > 10_000 {
-            let scale = (10_000.0 / width as f64).min(10_000.0 / height as f64);
-            width = ((width as f64 * scale).round() as u32).max(1);
-            height = ((height as f64 * scale).round() as u32).max(1);
-            return Cow::Owned(image::imageops::resize(
-                image,
-                width,
-                height,
-                image::imageops::FilterType::Lanczos3,
-            ));
-        }
-        Cow::Borrowed(image)
-    }
-
     fn oneocr_directory() -> Result<PathBuf> {
         let home = std::env::var_os("USERPROFILE")
             .map(PathBuf::from)
@@ -403,25 +359,21 @@ mod windows_impl {
         Ok(home.join(".config").join("oneocr"))
     }
 
-    static ENGINE: OnceLock<Mutex<Option<Engine>>> = OnceLock::new();
-
-    pub fn ocr_image(image: &RgbaImage) -> Result<Recognition> {
-        let lock = ENGINE.get_or_init(|| Mutex::new(None));
-        let mut guard = lock
-            .lock()
-            .map_err(|_| anyhow::anyhow!("OneOCR engine lock poisoned"))?;
-        if guard.is_none() {
-            *guard = Some(Engine::new()?);
-        }
-        guard
-            .as_ref()
-            .expect("OneOCR engine initialized")
-            .recognize(image)
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
+        #[test]
+        #[ignore = "Requires the installed OneOCR runtime/model"]
+        fn idle_pipeline_is_released_and_can_be_loaded_again() {
+            let image = RgbaImage::from_pixel(200, 100, image::Rgba([255, 255, 255, 255]));
+            let first = ocr_image(&image).unwrap();
+            assert!(!release_idle(Duration::from_secs(60)));
+            assert!(release_idle(Duration::ZERO));
+            assert!(!release_idle(Duration::ZERO));
+            let second = ocr_image(&image).unwrap();
+            assert_eq!(first.text, second.text);
+            assert!(release_idle(Duration::ZERO));
+        }
         #[test]
         fn regular_images_keep_the_python_rgba_bytes_without_copying() {
             let image = RgbaImage::from_pixel(100, 60, image::Rgba([11, 71, 239, 255]));
@@ -441,12 +393,93 @@ mod windows_impl {
     }
 }
 
-#[cfg(windows)]
-pub fn ocr_image(image: &RgbaImage) -> Result<Recognition> {
-    windows_impl::ocr_image(image)
+fn prepare_image(image: &RgbaImage) -> Cow<'_, RgbaImage> {
+    let mut width = image.width();
+    let mut height = image.height();
+    if width < 51 || height < 51 {
+        width = width.max(51);
+        height = height.max(51);
+        let mut padded = RgbaImage::from_pixel(width, height, image::Rgba([0, 0, 0, 255]));
+        image::imageops::overlay(
+            &mut padded,
+            image,
+            ((width - image.width()) / 2) as i64,
+            ((height - image.height()) / 2) as i64,
+        );
+        return Cow::Owned(padded);
+    }
+    if width > 10_000 || height > 10_000 {
+        let scale = (10_000.0 / width as f64).min(10_000.0 / height as f64);
+        width = ((width as f64 * scale).round() as u32).max(1);
+        height = ((height as f64 * scale).round() as u32).max(1);
+        return Cow::Owned(image::imageops::resize(
+            image,
+            width,
+            height,
+            image::imageops::FilterType::Lanczos3,
+        ));
+    }
+    Cow::Borrowed(image)
 }
 
-#[cfg(not(windows))]
-pub fn ocr_image(_image: &RgbaImage) -> Result<Recognition> {
-    bail!("OneOCR is only available on Windows 10 and newer")
+static ENGINE: OnceLock<Mutex<Option<(Engine, Instant)>>> = OnceLock::new();
+
+pub fn release_idle(idle_for: Duration) -> bool {
+    let Some(lock) = ENGINE.get() else {
+        return false;
+    };
+    // Inference holds this lock. Never wait for or evict an in-flight scan.
+    let Ok(mut guard) = lock.try_lock() else {
+        return false;
+    };
+    if guard
+        .as_ref()
+        .is_some_and(|(_, used)| used.elapsed() >= idle_for)
+    {
+        *guard = None;
+        return true;
+    }
+    false
+}
+
+pub fn ocr_image(image: &RgbaImage) -> Result<Recognition> {
+    let lock = ENGINE.get_or_init(|| Mutex::new(None));
+    let mut guard = lock
+        .lock()
+        .map_err(|_| anyhow::anyhow!("OneOCR engine lock poisoned"))?;
+    if guard.is_none() {
+        *guard = Some((Engine::new()?, Instant::now()));
+    }
+    let (engine, used) = guard.as_mut().expect("OneOCR engine initialized");
+    let original = image.dimensions();
+    let image = prepare_image(image);
+    let result = engine.recognize(&image).map(|mut result| {
+        let (offset, scale) = if original.0 < 51 || original.1 < 51 {
+            (
+                (
+                    -(((image.width() - original.0) / 2) as f64),
+                    -(((image.height() - original.1) / 2) as f64),
+                ),
+                (1.0, 1.0),
+            )
+        } else {
+            (
+                (0.0, 0.0),
+                (
+                    original.0 as f64 / image.width() as f64,
+                    original.1 as f64 / image.height() as f64,
+                ),
+            )
+        };
+        for line in &mut result.lines {
+            crate::pipeline::remap_line(line, offset, scale);
+        }
+        result
+    });
+    *used = Instant::now();
+    #[cfg(unix)]
+    if result.is_err() {
+        *guard = None;
+    }
+    result
 }

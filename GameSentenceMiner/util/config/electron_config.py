@@ -9,7 +9,6 @@ from typing import Any
 from GameSentenceMiner.util.config.configuration import (
     MAX_WGC_CAPTURE_FPS,
     get_app_directory,
-    is_windows,
     logger,
     normalize_wgc_capture_fps,
 )
@@ -22,6 +21,7 @@ def get_default_stability_ocr() -> str:
 
 
 DEFAULT_STABILITY_OCR = get_default_stability_ocr()
+DEFAULT_ADVANCED_MAIN_OCR = "glens"
 
 
 # Mirrors electron-src/main/store.ts defaults.
@@ -68,7 +68,7 @@ DEFAULT_STORE_CONFIG: dict[str, Any] = {
         "advanced_debug_logging": False,
         "useOnlineOcr": False,
         "ocr1": DEFAULT_STABILITY_OCR,
-        "ocr2": DEFAULT_STABILITY_OCR,
+        "ocr2": DEFAULT_ADVANCED_MAIN_OCR,
         "menuAreaOcrEngine": "main",
         "scanRate": 0.5,
         "language": "ja",
@@ -119,7 +119,7 @@ DEFAULT_STORE_CONFIG: dict[str, Any] = {
         "advancedMode": False,
         "scanRate_basic": 0.5,
         "ocr1_advanced": DEFAULT_STABILITY_OCR,
-        "ocr2_advanced": DEFAULT_STABILITY_OCR,
+        "ocr2_advanced": DEFAULT_ADVANCED_MAIN_OCR,
         "scanRate_advanced": 0.5,
         # Legacy/compat keys still consumed by Python OCR runtime.
         "window_name": "",
@@ -379,12 +379,23 @@ def _resolve_ocr_engine(engine: Any) -> str:
         return ""
 
     engine_normalized = engine.strip().lower()
-    if not engine_normalized:
-        return ""
-
-    if not is_windows() and engine_normalized == "oneocr":
-        return "meikiocr"
-
+    # Old desktop profiles can still select a retired engine. Fall back locally.
+    if engine_normalized in {
+        "mlkitocr",
+        "local_llm_ocr",
+        "gemini",
+        "ocrspace",
+        "azure",
+        "easyocr",
+        "rapidocr",
+        "groq",
+        "paddleocr",
+        "paddle_text_detector",
+        "opencv_east_text_detector",
+        "mangaocr",
+        "mangaocrs",
+    }:
+        return DEFAULT_STABILITY_OCR
     return engine_normalized
 
 
@@ -428,7 +439,7 @@ def get_ocr_ocr2() -> str:
     ocr_config = _get_ocr_config()
     if not _is_advanced_mode():
         return _resolve_ocr_engine(_get_basic_ocr2_engine(ocr_config))
-    return _resolve_ocr_engine(ocr_config.get("ocr2", DEFAULT_STABILITY_OCR))
+    return _resolve_ocr_engine(ocr_config.get("ocr2", DEFAULT_ADVANCED_MAIN_OCR))
 
 
 def get_ocr_menu_area_engine() -> str:

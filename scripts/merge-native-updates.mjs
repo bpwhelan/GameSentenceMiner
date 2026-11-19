@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import {verifyNativeFile} from './verify-native-signature.mjs';
+import {verifyAgentRuntimeArchive} from './package-agent-runtime.mjs';
 const directory=path.resolve(process.argv[2]||'dist/native-release');
 const entries=await fs.readdir(directory,{recursive:true});
 const manifests=await Promise.all(entries.filter(name=>path.basename(name)==='tauri-platform.json').map(async name=>JSON.parse(await fs.readFile(path.join(directory,name)))));
@@ -10,6 +11,17 @@ const version=manifests[0].version,platforms={};
 for(const manifest of manifests){if(manifest.version!==version)throw Error('Native release versions do not match');for(const [name,platform] of Object.entries(manifest.platforms)){if(platforms[name])throw Error(`Duplicate native release platform: ${name}`);platforms[name]=platform;}}
 for(const [name,platform] of Object.entries(platforms))if(!platform.signature||!platform.url.startsWith('https://github.com/bpwhelan/GameSentenceMiner/releases/download/'))throw Error(`Missing signature or invalid update URL for ${name}`);
 for(const platform of ['windows-x86_64','linux-x86_64','darwin-aarch64','darwin-x86_64'])if(!platforms[platform])throw Error(`Missing native release platform: ${platform}`);
+// Every installer must have its pinned first-use runtime in the same release.
+for(const platform of ['win32-x64','linux-x64','darwin-arm64','darwin-x64']) {
+  const records=entries.filter(entry=>path.basename(entry)===`agent-runtime-${platform}.json`);
+  if(records.length!==1)throw Error(`Missing or duplicate Agent runtime metadata for ${platform}`);
+  const runtime=JSON.parse(await fs.readFile(path.join(directory,records[0]),'utf8'));
+  if(runtime.platform!==platform || !runtime.archive?.url?.startsWith(`https://github.com/bpwhelan/GameSentenceMiner/releases/download/v${version}/`))throw Error(`Agent runtime version/platform mismatch: ${platform}`);
+  const name=new URL(runtime.archive.url).pathname.split('/').at(-1);
+  const archives=entries.filter(entry=>path.basename(entry)===name);
+  if(archives.length!==1)throw Error(`Missing or duplicate Agent runtime archive for ${platform}`);
+  await verifyAgentRuntimeArchive(runtime,path.join(directory,archives[0]));
+}
 const config=JSON.parse(await fs.readFile(new URL('../src-tauri/tauri.conf.json',import.meta.url)));
 for(const [name,platform] of Object.entries(platforms)) {
   const filename=decodeURIComponent(new URL(platform.url).pathname.split('/').at(-1));

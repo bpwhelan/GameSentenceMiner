@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html data-gsm-preload-dictionary-popup>
 
 <head>
 <title>GSM Overlay</title>
@@ -301,6 +301,10 @@ background: rgba(202, 12, 12, 0.692);
      the lookup surface to hand its captured cursor back to the overlay. */
   body.magpie-pointer-hover .text-box {
     background: rgba(0, 0, 0, 0.004) !important;
+  }
+
+  body.magpie-active .big-interactive-area {
+    pointer-events: none;
   }
 
   body.manual-interaction-suppressed .text-box,
@@ -993,7 +997,7 @@ background: rgba(202, 12, 12, 0.692);
       </div>
       <button class="control-btn" id="btn-pin">⬤</button>
       <button class="control-btn" id="btn-translate-toolbar" title="Translate (opens AI setup if needed)">🌐</button>
-      <select class="control-btn" id="ai-help-toolbar" aria-label="AI sentence help" title="Explain the detected game text" style="max-width: 150px; font-size: 13px;">
+      <select class="control-btn" id="ai-help-toolbar" aria-label="AI sentence help" style="max-width: 150px; font-size: 13px;">
         <option value="">Explain…</option>
         <option value="sentence">Sentence breakdown</option>
         <option value="grammar">Grammar</option>
@@ -1031,7 +1035,11 @@ background: rgba(202, 12, 12, 0.692);
   // transform projects text; native cursor samples hit-test that rendered text.
   let currentMagpieInfo = null;
   let isMagpieActive = false;
-  let textHoverClickThrough = true;
+  let textHoverClickThrough = false;
+  let vnGuideChoiceClickThroughActive = false;
+  function isTextClickThroughEnabled() {
+    return textHoverClickThrough || vnGuideChoiceClickThroughActive;
+  }
   const CJK_LEXICAL_REGEX = /[\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Han}\p{Script_Extensions=Hangul}]/u;
   const LATIN_NUMERIC_REGEX = /[A-Za-z0-9]/;
 
@@ -1650,8 +1658,13 @@ background: rgba(202, 12, 12, 0.692);
   const { magpiePointerToViewport } = require('./magpie_hit_test');
   const { createTextHoverController } = require('./text_hover');
   const textHover = createTextHoverController({ window, document,
-    isClickThroughEnabled: () => textHoverClickThrough,
-    onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore, textHoverClickThrough) });
+    isClickThroughEnabled: isTextClickThroughEnabled,
+    onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore, isTextClickThroughEnabled()) });
+  ipcRenderer.on('vn-guide-choice-click-through', (_event, active) => {
+    vnGuideChoiceClickThroughActive = active === true;
+    if (isTextClickThroughEnabled()) document.body.classList.remove('magpie-pointer-hover');
+    textHover.refresh();
+  });
   ipcRenderer.on('text-hover-refresh', () => textHover.refresh());
   ipcRenderer.on('overlay-input-reset', () => {
     textHover.reset();
@@ -1666,7 +1679,7 @@ background: rgba(202, 12, 12, 0.692);
     }
     const point = magpiePointerToViewport(sample, display, window);
     const hit = textHover.project(point || { ...sample, x: -1, y: -1 });
-    document.body.classList.toggle('magpie-pointer-hover', hit && !textHoverClickThrough);
+    document.body.classList.toggle('magpie-pointer-hover', hit && !isTextClickThroughEnabled());
     // Cursor projection stays active with either mouse policy. When enabled,
     // click-through affects game text only; dictionary controls still capture.
     ipcRenderer.send('magpie-pointer-hit', { sequence: sample.sequence, hit });
@@ -2612,6 +2625,7 @@ background: rgba(202, 12, 12, 0.692);
       isMagpieActive = result.state.active;
       document.body.classList.toggle('magpie-active', isMagpieActive);
       if (!isMagpieActive) document.body.classList.remove('magpie-pointer-hover');
+      if (result.signatureChanged) reprojectOverlayText();
       return result;
     }
 
@@ -2958,6 +2972,20 @@ background: rgba(202, 12, 12, 0.692);
     const xSpreadPx = (maxCenterX - minCenterX) * viewportWidth;
     const ySpreadPx = (maxCenterY - minCenterY) * viewportHeight;
     return ySpreadPx > xSpreadPx;
+  }
+
+  const overlayTextLineLayouts = new WeakMap();
+  const overlayNotationPositioners = new WeakMap();
+
+  function projectOverlayTextBounds(rect) {
+    const topLeft = mapPercentToMagpie(rect.x1 * 100, rect.y1 * 100);
+    const bottomRight = mapPercentToMagpie(rect.x3 * 100, rect.y3 * 100);
+    return { x1: topLeft.x, y1: topLeft.y, x3: bottomRight.x, y3: bottomRight.y };
+  }
+
+  function positionOverlayNotation(box, position) {
+    overlayNotationPositioners.set(box, position);
+    position();
   }
 
   function buildOverlayLineRenderUnits(line, lineIdx, lineBlocks, blockBoundaries, blockCount) {
@@ -3459,36 +3487,25 @@ background: rgba(202, 12, 12, 0.692);
               insertBlockSeparatorAfter(document, blockContainers.get(blockId));
             }
             
-            const rect = line.bounding_rect;
-            let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
-            let bigInteractiveArea = document.createElement("div");
+            const blockBounds = blockIndicatorBounds.get(blockId) || {
+              x1: Infinity, y1: Infinity, x3: -Infinity, y3: -Infinity,
+            };
+            const bigInteractiveArea = document.createElement("div");
             bigInteractiveArea.className = "big-interactive-area interactive half-interactive";
 
             const lineWordBoxes = [];
 
-            // Iterate over 'wordList'
-            for (let wordIndex = 0; wordIndex < wordList.length; wordIndex++) {
-              const word = wordList[wordIndex];
+            for (const word of wordList) {
               const rect = word.bounding_rect;
-              // Original (source-window) coordinates in percentage
-              const origX1 = rect.x1 * 100;
-              const origY1 = rect.y1 * 100;
-              const origX3 = rect.x3 * 100;
-              const origY3 = rect.y3 * 100;
-
-              // Map to Magpie-scaled position for rendering (identity when Magpie inactive)
-              const tl = mapPercentToMagpie(origX1, origY1);
-              const br = mapPercentToMagpie(origX3, origY3);
-              let x1 = tl.x, y1 = tl.y, x3 = br.x, y3 = br.y;
-
-              // Track rendered (possibly scaled) bounds for line indicators
-              minx = Math.min(minx, x1);
-              miny = Math.min(miny, y1);
-              maxx = Math.max(maxx, x3);
-              maxy = Math.max(maxy, y3);
-              const box = isRecalibration
-                ? applyTextBoxLayout(reusableTextBoxes[reusableTextBoxIndex++], word.text, x1, y1, x3, y3, true, isVertical)
-                : createTextBox(word.text, x1, y1, x3, y3, 0, true, true, isVertical);
+              blockBounds.x1 = Math.min(blockBounds.x1, rect.x1);
+              blockBounds.y1 = Math.min(blockBounds.y1, rect.y1);
+              blockBounds.x3 = Math.max(blockBounds.x3, rect.x3);
+              blockBounds.y3 = Math.max(blockBounds.y3, rect.y3);
+              const box = isRecalibration ? reusableTextBoxes[reusableTextBoxIndex++] : document.createElement('span');
+              if (!isRecalibration) box.className = 'text-box';
+              const wordBox = { box, text: word.text, sourceRect: rect, fitCharacterHitbox: word.fitCharacterHitbox === true };
+              positionOverlayWordBox(wordBox, isVertical);
+              lineWordBoxes.push(wordBox);
               box.dataset.lineIndex = lineIdx;
               const blockContainer = blockContainers.get(blockId);
               if (blockContainer && box.parentNode !== blockContainer) {
@@ -3498,59 +3515,21 @@ background: rgba(202, 12, 12, 0.692);
               } else if (!box.isConnected) {
                 document.body.appendChild(box);
               }
-
-              lineWordBoxes.push({
-                box,
-                text: word.text,
-                widthPercent: x3 - x1,
-                heightPercent: y3 - y1,
-                fitCharacterHitbox: word.fitCharacterHitbox === true,
-                x1,
-                y1,
-                y3,
-              });
             }
 
-            pendingLineLayouts.push({ lineWordBoxes, isVertical });
-
-            // Line indicator bounds use the rendered (possibly Magpie-scaled) coordinates
-            // so they visually surround the text boxes.
-            let lineMinx = minx - 0.2;
-            let lineMiny = miny - 0.2;
-            let lineMaxx = maxx + 0.2;
-            let lineMaxy = maxy + 0.2;
-
-            const existingBlockBounds = blockIndicatorBounds.get(blockId);
-            if (existingBlockBounds) {
-              existingBlockBounds.minx = Math.min(existingBlockBounds.minx, lineMinx);
-              existingBlockBounds.miny = Math.min(existingBlockBounds.miny, lineMiny);
-              existingBlockBounds.maxx = Math.max(existingBlockBounds.maxx, lineMaxx);
-              existingBlockBounds.maxy = Math.max(existingBlockBounds.maxy, lineMaxy);
-            } else {
-              blockIndicatorBounds.set(blockId, {
-                minx: lineMinx,
-                miny: lineMiny,
-                maxx: lineMaxx,
-                maxy: lineMaxy,
-              });
+            if (lineWordBoxes.length > 0) {
+              const lineLayout = { lineWordBoxes, isVertical };
+              pendingLineLayouts.push(lineLayout);
+              overlayTextLineLayouts.set(lineWordBoxes[0].box, lineLayout);
             }
+            blockIndicatorBounds.set(blockId, blockBounds);
 
             // Magpie input uses the actual rendered boxes, without hidden
             // source-plane padding or catch-all click targets.
             if (!isMagpieActive) document.body.appendChild(bigInteractiveArea);
           }
 
-          // Attach every character before measuring any of them. These boxes
-          // are positioned absolutely, so sizing one line cannot move another.
-          for (const { lineWordBoxes } of pendingLineLayouts) {
-            for (const lineWordBox of lineWordBoxes) {
-              lineWordBox.boundBox = lineWordBox.box.getBoundingClientRect();
-              lineWordBox.hiddenByMainBox = pinned && isTextInMainBox(lineWordBox.boundBox, mainBoxBounds);
-            }
-          }
-          for (const { lineWordBoxes, isVertical } of pendingLineLayouts) {
-            applyOverlayLineWordSizes(lineWordBoxes, isVertical, renderedTextBoxes);
-          }
+          sizeOverlayTextLines(pendingLineLayouts, pinned ? mainBoxBounds : null, renderedTextBoxes);
 
           if (
             !isSupplemental
@@ -3580,12 +3559,13 @@ background: rgba(202, 12, 12, 0.692);
             blockBox.style.position = "absolute";
             blockBox.style.pointerEvents = "none";
             blockBox.style.zIndex = "998";
-            // Keep the capture indicator aligned with the translated text boxes
-            // when the user applies the overlay calibration offset.
-            blockBox.style.left = `${bounds.minx + offsetX}%`;
-            blockBox.style.top = `${bounds.miny + offsetY}%`;
-            blockBox.style.width = `${bounds.maxx - bounds.minx}%`;
-            blockBox.style.height = `${bounds.maxy - bounds.miny}%`;
+            positionOverlayNotation(blockBox, () => {
+              const { x1, y1, x3, y3 } = projectOverlayTextBounds(bounds);
+              blockBox.style.left = `${x1 - 0.2 + offsetX}%`;
+              blockBox.style.top = `${y1 - 0.2 + offsetY}%`;
+              blockBox.style.width = `${(x3 + 0.2) - (x1 - 0.2)}%`;
+              blockBox.style.height = `${(y3 + 0.2) - (y1 - 0.2)}%`;
+            });
             applyIndicatorBoxStyles(blockBox);
             document.body.appendChild(blockBox);
           });
@@ -3611,8 +3591,11 @@ background: rgba(202, 12, 12, 0.692);
               indicator.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.8), 0 0 8px rgba(255, 165, 0, 0.6)';
               indicator.style.opacity = '0.85';
               indicator.style.userSelect = 'none';
-              indicator.style.left = `${lastBlockBounds.minx + offsetX}%`;
-              indicator.style.top = `${(lastBlockBounds.miny + lastBlockBounds.maxy) / 2 + offsetY}%`;
+              positionOverlayNotation(indicator, () => {
+                const { x1, y1, y3 } = projectOverlayTextBounds(lastBlockBounds);
+                indicator.style.left = `${x1 - 0.2 + offsetX}%`;
+                indicator.style.top = `${((y1 - 0.2) + (y3 + 0.2)) / 2 + offsetY}%`;
+              });
               indicator.style.transform = 'translate(calc(-100% - 10px), -50%)';
 
               document.body.appendChild(indicator);
@@ -3732,10 +3715,10 @@ background: rgba(202, 12, 12, 0.692);
     return textBox;
   }
 
-  function createTextBox(sentence, x1, y1, x2, y2, fontSize, noBackground = false, transparentText = false, verticalText = false) {
-    const textBox = document.createElement('span');
-    textBox.className = 'text-box';
-    return applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText, verticalText);
+  function positionOverlayWordBox(wordBox, isVertical) {
+    const { x1, y1, x3, y3 } = projectOverlayTextBounds(wordBox.sourceRect);
+    applyTextBoxLayout(wordBox.box, wordBox.text, x1, y1, x3, y3, true, isVertical);
+    Object.assign(wordBox, { x1, y1, y3, widthPercent: x3 - x1, heightPercent: y3 - y1 });
   }
 
   function createNavigationBox(sentence, x1, y1, x2, y2) {
@@ -4017,6 +4000,48 @@ background: rgba(202, 12, 12, 0.692);
     };
   }
 
+  function sizeOverlayTextLines(lineLayouts, mainBoxBounds, renderedTextBoxes) {
+    // Read every box before applying the final font sizes and hitbox extents.
+    for (const { lineWordBoxes } of lineLayouts) {
+      for (const wordBox of lineWordBoxes) {
+        wordBox.boundBox = wordBox.box.getBoundingClientRect();
+        wordBox.hiddenByMainBox = mainBoxBounds && isTextInMainBox(wordBox.boundBox, mainBoxBounds);
+      }
+    }
+    for (const { lineWordBoxes, isVertical } of lineLayouts) {
+      applyOverlayLineWordSizes(lineWordBoxes, isVertical, renderedTextBoxes);
+    }
+  }
+
+  function reprojectOverlayText() {
+    // Keep the live text nodes and their dictionary ranges. Detached boxes and
+    // notation are absent from this lookup, including invalidated OCR results.
+    const lineLayouts = Array.from(document.querySelectorAll('.text-box'), box => overlayTextLineLayouts.get(box))
+      .filter(Boolean);
+    const notation = document.querySelectorAll('.line-box, .recycled-indicator, .furigana-box');
+    if (lineLayouts.length === 0 && notation.length === 0) return;
+
+    const gamepadSnapshot = prepareGamepadForOverlayTextRender();
+    const hiddenBoxes = [];
+    for (const { lineWordBoxes, isVertical } of lineLayouts) {
+      for (const wordBox of lineWordBoxes) {
+        if (wordBox.box.style.display === 'none' && !wordBox.hiddenByMainBox) hiddenBoxes.push(wordBox.box);
+        positionOverlayWordBox(wordBox, isVertical);
+      }
+    }
+    const renderedTextBoxes = [];
+    sizeOverlayTextLines(lineLayouts, pinned ? mainBox.getBoundingClientRect() : null, renderedTextBoxes);
+    for (const box of hiddenBoxes) box.style.display = 'none';
+    for (const box of notation) overlayNotationPositioners.get(box)?.();
+
+    lastFuriganaRenderSignature = null;
+    window.GsmJitenHighlight?.reposition();
+    window.GSMWindowOcclusion?.refresh();
+    window.GSMLiveStatsWidget?.handleTextBoundsUpdate(renderedTextBoxes.map(box => box.getBoundingClientRect()));
+    completeGamepadOverlayTextRender(gamepadSnapshot, { preserveSelection: true, focusLatestLine: false });
+    textHover.refresh();
+  }
+
   function applyOverlayLineWordSizes(lineWordBoxes, isVertical, renderedTextBoxes) {
     for (const lineWordBox of lineWordBoxes) {
       if (lineWordBox.hiddenByMainBox) {
@@ -4076,6 +4101,8 @@ background: rgba(202, 12, 12, 0.692);
     // Actual punctuation keeps its natural OCR-tight box and size instead of being clamped
     // up to the line's uniform glyph extent, so it stays a small, hard-to-hover lookup target.
     for (const lineWordBox of lineWordBoxes) {
+      const boundBox = lineWordBox.boundBox;
+      lineWordBox.boundBox = null;
       if (lineWordBox.hiddenByMainBox) {
         continue;
       }
@@ -4089,7 +4116,7 @@ background: rgba(202, 12, 12, 0.692);
         // advance by 1em; adjust that advance to fill the padded cell while
         // retaining the line's font size. This also prevents a wider median
         // glyph from overflowing a narrower neighbor and stealing its lookup.
-        const measuredExtent = isVertical ? lineWordBox.boundBox.height : lineWordBox.boundBox.width;
+        const measuredExtent = isVertical ? boundBox.height : boundBox.width;
         const extent = measuredExtent > 0 ? measuredExtent : (isVertical
           ? lineWordBox.heightPercent * window.innerHeight / 100
           : lineWordBox.widthPercent * window.innerWidth / 100);
@@ -4233,19 +4260,12 @@ background: rgba(202, 12, 12, 0.692);
       const charHeight = (rect.y3 - rect.y1) / glyphs.length;
 
       for (let i = 0; i < glyphs.length; i++) {
-        const origX1 = (vertical ? rect.x1 : rect.x1 + i * charWidth) * 100;
-        const origY1 = (vertical ? rect.y1 + i * charHeight : rect.y1) * 100;
-        const origX3 = (vertical ? rect.x3 : rect.x1 + (i + 1) * charWidth) * 100;
-        const origY3 = (vertical ? rect.y1 + (i + 1) * charHeight : rect.y3) * 100;
-        const topLeft = mapPercentToMagpie(origX1, origY1);
-        const bottomRight = mapPercentToMagpie(origX3, origY3);
-
         const character = {
           text: glyphs[i],
-          x1: topLeft.x,
-          y1: topLeft.y,
-          x3: bottomRight.x,
-          y3: bottomRight.y,
+          x1: vertical ? rect.x1 : rect.x1 + i * charWidth,
+          y1: vertical ? rect.y1 + i * charHeight : rect.y1,
+          x3: vertical ? rect.x3 : rect.x1 + (i + 1) * charWidth,
+          y3: vertical ? rect.y1 + (i + 1) * charHeight : rect.y3,
         };
         // Backend annotation offsets count UTF-16 units; both halves of a
         // supplementary glyph must refer to the same full character box.
@@ -4336,43 +4356,41 @@ background: rgba(202, 12, 12, 0.692);
         continue;
       }
 
-      const startChar = annotationChars[0];
-      const endChar = annotationChars[annotationChars.length - 1];
-      const minTop = Math.min(...annotationChars.map((char) => char.y1));
-      const maxRight = Math.max(...annotationChars.map((char) => char.x3));
-      const maxBottom = Math.max(...annotationChars.map((char) => char.y3));
-      const crossSizePercent = Math.max(...annotationChars.map((char) => Math.max(0,
-        vertical ? char.x3 - char.x1 : char.y3 - char.y1)));
-      const baseFontSize = Math.max(8, Math.min(100, Math.round((crossSizePercent / 100)
-        * (vertical ? window.innerWidth : window.innerHeight))));
-      const segmentWidth = Math.max(0.35, endChar.x3 - startChar.x1);
-      const segmentHeight = Math.max(0.35, maxBottom - minTop);
-
-      const left = (vertical ? maxRight : startChar.x1) + offsetX;
-      const top = minTop + offsetY;
       const furiganaBox = document.createElement('div');
       furiganaBox.className = vertical ? 'furigana-box furigana-box--vertical' : 'furigana-box';
-      furiganaBox.style.left = `${left}%`;
-      furiganaBox.style.top = `${top}%`;
-      if (vertical) {
-        furiganaBox.style.height = `${segmentHeight}%`;
-      } else {
-        furiganaBox.style.width = `${segmentWidth}%`;
-      }
-      furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
       const toneColored = readingLanguage === 'chinese'
         && pinyinToneColorsEnabled
         && Array.isArray(annotation.parts)
         && annotation.parts.length > 0;
-      furiganaBox._gsmRenderSignature = [
-        vertical ? 'vertical' : 'horizontal',
-        roundFuriganaSignatureValue(left),
-        roundFuriganaSignatureValue(top),
-        roundFuriganaSignatureValue(vertical ? segmentHeight : segmentWidth),
-        String(Math.round(baseFontSize)),
-        reading,
-        toneColored ? `t:${annotation.parts.map((p) => p.tone).join(',')}` : '',
-      ].join('|');
+      const toneSignature = toneColored ? `t:${annotation.parts.map((part) => part.tone).join(',')}` : '';
+      positionOverlayNotation(furiganaBox, () => {
+        const projectedChars = annotationChars.map(projectOverlayTextBounds);
+        const startChar = projectedChars[0];
+        const endChar = projectedChars[projectedChars.length - 1];
+        const minTop = Math.min(...projectedChars.map((char) => char.y1));
+        const maxRight = Math.max(...projectedChars.map((char) => char.x3));
+        const maxBottom = Math.max(...projectedChars.map((char) => char.y3));
+        const crossSizePercent = Math.max(...projectedChars.map((char) => Math.max(0,
+          vertical ? char.x3 - char.x1 : char.y3 - char.y1)));
+        const baseFontSize = Math.max(8, Math.min(100, Math.round((crossSizePercent / 100)
+          * (vertical ? window.innerWidth : window.innerHeight))));
+        const extent = Math.max(0.35, vertical ? maxBottom - minTop : endChar.x3 - startChar.x1);
+        const left = (vertical ? maxRight : startChar.x1) + offsetX;
+        const top = minTop + offsetY;
+        furiganaBox.style.left = `${left}%`;
+        furiganaBox.style.top = `${top}%`;
+        furiganaBox.style[vertical ? 'height' : 'width'] = `${extent}%`;
+        furiganaBox.style.setProperty('--gsm-furigana-base-font-size', `${baseFontSize}px`);
+        furiganaBox._gsmRenderSignature = [
+          vertical ? 'vertical' : 'horizontal',
+          roundFuriganaSignatureValue(left),
+          roundFuriganaSignatureValue(top),
+          roundFuriganaSignatureValue(extent),
+          String(baseFontSize),
+          reading,
+          toneSignature,
+        ].join('|');
+      });
 
       const furiganaText = document.createElement('span');
       furiganaText.className = 'furigana-reading';
@@ -4923,7 +4941,8 @@ background: rgba(202, 12, 12, 0.692);
   ipcRenderer.on("load-settings", (event, newsettings) => {
     dictionaryReader = normalizeDictionaryReader(newsettings.dictionaryReader);
     applyFloatingWindowFontSize(newsettings.fontSize);
-    textHoverClickThrough = newsettings.textHoverClickThrough !== false;
+    textHoverClickThrough = newsettings.textHoverClickThrough === true;
+    vnGuideChoiceClickThroughActive = newsettings.vnGuideChoiceClickThroughActive === true;
     textHover.refresh();
     setupWebSocket(newsettings.weburl1, true)
     setupWebSocket(newsettings.weburl2, false)
@@ -5145,6 +5164,7 @@ background: rgba(202, 12, 12, 0.692);
   })
 
   ipcRenderer.on('display-info', (event, newDisplay) => {
+    const previousBounds = display?.physicalBounds;
     display = newDisplay;
     window.GSMWindowOcclusion?.setDisplayInfo(newDisplay);
     width = display.size.width;
@@ -5153,6 +5173,9 @@ background: rgba(202, 12, 12, 0.692);
     workAreaWidth = workArea.width;
     workAreaHeight = workArea.height;
     workAreaAdjustment = (workAreaHeight / height - 1) * -1;
+    if (isMagpieActive && ['x', 'y', 'width', 'height'].some(key => previousBounds?.[key] !== display.physicalBounds?.[key])) {
+      reprojectOverlayText();
+    }
     console.log("Display info updated:", display);
     console.log(`Work area adjustment factor: ${workAreaAdjustment}`);
   });
@@ -5203,8 +5226,8 @@ background: rgba(202, 12, 12, 0.692);
 
       switch (key) {
         case "textHoverClickThrough":
-          textHoverClickThrough = value !== false;
-          if (textHoverClickThrough) document.body.classList.remove('magpie-pointer-hover');
+          textHoverClickThrough = value === true;
+          if (isTextClickThroughEnabled()) document.body.classList.remove('magpie-pointer-hover');
           textHover.refresh();
           break;
         case "fontSize":

@@ -40,6 +40,19 @@
     } catch { return false; }
   }
   const failure = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
+  const feedTextSelector = '[data-gsm-reader-scan="shift"]';
+
+  function pageScanAllowed(scope, target) {
+    return scope === undefined || (scope === 'feed' && Boolean(target?.closest?.(feedTextSelector)));
+  }
+
+  // A per-element gesture, not a write to the reader's shared options/profile.
+  // Popup definitions and the overlay have no marker and keep their own controls.
+  function homeScanOptions(options, target) {
+    return target?.closest?.(feedTextSelector)
+      ? { ...options, activationKey: 'Shift', lookupMode: 'activationSticky' }
+      : options;
+  }
 
   function install(api, environment = { window, document }) {
     const { window: win, document: doc } = environment;
@@ -186,6 +199,12 @@
     if (navigationActive) api.cancelHover();
     return {
       get navigationActive() { return navigationActive; },
+      captureRootAnchor(level, candidate) {
+        // The root stays at the matched word's initial rect. Read it before
+        // changing the popup DOM would force layout of all new definitions.
+        if (level !== api.state().levels[0] || level.placedAnchor?.candidate === candidate || !api.anchorConnected(candidate)) return;
+        level.placedAnchor = { candidate, rect: api.anchorRectFor(candidate) };
+      },
       refresh,
       scheduleRefresh,
       requestCompleted(type, reply) {
@@ -202,7 +221,7 @@
       },
     };
   }
-  const api = { install, isGsmHost };
+  const api = { install, isGsmHost, homeScanOptions, pageScanAllowed };
   if (typeof window !== 'undefined') window.GsmHachidoriIntegration = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })();

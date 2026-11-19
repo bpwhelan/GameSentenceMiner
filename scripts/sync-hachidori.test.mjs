@@ -49,6 +49,7 @@ async function writeFixtureExtension(sourceRoot, marker) {
         fs.copyFile(new URL('../GSM_Overlay/hachidori/search-clipboard.js', import.meta.url), path.join(extensionDir, 'search-clipboard.js')),
         fs.copyFile(new URL('../GSM_Overlay/hachidori/search-frame.html', import.meta.url), path.join(extensionDir, 'search-frame.html')),
         fs.copyFile(new URL('../GSM_Overlay/hachidori/offscreen.js', import.meta.url), path.join(extensionDir, 'offscreen.js')),
+        fs.copyFile(new URL('../GSM_Overlay/hachidori/engine-service.js', import.meta.url), path.join(extensionDir, 'engine-service.js')),
     ]);
 }
 

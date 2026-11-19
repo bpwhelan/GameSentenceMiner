@@ -21,12 +21,10 @@ reports an error instead of downloading or silently switching to C.
 
 ## Packaging and selection
 
-`GameSentenceMiner/assets/vocr/` contains the four verified faithful graphs,
-their SHA-256 manifest, and the upstream licence and attribution files. The graphs
-are unchanged from the benchmarked exports below, totalling **16,968,508 bytes**
-(about 17 MB before compression). Fast, FP16, and native INT8 experiments are not
-included. ONNX Runtime is already a GSM dependency; the `onnx` export library is
-not needed at runtime.
+`GameSentenceMiner/assets/vocr/` contains four faithful graphs and the fast large
+recognizer for the MIDA pairing. Together the five graphs occupy **26,307,112 bytes**
+before compression. The directory includes their SHA-256 manifest, upstream
+licence and attribution. ONNX Runtime is already a GSM dependency.
 
 Python's `package-data` includes the directory in wheels and source distributions.
 Electron's existing `extraFiles` copies the same package into
@@ -41,7 +39,8 @@ install uses Normal; existing selections, including older C revisions, are
 preserved. Main OCR and overlay OCR use the same selection on their next scan.
 
 Older trial exports in the user's `onnx/` directory and `GSM_VOCR_ONNX_MODE` are
-no longer used by GSM. Production recognition and detection are always faithful.
+no longer used by GSM. Standalone VOCR uses the faithful graphs in ONNX mode.
+The MIDA pipeline selects the bundled fast VOCR6-L graph and its own detector.
 `GSM_VOCR_BACKEND=auto` selects the bundle unless a local native trial was
 explicitly activated; `onnx` always selects the bundled implementation.
 
@@ -126,15 +125,14 @@ git -C ../vita-vn-ocr-onnx checkout 205f47ec4e56ca87c00e7dba0a61c9aaec726707
 .venv/Scripts/python.exe scripts/export_vocr_onnx.py `
   --source ../vita-vn-ocr-onnx `
   --models temp/vocr-onnx/models --download-models `
-  --output temp/vocr-onnx/reproduced --modes faithful
+  --output temp/vocr-onnx/reproduced --modes faithful fast
 ```
 
-This produces the four faithful graphs, a checksum manifest, upstream attribution,
-and the licence. To update the checked-in bundle, compare the hashes and run the C
-parity suite first, then copy those files into `GameSentenceMiner/assets/vocr/`,
-retaining/updating GSM's `NOTICE.md`. Run `npm run verify:vocr-package` afterward.
-Omit `--modes faithful` to also export fast graphs for research into a separate
-directory; those graphs are never loaded by GSM's production factories.
+This produces both variants, a checksum manifest, upstream attribution and the
+licence. To update the checked-in bundle, compare hashes and run the C parity
+suite. Copy the four faithful graphs and `large-fast.onnx`, keep those five
+entries in the packaged manifest, and retain the attribution and GSM's
+`NOTICE.md`. Run `npm run verify:vocr-package` afterward.
 The graphs use standard ONNX operators (opset 18, IR 10), dynamic image dimensions,
 and embedded vocabulary/metadata. The exporter checks the upstream revision,
 working tree, original model SHA-256 values, and attribution SHA-256 values.

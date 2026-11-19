@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta
+import random
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -367,6 +368,100 @@ def test_find_matching_line_prefers_newest_on_a_tie(monkeypatch):
     match = text_log.find_matching_line(_card("同じ台詞"), [first, second], respect_replay_window=False)
 
     assert match is second
+
+
+def test_native_card_matcher_uses_stream_order_and_the_replay_window(monkeypatch):
+    from GameSentenceMiner.native import ocr
+
+    _matcher_config(monkeypatch)
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "native")
+    if not hasattr(ocr._extension, "rank_card_lines"):
+        pytest.skip("Requires the native Anki matcher")
+    calls = []
+    rank = ocr._extension.rank_card_lines
+
+    def tracked(*args):
+        calls.append(True)
+        return rank(*args)
+
+    monkeypatch.setattr(ocr._extension, "rank_card_lines", tracked)
+    now = datetime.now(UTC).astimezone().replace(tzinfo=None)
+    sentence = "ここで待っていてほしい。"
+    lines = [
+        text_log.GameLine(str(i), sentence, stamp, None, None)
+        for i, stamp in enumerate([now, now, now - timedelta(days=1)])
+    ]
+    assert text_log.find_matching_line(_card(sentence), lines) is lines[1]
+    assert text_log.find_matching_line(_card(sentence), lines, respect_replay_window=False) is lines[2]
+    assert len(calls) == 2
+
+
+def test_card_matching_modes_select_the_same_original_line(monkeypatch):
+    from GameSentenceMiner.native import ocr
+
+    if not hasattr(ocr._extension, "rank_card_lines"):
+        pytest.skip("Requires the native Anki matcher")
+    _matcher_config(monkeypatch)
+    rng = random.Random(311)
+    now = datetime.now(UTC).astimezone().replace(tzinfo=None)
+    old = now - timedelta(days=3)
+    sentences = [
+        ("猫が<b>地下室</b>で待ってる。", "地下室"),
+        ("<strong>声</strong>、その声が聞こえる。", "声"),
+        ("{{c1::星空::hint}}を見る", "星空"),
+        ("wait &amp; see 👋", "see"),
+        ("« »？！", ""),
+        ("ABCDEFGHIJ", "C"),
+        ("山の麓に誰かがいる。", "麓"),
+    ]
+    texts = [
+        "「猫が地下室で待ってる」",
+        "地下室で待ってる",
+        "猫が地下室で歌ってる",
+        "声、その声が聞こえる！",
+        "その声が聞こえる",
+        "星空を見る",
+        "wait & see 👋",
+        "«»？！",
+        "«»",
+        "",
+        "…",
+        "ABCDEFBHIJ",
+        "ABCDEFGH",
+        "ABCDEFGHIJ",
+        "山の麓に誰かがいる",
+        "山の麓に猫がいる",
+        "麓",
+        "ぜんぜん違う",
+        "𠮷𠮷",
+    ]
+    for i in range(160):
+        card = _card(*sentences[i % len(sentences)])
+        lines = [
+            text_log.GameLine(str(j % 9), rng.choice(texts), rng.choice((now, old)), None, None)
+            for j in range(rng.randint(1, 90))
+        ]
+        options = {
+            "respect_replay_window": bool(i % 2),
+            "prefer_recent": bool(i % 4 < 2),
+            "minimum_score": rng.choice((0, 79.99, 80, 90, 100)),
+        }
+        monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "python")
+        expected = text_log.find_matching_line(card, lines, **options)
+        monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "native")
+        assert text_log.find_matching_line(card, lines, **options) is expected, i
+
+
+def test_card_matching_legacy_extension_and_surrogates(monkeypatch):
+    from GameSentenceMiner.native import ocr
+
+    _matcher_config(monkeypatch)
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "native")
+    line = text_log.GameLine("a", "静かな\ud800部屋", datetime.now(UTC).astimezone().replace(tzinfo=None), None, None)
+    card = _card(line.text)
+    assert text_log.find_matching_line(card, [line]) is line
+    monkeypatch.setattr(ocr, "_extension", None)
+    assert text_log.find_matching_line(card, [line]) is line
 
 
 @pytest.mark.parametrize("history", ["empty", "unrelated", "expired"])

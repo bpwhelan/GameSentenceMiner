@@ -279,6 +279,44 @@ def test_a_given_replay_is_processed_instead_of_saving_the_obs_buffer(config, mo
 # --- saved line game name and translation context -----------------------------
 
 
+def test_overlapping_native_card_requests_keep_their_own_replay(config, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    from GameSentenceMiner import replay_handler
+    from GameSentenceMiner.obs import outputs
+
+    monkeypatch.setattr(outputs, "native_replay_acquisition", lambda: True)
+    monkeypatch.setattr(anki, "_get_texthooking_page_module", lambda: SimpleNamespace(reset_checked_lines=lambda: None))
+    monkeypatch.setattr(anki, "card_queue", [])
+    first_waiting, release_first = Event(), Event()
+    dispatched = []
+
+    def acquire():
+        if first_waiting.is_set():
+            return "second.mkv"
+        first_waiting.set()
+        assert release_first.wait(3)
+        return "first.mov"
+
+    monkeypatch.setattr(anki.obs, "save_replay_buffer", acquire)
+    monkeypatch.setattr(
+        replay_handler, "process_replay_file", lambda path, job: dispatched.append((job[0].noteId, path))
+    )
+    with ThreadPoolExecutor(1) as pool:
+        line = GameLine(id="a", text="first", time=BASE, prev=None, next=None)
+        first = pool.submit(anki.queue_card_for_processing, FakeCard("first", note_id=1), [], line)
+        try:
+            assert first_waiting.wait(3)
+            line = GameLine(id="b", text="second", time=BASE, prev=None, next=None)
+            anki.queue_card_for_processing(FakeCard("second", note_id=2), [], line)
+        finally:
+            release_first.set()
+        first.result()
+    assert dispatched == [(2, "second.mkv"), (1, "first.mov")]
+    assert anki.card_queue == []
+
+
 def test_tags_and_game_field_use_the_saved_line_scene(config, monkeypatch):
     monkeypatch.setattr(anki, "get_current_game", lambda *a, **k: "Live game")
     clip_line = SimpleNamespace(clip=object(), scene="FFVII Rebirth")

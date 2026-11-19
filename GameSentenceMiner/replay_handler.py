@@ -11,6 +11,7 @@ import requests
 from watchdog.events import FileSystemEventHandler
 
 from GameSentenceMiner import anki, obs
+from GameSentenceMiner.obs.outputs import native_replay_acquisition
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
     AnkiUpdateResult,
@@ -163,6 +164,19 @@ def request_session_review_replay(targets) -> Future:
 
 
 def _queue_replay_request(request):
+    if native_replay_acquisition():
+        # A dialog can request fresh audio while the card worker is waiting for
+        # that same dialog. Neither acquisition nor processing can use its lane.
+        def acquire():
+            try:
+                path = obs.save_replay_buffer()
+                ReplayAudioExtractor().process_replay(path, queued_job=request)
+            except Exception as exc:  # noqa: BLE001 - Deliver acquisition and processing errors to the dialog.
+                if not request.future.done():
+                    request.future.set_exception(exc)
+
+        refresh_executor.submit(acquire)
+        return request.future
     try:
         anki.card_queue.append(request)
         obs.save_replay_buffer()
@@ -920,6 +934,7 @@ class ReplayAudioExtractor:
 
 # Keep ordinary cards serialized so their shared Anki/dialog state cannot overlap.
 card_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gsm-replay")
+refresh_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="gsm-dialogue-refresh")
 
 
 def process_replay_file(video_path, queued_job) -> Future:

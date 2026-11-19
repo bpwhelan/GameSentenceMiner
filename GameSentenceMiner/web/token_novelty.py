@@ -246,6 +246,26 @@ def _get_game_new_word_character_positions(db, game_id: str) -> tuple[int, list[
 
 
 def build_global_word_novelty(start_date_str: str, end_date_str: str) -> tuple[dict, dict, dict, dict]:
+    from GameSentenceMiner.native import history
+
+    try:
+        enabled = bool(is_tokenization_enabled())
+    except Exception:
+        enabled = False
+    native_result = history.global_word_novelty(
+        _get_db(),
+        start_date=start_date_str,
+        end_date=end_date_str,
+        tokenization_enabled=enabled,
+    )
+    if native_result is not None:
+        return (
+            native_result["tokenizationStatus"],
+            native_result["vocabularyStats"],
+            native_result["newWordsSeries"],
+            native_result["newWordsByGame"],
+        )
+
     labels = _build_date_labels(start_date_str, end_date_str)
     tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_global_payload(labels)
@@ -327,6 +347,22 @@ def build_global_word_novelty(start_date_str: str, end_date_str: str) -> tuple[d
 
 
 def build_game_word_novelty(game_id: str, first_date_str: str | None, last_date_str: str | None) -> tuple[dict, dict]:
+    from GameSentenceMiner.native import history
+
+    try:
+        enabled = bool(is_tokenization_enabled())
+    except Exception:
+        enabled = False
+    native_result = history.game_word_novelty(
+        _get_db(),
+        game_id=game_id,
+        first_date=first_date_str,
+        last_date=last_date_str,
+        tokenization_enabled=enabled,
+    )
+    if native_result is not None:
+        return native_result["tokenizationStatus"], native_result["vocabulary"]
+
     labels = _build_date_labels(first_date_str, last_date_str)
     tokenization_status = get_tokenization_status_snapshot()
     empty_payload = _empty_game_payload(labels)

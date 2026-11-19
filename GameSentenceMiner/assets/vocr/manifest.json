@@ -5,6 +5,7 @@
   "files": {
     "normal-faithful.onnx": "8e067c0e2ea895813367d84f492a268618ef2885dc01c536e95ef90ede28c9ac",
     "small-faithful.onnx": "b8a7207d8323c9468833676fdf09199bf793644b126db9038862d2d7b41ee36e",
+    "large-fast.onnx": "c1a36ae7313d3ff39a2100bbd6aa88509836fb22e947d08c2b5d8fe06e47c4bc",
     "large-faithful.onnx": "b67831a53fef77510d931fb00f4b05bd0b4ee588692cf1f4ca2da695c04eb0a2",
     "textspot8-faithful.onnx": "030c4a7441b5bd92cb0812a86cb00ada19ee0cade8b48af602552fc8fcb9ed28"
   }

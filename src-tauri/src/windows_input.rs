@@ -1,11 +1,13 @@
 //! Windows input ownership is separate from visibility and foreground focus.
 //! Rebuilding Tao window styles to change passthrough recreates the composited
 //! surface and can flash the desktop. Keep that surface and change only hit testing.
+use crate::overlay_magpie::{sample_pointer, PointerSample};
+use crate::overlay_pointer::PointerPacer;
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{Mutex, OnceLock},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tauri::{Manager, WebviewWindow};
 use windows::Win32::{
@@ -14,7 +16,6 @@ use windows::Win32::{
     System::Threading::{AttachThreadInput, GetCurrentThreadId},
     UI::{
         HiDpi::GetDpiForWindow,
-        Input::KeyboardAndMouse::*,
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
     },
@@ -29,8 +30,15 @@ struct InputState {
     forward: bool,
     frameless: bool,
     layered: bool,
-    last: Option<Value>,
-    sent: Instant,
+    pointer: PointerPacer<ViewportPointer>,
+    timer_ms: Option<u32>,
+}
+
+#[derive(Clone, PartialEq)]
+struct ViewportPointer {
+    sample: PointerSample,
+    x: f64,
+    y: f64,
 }
 static WINDOWS: OnceLock<Mutex<HashMap<usize, InputState>>> = OnceLock::new();
 
@@ -53,8 +61,8 @@ fn install(window: &WebviewWindow) -> Result<HWND, String> {
             forward: false,
             frameless: false,
             layered: false,
-            last: None,
-            sent: Instant::now(),
+            pointer: PointerPacer::default(),
+            timer_ms: None,
         });
     Ok(hwnd)
 }
@@ -128,13 +136,13 @@ pub unsafe fn focus(hwnd: HWND) {
 pub fn ignore(window: &WebviewWindow, value: &Value) -> Result<(), String> {
     let hwnd = install(window)?;
     let ignore = value["ignore"].as_bool().unwrap_or(false);
-    let forward = ignore && value["forward"].as_bool().unwrap_or(false);
+    let forward = value["forward"].as_bool().unwrap_or(false);
     unsafe {
         {
             let mut windows = WINDOWS.get().unwrap().lock().unwrap();
             let state = windows.get_mut(&(hwnd.0 as usize)).unwrap();
             if state.forward != forward {
-                state.last = None;
+                state.pointer = PointerPacer::default();
             }
             state.ignore = ignore;
             state.forward = forward;
@@ -154,15 +162,92 @@ pub fn ignore(window: &WebviewWindow, value: &Value) -> Result<(), String> {
             SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA)
                 .map_err(|e| e.to_string())?;
         }
-        if forward {
-            if SetTimer(Some(hwnd), TIMER, 16, None) == 0 {
-                return Err("Could not start mouse forwarding".into());
-            }
-        } else {
-            let _ = KillTimer(Some(hwnd), TIMER);
-        }
+        sync_pointer_timer(hwnd)?;
     }
     Ok(())
+}
+
+// Call only on the HWND's UI thread. Idempotent updates avoid postponing a timer
+// on every ownership reply. Hidden/minimized/disabled overlays have no timer.
+unsafe fn sync_pointer_timer(hwnd: HWND) -> Result<(), String> {
+    let visible = IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool();
+    let mut windows = WINDOWS.get().unwrap().lock().unwrap();
+    let Some(state) = windows.get_mut(&(hwnd.0 as usize)) else {
+        return Ok(());
+    };
+    let next = (state.forward && visible)
+        .then(|| state.pointer.interval(Instant::now()).as_millis() as u32);
+    if state.timer_ms == next {
+        return Ok(());
+    }
+    if let Some(interval) = next {
+        if SetTimer(Some(hwnd), TIMER, interval, None) == 0 {
+            return Err("Could not start mouse forwarding".into());
+        }
+    } else {
+        let _ = KillTimer(Some(hwnd), TIMER);
+        state.pointer = PointerPacer::default();
+    }
+    state.timer_ms = next;
+    Ok(())
+}
+
+unsafe fn forward_pointer(hwnd: HWND) {
+    if !IsWindowVisible(hwnd).as_bool() || IsIconic(hwnd).as_bool() {
+        return;
+    }
+    let Some(sample) = sample_pointer() else {
+        return;
+    };
+    let mut position = POINT {
+        x: sample.x,
+        y: sample.y,
+    };
+    if !ScreenToClient(hwnd, &mut position).as_bool() {
+        return;
+    }
+    let scale = GetDpiForWindow(hwnd).max(96) as f64 / 96.0;
+    let point = ViewportPointer {
+        sample,
+        x: position.x as f64 / scale,
+        y: position.y as f64 / scale,
+    };
+    let notification = WINDOWS.get().and_then(|windows| {
+        let mut windows = windows.lock().unwrap();
+        let state = windows.get_mut(&(hwnd.0 as usize))?;
+        let now = Instant::now();
+        if !state.forward || !state.pointer.observe(point.clone(), now) {
+            return None;
+        }
+        state.pointer.published(now);
+        Some((state.app.clone(), state.label.clone()))
+    });
+    // No JSON allocations or WebView calls on unchanged high-frequency ticks.
+    if let Some((app, label)) = notification {
+        if let Some(host) = app.try_state::<crate::overlay_host::OverlayHost>() {
+            host.handle_window_pointer(
+                &app,
+                &label,
+                &json!({
+                    "x": point.x, "y": point.y, "buttons": point.sample.buttons,
+                    "shiftKey": point.sample.shift, "ctrlKey": point.sample.ctrl,
+                    "altKey": point.sample.alt, "metaKey": point.sample.meta,
+                }),
+            );
+        }
+    }
+}
+
+// Used by the isolated native smoke suite to verify timer suspension without
+// moving the user's physical mouse or depending on its current position.
+pub(crate) fn forwarding_interval(window: &WebviewWindow) -> Option<u32> {
+    let hwnd = window.hwnd().ok()?;
+    WINDOWS
+        .get()?
+        .lock()
+        .ok()?
+        .get(&(hwnd.0 as usize))?
+        .timer_ms
 }
 
 unsafe extern "system" fn callback(
@@ -214,37 +299,13 @@ unsafe extern "system" fn callback(
             }
         }
     } else if message == WM_TIMER && wparam.0 == TIMER {
-        if IsWindowVisible(hwnd).as_bool() && !IsIconic(hwnd).as_bool() {
-            let mut position = POINT::default();
-            if GetCursorPos(&mut position).is_ok() && ScreenToClient(hwnd, &mut position).as_bool()
-            {
-                let down = |key: VIRTUAL_KEY| GetAsyncKeyState(key.0 as i32) < 0;
-                let scale = GetDpiForWindow(hwnd).max(96) as f64 / 96.0;
-                let point = json!({"x": position.x as f64 / scale, "y": position.y as f64 / scale,
-                    "buttons": u8::from(down(VK_LBUTTON)) | u8::from(down(VK_RBUTTON))*2 | u8::from(down(VK_MBUTTON))*4,
-                    "shiftKey": down(VK_SHIFT), "ctrlKey": down(VK_CONTROL), "altKey": down(VK_MENU),
-                    "metaKey": down(VK_LWIN) || down(VK_RWIN)});
-                let notification = WINDOWS.get().and_then(|windows| {
-                    let mut windows = windows.lock().unwrap();
-                    let state = windows.get_mut(&(hwnd.0 as usize))?;
-                    if !state.forward
-                        || (state.last.as_ref() == Some(&point)
-                            && state.sent.elapsed() < Duration::from_millis(100))
-                    {
-                        return None;
-                    }
-                    state.last = Some(point.clone());
-                    state.sent = Instant::now();
-                    Some((state.app.clone(), state.label.clone()))
-                });
-                if let Some((app, label)) = notification {
-                    if let Some(oh) = app.try_state::<crate::overlay_host::OverlayHost>() {
-                        oh.handle_window_pointer(&app, &label, &point);
-                    }
-                }
-            }
-        }
+        forward_pointer(hwnd);
+        let _ = sync_pointer_timer(hwnd);
         return LRESULT(0);
     }
-    DefSubclassProc(hwnd, message, wparam, lparam)
+    let result = DefSubclassProc(hwnd, message, wparam, lparam);
+    if matches!(message, WM_WINDOWPOSCHANGED | WM_SIZE) {
+        let _ = sync_pointer_timer(hwnd);
+    }
+    result
 }

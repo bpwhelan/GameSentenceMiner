@@ -198,7 +198,6 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         "Model default lets the provider choose. None disables reasoning. Higher effort may increase response time "
         "and token usage. Applies to the primary and backup models; supported levels depend on the model.",
     )
-    window.open_ai_reasoning_effort_combo.setToolTip(reasoning_label.toolTip())
     openai_layout.addRow(reasoning_label, window.open_ai_reasoning_effort_combo)
     window.openai_settings_group.setLayout(openai_layout)
     layout.addRow(window.openai_settings_group)

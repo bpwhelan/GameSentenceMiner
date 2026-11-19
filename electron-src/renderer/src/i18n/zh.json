@@ -1003,6 +1003,8 @@
       "singlePassFlow": "单遍流程：",
       "stabilityOcr": "稳定性 OCR：",
       "mainOcr": "主 OCR：",
+      "stabilityOcrHelp": "稳定性 OCR 帮助",
+      "googleVisionHelp": "Google Vision 设置帮助",
       "twoPassOcr": "两遍 OCR：",
       "optimizeSecondScan": "优化第二次扫描：",
       "ocrClipboardImages": "OCR 剪贴板图片："
@@ -1137,9 +1139,7 @@
       "exportAreas": "将当前场景的 OCR 矩形以 JSON 复制到剪贴板。",
       "docs": "打开 OCR 指南文档，查看设置帮助、引擎说明和工作流程。",
       "advancedMode": "显示引擎选择和比较调校。基本模式只显示常用设置，并隐藏专家参数。",
-      "basicScanRate": "基础模式下 OCR 扫描的频率。\n• 尽可能快 (0)：无扫描延迟；可能暴露 UTF-8/编码问题，并且 CPU 使用率最高\n• 快速：适合需要快速响应的文本\n• 正常：适合大多数对白的平衡设置\n• 慢速/非常慢：适合逐渐显示的文本",
       "advancedScanRate": "OCR 轮询间隔（秒）。较低值会更频繁扫描、响应更快，但使用更多资源。较高值扫描较少，对较慢文本可能更平稳。",
-      "language": "选择 OCR 处理语言。这可确保只捕获包含正确字符的文本块。所有拉丁文字语言（英语、西班牙语、法语、德语等）都通过英语支持。",
       "baseScale": "控制扫描前截图的缩放比例。\n• 较低 = 扫描更快、CPU 更低，但可能漏掉小字\n• 较高 = 对小字体更准确，但使用更多 CPU\n\n50% -> 快速 | 75% -> 平衡 | 100% -> 最慢\n\n提示：如果 OCR 漏掉小汉字或跳过字符，请尝试提高此值。",
       "furiganaFilter": "过滤小于所选文本大小的字符。如果真实对白消失，请降低此值或设为 0。\n\n提示：点击预览可打开窗口，帮助你为当前游戏选择最佳灵敏度。",
       "furiganaPreview": "打开预览窗口，使用当前游戏中的示例字符调整振假名灵敏度。",
@@ -1152,8 +1152,8 @@
       "keepNewlineMenu": "为菜单 OCR 结果保留换行。",
       "keepNewlineAreaSelect": "为手动区域选择 OCR 捕获结果保留换行。",
       "twoPassOCR": "OCR 选项 1 会按设定扫描频率运行。如果启用双通道且到下一次扫描文本仍未变化，则会使用主 OCR 引擎进行第二次扫描。",
-      "stabilityOcr": "此项会先运行，用于观察文本变化和稳定性。快速引擎最适合这里。在 Windows 上推荐 OneOCR。",
-      "mainOcr": "此引擎会将最终 OCR 结果发送到 websocket 或剪贴板。请选择最准确且适合该游戏的选项。",
+      "stabilityOcr": "稳定性 OCR 会检测文本变化，等待文本稳定后再运行主 OCR。各引擎的速度和 CPU 占用率有所不同。默认引擎是 ScreenAI。",
+      "googleVisionKey": "从已启用 Vision API 的 Google Cloud 项目下载服务账号 JSON 密钥。将它保存到 {homePath}，或以 {filename} 为文件名保存到 GSM 数据目录或便携配置目录。",
       "optimizeSecondScan": "裁剪第二次扫描的图像以提升性能（仅限第一次为 OneOCR）。如果游戏文本比较特殊且部分文本无法捕获，请尝试关闭此项。",
       "ocrScreenshots": "启用后，OCR 也会处理从剪贴板获取的截图。",
       "manualHotkey": "在已配置的绿色区域运行一次主 OCR（OCR 2）。在自动 OCR 期间，此操作会跳过稳定性和黑洞检查。按 Escape 清除。",
@@ -1161,13 +1161,9 @@
       "areaSelectHotkey": "按下后可选择一个临时区域并执行一次 OCR。适合菜单。按 Escape 清除。",
       "wholeWindowHotkey": "对整个活动 OCR 源（通常是 OBS 游戏源）执行一次 OCR 扫描，绕过区域矩形。按 Escape 清除。",
       "pauseHotkey": "暂停或恢复所有 OCR 扫描。适合过场动画，或需要暂时让 OCR 停止时使用。按 Escape 清除。",
-      "processPriority": "设置 Windows 上 OCR Python 进程的优先级。较高值可能提高 OCR 响应速度，但可能降低系统响应速度。",
       "defaultSceneFurigana": "当场景尚无已保存配置文件时使用。已有场景会保留各自保存的值。",
-      "obsCapturePreprocess": "在 OCR 裁剪前对 OBS 截图应用预处理。灰度 + 自动对比度 + 锐化可改善嘈杂场景中的字幕 OCR。",
       "ignoreRun1Logs": "隐藏包含 \"OCR Run 1: Text recognized...\" 的 OCR 终端行，以减少启用双通道 OCR 时的重复输出噪声。Run 2 行仍会以绿色高亮。",
       "advancedDebugLogging": "将 OCR 捕获、稳定性、OCR2 刷新决策、队列、过滤、去重和传送以结构化 JSON Lines 写入每次 OCR 运行的专用文件。启动时控制台会显示文件路径。",
-      "installDependency": "将可选 OCR 依赖安装到 GSM Python 环境。如果不确定，请选择推荐选项。",
-      "uninstallDependency": "从 GSM Python 环境移除可选 OCR 依赖。",
       "replacements": "打开 OCR 替换规则页面，用于修正常见的识别后 OCR 错误。",
       "openConfigFile": "打开当前 Electron OCR 配置 JSON 文件。",
       "openConfigFolder": "打开保存各场景区域文件的 OCR 配置文件夹。",
@@ -1249,13 +1245,8 @@
       "oneocr": "OneOCR",
       "screenai": "ScreenAI OCR",
       "meikiocr": "Meiki OCR",
-      "gemini": "Gemini",
-      "gvision": "Google Vision",
-      "azure": "Azure 图像分析",
-      "ocrspace": "OCRSpace",
-      "local_llm_ocr": "本地 LLM OCR",
+      "gvision": "Google Vision（需要服务账号密钥）",
       "alivetext": "Apple Live Text",
-      "mlkitocr": "MLKit OCR",
       "meiki_text_detector": "Meiki 文本检测器"
     },
     "languages": {
@@ -1293,9 +1284,7 @@
     "dependencies": {
       "install": {
         "fasterPng": "更快的 PNG（推荐在 Windows 11 上使用）",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision（需要服务账号密钥）"
       },
       "remove": {
         "owocr": "OWOCR 基础",
@@ -1303,9 +1292,7 @@
         "oneocr": "OneOCR",
         "fasterPng": "更快的 PNG",
         "transformers": "精确过滤",
-        "googleVision": "Google Vision",
-        "azure": "Azure",
-        "ocrspace": "OCRSpace"
+        "googleVision": "Google Vision"
       }
     },
     "notices": {

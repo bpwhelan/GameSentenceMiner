@@ -1,6 +1,50 @@
 use super::*;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+#[test]
+fn long_running_jobs_live_until_the_requesting_backend_disconnects() {
+    let (tx, _) = mpsc::channel(8);
+    let mut actor = Actor::new(json!({}), tx, Arc::new(|_, _| {}));
+    let (output, _rx) = mpsc::channel(8);
+    actor
+        .clients
+        .insert("backend".into(), Client { epoch: 7, output });
+    for (client, topic, data, unbounded) in [
+        ("backend", "mining.cron", json!({"action":"next"}), true),
+        ("backend", "anki.monitor", json!({"action":"next"}), true),
+        ("backend", "anki.monitor", json!({"action":"wake"}), false),
+        ("backend", "anki.sync", json!({}), true),
+        ("backend", "anki.group", json!({"action":"merge"}), true),
+        ("backend", "anki.cards", json!({"action":"latest"}), true),
+        ("backend", "anki.cards", json!({"action":"notes"}), false),
+        ("backend", "anki.sync.stop", json!({}), false),
+        (
+            "backend",
+            "mining.history",
+            json!({"operation":"rebuildRollups"}),
+            true,
+        ),
+        ("backend", "mining.cron", json!({"action":"force"}), false),
+        (
+            "backend",
+            "mining.history",
+            json!({"operation":"closeWriter"}),
+            false,
+        ),
+        ("other", "mining.cron", json!({"action":"next"}), false),
+        ("other", "anki.sync", json!({}), false),
+    ] {
+        let mut message = envelope("main", topic, "request", data);
+        message["src"] = json!(client);
+        let key = string(&message, "id").to_owned();
+        actor.route(message, 7);
+        assert_eq!(actor.pending[&key].until.is_none(), unbounded);
+    }
+    actor.disconnect("backend", 7);
+    assert_eq!(actor.pending.len(), 2);
+}
+
 fn runtime() -> Arc<Runtime> {
     Arc::new(Runtime::start(json!({}), |_, _| {}).unwrap())
 }
@@ -23,6 +67,22 @@ async fn connect(runtime: &Runtime, name: &str) -> Socket {
     assert_eq!(receive(&mut socket).await["topic"], "bus.welcome");
     socket
 }
+
+#[tokio::test]
+async fn stopping_broker_releases_connected_services_once() {
+    let closed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let events = closed.clone();
+    let runtime = Runtime::start(json!({}), move |event, data| {
+        if event == "bus.disconnected" {
+            events.lock().unwrap().push(data["id"].clone());
+        }
+    })
+    .unwrap();
+    let _backend = connect(&runtime, "backend").await;
+    runtime.shutdown();
+    assert_eq!(*closed.lock().unwrap(), vec![json!("backend")]);
+}
+
 async fn receive(socket: &mut Socket) -> Value {
     let raw = tokio::time::timeout(Duration::from_secs(3), socket.next())
         .await
@@ -95,14 +155,33 @@ async fn native_requests_route_without_application_service_and_pin_response_iden
 #[tokio::test]
 async fn backend_commands_report_delivery_and_never_replay_offline_commands() {
     let runtime = runtime();
-    assert_eq!(runtime.call("backend.command", json!({"function":"windows_speech_start"})).await.unwrap(),false);
-    let mut backend = connect(&runtime,"backend").await;
-    assert_eq!(runtime.call("backend.command", json!({"function":"windows_speech_stop"})).await.unwrap(),true);
-    let command=receive(&mut backend).await;
-    assert_eq!(command["kind"],"command");
-    assert_eq!(command["topic"],"backend.command");
-    assert_eq!(command["data"]["function"],"windows_speech_stop");
-    assert!(tokio::time::timeout(Duration::from_millis(100),backend.next()).await.is_err());
+    assert_eq!(
+        runtime
+            .call(
+                "backend.command",
+                json!({"function":"windows_speech_start"})
+            )
+            .await
+            .unwrap(),
+        false
+    );
+    let mut backend = connect(&runtime, "backend").await;
+    assert_eq!(
+        runtime
+            .call("backend.command", json!({"function":"windows_speech_stop"}))
+            .await
+            .unwrap(),
+        true
+    );
+    let command = receive(&mut backend).await;
+    assert_eq!(command["kind"], "command");
+    assert_eq!(command["topic"], "backend.command");
+    assert_eq!(command["data"]["function"], "windows_speech_stop");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), backend.next())
+            .await
+            .is_err()
+    );
 }
 #[tokio::test]
 async fn disconnect_fails_requests_and_reconnect_cannot_receive_stale_commands() {

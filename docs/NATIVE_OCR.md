@@ -2,8 +2,8 @@
 
 The Tauri desktop runs the OCR tab in Rust, including advanced configurations.
 The existing tab, saved settings, text feed, preview boxes, start/stop buttons,
-and keyboard shortcuts control that worker. It does not launch the Python OCR
-subprocess or switch to Python when advanced options are enabled.
+and keyboard shortcuts control that worker. On macOS and Linux, the optional
+portable OneOCR engine uses its own local Python runtime for inference.
 
 ## Ownership and lifecycle
 
@@ -141,25 +141,67 @@ They continue to save the same per-scene area files.
 
 ## Engines and compatibility
 
-The Tauri path does not fall back to Python for an engine, controller bindings,
-clipboard screenshots, compact/exclusive/black-hole areas, regex replacements,
-Bing menu OCR, or an OBS-only source. Native model/service failures are reported.
+Tauri manages engine selection, controller bindings, clipboard screenshots,
+area processing, regex replacements, Bing menu OCR and OBS capture in Rust.
+It reports model or service failures for the selected engine.
 The legacy Electron desktop retains its existing Python OCR implementation.
 
 Local engines include ScreenAI, OneOCR, MeikiOCR and its detector, VitaOCR/VOCR
-and its detector, and Apple Live Text on macOS. Remote OCR uses Rust HTTP
-clients for Lens, Bing, MLKit, Azure, Google Vision, OCRSpace, Gemini and
-OpenAI-compatible vision endpoints. The existing engine INI is read directly;
-GSM AI settings supply defaults where applicable. Connections and Google auth
-are reused; credentials are not logged. Request deadlines and actor generation
-checks keep obsolete service responses out of the text feed.
+and its detector, MIDA + VOCR6-L, the MIDA detector, and Apple Live Text on macOS.
+Remote OCR uses Rust HTTP clients for Google Lens, Bing, and Google Vision.
+For Google Vision, enable Vision API in your Google Cloud project and save the
+downloaded service account key as `~/.config/google_vision.json` or as
+`google_vision.json` in your GSM data or portable profile folder.
+`GOOGLE_APPLICATION_CREDENTIALS` can point to a key saved elsewhere. Saved
+recognition or stability passes that referenced a retired engine use ScreenAI.
 
 Real-engine comparisons cover ScreenAI, OneOCR and live Bing on Windows.
-Local socket tests cover OBS authentication and sharing, MLKit image encoding,
-and OpenAI-compatible parameter retries. Other external accounts/services and
-macOS/Linux runtime behavior have not been exercised on this Windows machine.
+Local socket tests cover OBS authentication and sharing. Portable OneOCR has also been exercised
+with a native Linux build under Ubuntu on WSL. A physical macOS run is outstanding.
 The native one-shot picker is currently Windows-specific; the saved-area
 configuration editor remains Python as allowed in the rewrite scope.
+
+### Reading presets
+
+In **OCR → Advanced → Recognition Pipeline → Reading preset**, every preset
+enables two-pass automatic OCR. A local engine checks for stable text. Once it
+settles, the main engine reads the detected area at full resolution.
+
+| Reading preset | Stability pass | Main pass |
+|---|---|---|
+| Google Lens (default) | ScreenAI | Google Lens, online |
+| Horizontal Japanese dialogue | MIDA detector | MIDA + VOCR6-L, local |
+| Multilingual and vertical text | Meiki detector | ScreenAI, local |
+| Wait for horizontal dialogue | MIDA detector | ScreenAI, local |
+
+The default applies to a fresh Advanced configuration. Existing profiles open
+with their saved settings. Changing either engine, disabling two-pass OCR, or
+disabling the second-pass crop can produce a Custom configuration. Basic mode
+has a separate online-scans switch. MIDA downloads its detector on first use
+and GSM bundles the fast large VOCR6-L recognizer. [CPU benchmark](benchmarks/ocr-mida-cpu-2026-11-17.md)
+
+### Portable OneOCR setup
+
+On Windows GSM uses the native OneOCR DLL. On Linux and macOS, install the
+portable runtime in a dedicated environment and import the models from your own
+copy of Snipping Tool. The following commands use Python 3.13 and the versions
+tested under Ubuntu. The importer accepts a Snipping Tool folder or an MSIX bundle.
+
+```sh
+uv venv --python 3.13 "$HOME/.config/oneocr/venv"
+uv pip install --python "$HOME/.config/oneocr/venv/bin/python" \
+  'https://github.com/AuroraWright/oneocr_reimpl/archive/f3698522a341bcbe5e61394f61e8ab3ef11efbe6.zip' \
+  'onnxruntime==1.32.0' 'numpy==2.2.6' 'opencv-python-headless==4.13.0.92'
+"$HOME/.config/oneocr/venv/bin/oneocr-extract-models" "/path/to/SnippingTool"
+```
+
+Select **OneOCR** under Main OCR or in the reading overlay. The runtime reads
+models from `~/.config/oneocr/models`. To use existing installations elsewhere,
+set `GSM_ONEOCR_PYTHON` to the environment's Python executable and
+`ONEOCR_MODELS` to the extracted model directory before starting GSM. For Thai
+and right-to-left scripts, install the runtime's optional PyICU dependency.
+The local worker stays warm between scans and releases its models when GSM
+releases the engine. [OneOCR runtime and importer](https://github.com/AuroraWright/oneocr_reimpl/tree/f3698522a341bcbe5e61394f61e8ab3ef11efbe6)
 
 ## Verification and measurements
 

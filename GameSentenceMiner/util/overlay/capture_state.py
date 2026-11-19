@@ -3,6 +3,7 @@
 import json
 import time
 
+from GameSentenceMiner.obs import desktop_session
 from GameSentenceMiner.obs.active_game import get_obs_state
 from GameSentenceMiner.util.config.configuration import is_windows
 from GameSentenceMiner.util.platform.window_state_monitor import user32
@@ -10,6 +11,18 @@ from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
 
 def get_overlay_capture_state(monitor):
+    if desktop_session.enabled():
+        state = desktop_session.snapshot()
+        available = state["available"] or state.get("obs_fallback_available", False)
+        window_state = "background" if available else "unknown"
+        if state.get("target_id") and getattr(monitor, "target_hwnd", None) == state["target_id"]:
+            window_state = getattr(monitor, "last_state", window_state)
+        return {
+            "type": "capture_status",
+            "available": available,
+            "scene_name": state["scene"],
+            "window_state": window_state,
+        }
     state = get_obs_state()
     payload = {
         "type": "capture_status",

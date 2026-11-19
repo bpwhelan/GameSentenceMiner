@@ -16,6 +16,7 @@ from .base_window_monitor import (
     _exe_names_match,
 )
 
+from GameSentenceMiner.obs import desktop_session
 from GameSentenceMiner.util.platform.magpie_compat import MAGPIE_OVERLAY_WINDOW_CLASSES, get_magpie_info
 from GameSentenceMiner.util.platform.windows_audio import set_process_mute
 
@@ -482,7 +483,10 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         return restored_any
 
     def _toggle_target_window_mute_internal(self, hwnd: Optional[int] = None) -> bool:
-        target_hwnd = hwnd or self.target_hwnd or self.last_known_target_hwnd
+        if desktop_session.enabled() and hwnd is None:
+            target_hwnd = desktop_session.validated_hwnd(desktop_session.snapshot())
+        else:
+            target_hwnd = hwnd or self.target_hwnd or self.last_known_target_hwnd
         if not target_hwnd:
             logger.info("Target-window mute hotkey ignored because no captured window is available.")
             return False
@@ -1235,7 +1239,28 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "height": height,
         }
 
+    def _apply_desktop_target(self):
+        state = desktop_session.snapshot()
+        scene = state["scene"]
+        info = state.get("window_info") or {}
+        hwnd = desktop_session.validated_hwnd(state)
+        changed = scene != self.last_target_scene_name or info != self.last_target_info
+        if changed or (
+            hwnd and (hwnd != self.target_hwnd or state["target_pid"] != getattr(self, "_desktop_pid", None))
+        ):
+            self._reset_capture_target()
+        if not hwnd:
+            self.last_known_target_hwnd = None
+        self._desktop_pid = state.get("target_pid")
+        self.last_scene_name = self.last_target_scene_name = self.last_game_name = scene
+        self.last_target_info = info
+        self.target_hwnd = hwnd
+        return changed
+
     def find_target_hwnd(self) -> Optional[int]:
+        if desktop_session.enabled():
+            self._apply_desktop_target()
+            return self.target_hwnd
         current_scene = get_current_scene()
         try:
             window_info = get_window_info_from_source(scene_name=current_scene) or {}
@@ -1682,51 +1707,54 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             monitor_topology_changed = self._check_monitor_topology_changes()
 
         scene_changed = False
-        if now - self.last_obs_check_time > 2.0:
-            self.last_obs_check_time = now
-            try:
-                current_scene = get_current_scene()
-                if current_scene and current_scene != self.last_scene_name:
-                    if self.last_scene_name:
+        if desktop_session.enabled():
+            scene_changed = self._apply_desktop_target()
+        else:
+            if now - self.last_obs_check_time > 2.0:
+                self.last_obs_check_time = now
+                try:
+                    current_scene = get_current_scene()
+                    if current_scene and current_scene != self.last_scene_name:
+                        if self.last_scene_name:
+                            logger.info(
+                                f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
+                            )
+                        self._reset_capture_target()
+                        self.last_target_info = {}
+                        self.last_target_scene_name = None
+                        scene_changed = True
+                        self.last_scene_name = current_scene
+
+                    lookup_scene = current_scene or self.last_scene_name
+                    new_info = (get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None) or {}
+
+                    if new_info != self.last_target_info:
                         logger.info(
-                            f"Scene changed from '{self.last_scene_name}' to '{current_scene}' - Resetting OBS dimensions."
+                            f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
                         )
-                    self._reset_capture_target()
-                    self.last_target_info = {}
-                    self.last_target_scene_name = None
-                    scene_changed = True
-                    self.last_scene_name = current_scene
+                        self._reset_capture_target()
+                        self.last_target_info = new_info
+                        self.last_target_scene_name = lookup_scene
+                except Exception:
+                    pass
 
-                lookup_scene = current_scene or self.last_scene_name
-                new_info = (get_window_info_from_source(scene_name=lookup_scene) if lookup_scene else None) or {}
+            should_refresh_hwnd = False
+            if not self.target_hwnd or self.retry_find_count > 10:
+                should_refresh_hwnd = True
+            elif now - self.last_hwnd_refresh_time > self.hwnd_revalidate_interval:
+                should_refresh_hwnd = True
 
-                if new_info != self.last_target_info:
-                    logger.info(
-                        f"OBS Source changed from '{self.last_target_info.get('title')}' to '{new_info.get('title')}' - Resetting target."
-                    )
-                    self._reset_capture_target()
-                    self.last_target_info = new_info
-                    self.last_target_scene_name = lookup_scene
-            except Exception:
-                pass
+            # Minimized exclusive-fullscreen windows can disappear from EnumWindows.
+            # Keep a still-valid iconic HWND until it is restored or destroyed.
+            if should_refresh_hwnd and self.target_hwnd and user32.IsWindow(self.target_hwnd):
+                should_refresh_hwnd = not bool(user32.IsIconic(self.target_hwnd))
 
-        should_refresh_hwnd = False
-        if not self.target_hwnd or self.retry_find_count > 10:
-            should_refresh_hwnd = True
-        elif now - self.last_hwnd_refresh_time > self.hwnd_revalidate_interval:
-            should_refresh_hwnd = True
-
-        # Minimized exclusive-fullscreen windows can disappear from EnumWindows.
-        # Keep a still-valid iconic HWND until it is restored or destroyed.
-        if should_refresh_hwnd and self.target_hwnd and user32.IsWindow(self.target_hwnd):
-            should_refresh_hwnd = not bool(user32.IsIconic(self.target_hwnd))
-
-        if should_refresh_hwnd:
-            self.target_hwnd = self.find_target_hwnd()
-            self.retry_find_count = 0
-            self.last_hwnd_refresh_time = now
-            # New hwnd: Z-order state is unknown, force a fresh obscured check.
-            self._zorder_dirty = True
+            if should_refresh_hwnd:
+                self.target_hwnd = self.find_target_hwnd()
+                self.retry_find_count = 0
+                self.last_hwnd_refresh_time = now
+                # New hwnd: Z-order state is unknown, force a fresh obscured check.
+                self._zorder_dirty = True
 
         if not self.target_hwnd:
             self._pending_background_audio_mute = None
@@ -1905,7 +1933,9 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         # target_hwnd and makes find_target_hwnd skip them — but the hwnd is still valid and
         # SW_RESTORE will bring it back.
         hwnd = self.target_hwnd
-        if not hwnd and self.last_known_target_hwnd and user32.IsWindow(self.last_known_target_hwnd):
+        if desktop_session.enabled():
+            hwnd = self.find_target_hwnd()
+        elif not hwnd and self.last_known_target_hwnd and user32.IsWindow(self.last_known_target_hwnd):
             hwnd = self.last_known_target_hwnd
             logger.debug(f"Activating last-known target hwnd {hwnd} (current target_hwnd is unset).")
 
@@ -1917,6 +1947,8 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         for attempt_number, delay in enumerate(attempt_delays, start=1):
             if delay > 0:
                 await asyncio.sleep(delay)
+            if desktop_session.enabled() and hwnd != desktop_session.validated_hwnd(desktop_session.snapshot()):
+                return False
             if self._set_foreground_aggressive(hwnd, attempt_number=attempt_number):
                 # Restoring may have made the window valid/visible again — re-adopt it.
                 self.target_hwnd = hwnd
@@ -2051,6 +2083,11 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
         return name, _FORWARDABLE_KEYS.get(name)
 
     def _resolve_target_hwnd(self, target_pid: Optional[int] = None) -> Optional[int]:
+        if desktop_session.enabled():
+            state = desktop_session.snapshot()
+            if target_pid and int(target_pid) != state.get("target_pid"):
+                return None
+            return desktop_session.validated_hwnd(state)
         hwnd = self.target_hwnd
         requested_pid = int(target_pid or 0)
 

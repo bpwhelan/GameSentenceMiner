@@ -2,8 +2,13 @@
 
 
 def context_snapshot():
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        return desktop_session.snapshot()
+
     from GameSentenceMiner.obs.active_game import get_obs_state
-    from GameSentenceMiner.util.config.configuration import get_config, gsm_state
+    from GameSentenceMiner.util.config.configuration import gsm_state
     from GameSentenceMiner.util.platform.window_state_monitor import get_window_state_monitor
 
     state = get_obs_state()
@@ -17,19 +22,7 @@ def context_snapshot():
     # OBS display/video/browser sources have no window to capture through WGC.
     # An unresolved game/window source is different: keep waiting for its HWND.
     obs_capture = bool(kinds and not target and not kinds.intersection({"game_capture", "window_capture"}))
-    ai = getattr(get_config(), "ai", None)
-    defaults = {
-        "gemini": {"api_key": getattr(ai, "gemini_api_key", ""), "model": getattr(ai, "gemini_model", "")},
-        "local_llm_ocr": {
-            "api_key": getattr(ai, "open_ai_api_key", ""),
-            "url": getattr(ai, "open_ai_url", ""),
-            "model": getattr(ai, "open_ai_model", ""),
-            "temperature": str(getattr(ai, "temperature", 0.1)),
-            "max_tokens": str(getattr(ai, "max_output_tokens", 4096)),
-        },
-    }
     return {
-        "engine_defaults": defaults,
         "scene": scene,
         "source_name": info.get("source_name", ""),
         "target_id": int(target) if target else None,

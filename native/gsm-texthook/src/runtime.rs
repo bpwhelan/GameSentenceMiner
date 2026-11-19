@@ -150,15 +150,25 @@ impl Actor {
         }
     }
     fn log(&self, message: impl Into<String>) {
+        let text = message.into();
+        let tagged = if text.starts_with("[rust:") {
+            text
+        } else {
+            format!("[rust:gsm-texthook] {text}")
+        };
         (self.sink)(
             "texthook.log",
-            json!({"message":message.into(),"level":"info","ts":now()}),
+            json!({"message":tagged,"level":"info","ts":now()}),
         );
     }
     fn status(&self) -> Value {
         self.engine
             .as_ref()
-            .map(|e| e.session.status())
+            .map(|e| {
+                let mut status = e.session.status();
+                status["sessionId"] = json!(self.generation.to_string());
+                status
+            })
             .unwrap_or(json!({"running":false}))
     }
     fn publish_status(&self) {
@@ -255,7 +265,9 @@ impl Actor {
         ));
         self.publish_status();
         (self.sink)("texthook.hooks", json!({"hooks":[],"selectedHookId":null}));
-        Ok(json!({"success":true,"pid":pid,"exeName":options["exeName"],"arch":options["arch"]}))
+        Ok(
+            json!({"success":true,"pid":pid,"exeName":options["exeName"],"arch":options["arch"],"sessionId":self.generation.to_string()}),
+        )
     }
     fn stop(&mut self, publish: bool) {
         if let Some(engine) = self.engine.as_mut() {
@@ -290,7 +302,8 @@ impl Actor {
         let mut required = None;
         for event in events {
             match event {
-                Event::Text(v) => {
+                Event::Text(mut v) => {
+                    v["sessionId"] = json!(self.generation.to_string());
                     (self.sink)("texthook.output", v.clone());
                     (self.sink)(
                         "texthook.text",
@@ -298,12 +311,15 @@ impl Actor {
                     );
                 }
                 Event::Hooks(v) => (self.sink)("texthook.hooks", v),
-                Event::Log(v) => self.log(v),
-                Event::Command(v) => {
-                    if let Some(e) = self.engine.as_mut() {
-                        e.write(&v)?;
-                    }
+                Event::AutoSelected => self.publish_status(),
+                Event::SamplesChanged if recover => {
+                    (self.sink)(
+                        "texthook.samplesChanged",
+                        json!(self.generation.to_string()),
+                    );
                 }
+                Event::SamplesChanged => {}
+                Event::Log(v) => self.log(v),
                 Event::Architecture(v) => required = Some(v),
             }
         }
@@ -338,18 +354,41 @@ impl Actor {
                 .as_ref()
                 .map(|e| e.session.hooks())
                 .unwrap_or(json!({"hooks":[],"selectedHookId":null}))),
+            "discoverySnapshot" => Ok(self.engine.as_ref().map_or(Value::Null, |e| {
+                let mut snapshot = e.session.discovery_snapshot();
+                snapshot["sessionId"] = json!(self.generation.to_string());
+                snapshot
+            })),
             "select" => {
-                let result = self.engine.as_mut().is_some_and(|e| {
-                    e.session
-                        .select(params["hookId"].as_str().unwrap_or(""), now())
+                if let Some(expected) = params["sessionId"].as_str() {
+                    if expected != self.generation.to_string() {
+                        return Ok(json!(false));
+                    }
+                }
+                let selection = self.engine.as_mut().and_then(|e| {
+                    if !e.session.select(
+                        params["hookId"].as_str().unwrap_or(""),
+                        params.get("processorOverrides").cloned(),
+                    ) {
+                        return None;
+                    }
+                    e.session.selected_profile()
                 });
+                let result = selection.is_some();
+                if let Some(mut selection) = selection {
+                    selection["sessionId"] = json!(self.generation.to_string());
+                    (self.sink)("texthook.hookSelected", selection);
+                }
                 self.deliver(true)?;
                 self.publish_status();
                 Ok(json!(result))
             }
             "manual" => {
                 let e = self.engine.as_mut().ok_or("No active text hook session.")?;
-                e.write(&e.session.manual(params["code"].as_str().unwrap_or(""))?)?;
+                let code = params["code"].as_str().unwrap_or("").trim();
+                e.write(&e.session.manual(code)?)?;
+                e.manual_sent = true;
+                e.session.options["manualHookCode"] = json!(code);
                 Ok(json!({"success":true}))
             }
             "configure" => {

@@ -1,0 +1,70 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "session": {
+      "samples": [
+        {
+          "elapsed_ms": 1035.1914,
+          "cpu_ms": 859.375,
+          "uss_mib": 52.91015625
+        },
+        {
+          "elapsed_ms": 1049.8421,
+          "cpu_ms": 781.25,
+          "uss_mib": 53.3671875
+        },
+        {
+          "elapsed_ms": 1028.9112,
+          "cpu_ms": 812.5,
+          "uss_mib": 53.11328125
+        }
+      ],
+      "median": {
+        "elapsed_ms": 1035.19,
+        "cpu_ms": 812.5,
+        "uss_mib": 53.11
+      }
+    },
+    "standalone": {
+      "samples": [
+        {
+          "elapsed_ms": 545.123,
+          "cpu_ms": 375.0,
+          "uss_mib": 29.21875
+        },
+        {
+          "elapsed_ms": 544.312,
+          "cpu_ms": 359.375,
+          "uss_mib": 29.11328125
+        },
+        {
+          "elapsed_ms": 556.0091,
+          "cpu_ms": 406.25,
+          "uss_mib": 29.22265625
+        }
+      ],
+      "median": {
+        "elapsed_ms": 545.12,
+        "cpu_ms": 375.0,
+        "uss_mib": 29.22
+      }
+    },
+    "live": {
+      "samples": [
+        {
+          "elapsed_ms": 8.8157
+        },
+        {
+          "elapsed_ms": 9.778
+        },
+        {
+          "elapsed_ms": 8.6669
+        }
+      ],
+      "median": {
+        "elapsed_ms": 8.82
+      }
+    }
+  }
+}

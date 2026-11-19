@@ -36,6 +36,7 @@ import {DictionaryDatabase} from '../dictionary/dictionary-database.js';
 import {DictionaryWorker} from '../dictionary/dictionary-worker.js';
 import {Environment} from '../extension/environment.js';
 import {CacheMap} from '../general/cache-map.js';
+import {LookupCache} from '../general/lookup-cache.js';
 import {ObjectPropertyAccessor} from '../general/object-property-accessor.js';
 import {distributeFuriganaInflected, isCodePointJapanese, convertKatakanaToHiragana as jpConvertKatakanaToHiragana} from '../language/ja/japanese.js';
 import {getLanguageSummaries, isTextLookupWorthy} from '../language/languages.js';
@@ -215,6 +216,8 @@ export class Backend {
         this._yomitanApi = new YomitanApi(this._apiMap, this._offscreen);
         /** @type {CacheMap<string, {originalTextLength: number, textSegments: import('api').ParseTextSegment[]}>} */
         this._textParseCache = new CacheMap(10000, 3600000); // 1 hour idle time, ~32MB per 1000 entries for Japanese
+        /** @type {LookupCache} */
+        this._lookupCache = new LookupCache();
     }
 
     /**
@@ -546,21 +549,25 @@ export class Backend {
     /** @type {import('api').ApiHandler<'kanjiFind'>} */
     async _onApiKanjiFind({text, optionsContext}) {
         const options = this._getProfileOptions(optionsContext, false);
-        const {general: {maxResults}} = options;
-        const findKanjiOptions = this._getTranslatorFindKanjiOptions(options);
-        const dictionaryEntries = await this._translator.findKanji(text, findKanjiOptions);
-        dictionaryEntries.splice(maxResults);
-        return dictionaryEntries;
+        return this._lookupCache.get(options, JSON.stringify(['kanji', text]), async () => {
+            const {general: {maxResults}} = options;
+            const findKanjiOptions = this._getTranslatorFindKanjiOptions(options);
+            const dictionaryEntries = await this._translator.findKanji(text, findKanjiOptions);
+            dictionaryEntries.splice(maxResults);
+            return dictionaryEntries;
+        });
     }
 
     /** @type {import('api').ApiHandler<'termsFind'>} */
     async _onApiTermsFind({text, details, optionsContext}) {
         const options = this._getProfileOptions(optionsContext, false);
-        const {general: {resultOutputMode: mode, maxResults}} = options;
-        const findTermsOptions = this._getTranslatorFindTermsOptions(mode, details, options);
-        const {dictionaryEntries, originalTextLength} = await this._translator.findTerms(mode, text, findTermsOptions);
-        dictionaryEntries.splice(maxResults);
-        return {dictionaryEntries, originalTextLength};
+        return this._lookupCache.get(options, JSON.stringify(['terms', text, details]), async () => {
+            const {general: {resultOutputMode: mode, maxResults}} = options;
+            const findTermsOptions = this._getTranslatorFindTermsOptions(mode, details, options);
+            const {dictionaryEntries, originalTextLength} = await this._translator.findTerms(mode, text, findTermsOptions);
+            dictionaryEntries.splice(maxResults);
+            return {dictionaryEntries, originalTextLength};
+        });
     }
 
     /** @type {import('api').ApiHandler<'parseText'>} */
@@ -1735,6 +1742,7 @@ export class Backend {
         void this._accessibilityController.update(this._getOptionsFull(false));
 
         this._textParseCache.clear();
+        this._lookupCache.clear();
 
         this._sendMessageAllTabsIgnoreResponse({action: 'applicationOptionsUpdated', params: {source}});
     }
@@ -2905,6 +2913,8 @@ export class Backend {
      * @param {import('backend').DatabaseUpdateCause} cause
      */
     _triggerDatabaseUpdated(type, cause) {
+        this._lookupCache.clear();
+        this._textParseCache.clear();
         void this._translator.clearDatabaseCaches();
         this._sendMessageAllTabsIgnoreResponse({action: 'applicationDatabaseUpdated', params: {type, cause}});
     }

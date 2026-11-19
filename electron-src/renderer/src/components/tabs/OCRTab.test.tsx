@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { I18nProvider } from "../../i18n";
+import { TooltipLayer } from "../Tooltip";
 import { OCRTab } from "./OCRTab";
 import type { IpcEventLike } from "../../types/global";
 
@@ -158,6 +159,56 @@ describe("OCRTab", () => {
     );
   });
 
+  it("replaces retired selections and documents Google Vision credentials", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: true, twoPassOCR: true,
+      ocr1_advanced: "mlkitocr", ocr2_advanced: "gemini"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /><TooltipLayer /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const main = container.querySelector<HTMLSelectElement>("#ocr-main-engine")!;
+    const stability = container.querySelector<HTMLSelectElement>("#ocr-stability-engine")!;
+    const hover = (element: Element) => act(async () => {
+      element.dispatchEvent(new MouseEvent("pointerover", { bubbles: true }));
+    });
+    const stabilityHelp = container.querySelector('button[aria-label="Stability OCR help"]')!;
+    expect(stabilityHelp.textContent).toBe("?");
+    await hover(stabilityHelp);
+    const stabilityTip = document.querySelector('[role="tooltip"]')?.textContent;
+    expect(stabilityTip).toContain("Engines vary in speed and CPU usage.");
+    expect(stabilityTip).toContain("ScreenAI is the default.");
+    await hover(stability);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="Google Vision setup help"]')).toBeNull();
+    expect(main.value).toBe("screenai");
+    expect(stability.value).toBe("screenai");
+    for (const engine of ["mlkitocr", "local_llm_ocr", "gemini", "azure", "ocrspace", "easyocr", "rapidocr"]) {
+      expect(main.querySelector(`option[value="${engine}"]`)).toBeNull();
+      expect(stability.querySelector(`option[value="${engine}"]`)).toBeNull();
+    }
+    expect(main.querySelector('option[value="gvision"]')?.textContent).toContain("key required");
+    await act(async () => {
+      main.value = "gvision";
+      main.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    const visionHelp = container.querySelector<HTMLButtonElement>('button[aria-label="Google Vision setup help"]')!;
+    expect(visionHelp.textContent).toBe("?");
+    await hover(visionHelp);
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("~/.config/google_vision.json");
+    await hover(main);
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    await act(async () => visionHelp.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain("~/.config/google_vision.json");
+    expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+      ocr1: "screenai", ocr1_advanced: "screenai", ocr2: "gvision", ocr2_advanced: "gvision"
+    }));
+  });
+
   it("offers VOCR and persists it as the main engine", async () => {
     invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
       advancedMode: true, twoPassOCR: true,
@@ -183,6 +234,71 @@ describe("OCRTab", () => {
     expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
       ocr2: "vitaocr", ocr2_advanced: "vitaocr"
     }));
+  });
+
+  it("applies both passes of every named preset and recognizes manual edits as custom", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: true, twoPassOCR: false, ocr2: "bing"
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    const preset = container.querySelector<HTMLSelectElement>("#ocr-preset")!;
+    const change = async (select: HTMLSelectElement, value: string) => act(async () => {
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+    expect(preset.value).toBe("");
+    const pairings = [
+      ["ocr.pipeline.horizontal", "mida_detector", "mida_vocr"],
+      ["ocr.pipeline.multilingual", "meiki_text_detector", "screenai"],
+      ["ocr.pipeline.stableDialogue", "mida_detector", "screenai"],
+      ["ocr.pipeline.lens", "screenai", "glens"],
+    ];
+    expect(Array.from(preset.options).filter(option => !option.disabled)).toHaveLength(pairings.length);
+    for (const [key, first, main] of pairings) {
+      await change(preset, key);
+      expect(preset.value).toBe(key);
+      expect(container.querySelector<HTMLInputElement>("#ocr-two-pass")?.checked).toBe(true);
+      expect(sendMock).toHaveBeenLastCalledWith("ocr.save-ocr-config", expect.objectContaining({
+        ocr1: first, ocr2: main, ocr1_advanced: first, ocr2_advanced: main,
+        twoPassOCR: true, optimize_second_scan: true
+      }));
+    }
+    await change(container.querySelector<HTMLSelectElement>("#ocr-main-engine")!, "meikiocr");
+    expect(preset.value).toBe("");
+  });
+
+  it.each([
+    [{ advancedMode: true }, "ocr.pipeline.lens"],
+    [{ advancedMode: true, ocr1: "oneocr", ocr2: "bing" }, ""],
+    [{ advancedMode: true, twoPassOCR: false, ocr1: "screenai", ocr2: "glens" }, ""],
+  ] as const)("resolves fresh and existing advanced configurations (%o)", async (settings, expected) => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? settings : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLSelectElement>("#ocr-preset")?.value).toBe(expected);
+  });
+
+  it("starts Advanced with the Lens preset when Basic has no saved Advanced engines", async () => {
+    invokeMock.mockImplementation(async (channel: string) => channel === "ocr.get-ocr-config" ? {
+      advancedMode: false, ocr1: "screenai", ocr2: "screenai", useOnlineOcr: false,
+    } : null);
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active={false} /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      container.querySelector<HTMLInputElement>("#ocr-advanced-toggle")!.click();
+      await flushAsyncWork();
+    });
+    expect(container.querySelector<HTMLSelectElement>("#ocr-preset")?.value).toBe("ocr.pipeline.lens");
   });
 
   it.each(["meikiocr", "meiki_text_detector"])("shows the Meiki model selector for %s stability OCR", async (engine) => {
@@ -392,6 +508,32 @@ describe("OCRTab", () => {
     expect(terminalMocks.write).not.toHaveBeenCalled();
   });
 
+  it("handles origin-tagged OCR logs while still filtering native noise", async () => {
+    await act(async () => {
+      root.render(<OCRTab active />);
+      await flushAsyncWork();
+    });
+    const toggle = container.querySelector<HTMLButtonElement>("#ocr-console-toggle")!;
+    await act(async () => { toggle.click(); });
+    terminalMocks.write.mockClear();
+
+    const emitOcrLog = (line: string) => {
+      for (const listener of ipcListeners.get("ocr-log") ?? []) listener({}, line);
+    };
+    await act(async () => {
+      emitOcrLog("[py:ocr] I0000 12:30:01 group_rpn_detector_utils noise");
+      emitOcrLog("[rust:ocr] Started native Rust OCR session (scene: Game).");
+      emitOcrLog("[py:ocr] OCR Run 2: Text recognized in 0.120s using Google Lens: こんにちは");
+    });
+
+    const written = terminalMocks.write.mock.calls.map(([data]) => data).join("");
+    expect(written).not.toContain("group_rpn_detector_utils");
+    expect(written).toContain("\x1b[38;5;208m[rust:ocr]\x1b[0m");
+    expect(written).toContain("Started native Rust OCR session");
+    expect(written).toContain("\x1b[93m[py:ocr]\x1b[0m");
+    expect(written).toContain("\x1b[92mOCR Run 2: Text recognized");
+  });
+
   it("runs quick-capture actions through the existing OCR commands", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "ocr.get-running-state") return { isRunning: true, mode: "manual" };
@@ -416,6 +558,34 @@ describe("OCRTab", () => {
       });
       expect(sendMock).toHaveBeenLastCalledWith(channels[index]);
     }
+  });
+
+  it.each([0, null])("applies only accepted furigana preview results (%s)", async (result) => {
+    const defaultInvoke = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "run-furigana-window") return result;
+      return defaultInvoke(channel);
+    });
+    await act(async () => {
+      root.render(<I18nProvider><OCRTab active /></I18nProvider>);
+      await flushAsyncWork();
+    });
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.click();
+    });
+    const slider = container.querySelector<HTMLInputElement>("#ocr-furigana-filter")!;
+    const preview = slider.closest(".ocr-slider-row")!.querySelector("button")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(slider, "17");
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(sendMock).not.toHaveBeenCalledWith("update-furigana-character", expect.anything(), expect.anything());
+
+    await act(async () => {
+      preview.click();
+    });
+    expect(invokeMock).toHaveBeenCalledWith("run-furigana-window", 17);
+    expect(slider.value).toBe(String(result ?? 17));
   });
 
   it("keeps captured text across workspace navigation and receives results while the tab is inactive", async () => {

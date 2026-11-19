@@ -13,8 +13,10 @@ import multiprocessing
 import queue
 import threading
 import time
-from typing import Dict
 
+from GameSentenceMiner.native import history
+from GameSentenceMiner.util.concurrency.actor import ActorStopped, MailboxFull
+from GameSentenceMiner.util.concurrency.resource_qos import configure_background_process
 from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.config.feature_flags import (
     is_tokenization_enabled,
@@ -22,9 +24,6 @@ from GameSentenceMiner.util.config.feature_flags import (
 )
 from GameSentenceMiner.util.database.db import DB_PRIORITY_LOW
 from GameSentenceMiner.util.text_utils import is_kanji
-from GameSentenceMiner.util.concurrency.actor import ActorStopped, MailboxFull
-from GameSentenceMiner.util.concurrency.resource_qos import configure_background_process
-
 
 DEFAULT_BACKFILL_BATCH_SIZE = 250
 LOW_PERFORMANCE_BACKFILL_BATCH_SIZE = 50
@@ -156,23 +155,51 @@ class _RealtimeTokenizationScheduler:
         return not process.is_alive()
 
 
-_realtime_tokenization_scheduler = _RealtimeTokenizationScheduler()
+_scheduler_lock = threading.Lock()
+_local_worker = None
+_local_stopped = False
+
+
+def _local_scheduler():
+    global _local_worker
+    with _scheduler_lock:
+        if _local_stopped:
+            raise ActorStopped("Realtime tokenization worker is stopped")
+        if _local_worker is None:
+            _local_worker = _RealtimeTokenizationScheduler()
+        return _local_worker
 
 
 def enqueue_realtime_tokenization(line_id: str, line_text: str, line_timestamp: float | None = None) -> None:
-    _realtime_tokenization_scheduler.enqueue_line(line_id, line_text, line_timestamp)
+    _local_scheduler().enqueue_line(line_id, line_text, line_timestamp)
 
 
 def enqueue_realtime_tokenization_batch(lines: RealtimeTokenizationBatch) -> None:
-    _realtime_tokenization_scheduler.enqueue_batch(lines)
+    _local_scheduler().enqueue_batch(lines)
 
 
 def wait_for_realtime_tokenization_idle(timeout: float | None = 5.0) -> bool:
-    return _realtime_tokenization_scheduler.wait_for_idle(timeout)
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    started = time.monotonic()
+    if history.manages_word_index(GameLinesTable._db):
+        try:
+            history.index_request("flush", timeout=timeout)
+        except TimeoutError:
+            return False
+    remaining = None if timeout is None else max(0, timeout - (time.monotonic() - started))
+    with _scheduler_lock:
+        worker = _local_worker
+    return worker is None or worker.wait_for_idle(remaining)
 
 
 def stop_realtime_tokenization(timeout: float = 10.0) -> bool:
-    return _realtime_tokenization_scheduler.stop(timeout)
+    # Database close drains the desktop index after pending capture writes.
+    global _local_stopped
+    with _scheduler_lock:
+        _local_stopped = True
+        worker = _local_worker
+    return worker is None or worker.stop(timeout)
 
 
 def _get_backfill_batch_size(low_performance_mode: bool) -> int:
@@ -215,13 +242,13 @@ def tokenize_line(line_id: str, line_text: str, line_timestamp: float | None = N
     Returns True on success, False on failure.
     """
     from GameSentenceMiner.tokenizer import is_word_token, tokenizer
+    from GameSentenceMiner.util.database.db import GameLinesTable
     from GameSentenceMiner.util.database.tokenization_tables import (
-        WordsTable,
+        KanjiOccurrencesTable,
         KanjiTable,
         WordOccurrencesTable,
-        KanjiOccurrencesTable,
+        WordsTable,
     )
-    from GameSentenceMiner.util.database.db import GameLinesTable
 
     # Existing vocabulary is historical data. Do not even re-analyze a completed
     # record when the selected dictionary or tokenizer changes.
@@ -307,15 +334,17 @@ def cleanup_orphaned_occurrences() -> int:
 
     Returns the total number of orphaned rows deleted.
     """
+    from GameSentenceMiner.util.database.db import GameLinesTable
     from GameSentenceMiner.util.database.tokenization_tables import (
-        WordOccurrencesTable,
         KanjiOccurrencesTable,
+        WordOccurrencesTable,
         rebuild_word_stats_cache,
         recompute_word_first_seen_metadata,
     )
-    from GameSentenceMiner.util.database.db import GameLinesTable
 
     db = WordOccurrencesTable._db
+    if history.manages_word_index(db):
+        return db.run_external_write(lambda: history.request("cleanWordIndex"), priority=DB_PRIORITY_LOW)
 
     # Delete orphaned word occurrences
     cursor = db.execute(
@@ -388,12 +417,39 @@ def cleanup_orphaned_occurrences() -> int:
     return total
 
 
-def run_tokenize_backfill() -> Dict:
+def _backfill_page(desktop, cursor, limit):
+    if desktop:
+        from GameSentenceMiner.tokenizer import get_sudachi_dictionary
+
+        page = history.index_request("backfill", dictionary=get_sudachi_dictionary(), after=cursor, limit=limit)
+        if page["attempted"]:
+            yield page["after"], page["attempted"], page["errors"]
+        return
+
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    for line in GameLinesTable.get_untokenized_lines(
+        limit=limit, after_timestamp=cursor["timestamp"] if cursor else None, after_id=cursor["id"] if cursor else None
+    ):
+        try:
+            failed = not tokenize_line(line.id, line.line_text, line.timestamp)
+        except Exception as error:
+            logger.error(f"Failed to tokenize line {line.id}: {error}")
+            failed = True
+        yield {"timestamp": line.timestamp, "id": line.id}, 1, int(failed)
+
+
+def run_tokenize_backfill() -> dict:
     """
     Weekly cron entry point: clean orphans, then tokenize new lines.
 
     Returns a summary dict with keys: skipped, orphans_cleaned, processed, errors.
     """
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    native = history.run_word_backfill(GameLinesTable._db)
+    if native is not None:
+        return native
     if not is_tokenization_enabled():
         return {"skipped": True, "reason": "tokenization disabled"}
 
@@ -407,15 +463,13 @@ def run_tokenize_backfill() -> Dict:
         orphans_cleaned = 0
 
     # Phase 2: Tokenize untokenized lines
-    from GameSentenceMiner.util.database.db import GameLinesTable
-
     total_lines = GameLinesTable.count_untokenized_lines()
     processed = 0
     errors = 0
     attempted_lines = 0
     last_logged_milestone = 0
-    last_timestamp: float | None = None
-    last_id: str | None = None
+    desktop_index = history.manages_word_index(GameLinesTable._db)
+    cursor = None
 
     if total_lines > 0:
         initial_batch_size = _get_backfill_batch_size(is_tokenization_low_performance())
@@ -428,33 +482,12 @@ def run_tokenize_backfill() -> Dict:
         batch_size = _get_backfill_batch_size(low_performance_mode)
         batch_started_at = time.time()
 
-        batch = GameLinesTable.get_untokenized_lines(
-            limit=batch_size,
-            after_timestamp=last_timestamp,
-            after_id=last_id,
-        )
-
-        if not batch:
-            break
-
-        for line in batch:
-            if attempted_lines >= total_lines:
-                break
-
-            last_timestamp = line.timestamp
-            last_id = line.id
-
-            try:
-                success = tokenize_line(line.id, line.line_text, line.timestamp)
-                if success:
-                    processed += 1
-                else:
-                    errors += 1
-            except Exception as e:
-                logger.error(f"Failed to tokenize line {line.id}: {e}")
-                errors += 1
-
-            attempted_lines += 1
+        before = attempted_lines
+        for next_cursor, count, failed in _backfill_page(desktop_index, cursor, min(batch_size, total_lines - before)):
+            cursor = next_cursor
+            attempted_lines += count
+            processed += count - failed
+            errors += failed
 
             milestone = _get_progress_milestone(attempted_lines, total_lines, last_logged_milestone)
             if milestone is not None:
@@ -465,6 +498,8 @@ def run_tokenize_backfill() -> Dict:
                 )
                 last_logged_milestone = milestone
 
+        if attempted_lines == before:
+            break
         if low_performance_mode and attempted_lines < total_lines:
             batch_elapsed = time.time() - batch_started_at
             time.sleep(_calculate_adaptive_batch_sleep(batch_elapsed))

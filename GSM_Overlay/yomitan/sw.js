@@ -15,3 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import './js/background/background-main.js';
+
+// GSM needs lookups ready even with Home closed and the game overlay hidden.
+// A worker-side extension API call resets Chromium's 30-second idle timer.
+if (typeof document === 'undefined' && chrome.runtime.getManifest().name === 'Yomitan for GSM Overlay') {
+    setInterval(() => { void chrome.runtime.getPlatformInfo(); }, 20_000);
+}

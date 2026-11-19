@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-14",
+  "platform": "Windows x64",
+  "checkpoint": "7a87ee32",
+  "branch": "codex/tauri-architecture",
+  "build": "debug; desktop unoptimized, capture/OCR dependencies optimized",
+  "measurement": "Wall time of OverlayHost::start on a retained view; excludes cold application/dictionary startup and first OCR frame. Fixture profiles, not a real-game latency benchmark.",
+  "samples": [
+    {
+      "reader": "yomitan",
+      "enable_command_ms": 36.21
+    },
+    {
+      "reader": "yomitan",
+      "enable_command_ms": 33.02
+    },
+    {
+      "reader": "hachidori",
+      "enable_command_ms": 39.92
+    },
+    {
+      "reader": "hachidori",
+      "enable_command_ms": 32.1
+    }
+  ],
+  "passed_smoke_phases": [
+    "overlay/run",
+    "yomitan/import",
+    "yomitan/reopen",
+    "hachidori/import",
+    "hachidori/reopen"
+  ],
+  "assertions": [
+    "Dictionary lookup before creating the overlay",
+    "Dictionary lookup and setup status after disabling the overlay",
+    "Retained document identity across reactivation",
+    "Disabled prepared overlay rejects show/focus/capture requests",
+    "Each warm enable call below 500 ms"
+  ]
+}

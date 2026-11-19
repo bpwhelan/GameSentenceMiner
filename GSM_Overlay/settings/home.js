@@ -15,7 +15,7 @@
         field(
           "textHoverClickThrough",
           "Click through overlay text",
-          "In automatic mode, clicks reach your game while hover lookups work. Turn off to select text or use click lookups.",
+          "Overlay text accepts clicks by default. Turn this on to send clicks to the game while keeping hover lookups.",
           { inlineHelp: true },
         ),
         field("manualMode", "Push to show", "Keep the overlay out of the way until you activate it."),

@@ -656,7 +656,6 @@
                     if (windowSelect) {
                         windowSelect.disabled = false;
                         windowSelect.style.cursor = '';
-                        windowSelect.removeAttribute('title');
                     }
                     if (setupSceneNameInput) {
                         setupSceneNameInput.disabled = false;
@@ -684,7 +683,6 @@
                     windowSelect.innerHTML = '<option>Need to set scenes in OBS on this OS.</option>';
                     windowSelect.disabled = true;
                     windowSelect.style.cursor = 'not-allowed';
-                    windowSelect.title = 'Not supported in this OS';
                     setupSceneNameInput.value = '';
                     setupSceneNameInput.disabled = true;
                     setupSceneNameInput.style.cursor = 'not-allowed';

@@ -46,7 +46,7 @@ def build_label(
     i18n: dict[str, Any],
     section: str,
     key: str,
-    default_tooltip: str = "...",
+    default_tooltip: str | None = "...",
     color: LabelColor = LabelColor.DEFAULT,
     bold: bool = False,
     label_override: str | None = None,
@@ -59,7 +59,8 @@ def build_label(
     if not label_text:
         label_text = " ".join(word.capitalize() for word in key.split("_"))
     label = QLabel(label_text)
-    label.setToolTip(data.get("tooltip", default_tooltip))
+    if default_tooltip is not None:
+        label.setToolTip(data.get("tooltip", default_tooltip))
 
     style_label(label, color, bold)
     return label

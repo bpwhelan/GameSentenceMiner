@@ -127,6 +127,15 @@ def test_database_backup_settings_default_to_disabled_with_two_copies(monkeypatc
     }
 
 
+@pytest.mark.parametrize("engine", ["gemini", "mangaocr", "mangaocrs"])
+def test_retired_ocr_selections_fall_back_to_local_ocr(monkeypatch, engine):
+    store = _DummyStore({"OCR": {"advancedMode": True, "ocr1": " MLKitOCR ", "ocr2": engine}})
+    monkeypatch.setattr(electron_config, "electron_store", store)
+
+    assert electron_config.get_ocr_ocr1() == "screenai"
+    assert electron_config.get_ocr_ocr2() == "screenai"
+
+
 def test_get_ocr_values_basic_mode(monkeypatch):
     store = _DummyStore(
         {
@@ -143,7 +152,6 @@ def test_get_ocr_values_basic_mode(monkeypatch):
         }
     )
     monkeypatch.setattr(electron_config, "electron_store", store)
-    monkeypatch.setattr(electron_config, "is_windows", lambda: True)
 
     assert electron_config.get_ocr_ocr1() == "screenai"
     assert electron_config.get_ocr_ocr2() == "screenai"
@@ -155,10 +163,11 @@ def test_get_ocr_values_basic_mode(monkeypatch):
     assert electron_config.get_ocr_text_appears_instantly() is True
 
 
-def test_basic_mode_ignores_stored_ocr1_but_advanced_mode_preserves_it(monkeypatch):
+@pytest.mark.parametrize("platform", ["win32", "darwin", "linux"])
+def test_basic_mode_ignores_stored_ocr1_but_advanced_mode_preserves_it(monkeypatch, platform):
+    monkeypatch.setattr(sys, "platform", platform)
     store = _DummyStore({"OCR": {"advancedMode": False, "ocr1": "oneocr"}})
     monkeypatch.setattr(electron_config, "electron_store", store)
-    monkeypatch.setattr(electron_config, "is_windows", lambda: True)
 
     assert electron_config.get_ocr_ocr1() == "screenai"
 
@@ -167,12 +176,19 @@ def test_basic_mode_ignores_stored_ocr1_but_advanced_mode_preserves_it(monkeypat
 
 
 def test_default_stability_ocr_is_cross_platform(monkeypatch):
-    monkeypatch.setattr(electron_config, "is_windows", lambda: False)
     monkeypatch.setattr(sys, "platform", "darwin")
     assert electron_config.get_default_stability_ocr() == "screenai"
-
     monkeypatch.setattr(sys, "platform", "linux")
     assert electron_config.get_default_stability_ocr() == "screenai"
+
+
+def test_unconfigured_advanced_uses_two_pass_lens(monkeypatch):
+    monkeypatch.setattr(electron_config, "electron_store", _DummyStore({"OCR": {"advancedMode": True}}))
+    assert electron_config.get_ocr_two_pass_ocr()
+    assert electron_config.get_ocr_optimize_second_scan()
+    assert (electron_config.get_ocr_ocr1(), electron_config.get_ocr_ocr2()) == ("screenai", "glens")
+    defaults = electron_config.DEFAULT_STORE_CONFIG["OCR"]
+    assert (defaults["ocr1_advanced"], defaults["ocr2_advanced"]) == ("screenai", "glens")
 
 
 def test_basic_online_ocr_requires_explicit_opt_in_and_preserves_advanced_engines(monkeypatch):
@@ -216,7 +232,6 @@ def test_get_ocr_values_advanced_mode(monkeypatch):
         }
     )
     monkeypatch.setattr(electron_config, "electron_store", store)
-    monkeypatch.setattr(electron_config, "is_windows", lambda: True)
 
     assert electron_config.get_ocr_ocr1() == "oneocr"
     assert electron_config.get_ocr_scan_rate() == 1.5

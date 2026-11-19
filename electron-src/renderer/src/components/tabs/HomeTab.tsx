@@ -96,6 +96,7 @@ function AddGameDialog({ children, busy, returnFocus, onClose }: {
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const backdropPressRef = useRef(false);
 
   useEffect(() => {
     const dialog = dialogRef.current!;
@@ -126,7 +127,19 @@ function AddGameDialog({ children, busy, returnFocus, onClose }: {
       aria-labelledby="home-new-game-heading"
       aria-describedby="home-new-game-hint"
       tabIndex={-1}
-      onClick={(event) => { if (!busy && event.target === event.currentTarget) onClose(); }}
+      onPointerDownCapture={(event) => {
+        backdropPressRef.current = event.button === 0 && event.target === event.currentTarget;
+      }}
+      onPointerUpCapture={(event) => {
+        if (event.target !== event.currentTarget) backdropPressRef.current = false;
+      }}
+      onPointerCancelCapture={() => { backdropPressRef.current = false; }}
+      onClick={(event) => {
+        // A drag across the dialog edge can dispatch a click on the backdrop.
+        const pressedBackdrop = backdropPressRef.current;
+        backdropPressRef.current = false;
+        if (!busy && pressedBackdrop && event.target === event.currentTarget) onClose();
+      }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();

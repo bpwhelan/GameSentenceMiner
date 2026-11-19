@@ -24,6 +24,12 @@ def accept_dictionary_setup_result(message):
 
 
 def request_dictionary_setup(payload, timeout=20):
+    from GameSentenceMiner.util.communication.dictionary_client import request as desktop_request
+
+    result = desktop_request("dictionary.setup", payload, timeout)
+    if result is not None:
+        return result.get("status", {})
+
     from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
     if not websocket_manager.has_clients(ID_OVERLAY):

@@ -3,9 +3,12 @@
 import functools
 import os
 import time
+from pathlib import Path
 from typing import Optional
 
 import obsws_python as obs
+from GameSentenceMiner.obs import desktop_session
+from GameSentenceMiner.obs import outputs
 
 from GameSentenceMiner.util.config import configuration
 from GameSentenceMiner.util.config.configuration import (
@@ -39,7 +42,14 @@ from GameSentenceMiner.obs.service import (
 # Decorator — backward compat; identical to the old with_obs_client
 # ---------------------------------------------------------------------------
 def with_obs_client(
-    default=None, error_msg=None, raise_exc=False, retryable=True, retries=OBS_DEFAULT_RETRY_COUNT, fallback=None
+    default=None,
+    error_msg=None,
+    raise_exc=False,
+    retryable=True,
+    retries=OBS_DEFAULT_RETRY_COUNT,
+    fallback=None,
+    mining_output=None,
+    session_read=None,
 ):
     def decorator(func):
         @functools.wraps(func)
@@ -47,7 +57,25 @@ def with_obs_client(
             suppress_obs_errors = bool(kwargs.pop("_suppress_obs_errors", False))
             override_retryable = bool(kwargs.pop("_retry_obs_errors", retryable))
             override_retries = kwargs.pop("_obs_retries", retries)
+            if session_read and desktop_session.enabled():
+                scene = args[0] if args else kwargs.get("scene_name")
+                state = desktop_session.snapshot()
+                if not scene or scene == state["scene"]:
+                    return session_read(state)
             msg = error_msg if error_msg else f"Error in {func.__name__}"
+            if (
+                mining_output
+                and outputs.desktop_managed()
+                and (mining_output == "record" or get_config().features.generate_longplay)
+            ):
+                try:
+                    return func(None, *args, **kwargs)
+                except Exception as exc:
+                    if raise_exc:
+                        raise
+                    if not suppress_obs_errors:
+                        logger.error(f"{msg}: {exc}")
+                    return default
             return _call_with_obs_client(
                 lambda client: func(client, *args, **kwargs),
                 default=default,
@@ -92,39 +120,72 @@ def toggle_replay_buffer(client: obs.ReqClient):
     client.toggle_replay_buffer()
     if svc and current_state is not None:
         with svc._state_lock:
-            svc.state.replay_buffer_active = not bool(current_state)
+            outputs.set_replay_buffer_active(svc.state, not bool(current_state))
         svc._auto_start_paused_by_external_replay_stop = False
     logger.info("Replay buffer Toggled.")
 
 
-@with_obs_client(error_msg="Error starting replay buffer")
+def _set_replay_active(client, svc, active):
+    if client is None:
+        with outputs.replay_action_lock:
+            try:
+                result = outputs.request("longplayStart" if active else "longplayStop")
+            except (TimeoutError, ConnectionError):
+                # The transition may have reached OBS. Preserve its intent for
+                # a delayed event without changing the last confirmed state.
+                if svc:
+                    svc.mark_replay_buffer_action(active)
+                raise
+            changed = result["changed"]
+            if svc and changed:
+                svc.mark_replay_buffer_action(active)
+            _remember_replay_state(svc, active, changed)
+        if error := result.get("recordingError"):
+            logger.error(f"OBS longplay recording request failed: {error}")
+        elif recording := result.get("recording"):
+            import GameSentenceMiner.obs as _obs_pkg
+
+            if active:
+                _obs_pkg.longplay_handler.on_record_start_requested()
+            elif recording["changed"]:
+                _obs_pkg.longplay_handler.on_record_stop_response(output_path=recording.get("outputPath"))
+        return changed
+
+    try:
+        current = bool(getattr(client.get_replay_buffer_status(), "output_active", False))
+    except Exception:
+        current = None
+    changed = current != active
+    if changed:
+        if svc:
+            svc.mark_replay_buffer_action(active)
+        if active:
+            client.start_replay_buffer()
+        else:
+            client.stop_replay_buffer()
+    _remember_replay_state(svc, active, changed)
+    return changed
+
+
+def _remember_replay_state(svc, active, changed):
+    if svc:
+        with svc._state_lock:
+            outputs.set_replay_buffer_active(svc.state, active)
+        if changed:
+            svc._auto_start_paused_by_external_replay_stop = False
+    gsm_state.replay_buffer_stopped_timestamp = None if active else time.time()
+
+
+@with_obs_client(error_msg="Error starting replay buffer", mining_output="longplay")
 def start_replay_buffer(client: obs.ReqClient, initial=False):
     import GameSentenceMiner.obs as _obs_pkg
 
     if _is_obs_recording_disabled():
         logger.warning("OBS replay buffer start blocked: OBS recording/replay is disabled in GSM settings.")
         return
-    try:
-        replay_status = client.get_replay_buffer_status()
-        if bool(getattr(replay_status, "output_active", False)):
-            svc = _obs_pkg.obs_service
-            if svc:
-                with svc._state_lock:
-                    svc.state.replay_buffer_active = True
-            gsm_state.replay_buffer_stopped_timestamp = None
-            return
-    except Exception:
-        pass
-    svc = _obs_pkg.obs_service
-    if svc:
-        svc.mark_replay_buffer_action(True)
-    client.start_replay_buffer()
-    if svc:
-        with svc._state_lock:
-            svc.state.replay_buffer_active = True
-        svc._auto_start_paused_by_external_replay_stop = False
-    gsm_state.replay_buffer_stopped_timestamp = None
-    if get_config().features.generate_longplay:
+    if not _set_replay_active(client, _obs_pkg.obs_service, True):
+        return
+    if client is not None and get_config().features.generate_longplay:
         start_recording(True)
     logger.info("Replay buffer started.")
 
@@ -139,37 +200,34 @@ def get_replay_buffer_status(client: obs.ReqClient):
     return client.get_replay_buffer_status().output_active
 
 
-@with_obs_client(error_msg="Error stopping replay buffer")
+@with_obs_client(error_msg="Error stopping replay buffer", mining_output="longplay")
 def stop_replay_buffer(client: obs.ReqClient):
     import GameSentenceMiner.obs as _obs_pkg
 
-    try:
-        replay_status = client.get_replay_buffer_status()
-        if not bool(getattr(replay_status, "output_active", False)):
-            svc = _obs_pkg.obs_service
-            if svc:
-                with svc._state_lock:
-                    svc.state.replay_buffer_active = False
-            gsm_state.replay_buffer_stopped_timestamp = time.time()
-            return
-    except Exception:
-        pass
-    svc = _obs_pkg.obs_service
-    if svc:
-        svc.mark_replay_buffer_action(False)
-    client.stop_replay_buffer()
-    if svc:
-        with svc._state_lock:
-            svc.state.replay_buffer_active = False
-        svc._auto_start_paused_by_external_replay_stop = False
-    gsm_state.replay_buffer_stopped_timestamp = time.time()
-    if get_config().features.generate_longplay:
+    if not _set_replay_active(client, _obs_pkg.obs_service, False):
+        return
+    if client is not None and get_config().features.generate_longplay:
         stop_recording()
     logger.info("Replay buffer stopped.")
 
 
+def save_replay_buffer(**options):
+    if outputs.native_replay_acquisition():
+        # Downstream media cleanup may delete its input. Keep the same local
+        # recording-folder boundary that the standalone file watcher provides.
+        folder = Path(get_config().paths.folder_to_watch).resolve()
+        reported = Path(outputs.request("saveReplay")["savedReplayPath"])
+        path = reported.resolve(strict=True)
+        if not reported.is_absolute() or not path.is_relative_to(folder) or not path.is_file():
+            raise ValueError(f"OBS returned a replay outside GSM's recording folder: {reported}")
+        if path.suffix.lower() not in {".mkv", ".mp4", ".mov"}:
+            raise ValueError(f"Unexpected OBS replay file type: {path.suffix}")
+        return str(path)
+    return _save_replay_buffer_legacy(**options)
+
+
 @with_obs_client(error_msg="Error saving replay buffer", raise_exc=True, retryable=False)
-def save_replay_buffer(client: obs.ReqClient):
+def _save_replay_buffer_legacy(client: obs.ReqClient):
     client.save_replay_buffer()
     logger.info(
         'Replay buffer saved. If your log stops here, make sure your obs output path matches "Path To Watch" in GSM settings.'
@@ -357,39 +415,45 @@ def apply_replay_buffer_duration(client: obs.ReqClient, config_override=None):
 # ---------------------------------------------------------------------------
 # Recording
 # ---------------------------------------------------------------------------
-@with_obs_client(error_msg="Error starting recording")
+@with_obs_client(error_msg="Error starting recording", mining_output="record")
 def start_recording(client: obs.ReqClient, longplay=False):
     import GameSentenceMiner.obs as _obs_pkg
 
     if _is_obs_recording_disabled():
         logger.warning("OBS recording start blocked: OBS recording/replay is disabled in GSM settings.")
         return
-    try:
-        record_status = client.get_record_status()
-        if bool(getattr(record_status, "output_active", False)):
-            if longplay:
-                _obs_pkg.longplay_handler.on_record_start_requested()
-            return
-    except Exception:
-        pass
-    client.start_record()
+    if client is None:
+        changed = outputs.request("recordStart")["changed"]
+    else:
+        try:
+            changed = not bool(client.get_record_status().output_active)
+        except Exception:
+            changed = True
+        if changed:
+            client.start_record()
     if longplay:
         _obs_pkg.longplay_handler.on_record_start_requested()
-    logger.info("Recording started.")
+    if changed:
+        logger.info("Recording started.")
 
 
-@with_obs_client(error_msg="Error stopping recording")
+@with_obs_client(error_msg="Error stopping recording", mining_output="record")
 def stop_recording(client: obs.ReqClient):
     import GameSentenceMiner.obs as _obs_pkg
 
-    try:
-        record_status = client.get_record_status()
-        if not bool(getattr(record_status, "output_active", False)):
+    if client is None:
+        result = outputs.request("recordStop")
+        if not result["changed"]:
             return None
-    except Exception:
-        pass
-    resp = client.stop_record()
-    output_path = resp.output_path if resp else None
+        output_path = result.get("outputPath")
+    else:
+        try:
+            if not bool(getattr(client.get_record_status(), "output_active", False)):
+                return None
+        except Exception:
+            pass
+        resp = client.stop_record()
+        output_path = resp.output_path if resp else None
     _obs_pkg.longplay_handler.on_record_stop_response(output_path=output_path)
     logger.info("Recording stopped.")
     return output_path
@@ -413,6 +477,7 @@ def get_last_recording_filename(client: obs.ReqClient):
 @with_obs_client(
     default="",
     error_msg="Couldn't get scene",
+    session_read=lambda state: state["scene"],
     fallback=lambda: (
         __import__("GameSentenceMiner.obs", fromlist=["obs_service"]).obs_service.state.current_scene
         if __import__("GameSentenceMiner.obs", fromlist=["obs_service"]).obs_service
@@ -477,6 +542,10 @@ def get_active_video_sources(client: obs.ReqClient):
 
     svc = _obs_pkg.obs_service
     current_game = gsm_state.current_game or (svc.state.current_scene if svc else None)
+    if desktop_session.enabled():
+        current_game = desktop_session.snapshot()["scene"]
+        if not current_game:
+            return None
     if not current_game:
         try:
             response = client.get_current_program_scene()
@@ -819,6 +888,9 @@ def get_screenshot_PIL(
 # Current game / scene helpers
 # ---------------------------------------------------------------------------
 def update_current_game():
+    if desktop_session.enabled():
+        gsm_state.current_game = desktop_session.snapshot()["scene"]
+        return
     import GameSentenceMiner.obs as _obs_pkg
 
     previous_game = gsm_state.current_game
@@ -853,6 +925,9 @@ def update_current_game():
 
 
 def get_current_game(sanitize=False, update=True):
+    if desktop_session.enabled():
+        scene = desktop_session.snapshot()["scene"]
+        return sanitize_filename(scene) if sanitize else scene
     if not gsm_state.current_game or update:
         update_current_game()
 
@@ -1196,7 +1271,9 @@ def get_current_source_input_settings(client):
     return input_settings_response.input_settings if input_settings_response else None
 
 
-@with_obs_client(default=None, error_msg="Error getting window info from source")
+@with_obs_client(
+    session_read=lambda state: state.get("window_info"), default=None, error_msg="Error getting window info from source"
+)
 def get_window_info_from_source(client, scene_name: str = None):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -1266,7 +1343,16 @@ def _parse_capture_window_item(client, item) -> dict | None:
     return {"winid": winid, "title": title, "wm_class": wm_class}
 
 
-@with_obs_client(default=None, error_msg="Error reading Linux capture window info")
+def _linux_session_window_info(state):
+    info = state.get("window_info")
+    if info and info.get("window_id") is not None:
+        return {"winid": state.get("target_id"), "title": info["title"], "wm_class": info["window_class"]}
+    return None
+
+
+@with_obs_client(
+    session_read=_linux_session_window_info, default=None, error_msg="Error reading Linux capture window info"
+)
 def get_linux_capture_window_info(client, scene_name: str = None):
     """Return the X11 window targeted by a Linux window-capture source.
 

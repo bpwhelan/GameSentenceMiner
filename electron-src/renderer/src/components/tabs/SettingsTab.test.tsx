@@ -124,6 +124,33 @@ describe("SettingsTab data folder controls", () => {
     expect(invokeMock).toHaveBeenCalledWith("settings.gpu", { refresh: true });
   });
 
+  it("samples Windows resource usage on demand and totals the helper rows", async () => {
+    const nativeInvoke = vi.fn().mockResolvedValue([
+      { group: "desktop", cpuPercent: 1, privateWorkingSetBytes: 128 * 2 ** 20 },
+      { group: "webview", cpuPercent: 2, privateWorkingSetBytes: 512 * 2 ** 20 },
+    ]);
+    Object.defineProperty(window, "gsmEnv", {
+      configurable: true,
+      value: { platform: "win32", shell: "tauri" },
+    });
+    Object.defineProperty(window, "__GSM_INVOKE__", {
+      configurable: true,
+      value: nativeInvoke,
+    });
+    try {
+      await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+      expect(nativeInvoke).not.toHaveBeenCalled();
+      await act(async () => container.querySelector<HTMLButtonElement>("#settings-nav-resources")!.click());
+      expect(nativeInvoke).toHaveBeenCalledWith("desktop_resource_usage", {});
+      const totals = container.querySelector(".settings-resource-table tfoot")!;
+      expect(totals.textContent).toBe("GSM total3%640 MiB");
+      await act(async () => container.querySelector<HTMLButtonElement>("#settings-nav-general")!.click());
+      expect(container.querySelector(".settings-resource-table")).toBeNull();
+    } finally {
+      Reflect.deleteProperty(window, "__GSM_INVOKE__");
+    }
+  });
+
   it("moves Python tools into Settings without probing Python before the section opens", async () => {
     const openLogs = vi.fn();
     await act(async () => root.render(<I18nProvider><SettingsTab active onRequestConsole={openLogs} /></I18nProvider>));

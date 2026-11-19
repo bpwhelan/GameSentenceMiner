@@ -18,7 +18,7 @@ pub unsafe fn load_library(path: &std::path::Path) -> Result<libloading::Library
     }
 }
 use std::{
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -38,33 +38,8 @@ pub fn http_client() -> Result<reqwest::blocking::Client> {
 }
 
 pub fn download(url: &str, destination: &Path) -> Result<()> {
-    std::fs::create_dir_all(destination.parent().context("Missing download directory")?)?;
-    let temporary = destination.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
-    let result = (|| -> Result<()> {
-        crate::logging::info(format!(
-            "Downloading {}",
-            destination
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ));
-        let mut response = http_client()?.get(url).send()?.error_for_status()?;
-        let length = response.content_length();
-        let mut output = std::fs::File::create(&temporary)?;
-        let bytes = std::io::copy(&mut response, &mut output)?;
-        output.flush()?;
-        if bytes == 0 || length.is_some_and(|len| len != bytes) {
-            bail!("Incomplete model download");
-        }
-        output.sync_all()?;
-        drop(output);
-        std::fs::rename(&temporary, destination)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
+    gsm_downloads::download(url, destination, None, gsm_downloads::MAX_BYTES, &|_, _| {})
+        .map_err(anyhow::Error::msg)
 }
 
 pub fn model(root: &Path, repo: &str, name: &str) -> Result<PathBuf> {
@@ -156,10 +131,14 @@ pub fn pinned_model(
         verify_sha256(&cached, digest)?;
         std::fs::copy(cached, temporary.path())?;
     } else {
-        download(
+        gsm_downloads::download(
             &format!("https://huggingface.co/{repo}/resolve/{revision}/{name}"),
             temporary.path(),
-        )?;
+            Some(digest),
+            gsm_downloads::MAX_BYTES,
+            &|_, _| {},
+        )
+        .map_err(anyhow::Error::msg)?;
     }
     verify_sha256(temporary.path(), digest)?;
     temporary.as_file().sync_all()?;

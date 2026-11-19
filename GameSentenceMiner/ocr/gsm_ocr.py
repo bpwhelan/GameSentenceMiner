@@ -1122,7 +1122,9 @@ class TwoPassOCRControllerV2(TwoPassOCRController):
         self._vocr_last_detection_pixels = None
 
     def _vocr_detection_pixels(self, img, crop_coords):
-        if self.config.ocr1_engine.strip().lower() != "vocr_detector" or not isinstance(img, Image.Image):
+        if self.config.ocr1_engine.strip().lower() not in {"vocr_detector", "mida_detector"} or not isinstance(
+            img, Image.Image
+        ):
             return None
         return img.crop(crop_coords).convert("L").resize((256, 64), Image.Resampling.BILINEAR)
 

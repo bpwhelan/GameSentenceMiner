@@ -269,16 +269,33 @@ impl Obs {
     }
     pub(super) async fn current_scene(&self, app: &tauri::AppHandle) -> Result<Value, String> {
         let v = self.call(app, "GetCurrentProgramScene", json!({})).await?;
-        Ok(json!({"name":v["sceneName"],"id":v["sceneUuid"]}))
+        Ok(json!({
+            "name": v.get("currentProgramSceneName").unwrap_or(&v["sceneName"]),
+            "id": v.get("currentProgramSceneUuid").unwrap_or(&v["sceneUuid"]),
+        }))
     }
-    async fn items(&self, app: &tauri::AppHandle, id: &str) -> Result<Vec<Value>, String> {
-        self.call(app, "GetSceneItemList", json!({"sceneUuid":id}))
-            .await?["sceneItems"]
+    pub(super) async fn items(
+        &self,
+        app: &tauri::AppHandle,
+        id: &str,
+    ) -> Result<Vec<Value>, String> {
+        self.items_by_selector(app, json!({"sceneUuid":id})).await
+    }
+    pub(super) async fn items_by_selector(
+        &self,
+        app: &tauri::AppHandle,
+        selector: Value,
+    ) -> Result<Vec<Value>, String> {
+        self.call(app, "GetSceneItemList", selector).await?["sceneItems"]
             .as_array()
             .cloned()
             .ok_or("OBS returned no scene items".into())
     }
-    async fn input_settings(&self, app: &tauri::AppHandle, item: &Value) -> Result<Value, String> {
+    pub(super) async fn input_settings(
+        &self,
+        app: &tauri::AppHandle,
+        item: &Value,
+    ) -> Result<Value, String> {
         let selector = if item["sourceUuid"].is_string() {
             json!({"inputUuid":item["sourceUuid"]})
         } else {
@@ -477,7 +494,7 @@ impl Obs {
         }
         Ok((String::new(), String::new()))
     }
-    async fn screenshot(
+    pub(super) async fn screenshot(
         &self,
         app: &tauri::AppHandle,
         name: &str,
@@ -700,17 +717,21 @@ impl Obs {
                 .await?;
                 Ok(Value::Null)
             }
-            "obs.saveReplay" | "obs.startRecording" => {
-                self.call(
-                    app,
-                    if channel.ends_with("saveReplay") {
-                        "SaveReplayBuffer"
-                    } else {
-                        "StartRecord"
-                    },
-                    json!({}),
-                )
-                .await?;
+            "obs.saveReplay" => {
+                self.save_replay(app).await?;
+                Ok(Value::Null)
+            }
+            "obs.startRecording" => {
+                let _lifecycle = self
+                    .0
+                    .lifecycle
+                    .try_read()
+                    .map_err(|_| "OBS is changing its runtime")?;
+                if self.0.suspended.load(Ordering::SeqCst) {
+                    return Err("OBS is being updated or closed".into());
+                }
+                let _recording = self.0.recording.lock().await;
+                self.call(app, "StartRecord", json!({})).await?;
                 Ok(Value::Null)
             }
             "obs.createScene" | "obs.createScene.Game" => self.create_scene(app, arg).await,

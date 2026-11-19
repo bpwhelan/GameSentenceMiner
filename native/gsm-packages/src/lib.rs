@@ -1,3 +1,4 @@
+pub mod agent_runtime;
 pub mod anki_beacon;
 pub mod changelog;
 pub mod data_relocate;
@@ -9,26 +10,19 @@ pub mod python;
 pub mod scripts;
 pub mod settings_backup;
 pub mod updates;
+pub use gsm_downloads as downloads;
+pub use gsm_downloads::hash;
 use gsm_settings::Result;
-use sha2::{Digest, Sha256};
 use std::{
     fs::{self, File},
-    io::{Read, Write},
     path::Path,
     time::Duration,
 };
-pub fn hash(path: &Path) -> Result<String> {
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    let mut hash = Sha256::new();
-    let mut buffer = [0; 65536];
-    loop {
-        let count = file.read(&mut buffer).map_err(|e| e.to_string())?;
-        if count == 0 {
-            break;
-        }
-        hash.update(&buffer[..count]);
-    }
-    Ok(format!("{:x}", hash.finalize()))
+pub fn download_cache() -> Result<std::path::PathBuf> {
+    Ok(gsm_settings::paths::Paths::resolve()?
+        .shared
+        .join("downloads")
+        .join("v1"))
 }
 pub fn client(seconds: u64) -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
@@ -68,52 +62,7 @@ pub fn download(
     expected: Option<&str>,
     progress: &dyn Fn(u64, Option<u64>),
 ) -> Result<()> {
-    let mut last = String::new();
-    for attempt in 0..2 {
-        let result: Result<()> = (|| {
-            let mut response = client(120)?
-                .get(url)
-                .send()
-                .and_then(|r| r.error_for_status())
-                .map_err(|e| e.to_string())?;
-            let total = response.content_length();
-            if total.is_some_and(|n| n > 1024 * 1024 * 1024) {
-                return Err("Archive exceeds 1 GiB limit".into());
-            }
-            let mut file = File::create(path).map_err(|e| e.to_string())?;
-            let mut digest = Sha256::new();
-            let mut bytes = 0;
-            let mut buffer = [0; 65536];
-            loop {
-                let count = response.read(&mut buffer).map_err(|e| e.to_string())?;
-                if count == 0 {
-                    break;
-                }
-                bytes += count as u64;
-                if bytes > 1024 * 1024 * 1024 {
-                    return Err("Archive exceeds 1 GiB limit".into());
-                }
-                file.write_all(&buffer[..count])
-                    .map_err(|e| e.to_string())?;
-                digest.update(&buffer[..count]);
-                progress(bytes, total);
-            }
-            file.sync_all().map_err(|e| e.to_string())?;
-            if expected.is_some_and(|expected| expected != format!("{:x}", digest.finalize())) {
-                return Err("Archive SHA-256 mismatch".into());
-            }
-            Ok(())
-        })();
-        match result {
-            Ok(()) => return Ok(()),
-            Err(e) => last = format!("{url}: {e}"),
-        }
-        if attempt == 0 {
-            std::thread::sleep(Duration::from_millis(250));
-        }
-    }
-    let _ = fs::remove_file(path);
-    Err(last)
+    downloads::download(url, path, expected, downloads::MAX_BYTES, progress)
 }
 /// Never extract links, duplicate/case-colliding paths, or paths escaping staging.
 pub fn extract(

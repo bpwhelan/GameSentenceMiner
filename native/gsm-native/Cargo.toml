@@ -10,7 +10,12 @@ name = "_native"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+gsm-downloads = { path = "../gsm-downloads" }
+hashlink = "0.9.1"
+smallvec = { version = "1", features = ["const_generics", "union"] }
 pyo3 = { version = "0.29.0", features = ["abi3-py311"] }
+rapidfuzz = "0.5"
+serde = { version = "1", features = ["derive"] }
 
 [profile.release]
 codegen-units = 1

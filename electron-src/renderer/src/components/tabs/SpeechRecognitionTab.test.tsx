@@ -153,6 +153,11 @@ describe("SpeechRecognitionTab", () => {
     expect(container.querySelector(".speech-transcript-line.is-partial")).toBeNull();
     expect(container.querySelector(".speech-transcript-line p")?.textContent).toBe("今日は一緒に帰ろう。");
     expect(container.querySelectorAll(".speech-recognition-log")).toHaveLength(3);
+
+    await act(async () => emit("[py:speech] [final] 明日は晴れです。"));
+    const transcriptTexts = Array.from(container.querySelectorAll(".speech-transcript-line p")).map((el) => el.textContent);
+    expect(transcriptTexts).toEqual(["今日は一緒に帰ろう。", "明日は晴れです。"]);
+    expect(container.querySelector(".log-origin-badge--python")?.textContent).toBe("[py:speech]");
   });
 
   it("keeps only twenty recent sentences and fifty activity entries", async () => {

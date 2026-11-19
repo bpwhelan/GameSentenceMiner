@@ -1,0 +1,421 @@
+use super::{
+    scenes::selector_parts,
+    session_profile::Profiles,
+    session_target::{self, Selector, Target},
+    text, Obs,
+};
+use base64::Engine;
+use serde_json::{json, Value};
+use std::{
+    sync::Mutex,
+    time::{Duration, Instant},
+};
+use tokio::sync::{watch, Notify};
+
+fn empty(scene: &str, id: &str) -> Value {
+    json!({"scene":scene,"scene_id":id,"capture_source":scene,"capture_kind":"window","source_name":"",
+        "window_info":null,"target_id":null,"target_pid":null,"process_path":scene,"available":false,"obs_fallback_available":false,"active":null})
+}
+
+#[derive(Default)]
+struct Control {
+    generation: u64,
+    profiles: Profiles,
+    #[cfg(windows)]
+    smoke_fixture: bool,
+}
+
+pub(super) struct Session {
+    control: Mutex<Control>,
+    state: watch::Sender<Value>,
+    wake: Notify,
+}
+
+impl Default for Session {
+    fn default() -> Self {
+        let mut state = empty("", "");
+        state["revision"] = json!(0);
+        state["scene_epoch"] = json!(0);
+        state["profile"] = Value::Null;
+        state["choices"] = json!([]);
+        Self {
+            control: Mutex::new(Control::default()),
+            state: watch::channel(state).0,
+            wake: Notify::new(),
+        }
+    }
+}
+
+impl Session {
+    fn publish(&self, mut next: Value, control: &Control) -> bool {
+        self.state.send_if_modified(|old| {
+            let changed = next["scene"] != old["scene"] || next["scene_id"] != old["scene_id"];
+            next["revision"] = old["revision"].clone();
+            next["scene_epoch"] =
+                json!(old["scene_epoch"].as_u64().unwrap_or(0) + u64::from(changed));
+            next["profile"] = json!(control.profiles.name);
+            next["choices"] = if changed {
+                json!([])
+            } else {
+                json!(control.profiles.choices)
+            };
+            if *old == next {
+                return false;
+            }
+            next["revision"] = json!(old["revision"].as_u64().unwrap_or(0) + 1);
+            *old = next;
+            true
+        })
+    }
+    pub(super) fn invalidate(&self, scene: Option<(&str, &str)>) {
+        let mut control = self.control.lock().unwrap();
+        #[cfg(windows)]
+        if control.smoke_fixture {
+            return;
+        }
+        control.generation += 1;
+        let old = self.state.borrow().clone();
+        let (name, id) = scene.unwrap_or((text(&old, "scene"), text(&old, "scene_id")));
+        self.publish(empty(name, id), &control);
+        self.wake.notify_one();
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct Source {
+    scene: String,
+    id: String,
+    name: String,
+    selector: Option<Selector>,
+    inspected: bool,
+}
+
+fn selector(settings: &Value) -> Option<Selector> {
+    if let Some(raw) = settings["capture_window"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+    {
+        let mut fields = raw.split('\n').map(str::trim);
+        return Some(Selector {
+            window_id: fields.next()?.parse().ok(),
+            title: fields.next().unwrap_or("").into(),
+            window_class: fields.next().unwrap_or("").into(),
+            exe: String::new(),
+        });
+    }
+    let raw = settings["window"]
+        .as_str()
+        .filter(|s| s.matches(':').count() >= 2)?;
+    if settings["capture_mode"]
+        .as_str()
+        .is_some_and(|s| s != "window")
+    {
+        return None;
+    }
+    let (title, window_class, exe) = selector_parts(raw);
+    if title.trim().is_empty() && window_class.trim().is_empty() && exe.trim().is_empty() {
+        return None;
+    }
+    Some(Selector {
+        title: title.trim().into(),
+        window_class: window_class.trim().into(),
+        exe: exe.trim().into(),
+        window_id: None,
+    })
+}
+
+fn visual(item: &Value) -> bool {
+    let kind = text(item, "inputKind");
+    item["sceneItemEnabled"] != false
+        && !kind.contains("audio")
+        && !kind.starts_with("wasapi_")
+        && !kind.starts_with("pulse_")
+        && !kind.starts_with("alsa_")
+        && !kind.starts_with("coreaudio_")
+}
+
+fn nonblank(data: &Value) -> Option<bool> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_str()?.split_once(',')?.1)
+        .ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_rgb8();
+    let mut lo = [255u8; 3];
+    let mut hi = [0u8; 3];
+    for pixel in image.pixels() {
+        for c in 0..3 {
+            lo[c] = lo[c].min(pixel[c]);
+            hi[c] = hi[c].max(pixel[c])
+        }
+    }
+    let range = (0..3).map(|i| hi[i] - lo[i]).max()?;
+    Some(range > 5 && (range > 15 || *hi.iter().max()? > 30))
+}
+
+impl Obs {
+    #[cfg(windows)]
+    pub(crate) fn set_ocr_smoke_target(&self, scene: &str, hwnd: u64) {
+        let session = &self.0.session;
+        let mut control = session.control.lock().unwrap();
+        control.smoke_fixture = true;
+        let mut state = empty(scene, "smoke");
+        state["available"] = json!(true);
+        state["active"] = json!(true);
+        state["target_id"] = json!(hwnd);
+        state["target_pid"] = json!(std::process::id());
+        session.publish(state, &control);
+    }
+
+    pub fn game_session(&self) -> Value {
+        self.0.session.state.borrow().clone()
+    }
+    pub async fn wait_game_session(&self, after: Option<u64>) -> Value {
+        let mut rx = self.0.session.state.subscribe();
+        if after.is_some() && rx.borrow_and_update()["revision"].as_u64() == after {
+            let _ = tokio::time::timeout(Duration::from_secs(8), rx.changed()).await;
+        }
+        let state = rx.borrow().clone();
+        state
+    }
+    pub fn select_game_profile(&self, name: &str, epoch: Option<u64>) -> Result<Value, String> {
+        let path = self.paths()?.base.join("config.json");
+        let session = &self.0.session;
+        let mut control = session.control.lock().unwrap();
+        let state = self.game_session();
+        if epoch.is_some()
+            && (epoch != state["scene_epoch"].as_u64()
+                || !state["choices"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|v| v == name)))
+        {
+            return Err("Scene changed before profile selection completed".into());
+        }
+        control
+            .profiles
+            .reconcile(&path, text(&state, "scene"), Some((name, epoch.is_none())))?;
+        session.publish(state, &control);
+        session.wake.notify_one();
+        Ok(self.game_session())
+    }
+    async fn session_source(&self, app: &tauri::AppHandle) -> Result<Source, String> {
+        let scene = self.current_scene(app).await?;
+        let name = text(&scene, "name");
+        let id = text(&scene, "id");
+        if name.is_empty() {
+            return Err("OBS has no program scene".into());
+        }
+        let mut source = Source {
+            scene: name.into(),
+            id: id.into(),
+            name: String::new(),
+            selector: None,
+            inspected: false,
+        };
+        let scene_selector = if id.is_empty() {
+            json!({"sceneName":name})
+        } else {
+            json!({"sceneUuid":id})
+        };
+        let Ok(items) = self.items_by_selector(app, scene_selector).await else {
+            return Ok(source);
+        };
+        let mut sources = items.iter().filter(|i| visual(i)).collect::<Vec<_>>();
+        sources.sort_by_key(|i| match text(i, "inputKind") {
+            "game_capture" => 0,
+            "window_capture" | "xcomposite_input" => 1,
+            "monitor_capture" | "dshow_input" => 2,
+            _ => 3,
+        });
+        for item in sources {
+            let name = text(item, "sourceName");
+            if source.name.is_empty() {
+                source.name = name.into()
+            }
+            if matches!(
+                text(item, "inputKind"),
+                "game_capture" | "window_capture" | "xcomposite_input"
+            ) {
+                let Ok(settings) = self.input_settings(app, item).await else {
+                    return Ok(source);
+                };
+                if let Some(target) = selector(&settings) {
+                    source.name = name.into();
+                    source.selector = Some(target);
+                    break;
+                }
+            }
+        }
+        source.inspected = true;
+        Ok(source)
+    }
+
+    pub(super) async fn sample_session(self, app: tauri::AppHandle) {
+        let session = &self.0.session;
+        let path = self
+            .paths()
+            .expect("initialized OBS")
+            .base
+            .join("config.json");
+        let mut source: Option<Source> = None;
+        let mut generation = None;
+        let mut last_epoch = None;
+        let mut refreshed = Instant::now();
+        let mut target: Option<Target> = None;
+        let mut tracked = false;
+        let mut empty_since = None;
+        loop {
+            let (current, epoch) = {
+                let control = session.control.lock().unwrap();
+                (
+                    control.generation,
+                    self.game_session()["scene_epoch"].as_u64(),
+                )
+            };
+            let connection = self.0.client.primary_id();
+            let connected = connection.is_some();
+            if generation != Some(current)
+                || refreshed.elapsed() > Duration::from_secs(10)
+                || source.as_ref().is_none_or(|s| !s.inspected)
+                || !connected
+            {
+                let next = if connected {
+                    self.session_source(&app).await.ok()
+                } else {
+                    None
+                };
+                if source != next || epoch != last_epoch {
+                    target = None;
+                    tracked = false;
+                    empty_since = None;
+                }
+                source = next;
+                generation = Some(current);
+                refreshed = Instant::now();
+            }
+            let mut state = empty("", "");
+            if let Some(s) = source.as_ref() {
+                state = empty(&s.scene, &s.id);
+                state["source_name"] = json!(s.name);
+                if let Some(window) = s.selector.as_ref() {
+                    let selector = window.clone();
+                    let previous = target.take();
+                    target = tokio::task::spawn_blocking(move || {
+                        session_target::resolve(&selector, previous.as_ref())
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+                    let mut info = json!(window);
+                    info["source_name"] = json!(s.name);
+                    state["window_info"] = info;
+                    if let Some(t) = &target {
+                        tracked = true;
+                        state["target_id"] = json!(t.id);
+                        state["target_pid"] = json!(t.pid);
+                        state["available"] = json!(t.visible);
+                        state["active"] = json!(true);
+                        state["process_path"] = json!(t.path);
+                    } else if tracked {
+                        state["active"] = json!(false);
+                    }
+                } else if s.inspected {
+                    state["capture_kind"] = json!("obs");
+                }
+                if s.inspected && s.name.is_empty() {
+                    state["active"] = json!(false);
+                } else if s.inspected && state["active"].is_null() {
+                    let frame = self
+                        .screenshot(&app, &s.scene, 8, 8)
+                        .await
+                        .ok()
+                        .as_ref()
+                        .and_then(nonblank);
+                    match frame {
+                        Some(true) => {
+                            empty_since = None;
+                            state["active"] = json!(true);
+                            state["available"] = json!(s.selector.is_none());
+                            state["obs_fallback_available"] = json!(s.selector.is_some());
+                        }
+                        Some(false) => {
+                            if empty_since.get_or_insert_with(Instant::now).elapsed()
+                                >= Duration::from_secs(15)
+                            {
+                                state["active"] = json!(false)
+                            }
+                        }
+                        None => empty_since = None,
+                    }
+                }
+            }
+            let (changed, profile_changed) = {
+                let mut control = session.control.lock().unwrap();
+                #[cfg(windows)]
+                if control.smoke_fixture {
+                    return;
+                }
+                if control.generation != current || connection != self.0.client.primary_id() {
+                    continue;
+                }
+                let previous_profile = control.profiles.name.clone();
+                let _ = control
+                    .profiles
+                    .reconcile(&path, text(&state, "scene"), None);
+                let changed = session.publish(state, &control);
+                last_epoch = self.game_session()["scene_epoch"].as_u64();
+                (changed, previous_profile != control.profiles.name)
+            };
+            if changed {
+                crate::auto_launcher::notify_signal(&app);
+            }
+            if profile_changed {
+                let _ = crate::tray::refresh_menu(&app);
+            }
+            tokio::select! { _=session.wake.notified()=>{}, _=tokio::time::sleep(Duration::from_secs(1))=>{} }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn parses_obs_selectors_and_ignores_disabled_or_audio_sources() {
+        let target = selector(&json!({"window":"Game#3A#22:Class:Game.exe"})).unwrap();
+        assert_eq!(target.title, "Game:#");
+        assert!(
+            selector(&json!({"capture_mode":"any_fullscreen","window":"Game:Class:game.exe"}))
+                .is_none()
+        );
+        let linux = selector(&json!({"capture_window":"10\r\n\r\nSDL"})).unwrap();
+        assert_eq!(
+            (
+                linux.window_id,
+                linux.title.as_str(),
+                linux.window_class.as_str()
+            ),
+            (Some(10), "", "SDL")
+        );
+        assert!(!visual(
+            &json!({"inputKind":"monitor_capture","sceneItemEnabled":false})
+        ));
+        assert!(!visual(
+            &json!({"inputKind":"wasapi_process_output_capture"})
+        ));
+    }
+    #[tokio::test]
+    async fn disconnect_clears_target_wakes_readers_and_expires_profile_choices() {
+        let obs = Obs::default();
+        let s = &obs.0.session;
+        let mut state = empty("Game", "a");
+        state["target_id"] = json!(17);
+        state["active"] = json!(true);
+        s.publish(state, &s.control.lock().unwrap());
+        let revision = obs.game_session()["revision"].as_u64();
+        s.invalidate(Some(("", "")));
+        let next = obs.wait_game_session(revision).await;
+        assert_eq!(next["scene"], "");
+        assert!(next["target_id"].is_null() && next["active"].is_null());
+        assert_eq!(next["scene_epoch"], 2);
+        assert!(next["choices"].as_array().unwrap().is_empty());
+    }
+}

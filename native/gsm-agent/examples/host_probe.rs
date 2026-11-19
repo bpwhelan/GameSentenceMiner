@@ -1,18 +1,17 @@
 //! Detached native host lifecycle smoke against a caller-owned test process.
 use serde_json::json;
 use std::{thread, time::Duration};
+fn host_executable() -> std::path::PathBuf {
+    std::env::var_os("GSM_AGENT_PROBE_HOST").map(std::path::PathBuf::from).unwrap_or_else(|| {
+        std::env::current_exe().unwrap().with_file_name(if cfg!(windows) { "agent_host.exe" } else { "agent_host" })
+    })
+}
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).is_some_and(|s| s == "--launch-detached") {
         let pid: u32 = args[2].parse().unwrap();
         let dir = std::path::PathBuf::from(&args[3]);
-        let exe = std::env::current_exe()
-            .unwrap()
-            .with_file_name(if cfg!(windows) {
-                "agent_host.exe"
-            } else {
-                "agent_host"
-            });
+        let exe = host_executable();
         let controller = gsm_agent::Controller::new(|_, _, _| {});
         let result=controller.start(exe,json!({"pid":pid,"baseDir":dir,"root":std::env::current_dir().unwrap(),"scriptPath":dir.join("probe.js"),"arch":"x64","exeName":"text_target.exe","detached":true,"flushDelayMs":0})).unwrap();
         assert_eq!(result["success"], true);
@@ -43,13 +42,7 @@ fn main() {
             std::fs::copy(e.path(), dir.join(e.file_name())).unwrap();
         }
     }
-    let exe = std::env::current_exe()
-        .unwrap()
-        .with_file_name(if cfg!(windows) {
-            "agent_host.exe"
-        } else {
-            "agent_host"
-        });
+    let exe = host_executable();
     let mut launcher = std::process::Command::new(std::env::current_exe().unwrap());
     launcher
         .arg("--launch-detached")

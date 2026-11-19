@@ -145,7 +145,7 @@ test('Continue in settings and the Next hotkey persist the new route through the
   let canSave = true;
   const context = vm.createContext({
     ...catalogueContext(),
-    vnGuideController: null, vnGuideHud: null, BrowserWindow: {}, dataPath: '',
+    vnGuideController: null, vnGuideHud: null, vnGuideChoiceClickThroughActive: false, BrowserWindow: {}, dataPath: '',
     userSettings: { vnGuideEnabled: true, vnGuideUrl: 'https://kanjieater.github.io/VN-Guide/test-game/', vnGuideNextHotkey: 'Alt+Shift+Right' },
     createVnGuideController,
     createVnGuideHud: () => ({ update() {}, dispose() {}, owns: () => false }),

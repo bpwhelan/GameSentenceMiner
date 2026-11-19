@@ -18,6 +18,7 @@ use crate::overlay_preload::{
     overlay_main_init_script, overlay_settings_init_script, overlay_simple_ipc_init_script,
     overlay_vn_guide_hud_init_script,
 };
+use crate::overlay_pointer::PointerPacer;
 use crate::overlay_settings::{
     apply_backend_profile_state, apply_gsm_owned_config_update, backend_profile_name,
     build_profile_snapshot, default_user_settings_map, is_modifier_only_hotkey, is_mouse_hotkey,
@@ -29,7 +30,7 @@ use crate::overlay_settings::{
 };
 use crate::overlay_vn_guide::{
     compute_vn_guide_hud_bounds, normalize_custom_page_url, parse_guide_url,
-    validated_catalogue_source, GuideStore, VnGuideController,
+    validated_catalogue_source, GuideStore, GuideUpdateCheck, VnGuideController,
 };
 use crate::{input_server, tray, window_platform};
 use futures_util::{SinkExt, StreamExt};
@@ -268,12 +269,14 @@ fn merge_config_message(pending: &mut Option<Value>, update: Value) {
 
 struct OverlayInner {
     running: bool,
+    dictionary_ready: bool,
     manually_disabled: bool,
     pending_settings_tab: Option<String>,
     pending_config: Map<String, Value>,
     capture_available: Option<bool>,
     resize_mode: bool,
     navigation_active: bool,
+    interaction_revealed: bool,
     translation_requested: bool,
     backend_config: Value,
     pause_sources: std::collections::HashSet<String>,
@@ -319,6 +322,7 @@ struct OverlayInner {
     target_hwnd: Option<u64>,
     last_window_state: Option<Value>,
     vn_guide_available: bool,
+    vn_guide_choice_click_through: bool,
     vn_guide_scene: Option<String>,
     custom_page_saved_urls: HashMap<String, String>,
     main_box_shown: bool,
@@ -331,12 +335,14 @@ impl Default for OverlayInner {
     fn default() -> Self {
         Self {
             running: false,
+            dictionary_ready: false,
             manually_disabled: false,
             pending_settings_tab: None,
             pending_config: Map::new(),
             capture_available: None,
             resize_mode: false,
             navigation_active: false,
+            interaction_revealed: false,
             translation_requested: false,
             backend_config: Value::Null,
             pause_sources: Default::default(),
@@ -396,6 +402,7 @@ impl Default for OverlayInner {
             target_hwnd: None,
             last_window_state: None,
             vn_guide_available: false,
+            vn_guide_choice_click_through: false,
             vn_guide_scene: None,
             custom_page_saved_urls: HashMap::new(),
             main_box_shown: false,
@@ -432,10 +439,30 @@ impl Default for OverlayHost {
 }
 
 impl OverlayHost {
+    fn interaction_active(inner: &OverlayInner) -> bool {
+        inner.navigation_active || inner.manual_hotkey.hold_active || inner.manual_hotkey.toggle_latched
+    }
+
+    fn reveal_transition(inner: &mut OverlayInner) -> Option<bool> {
+        let active = Self::interaction_active(inner);
+        if inner.interaction_revealed == active {
+            return None;
+        }
+        inner.interaction_revealed = active;
+        Some(active)
+    }
+
+    fn focus_neutral_manual_mode(inner: &OverlayInner) -> bool {
+        Self::manual_mode(inner)
+            && inner.user_settings["manualModeInactiveBehavior"] == "disable-interaction"
+            && inner.user_settings["manualModeDisableInteractionFocusOverlay"] != true
+    }
+
     fn reset_interactions(&self, app: &AppHandle) {
         let (manual, sources) = {
             let mut inner = self.inner.lock().unwrap();
-            let manual = inner.manual_hotkey.reset();
+            let manual = inner.manual_hotkey.reset() || inner.interaction_revealed;
+            inner.interaction_revealed = false;
             inner.navigation_active = false;
             inner.resize_mode = false;
             inner.yomitan_showing = false;
@@ -510,13 +537,50 @@ impl OverlayHost {
             }
         }
     }
+    fn should_forward_native_result(payload: &Value) -> bool {
+        // Text-driven scans (line_id present) already originated in Python; Rust owns
+        // capture, OCR, logging, and rendering with no back-and-forth. Only unbacked
+        // overlay-originated scans (periodic/manual/skip_recovery with no line_id)
+        // notify Python so mining/skip-recovery can record the transient scan.
+        payload["is_final"] == true
+            && payload["coordinates_only"] != true
+            && payload["line_id"].is_null()
+            && payload["data"].as_array().is_some_and(|rows| {
+                rows.iter()
+                    .filter_map(|row| row["text"].as_str())
+                    .any(|text| !text.trim().is_empty())
+            })
+    }
+
+    fn build_translate_request(first: &Value, last_text_payload: &Value) -> Value {
+        if first.is_object() {
+            let mut m = first.as_object().cloned().unwrap_or_default();
+            m.insert("type".into(), json!("translate-request"));
+            return Value::Object(m);
+        }
+        let text = last_text_payload["data"]
+            .as_array()
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| row["text"].as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
+            .filter(|t| !t.trim().is_empty());
+        if let Some(text) = text {
+            json!({ "type": "translate-request", "text": text })
+        } else {
+            json!({ "type": "translate-request" })
+        }
+    }
+
     pub(crate) fn observe_native_payload(&self, app: &AppHandle, payload: &Value) {
         if payload["type"] != "word_coordinates" {
             return;
         }
         let mut inner = self.inner.lock().unwrap();
         inner.last_text_payload = payload.clone();
-        if payload["is_final"] == true {
+        if Self::should_forward_native_result(payload) {
             if let Some(tx) = &inner.ws2_tx {
                 let _ = tx.send(Ws2Outbound::Direct(
                     json!({"type":"native-overlay-result", "data":payload}),
@@ -541,9 +605,7 @@ impl OverlayHost {
     }
     async fn refresh_dictionary(&self, app: &AppHandle, previous: String) -> Result<(), String> {
         let _guard = self.reader_switch.lock().await;
-        if !self.inner.lock().unwrap().running {
-            return Ok(());
-        }
+        self.inner.lock().unwrap().dictionary_ready = false;
         {
             let mut inner = self.inner.lock().unwrap();
             // Disabling an extension can discard its popup-hidden event.
@@ -592,7 +654,7 @@ impl OverlayHost {
                         .await;
                 }
             }
-            eprintln!("[overlay] Reader switch failed: {error}");
+            crate::desktop_log::error(app, "overlay", format!("Reader switch failed: {error}"));
         }
         self.push_preload_settings(app);
         self.push_settings_to_main(app);
@@ -658,6 +720,35 @@ impl OverlayHost {
         }
     }
 
+    fn forward_game_input(&self, channel: &str, first: &Value) {
+        let inner = self.inner.lock().unwrap();
+        // Forward bindings also advance the game while overlay navigation is idle.
+        if inner.user_settings["gamepadEnabled"] != true
+            || !Self::capture_available(&inner)
+            || inner.hotkey_suppressed_for_input_test
+            || !inner.ws2_connected
+        {
+            return;
+        }
+        let key = if channel == "gamepad-forward-enter" {
+            Some("enter")
+        } else {
+            first.as_str()
+        };
+        if channel != "gamepad-forward-click"
+            && !key.is_some_and(|key| matches!(key, "enter" | "space" | "ctrl" | "escape"))
+        {
+            return;
+        }
+        if let Some(tx) = &inner.ws2_tx {
+            let _ = tx.send(Ws2Outbound::Direct(json!({
+                "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
+                "key": key, "source": "gamepad", "activateWindow": true,
+                "targetPid": inner.game_state.pid, "expected_target_hwnd": inner.target_hwnd,
+            })));
+        }
+    }
+
     fn finish_manual_focus(&self, app: &AppHandle) {
         let focus = {
             let mut inner = self.inner.lock().unwrap();
@@ -691,7 +782,15 @@ impl OverlayHost {
         self.set_process_pause("gamepad_navigation", active);
         if active {
             self.wake_activity(app);
+            self.sync_game_visibility(app);
+            if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+                let _ = window_platform::apply(&win, "moveTop", &Value::Null);
+            }
         } else {
+            // A navigation exit ends the manual session too. Duplicate exit
+            // signals return above so they cannot clear a new activation.
+            self.inner.lock().unwrap().manual_hotkey.reset();
+            self.set_process_pause("manual_hotkey", false);
             self.set_process_pause("gamepad_manual_pause", false);
             desktop_state::emit_to_window(
                 app,
@@ -699,8 +798,8 @@ impl OverlayHost {
                 "gamepad-pause-state",
                 &[json!({"paused":false})],
             );
-            self.restore_game_focus();
         }
+        self.sync_interaction_reveal(app, "controller-navigation");
         self.sync_window_ignore_mouse(app);
     }
     fn refresh_tray(&self, app: &AppHandle) {
@@ -710,7 +809,7 @@ impl OverlayHost {
             (inner.user_settings.clone(), inner.running)
         };
         if let Err(error) = crate::overlay_tray::refresh(app, &settings, running) {
-            eprintln!("[overlay] Tray: {error}");
+            crate::desktop_log::warn(app, "overlay", format!("Tray: {error}"));
         }
     }
 
@@ -792,7 +891,9 @@ impl OverlayHost {
         if !Self::capture_available(inner) || inner.is_afk {
             return (true, false);
         }
-        if inner.resize_mode || inner.yomitan_showing || inner.pinned {
+        if inner.resize_mode || inner.pinned || inner.navigation_active
+            || (inner.yomitan_showing && !Self::routes_text_hover(inner))
+        {
             return (false, true);
         }
         if Self::manual_mode(inner)
@@ -807,7 +908,7 @@ impl OverlayHost {
         } else {
             inner.text_hover_ignoring.unwrap_or(true)
         };
-        (ignore, !ignore && inner.navigation_active)
+        (ignore, inner.lookup_focus_owned || (!ignore && (inner.navigation_active || inner.yomitan_showing)))
     }
 
     fn request_or_toggle_translation(&self, app: &AppHandle) -> Result<(), String> {
@@ -975,6 +1076,7 @@ impl OverlayHost {
         let inner = self.inner.lock().unwrap();
         json!({
             "isRunning": inner.running,
+            "dictionaryReady": inner.dictionary_ready,
             "pid": Value::Null,
             "source": inner.source,
             "phase": if inner.running { "running" } else { "stopped" },
@@ -1030,6 +1132,13 @@ impl OverlayHost {
         Ok(self.status())
     }
 
+    /// Prepare presentation without activating capture, sockets, hotkeys or tray.
+    pub async fn prepare(&self, app: &AppHandle) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        self.ensure_loaded(app);
+        self.ensure_main_window(app).await
+    }
+
     pub async fn start(
         &self,
         app: &AppHandle,
@@ -1069,7 +1178,17 @@ impl OverlayHost {
             self.stop_inner(app).await;
             return Err(error);
         }
-        self.reconfigure_vn_guide(app, false).await;
+        self.push_display_info(app);
+        self.push_settings_to_main(app);
+        self.sync_game_visibility(app);
+        self.sync_window_ignore_mouse(app);
+        let guide_app = app.clone();
+        let guide_host = self.clone();
+        tauri::async_runtime::spawn(async move {
+            if guide_host.inner.lock().unwrap().worker_gen == gen {
+                guide_host.reconfigure_vn_guide(&guide_app, false).await;
+            }
+        });
 
         // Spawn WS2 gateway, InputServer client, AFK/Pomodoro timer, and Magpie loop
         self.spawn_ws2_worker(app.clone(), gen);
@@ -1152,8 +1271,10 @@ impl OverlayHost {
                 tokio::time::timeout(Duration::from_secs(2), release).await,
                 Ok(Ok(()))
             ) {
-                eprintln!(
-                    "[overlay] Could not confirm release of overlay pause sources before shutdown"
+                crate::desktop_log::warn(
+                    app,
+                    "overlay",
+                    "Could not confirm release of overlay pause sources before shutdown",
                 );
             }
         }
@@ -1183,6 +1304,8 @@ impl OverlayHost {
             inner.last_window_state = None;
             inner.manual_hotkey.reset();
             inner.capture_available = None;
+            inner.vn_guide_available = false;
+            inner.vn_guide_choice_click_through = false;
             inner.navigation_active = false;
             inner.resize_mode = false;
             inner.manual_focus_deadline = None;
@@ -1192,13 +1315,20 @@ impl OverlayHost {
             };
         }
 
+        if let Some(ctrl) = self.vn_guide.lock().await.as_mut() {
+            ctrl.set_available(false, None);
+        }
         self.unregister_all_tauri_shortcuts(app);
         if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
             let _ = overlay.command(OVERLAY_MAIN_LABEL, json!({ "action": "stop" }));
         }
 
+        // Reuse the view for quick toggles, then release presentation if unused.
+        crate::overlay::clear(app, OVERLAY_MAIN_LABEL);
+        self.reset_interactions(app);
+        self.sync_game_visibility(app);
+        self.sync_window_ignore_mouse(app);
         for label in [
-            OVERLAY_MAIN_LABEL,
             OVERLAY_SETTINGS_LABEL,
             OVERLAY_OFFSET_LABEL,
             OVERLAY_STARTUP_LABEL,
@@ -1217,6 +1347,40 @@ impl OverlayHost {
         self.refresh_tray(app);
         tray::refresh_presentation(app);
         desktop_state::emit_to_desktop_windows(app, "overlay-status-changed", &[self.status()]);
+        let host = self.clone();
+        let handle = app.clone();
+        let generation = self.inner.lock().unwrap().worker_gen;
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            host.release_idle_view(&handle, generation).await;
+        });
+    }
+
+    async fn release_idle_view(&self, app: &AppHandle, generation: u64) {
+        let _lifecycle = self.lifecycle.lock().await;
+        let _reader = self.reader_switch.lock().await;
+        {
+            let inner = self.inner.lock().unwrap();
+            if inner.running || inner.worker_gen != generation { return; }
+        }
+        if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+            if let Err(error) = window.destroy() {
+                crate::desktop_log::warn(app, "memory", format!("Could not release idle overlay: {error}"));
+                return;
+            }
+            // Destruction is queued. Keep start serialized until its old label
+            // and attachment bookkeeping are gone.
+            for _ in 0..250 {
+                if app.get_webview_window(OVERLAY_MAIN_LABEL).is_none() { break; }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() { return; }
+        }
+        app.state::<DictionaryManager>().forget_window(app, OVERLAY_MAIN_LABEL);
+        self.unregister_window_access(app, OVERLAY_MAIN_LABEL);
+        let mut inner = self.inner.lock().unwrap();
+        inner.dictionary_ready = false;
+        inner.last_text_payload = Value::Null;
     }
 
     pub fn shutdown(&self, app: &AppHandle) {
@@ -1261,10 +1425,10 @@ impl OverlayHost {
     }
 
     async fn ensure_main_window(&self, app: &AppHandle) -> Result<(), String> {
-        if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-            let _ = win.show();
+        if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() {
             return Ok(());
         }
+        self.inner.lock().unwrap().dictionary_ready = false;
 
         let base_url = self.mount_overlay_assets(app)?;
         let token = self.register_window_access(app, OVERLAY_MAIN_LABEL, "overlay");
@@ -1284,63 +1448,8 @@ impl OverlayHost {
             )
         };
 
-        let dict = app.try_state::<DictionaryManager>();
-        let loaded_ext = match dict.as_ref() {
-            Some(dm) => match dm.load_selected_extension(app).await {
-                Ok((reader, ext)) => {
-                    if reader == "hachidori" {
-                        dm.ensure_hachidori_engine(app, &ext).await?;
-                    }
-                    Some(ext)
-                }
-                Err(error) => {
-                    return Err(format!(
-                        "Could not initialize the overlay dictionary: {error}"
-                    ))
-                }
-            },
-            None => None,
-        };
-        let jiten_enabled = self.inner.lock().unwrap().user_settings["enableJitenReader"] == true;
-        let jiten_ext = if jiten_enabled {
-            if let Some(dm) = dict.as_ref() {
-                Some(dm.load_jiten_extension(app).await?)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        let mut portable_extra = if !dictionary_host::use_windows_native_extensions() {
-            if let (Some(dm), Some(ext)) = (dict.as_ref(), loaded_ext.as_ref()) {
-                dm.portable_preload_for_window(
-                    OVERLAY_MAIN_LABEL,
-                    ext,
-                    &format!("{base_url}index.html"),
-                    1,
-                )
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
-
-        if !dictionary_host::use_windows_native_extensions() {
-            if let (Some(dm), Some(ext)) = (dict.as_ref(), jiten_ext.as_ref()) {
-                portable_extra.push_str(&dm.portable_preload_for_window(
-                    OVERLAY_MAIN_LABEL,
-                    ext,
-                    &format!("{base_url}index.html"),
-                    1,
-                ));
-            }
-        }
-        let init_script = overlay_main_init_script(
-            &token,
-            &resources_dir,
-            (!portable_extra.is_empty()).then_some(portable_extra.as_str()),
-        );
+        // Attach dictionaries after document readiness, outside activation.
+        let init_script = overlay_main_init_script(&token, &resources_dir, None);
 
         let url = url::Url::parse(&format!("{base_url}index.html"))
             .map_err(|e| format!("Invalid overlay URL: {e}"))?;
@@ -1395,17 +1504,44 @@ impl OverlayHost {
             ));
         }
 
-        if let (Some(dm), Some(ext)) = (dict.as_ref(), loaded_ext.as_ref()) {
-            if dictionary_host::use_windows_native_extensions() {
-                dm.set_home_reader_extension(OVERLAY_MAIN_LABEL, &ext.id);
-            } else {
-                dm.attach_reader_window(app, &win, ext).await?;
-            }
-        }
-
         // Push initial display + settings immediately after build (and again on page ready)
         self.push_display_info(app);
         self.push_settings_to_main(app);
+        Ok(())
+    }
+
+    async fn attach_dictionary(&self, app: &AppHandle) -> Result<(), String> {
+        let _guard = self.reader_switch.lock().await;
+        let dm = app.state::<DictionaryManager>();
+        let (reader, ext) = dm.load_selected_extension(app).await?;
+        if reader == "hachidori" {
+            dm.ensure_hachidori_engine(app, &ext).await?;
+        }
+        let jiten = self.inner.lock().unwrap().user_settings["enableJitenReader"] == true;
+        let jiten_ext = if jiten { Some(dm.load_jiten_extension(app).await?) } else { None };
+        if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+            let will_reload = dictionary_host::use_windows_native_extensions()
+                && dm.get_home_reader_extension(OVERLAY_MAIN_LABEL).as_deref() != Some(ext.id.as_str());
+            dm.attach_reader_window(app, &win, &ext).await?;
+            if will_reload {
+                // The next document-ready handshake completes attachment.
+                self.inner.lock().unwrap().dictionary_ready = false;
+                return Ok(());
+            }
+            if !dictionary_host::use_windows_native_extensions() {
+                if let Some(jiten_ext) = jiten_ext {
+                    let url = win.url().map_err(|e| e.to_string())?;
+                    win.eval(&dm.portable_preload_for_window(OVERLAY_MAIN_LABEL, &jiten_ext, url.as_str(), 1))
+                        .map_err(|e| e.to_string())?;
+                    dm.inject_portable_content(app, &win, &jiten_ext).await?;
+                }
+            }
+        }
+        self.inner.lock().unwrap().dictionary_ready = true;
+        self.push_settings_to_main(app);
+        if jiten {
+            desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "settings-updated", &[json!({"jitenReaderLoaded":true})]);
+        }
         Ok(())
     }
 
@@ -1651,7 +1787,12 @@ impl OverlayHost {
     }
 
     fn push_settings_to_main(&self, app: &AppHandle) {
-        let mut settings = self.inner.lock().unwrap().user_settings.clone();
+        let mut settings = {
+            let inner = self.inner.lock().unwrap();
+            let mut settings = inner.user_settings.clone();
+            settings.insert("vnGuideChoiceClickThroughActive".into(), json!(inner.vn_guide_choice_click_through));
+            settings
+        };
         settings.insert(
             "gamepadServerPort".into(),
             json!(resolve_gamepad_port(&settings, Some(app))),
@@ -1760,7 +1901,11 @@ impl OverlayHost {
                 Value::Object(inner.pending_config.clone()),
             );
             if let Err(error) = save_settings_atomic(&inner.overlay_data_dir, &settings) {
-                eprintln!("[overlay] Could not save overlay settings: {error}");
+                crate::desktop_log::stderr_only(
+                    "overlay",
+                    "WARNING",
+                    format!("Could not save overlay settings: {error}"),
+                );
             }
         }
     }
@@ -2001,7 +2146,7 @@ impl OverlayHost {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = host.refresh_dictionary(&app, previous_reader).await {
-                    eprintln!("[overlay] Dictionary switch: {error}");
+                    crate::desktop_log::warn(&app, "overlay", format!("Dictionary switch: {error}"));
                 }
             });
         }
@@ -2091,15 +2236,20 @@ impl OverlayHost {
         let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) else {
             return;
         };
-        let (ignore, focusable) = {
+        let (ignore, focusable, forward) = {
             let inner = self.inner.lock().unwrap();
-            Self::mouse_policy(&inner)
+            let (ignore, focusable) = if inner.running { Self::mouse_policy(&inner) } else { (true, false) };
+            // Continue tracking across dictionary frames and transparent pixels,
+            // even while a control owns clicks. Magpie has its own pointer feed.
+            let forward = inner.running && Self::capture_available(&inner)
+                && !inner.is_afk && inner.magpie_info.is_none();
+            (ignore, focusable, forward)
         };
         let _ = win.set_focusable(focusable);
         let _ = window_platform::apply(
             &win,
             "ignoreCursor",
-            &json!({ "ignore": ignore, "forward": ignore }),
+            &json!({ "ignore": ignore, "forward": forward }),
         );
     }
 
@@ -2107,7 +2257,7 @@ impl OverlayHost {
         let (available, afk, hidden) = {
             let inner = self.inner.lock().unwrap();
             (
-                Self::capture_available(&inner),
+                inner.running && Self::capture_available(&inner),
                 inner.is_afk,
                 inner.startup_hidden,
             )
@@ -2121,11 +2271,14 @@ impl OverlayHost {
         if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
             if available && !afk && !hidden {
                 let _ = win.show();
-            } else if !available {
+            } else {
                 self.reset_interactions(app);
                 let _ = win.hide();
-                self.sync_window_ignore_mouse(app);
             }
+            // Losing the game stops forwarding. Showing the retained HWND does
+            // not restore that flag, so every capture/visibility transition must
+            // reconcile input too (including returning from Overlay Settings).
+            self.sync_window_ignore_mouse(app);
         }
     }
 
@@ -2490,29 +2643,51 @@ impl OverlayHost {
 
     fn emit_manual_hotkey_state(&self, app: &AppHandle, is_active: bool) {
         self.set_process_pause("manual_hotkey", is_active);
+        self.sync_interaction_reveal(app, "hotkey");
+    }
+
+    fn sync_interaction_reveal(&self, app: &AppHandle, source: &str) {
+        let Some(is_active) = Self::reveal_transition(&mut self.inner.lock().unwrap()) else {
+            return;
+        };
         let mut defer = false;
         if is_active {
             self.wake_activity(app);
-            let mut inner = self.inner.lock().unwrap();
-            let background = inner.user_settings["manual_mode_desktop_background"]
-                .as_str()
-                .unwrap_or("off");
-            let neutral = inner.user_settings["manualModeInactiveBehavior"]
-                == "disable-interaction"
-                && inner.user_settings["manualModeDisableInteractionFocusOverlay"] != true;
-            defer = background == "on_demand" && !neutral;
-            if !neutral {
-                inner.manual_focus_deadline =
-                    Some(Instant::now() + Duration::from_millis(if defer { 650 } else { 0 }));
-            }
-            if let Some(tx) = &inner.ws2_tx {
-                if inner.user_settings["manual_mode_desktop_background"] != "off" {
-                    let _ = tx.send(Ws2Outbound::Direct(
-                        json!({ "type": "manual-mode-background-request" }),
-                    ));
+            let (request_background, scan_on_activation) = {
+                let mut inner = self.inner.lock().unwrap();
+                let background = inner.user_settings["manual_mode_desktop_background"]
+                    .as_str()
+                    .unwrap_or("off");
+                let manual_mode = Self::manual_mode(&inner);
+                let neutral = Self::focus_neutral_manual_mode(&inner);
+                let request_background = manual_mode && background != "off";
+                defer = manual_mode && background == "on_demand" && !neutral;
+                if manual_mode && !neutral {
+                    inner.manual_focus_deadline =
+                        Some(Instant::now() + Duration::from_millis(if defer { 650 } else { 0 }));
                 }
-                if inner.user_settings["scan_on_overlay_activation"] == true {
-                    let _ = tx.send(Ws2Outbound::Direct(json!({ "type": "manual-overlay-scan-request", "source": "overlay-activation:hotkey" })));
+                let scan_on_activation = inner.user_settings["scan_on_overlay_activation"] == true;
+                (request_background, scan_on_activation)
+            };
+            if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
+                // Queue scan before background so scan's generation bump does not invalidate
+                // the background capture (the worker drains background before pending scan).
+                if scan_on_activation {
+                    let _ = overlay.command(
+                        OVERLAY_MAIN_LABEL,
+                        json!({
+                            "action": "scan",
+                            "retries": 5,
+                            "manual": true,
+                            "source": "hotkey",
+                        }),
+                    );
+                }
+                if request_background {
+                    let _ = overlay.command(
+                        OVERLAY_MAIN_LABEL,
+                        json!({ "action": "background", "manual": true }),
+                    );
                 }
             }
         } else {
@@ -2525,7 +2700,7 @@ impl OverlayHost {
             "show-overlay-hotkey",
             &[
                 json!(is_active),
-                json!({ "source": "overlay-hotkey", "deferRevealForBackground":defer }),
+                json!({ "source": source, "deferRevealForBackground":defer }),
             ],
         );
         if is_active && !defer {
@@ -2540,7 +2715,7 @@ impl OverlayHost {
             tauri::async_runtime::spawn(async move {
                 if let Some(dm) = app_c.try_state::<DictionaryManager>() {
                     if let Err(error) = dm.open_jiten_options(&app_c).await {
-                        eprintln!("[overlay] Jiten settings: {error}");
+                        crate::desktop_log::warn(&app_c, "overlay", format!("Jiten settings: {error}"));
                     }
                 }
             });
@@ -2643,6 +2818,66 @@ impl OverlayHost {
 
     // ---------- VN-Guide Async Control ----------
 
+    fn publish_vn_guide(&self, app: &AppHandle, snap: &Value) {
+        self.sync_vn_guide_windows(app, snap);
+        desktop_state::emit_to_window(
+            app,
+            OVERLAY_SETTINGS_LABEL,
+            "vn-guide-state",
+            std::slice::from_ref(snap),
+        );
+    }
+
+    async fn finish_vn_guide_update(&self, app: &AppHandle, check: GuideUpdateCheck) -> Value {
+        let result = check.run().await;
+        let (changed, snap) = {
+            let mut guard = self.vn_guide.lock().await;
+            let Some(ctrl) = guard.as_mut() else {
+                return Value::Null;
+            };
+            (ctrl.finish_update_check(result), ctrl.snapshot())
+        };
+        if changed {
+            self.publish_vn_guide(app, &snap);
+        }
+        snap
+    }
+
+    fn maintain_vn_guide(&self, app: &AppHandle) {
+        // A source load must not hold up unrelated overlay maintenance.
+        let Ok(mut guard) = self.vn_guide.try_lock() else {
+            return;
+        };
+        let Some(ctrl) = guard.as_mut() else {
+            return;
+        };
+        let available = {
+            let inner = self.inner.lock().unwrap();
+            inner.running && Self::capture_available(&inner)
+        };
+        let changed = ctrl.set_available(available, None);
+        let check = if ctrl.needs_periodic_update_check() {
+            ctrl.begin_update_check(false)
+        } else {
+            None
+        };
+        let snap = ctrl.snapshot();
+        drop(guard);
+        // Also keep a visible card on the selected monitor and above lookup windows.
+        if changed || check.is_some() {
+            self.publish_vn_guide(app, &snap);
+        } else if snap["visible"] == true {
+            self.sync_vn_guide_windows(app, &snap);
+        }
+        if let Some(check) = check {
+            let host = self.clone();
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                host.finish_vn_guide_update(&app, check).await;
+            });
+        }
+    }
+
     async fn reconfigure_vn_guide(&self, app: &AppHandle, refresh: bool) {
         self.ensure_vn_guide_initialized(app).await;
         let snap = {
@@ -2654,7 +2889,7 @@ impl OverlayHost {
             };
             ctrl.configure(&settings, refresh).await
         };
-        self.sync_vn_guide_hud_window(app, &snap);
+        self.sync_vn_guide_windows(app, &snap);
         desktop_state::emit_to_window(app, OVERLAY_SETTINGS_LABEL, "vn-guide-state", &[snap]);
     }
 
@@ -2682,14 +2917,14 @@ impl OverlayHost {
         };
         if !patch.is_empty() {
             ctrl.set_available(false, scene);
-            self.sync_vn_guide_hud_window(app, &ctrl.snapshot());
+            self.sync_vn_guide_windows(app, &ctrl.snapshot());
             self.broadcast_settings_update(app, &patch);
         }
         ctrl.configure(&settings, false).await;
         let changed = ctrl.set_available(available, scene);
         if changed || !patch.is_empty() {
             let snap = ctrl.snapshot();
-            self.sync_vn_guide_hud_window(app, &snap);
+            self.sync_vn_guide_windows(app, &snap);
             desktop_state::emit_to_window(app, OVERLAY_SETTINGS_LABEL, "vn-guide-state", &[snap]);
         }
     }
@@ -2753,6 +2988,19 @@ impl OverlayHost {
         value: Option<&Value>,
     ) -> Result<Value, String> {
         self.ensure_vn_guide_initialized(app).await;
+
+        if action == "check-updates" {
+            let (check, snap) = {
+                let mut guard = self.vn_guide.lock().await;
+                let ctrl = guard.as_mut().ok_or("VN Guide not initialized")?;
+                (ctrl.begin_update_check(true), ctrl.snapshot())
+            };
+            self.publish_vn_guide(app, &snap);
+            return Ok(match check {
+                Some(check) => self.finish_vn_guide_update(app, check).await,
+                None => snap,
+            });
+        }
 
         let mut imported = None;
         if matches!(action, "select-guide" | "choose-local" | "use-custom-page") {
@@ -2840,7 +3088,7 @@ impl OverlayHost {
             patch.insert("vnGuideRoute".into(), json!(new_route));
             self.apply_setting_updates(app, patch, false);
         }
-        self.sync_vn_guide_hud_window(app, &snap);
+        self.sync_vn_guide_windows(app, &snap);
         desktop_state::emit_to_window(
             app,
             OVERLAY_SETTINGS_LABEL,
@@ -2850,8 +3098,20 @@ impl OverlayHost {
         Ok(snap)
     }
 
-    fn sync_vn_guide_hud_window(&self, app: &AppHandle, snap: &Value) {
-        let visible = snap.get("visible").and_then(Value::as_bool) == Some(true);
+    fn sync_vn_guide_windows(&self, app: &AppHandle, snap: &Value) {
+        let (visible, click_through_change) = {
+            let mut inner = self.inner.lock().unwrap();
+            let active = inner.running && snap["choiceClickThrough"] == true;
+            let changed = active != inner.vn_guide_choice_click_through;
+            if changed {
+                inner.vn_guide_choice_click_through = active;
+                inner.magpie_pointer_pending = None;
+            }
+            (inner.running && snap["visible"] == true, changed.then_some(active))
+        };
+        if let Some(active) = click_through_change {
+            desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "vn-guide-choice-click-through", &[json!(active)]);
+        }
         if !visible {
             if let Some(win) = app.get_webview_window(OVERLAY_VN_GUIDE_LABEL) {
                 let _ = win.hide();
@@ -2876,9 +3136,16 @@ impl OverlayHost {
         let (x, y, w, h) = compute_vn_guide_hud_bounds(ax, ay, aw, ah, snap);
 
         if let Some(win) = app.get_webview_window(OVERLAY_VN_GUIDE_LABEL) {
+            // Preserve the transparent Windows surface when toggling click-through.
+            let _ = window_platform::apply(
+                &win,
+                "ignoreCursor",
+                &json!({"ignore": snap["displayStyle"] == "text", "forward": false}),
+            );
             let _ = win.set_position(tauri::LogicalPosition::new(x as f64, y as f64));
             let _ = win.set_size(tauri::LogicalSize::new(w as f64, h as f64));
             let _ = win.show();
+            let _ = window_platform::apply(&win, "moveTop", &Value::Null);
             desktop_state::emit_to_window(
                 app,
                 OVERLAY_VN_GUIDE_LABEL,
@@ -2901,17 +3168,25 @@ impl OverlayHost {
             WebviewWindowBuilder::new(app, OVERLAY_VN_GUIDE_LABEL, WebviewUrl::External(url))
                 .title("VN Guide")
                 .transparent(true)
+                .background_color(tauri::webview::Color(0, 0, 0, 0))
                 .decorations(false)
+                .resizable(false)
+                .shadow(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
                 .focusable(false)
                 .position(x as f64, y as f64)
                 .inner_size(w as f64, h as f64)
-                .visible(true)
+                .visible(false)
                 .initialization_script(&init_script)
                 .build()
         {
             let _ = window_platform::apply(&win, "frameless", &Value::Null);
+            let _ = window_platform::apply(
+                &win,
+                "ignoreCursor",
+                &json!({"ignore": snap["displayStyle"] == "text", "forward": false}),
+            );
             desktop_state::emit_to_window(
                 app,
                 OVERLAY_VN_GUIDE_LABEL,
@@ -2924,7 +3199,12 @@ impl OverlayHost {
     // ---------- Magpie & Pointer Projection ----------
 
     pub fn handle_window_pointer(&self, app: &AppHandle, label: &str, point: &Value) {
-        if label == OVERLAY_MAIN_LABEL && self.inner.lock().unwrap().magpie_info.is_none() {
+        let forward = {
+            let inner = self.inner.lock().unwrap();
+            inner.running && Self::capture_available(&inner) && !inner.is_afk
+                && inner.magpie_info.is_none()
+        };
+        if label == OVERLAY_MAIN_LABEL && forward {
             desktop_state::emit_to_window(
                 app,
                 OVERLAY_MAIN_LABEL,
@@ -3011,14 +3291,11 @@ impl OverlayHost {
             ],
         );
         if native_info.is_none() {
-            let mut inner = self.inner.lock().unwrap();
-            if inner.magpie_hovering {
-                inner.magpie_hovering = false;
-                drop(inner);
-                self.sync_window_ignore_mouse(app);
-            }
+            self.inner.lock().unwrap().magpie_hovering = false;
             desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "magpie-pointer-reset", &[]);
         }
+        // Switch feeds even if the old hit was already click-through.
+        self.sync_window_ignore_mouse(app);
     }
 
     // ---------- Background Workers ----------
@@ -3389,7 +3666,7 @@ impl OverlayHost {
                         .unwrap_or(Value::Null);
                 }
                 if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
-                    if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some()
+                    if (self.inner.lock().unwrap().running && app.get_webview_window(OVERLAY_MAIN_LABEL).is_some())
                         || msg["action"] == "stop"
                     {
                         if let Ok(result) = overlay.command(OVERLAY_MAIN_LABEL, msg.clone()) {
@@ -3635,7 +3912,7 @@ impl OverlayHost {
             };
             if changed {
                 if let Some(s) = snap {
-                    self.sync_vn_guide_hud_window(app, &s);
+                    self.sync_vn_guide_windows(app, &s);
                     desktop_state::emit_to_window(
                         app,
                         OVERLAY_SETTINGS_LABEL,
@@ -3870,6 +4147,7 @@ impl OverlayHost {
                 if pomo_emit {
                     host.emit_pomodoro_state(&app);
                 }
+                host.maintain_vn_guide(&app);
                 let focus_due = host
                     .inner
                     .lock()
@@ -3905,9 +4183,10 @@ impl OverlayHost {
         let host = self.clone();
         tauri::async_runtime::spawn(async move {
             let mut last_captured: Option<bool> = None;
-            let mut idle_ticks = 0u32;
+            let mut pointer = PointerPacer::default();
+            let mut next_probe = Instant::now();
             loop {
-                let (still, compat, has_magpie) = {
+                let (still, compat, can_track) = {
                     let inner = host.inner.lock().unwrap();
                     (
                         inner.running && inner.worker_gen == gen,
@@ -3916,35 +4195,39 @@ impl OverlayHost {
                             .get("magpieCompatibility")
                             .and_then(Value::as_bool)
                             != Some(false),
-                        inner.magpie_info.is_some(),
+                        Self::routes_text_hover(&inner) && !inner.is_afk,
                     )
                 };
                 if !still {
                     break;
                 }
                 if !compat {
+                    pointer = PointerPacer::default();
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     continue;
                 }
 
-                // Re-probe Magpie presence periodically (~250ms idle, 16ms when actively scaled & moving)
-                if !has_magpie || idle_ticks % 16 == 0 {
+                // Discovery is independent of the adaptive pointer cadence.
+                if Instant::now() >= next_probe {
                     host.refresh_magpie_state(&app);
+                    next_probe = Instant::now() + Duration::from_millis(250);
                 }
-                idle_ticks = idle_ticks.wrapping_add(1);
 
                 let magpie_opt = host.inner.lock().unwrap().magpie_info.clone();
                 let Some(magpie) = magpie_opt else {
                     last_captured = None;
+                    pointer = PointerPacer::default();
                     tokio::time::sleep(Duration::from_millis(250)).await;
                     continue;
                 };
 
-                if !app
+                if !can_track || !app
                     .get_webview_window(OVERLAY_MAIN_LABEL)
                     .is_some_and(|window| window.is_visible().unwrap_or(false))
                 {
                     host.inner.lock().unwrap().magpie_pointer_pending = None;
+                    pointer = PointerPacer::default();
+                    last_captured = None;
                     tokio::time::sleep(Duration::from_millis(100)).await;
                     continue;
                 }
@@ -3958,13 +4241,15 @@ impl OverlayHost {
                         continue;
                     }
                     last_captured = Some(captured);
+                    let now = Instant::now();
+                    let needs_hit = pointer.observe((sample, captured, magpie.clone()), now);
                     let waiting = host
                         .inner
                         .lock()
                         .unwrap()
                         .magpie_pointer_pending
                         .is_some_and(|(_, at)| at.elapsed() < Duration::from_millis(100));
-                    if !waiting {
+                    if needs_hit && !waiting {
                         if let Some((mx, my)) = if captured {
                             // An out-of-source sample must clear the previous hit.
                             project_magpie_cursor(sample.x as f64, sample.y as f64, &magpie)
@@ -4007,11 +4292,12 @@ impl OverlayHost {
                                         "altKey": sample.alt, "metaKey": sample.meta,
                                     })],
                                 );
+                                pointer.published(now);
                             }
                         }
                     }
                 }
-                tokio::time::sleep(Duration::from_millis(16)).await;
+                tokio::time::sleep(pointer.interval(Instant::now())).await;
             }
         });
     }
@@ -4026,6 +4312,14 @@ impl OverlayHost {
         args: &[Value],
     ) -> bool {
         self.ensure_loaded(app);
+        // A retained document can still deliver queued messages after disable.
+        // Only initialization/diagnostics are meaningful without a session.
+        if label == OVERLAY_MAIN_LABEL
+            && !self.inner.lock().unwrap().running
+            && !matches!(channel, "overlay-settings-ready" | "config-received" | "native-overlay-error" | "reply-current-settings")
+        {
+            return true;
+        }
         let first = args.first().cloned().unwrap_or(Value::Null);
 
         match channel {
@@ -4121,7 +4415,7 @@ impl OverlayHost {
                         || !first.is_boolean()
                         || !Self::routes_text_hover(&inner)
                         || inner.magpie_info.is_some()
-                        || preference != (inner.user_settings["textHoverClickThrough"] == true)
+                        || preference != (inner.vn_guide_choice_click_through || inner.user_settings["textHoverClickThrough"] == true)
                     {
                         return true;
                     }
@@ -4202,7 +4496,7 @@ impl OverlayHost {
                 };
                 if changed {
                     if let Some(s) = snap {
-                        self.sync_vn_guide_hud_window(app, &s);
+                        self.sync_vn_guide_windows(app, &s);
                         desktop_state::emit_to_window(
                             app,
                             OVERLAY_SETTINGS_LABEL,
@@ -4242,7 +4536,9 @@ impl OverlayHost {
                 let (changed, snap) = {
                     let mut guard = self.vn_guide.lock().await;
                     if let Some(ctrl) = guard.as_mut() {
-                        let ch = ctrl.set_available(state != "closed", game.as_deref());
+                        // Renderer echoes carry a window title, not a guide scene.
+                        // Only capture_status may change the guide's identity.
+                        let ch = ctrl.set_available(state != "closed", None);
                         (ch, Some(ctrl.snapshot()))
                     } else {
                         (false, None)
@@ -4250,7 +4546,7 @@ impl OverlayHost {
                 };
                 if changed {
                     if let Some(s) = snap {
-                        self.sync_vn_guide_hud_window(app, &s);
+                        self.sync_vn_guide_windows(app, &s);
                     }
                 }
                 desktop_state::emit_to_window(
@@ -4264,6 +4560,9 @@ impl OverlayHost {
                 true
             }
             "show" => {
+                if label == OVERLAY_MAIN_LABEL && !self.inner.lock().unwrap().running {
+                    return true;
+                }
                 if let Some(win) = app.get_webview_window(label) {
                     let _ = win.show();
                 } else if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
@@ -4298,50 +4597,21 @@ impl OverlayHost {
                     self.push_display_info(app);
                     self.push_settings_to_main(app);
                     self.emit_pomodoro_state(app);
-                    if !dictionary_host::use_windows_native_extensions() {
-                        if let Some(dm) = app.try_state::<DictionaryManager>() {
-                            if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                                if let Ok((_, ext)) = dm.load_selected_extension(app).await {
-                                    let url = win.url().map(|u| u.to_string()).unwrap_or_default();
-                                    let _ = win.eval(&dm.portable_preload_for_window(
-                                        OVERLAY_MAIN_LABEL,
-                                        &ext,
-                                        &url,
-                                        1,
-                                    ));
-                                    let _ = win.eval(&format!(
-                                        "globalThis.__GSM_DICTIONARY_SELECT__?.({});",
-                                        json!(ext.id)
-                                    ));
-                                    let _ = dm.inject_portable_content(app, &win, &ext).await;
-                                }
-                                let enabled = self.inner.lock().unwrap().user_settings
-                                    ["enableJitenReader"]
-                                    == true;
-                                if enabled {
-                                    if let Ok(ext) = dm.load_jiten_extension(app).await {
-                                        let url =
-                                            win.url().map(|u| u.to_string()).unwrap_or_default();
-                                        let _ = win.eval(&dm.portable_preload_for_window(
-                                            OVERLAY_MAIN_LABEL,
-                                            &ext,
-                                            &url,
-                                            1,
-                                        ));
-                                        let _ = dm.inject_portable_content(app, &win, &ext).await;
-                                    }
-                                }
-                            }
+                    self.sync_game_visibility(app);
+                    self.sync_window_ignore_mouse(app);
+                    let host = self.clone();
+                    let attach_app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Err(error) = host.attach_dictionary(&attach_app).await {
+                            crate::desktop_log::error(
+                                &attach_app,
+                                "dictionary",
+                                format!("Overlay attachment failed: {error}"),
+                            );
+                            desktop_state::emit_to_window(&attach_app, OVERLAY_SETTINGS_LABEL,
+                                "dictionary-reader-error", &[json!(error)]);
                         }
-                    }
-                    if self.inner.lock().unwrap().user_settings["enableJitenReader"] == true {
-                        desktop_state::emit_to_window(
-                            app,
-                            OVERLAY_MAIN_LABEL,
-                            "settings-updated",
-                            &[json!({"jitenReaderLoaded":true})],
-                        );
-                    }
+                    });
                     let previous = self.inner.lock().unwrap().last_window_state.clone();
                     if let Some(previous) = previous {
                         self.publish_ws2_data(app, &previous.to_string(), Some(&previous))
@@ -4357,7 +4627,6 @@ impl OverlayHost {
                 } else {
                     self.push_preload_settings(app);
                 }
-                let _ = self.reconfigure_vn_guide(app, false).await;
                 true
             }
             "overlay-settings-painted" => {
@@ -4407,23 +4676,26 @@ impl OverlayHost {
                 true
             }
             "translate-blocks" | "action-translate" => {
-                let payload = if first.is_object() {
-                    let mut m = first.as_object().cloned().unwrap_or_default();
-                    m.insert("type".into(), json!("translate-request"));
-                    Value::Object(m)
-                } else {
-                    json!({ "type": "translate-request" })
-                };
-                if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
+                let inner = self.inner.lock().unwrap();
+                let payload = Self::build_translate_request(&first, &inner.last_text_payload);
+                if let Some(tx) = &inner.ws2_tx {
                     let _ = tx.send(Ws2Outbound::Direct(payload));
                 }
                 true
             }
             "action-scan" | "gamepad-manual-overlay-scan" => {
-                if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
-                    let _ = tx.send(Ws2Outbound::Direct(
-                        json!({ "type": "manual-overlay-scan-request", "source": "overlay" }),
-                    ));
+                if self.inner.lock().unwrap().running {
+                    if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
+                        let _ = overlay.command(
+                            OVERLAY_MAIN_LABEL,
+                            json!({
+                                "action": "scan",
+                                "retries": 5,
+                                "manual": true,
+                                "source": "hotkey",
+                            }),
+                        );
+                    }
                 }
                 true
             }
@@ -4449,7 +4721,12 @@ impl OverlayHost {
             }
             "gamepad-request-focus" => {
                 self.set_navigation(app, true);
-                if !self.inner.lock().unwrap().navigation_active {
+                let can_focus = {
+                    let inner = self.inner.lock().unwrap();
+                    inner.navigation_active && !Self::focus_neutral_manual_mode(&inner)
+                        && inner.manual_focus_deadline.is_none()
+                };
+                if !can_focus {
                     return true;
                 }
                 if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
@@ -4460,6 +4737,9 @@ impl OverlayHost {
             }
             "gamepad-release-focus" => {
                 self.set_navigation(app, false);
+                if Self::interaction_active(&self.inner.lock().unwrap()) {
+                    return true;
+                }
                 self.sync_window_ignore_mouse(app);
                 if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
                     let _ = window_platform::apply(&win, "blur", &Value::Null);
@@ -4472,30 +4752,7 @@ impl OverlayHost {
                 true
             }
             "gamepad-forward-enter" | "gamepad-forward-key" | "gamepad-forward-click" => {
-                let inner = self.inner.lock().unwrap();
-                if !inner.navigation_active
-                    || !Self::capture_available(&inner)
-                    || inner.hotkey_suppressed_for_input_test
-                    || !inner.ws2_connected
-                {
-                    return true;
-                }
-                let key = if channel == "gamepad-forward-enter" {
-                    Some("enter")
-                } else {
-                    first.as_str()
-                };
-                if channel != "gamepad-forward-click"
-                    && !key.is_some_and(|key| matches!(key, "enter" | "space" | "ctrl" | "escape"))
-                {
-                    return true;
-                }
-                if let Some(tx) = &inner.ws2_tx {
-                    let _ = tx.send(Ws2Outbound::Direct(json!({
-                        "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
-                        "key":key,"source":"gamepad","activateWindow":true,"targetPid":inner.game_state.pid,"expected_target_hwnd":inner.target_hwnd,
-                    })));
-                }
+                self.forward_game_input(channel, &first);
                 true
             }
             "gamepad-translate" => {
@@ -4635,7 +4892,7 @@ impl OverlayHost {
                 true
             }
             "native-overlay-error" => {
-                eprintln!("[overlay] Renderer: {first}");
+                crate::desktop_log::error(app, "overlay", format!("Renderer: {first}"));
                 true
             }
             "reply-current-settings" => true,
@@ -4696,8 +4953,8 @@ impl OverlayHost {
                     .get("message")
                     .cloned()
                     .unwrap_or_else(|| first.clone());
-                if app.get_webview_window(target_label).is_none() && message["action"] != "stop" {
-                    return Some(Err("Overlay window is closed".into()));
+                if (!self.inner.lock().unwrap().running || app.get_webview_window(target_label).is_none()) && message["action"] != "stop" {
+                    return Some(Err("Overlay session is disabled".into()));
                 }
                 self.sync_native_context(app, &message);
                 let res = app
@@ -4815,7 +5072,7 @@ impl OverlayHost {
                     let settings = self.inner.lock().unwrap().user_settings.clone();
                     guard.as_mut().unwrap().configure(&settings, false).await
                 };
-                self.sync_vn_guide_hud_window(app, &snap);
+                self.sync_vn_guide_windows(app, &snap);
                 Some(Ok(snap))
             }
             "vn-guide-command" => {
@@ -4895,7 +5152,7 @@ impl OverlayHost {
                     .get("dictionary")
                     .and_then(Value::as_str)
                     .map(str::to_string);
-                Some(sudachi_setup_ws(&ws_url, prepare, dict).await)
+                Some(crate::sudachi_setup::request(&ws_url, prepare, dict.as_deref(), None).await)
             }
             "quick-action" => {
                 let action = first
@@ -4916,43 +5173,6 @@ impl OverlayHost {
             _ => None,
         }
     }
-}
-
-async fn sudachi_setup_ws(
-    ws_url: &str,
-    prepare: bool,
-    dictionary: Option<String>,
-) -> Result<Value, String> {
-    let (mut socket, _) = connect_async(ws_url)
-        .await
-        .map_err(|e| format!("Input server unavailable: {e}"))?;
-    let cmd = if prepare {
-        json!({ "type": "prepare_sudachi", "dictionary": dictionary })
-    } else {
-        json!({ "type": "sudachi_status" })
-    };
-    socket
-        .send(Message::Text(cmd.to_string().into()))
-        .await
-        .map_err(|e| e.to_string())?;
-    let timeout_res =
-        tokio::time::timeout(Duration::from_secs(if prepare { 960 } else { 5 }), async {
-            while let Some(frame) = socket.next().await {
-                if let Ok(Message::Text(txt)) = frame {
-                    if let Ok(val) = serde_json::from_str::<Value>(&txt) {
-                        if val.get("type").and_then(Value::as_str) == Some("sudachi_status") {
-                            let st = val.get("state").and_then(Value::as_str).unwrap_or("");
-                            if !prepare || st != "installing" {
-                                return Ok(val);
-                            }
-                        }
-                    }
-                }
-            }
-            Err("Input server disconnected during Sudachi operation".into())
-        })
-        .await;
-    timeout_res.map_err(|_| "Timed out waiting for Sudachi status".to_string())?
 }
 
 async fn quick_action_ws(ws_url: &str, action: &str) -> Result<Value, String> {
@@ -4993,6 +5213,117 @@ async fn quick_action_ws(ws_url: &str, action: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn game_input_host() -> (OverlayHost, mpsc::UnboundedReceiver<Ws2Outbound>) {
+        let host = OverlayHost::default();
+        let (tx, rx) = mpsc::unbounded_channel();
+        {
+            let mut inner = host.inner.lock().unwrap();
+            inner.user_settings.insert("gamepadEnabled".into(), json!(true));
+            inner.game_state.state = "active".into();
+            inner.game_state.pid = Some(99);
+            inner.target_hwnd = Some(42);
+            inner.capture_available = Some(true);
+            inner.ws2_connected = true;
+            inner.ws2_tx = Some(tx);
+        }
+        (host, rx)
+    }
+
+    #[test]
+    fn forwarded_game_input_works_outside_navigation_and_after_navigation_exit() {
+        let (host, mut rx) = game_input_host();
+        for navigation_active in [false, true, false] {
+            host.inner.lock().unwrap().navigation_active = navigation_active;
+            for state in ["active", "background"] {
+                host.inner.lock().unwrap().game_state.state = state.into();
+                for (channel, first, expected_key) in [
+                    ("gamepad-forward-enter", Value::Null, json!("enter")),
+                    ("gamepad-forward-key", json!("enter"), json!("enter")),
+                    ("gamepad-forward-key", json!("space"), json!("space")),
+                    ("gamepad-forward-key", json!("ctrl"), json!("ctrl")),
+                    ("gamepad-forward-key", json!("escape"), json!("escape")),
+                    ("gamepad-forward-click", Value::Null, Value::Null),
+                ] {
+                    host.forward_game_input(channel, &first);
+                    let Ws2Outbound::Direct(message) = rx.try_recv().unwrap_or_else(|error| {
+                        panic!("{channel} was not forwarded with navigation={navigation_active}, state={state}: {error}")
+                    }) else {
+                        panic!("Game input must be sent immediately");
+                    };
+                    assert_eq!(message, json!({
+                        "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
+                        "key": expected_key, "source": "gamepad", "activateWindow": true,
+                        "targetPid": 99, "expected_target_hwnd": 42,
+                    }));
+                    assert!(rx.try_recv().is_err(), "Each press must forward exactly once");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forwarded_game_input_keeps_capture_settings_and_input_test_guards() {
+        for navigation_active in [false, true] {
+            for blocked in ["disabled", "unavailable", "input-test", "disconnected", "minimized", "missing"] {
+                let (host, mut rx) = game_input_host();
+                {
+                    let mut inner = host.inner.lock().unwrap();
+                    inner.navigation_active = navigation_active;
+                    match blocked {
+                        "disabled" => { inner.user_settings.insert("gamepadEnabled".into(), json!(false)); }
+                        "unavailable" => inner.capture_available = Some(false),
+                        "input-test" => inner.hotkey_suppressed_for_input_test = true,
+                        "disconnected" => inner.ws2_connected = false,
+                        state => inner.game_state.state = state.into(),
+                    }
+                }
+                for (channel, first) in [
+                    ("gamepad-forward-enter", Value::Null),
+                    ("gamepad-forward-key", json!("space")),
+                    ("gamepad-forward-click", Value::Null),
+                ] {
+                    host.forward_game_input(channel, &first);
+                    assert!(rx.try_recv().is_err(), "Forwarded {channel} while {blocked}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn forwarded_game_input_rejects_unsupported_keys() {
+        let (host, mut rx) = game_input_host();
+        for navigation_active in [false, true] {
+            host.inner.lock().unwrap().navigation_active = navigation_active;
+            for key in [Value::Null, json!(""), json!("a"), json!("F4"), json!(13)] {
+                host.forward_game_input("gamepad-forward-key", &key);
+                assert!(rx.try_recv().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn gamepad_activation_reveals_without_the_manual_hotkey() {
+        let mut inner = OverlayInner::default();
+        assert!(!OverlayHost::interaction_active(&inner));
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), None);
+        inner.navigation_active = true;
+        assert!(OverlayHost::interaction_active(&inner));
+        inner.game_state.state = "active".into();
+        inner.capture_available = Some(true);
+        inner.text_hover_ignoring = Some(true);
+        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "Navigation owns input before the renderer replies");
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), Some(true));
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), None, "Focus and state events must not repeat reveal/scan");
+        inner.manual_hotkey.handle_press(false);
+        inner.manual_hotkey.handle_release(false);
+        assert!(OverlayHost::interaction_active(&inner), "Releasing the hotkey must preserve controller navigation");
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), None);
+        inner.navigation_active = false;
+        assert!(!OverlayHost::interaction_active(&inner));
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), Some(false));
+        assert_eq!(OverlayHost::reveal_transition(&mut inner), None);
+    }
 
     #[test]
     fn pomodoro_uses_elapsed_time_and_keeps_pause_time_out_of_countdown() {
@@ -5054,6 +5385,28 @@ mod tests {
         inner.capture_available = Some(false);
         inner.yomitan_showing = true;
         assert_eq!(OverlayHost::mouse_policy(&inner), (true, false));
+    }
+
+    #[test]
+    fn automatic_popup_only_captures_its_hovered_surface() {
+        let mut inner = OverlayInner::default();
+        inner.user_settings.insert("platformOverride".into(), json!("win32"));
+        inner.game_state.state = "active".into();
+        inner.capture_available = Some(true);
+        inner.yomitan_showing = true;
+        inner.text_hover_ignoring = Some(true);
+        assert!(OverlayHost::mouse_policy(&inner).0, "An open dictionary must not swallow game clicks");
+        inner.lookup_focus_owned = true;
+        assert_eq!(OverlayHost::mouse_policy(&inner), (true, true), "Explicit keyboard focus is independent of clickthrough");
+        inner.lookup_focus_owned = false;
+        inner.text_hover_ignoring = Some(false);
+        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "The popup remains interactive and focusable");
+        inner.magpie_info = Some(MagpieInfo::default());
+        assert!(OverlayHost::mouse_policy(&inner).0, "Magpie must use the projected hit instead");
+        inner.magpie_hovering = true;
+        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true));
+        inner.user_settings.insert("manualMode".into(), json!(true));
+        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "Manual lookups retain explicit input ownership");
     }
 
     #[test]
@@ -5145,6 +5498,57 @@ mod tests {
         assert_eq!(resolve_effective_platform(&s), "linux");
         s.insert("platformOverride".into(), json!("invalid_os"));
         assert_eq!(resolve_effective_platform(&s), effective_platform());
+    }
+
+    #[test]
+    fn native_overlay_result_only_forwards_unbacked_non_empty_final_scans() {
+        let base = json!({
+            "type": "word_coordinates",
+            "is_final": true,
+            "data": [{"text": "日本語"}],
+        });
+        assert!(OverlayHost::should_forward_native_result(&base));
+
+        // Text-driven scans originated in Python: never bounce them back.
+        let mut with_line_id = base.clone();
+        with_line_id["line_id"] = json!("hook-line-1");
+        assert!(!OverlayHost::should_forward_native_result(&with_line_id));
+
+        // Partial scans, coordinate-only reprojections, and empty scans stay in Rust.
+        let mut partial = base.clone();
+        partial["is_final"] = json!(false);
+        assert!(!OverlayHost::should_forward_native_result(&partial));
+
+        let mut reprojected = base.clone();
+        reprojected["coordinates_only"] = json!(true);
+        assert!(!OverlayHost::should_forward_native_result(&reprojected));
+
+        let mut empty = base.clone();
+        empty["data"] = json!([{"text": "   "}]);
+        assert!(!OverlayHost::should_forward_native_result(&empty));
+    }
+
+    #[test]
+    fn build_translate_request_falls_back_to_rust_cached_overlay_text() {
+        let cached = json!({
+            "type": "word_coordinates",
+            "data": [{"text": "一行目"}, {"text": "二行目"}],
+        });
+        assert_eq!(
+            OverlayHost::build_translate_request(&Value::Null, &cached),
+            json!({"type": "translate-request", "text": "一行目\n二行目"})
+        );
+        assert_eq!(
+            OverlayHost::build_translate_request(&Value::Null, &Value::Null),
+            json!({"type": "translate-request"})
+        );
+        assert_eq!(
+            OverlayHost::build_translate_request(
+                &json!({"request_id": "req-1", "blocks": [{"id": "0", "text": "猫"}]}),
+                &cached,
+            ),
+            json!({"type": "translate-request", "request_id": "req-1", "blocks": [{"id": "0", "text": "猫"}]})
+        );
     }
 
     #[test]

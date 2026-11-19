@@ -5,6 +5,7 @@ import { invokeIpc } from '../../lib/ipc';
 import { readerLineKey, selectReaderRange } from '../../lib/readerState';
 import { useReader } from '../../lib/useReader';
 import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
+import { useDocumentVisible } from '../../lib/useDocumentVisible';
 import './ReadingPane.css';
 
 function Icon({ name }: { name: string }) {
@@ -30,6 +31,8 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
   const t = useTranslation(), [locale] = useLocale();
   const timeFormat = useMemo(() => new Intl.DateTimeFormat(locale === 'ukr' ? 'uk' : locale, { hour: '2-digit', minute: '2-digit' }), [locale]);
   const reader = useReader(active);
+  const visible = useDocumentVisible();
+  const presenting = active && visible;
   const [fontSize, setFontSize] = useState(loadSize);
   const [following, setFollowing] = useState(true);
   const [unseen, setUnseen] = useState(0);
@@ -39,6 +42,7 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
   const [pending, setPending] = useState<string | null>(null);
   const [transfers, setTransfers] = useState<ReaderDictionaryTransfer[]>([]);
   const scroll = useRef<HTMLDivElement>(null);
+  const savedScrollTop = useRef(0);
   const search = useRef<HTMLInputElement>(null);
   const anchor = useRef<string | null>(null);
   const previousKeys = useRef(new Set<string>());
@@ -51,14 +55,23 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
   useEffect(() => { try { localStorage.setItem('gsm-reader-font-size', String(fontSize)); } catch {} }, [fontSize]);
   useEffect(() => { if (searchOpen) search.current?.focus(); }, [searchOpen]);
   useEffect(() => {
+    const live = new Map(reader.lines.map(line => [readerLineKey(line), line.text]));
+    setTranslations(before => {
+      const entries = Object.entries(before).filter(([key, translation]) => live.get(key) === translation.source);
+      return entries.length === Object.keys(before).length ? before : Object.fromEntries(entries);
+    });
+  }, [reader.lines]);
+  useEffect(() => {
     const keys = new Set(reader.lines.map(readerLineKey));
     const added = reader.lines.filter(line => !previousKeys.current.has(readerLineKey(line))).length;
     if (!following && previousKeys.current.size && added) setUnseen(value => value + added);
     previousKeys.current = keys;
-    if (following && active && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [reader.lines, following, active, fontSize]);
+    if (presenting && scroll.current) scroll.current.scrollTop = following ? scroll.current.scrollHeight : savedScrollTop.current;
+  }, [reader.lines, following, presenting, fontSize]);
   useEffect(() => {
-    if (active) void invokeIpc('reader.attachDictionary').catch(reason => reader.setError(reason instanceof Error ? reason.message : String(reason)));
+    if (!active) return;
+    void invokeIpc('reader.attachDictionary').catch(reason => reader.setError(reason instanceof Error ? reason.message : String(reason)));
+    return () => { window.dispatchEvent(new Event('gsm-reader-feed-closed')); };
   }, [active]);
   useEffect(() => {
     if (!active) return;
@@ -115,14 +128,16 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
     {transfers.map(transfer => <div key={transfer.name} className={transfer.phase === 'failed' ? 'reading-error' : 'reading-notice'} role="status">{t(`reader.transfer.${transfer.phase}`, { name: transfer.name, count: transfer.records.toLocaleString() })}</div>)}
     {reader.error && <div className="reading-error" role="alert"><span>{labelError}</span><button type="button" onClick={() => reader.setError('')} aria-label={t('reader.dismiss')}><Icon name="close" /></button></div>}
     <div className="reading-transcript" ref={scroll} onScroll={event => {
+      if (!presenting) return;
       const element = event.currentTarget;
+      savedScrollTop.current = element.scrollTop;
       const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight < 70;
       if (!atEnd) setFollowing(false);
       else if (!reader.selected.size) { setFollowing(true); setUnseen(0); }
     }}>
       {!filtered.length && <div className="reading-empty"><Icon name="book" /><h3>{t(query ? 'reader.noMatches' : 'reader.emptyTitle')}</h3><p>{t(query ? 'reader.noMatchesHint' : 'reader.emptyHint')}</p></div>}
       <ol className="reading-lines">
-        {filtered.map((line, index) => {
+        {presenting && filtered.map((line, index) => {
           const key = readerLineKey(line), usable = canUseMedia(line);
           const checked = line.sessionId === reader.sessionId && reader.selected.has(line.id);
           const translation = translations[key];
@@ -134,8 +149,8 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
               <div className="reading-line-body">
                 <input type="checkbox" checked={checked} disabled={!usable || reader.selecting} aria-label={t('reader.selectLine', { text: line.text })} onClick={event => { selectionFocus.current = event.currentTarget; void selectLine(line, event.currentTarget.checked, event.shiftKey); }} onChange={() => {}} />
                 <div className="reading-text-block">
-                  <p className="reading-text" onMouseUp={() => { if (window.getSelection()?.toString()) setFollowing(false); }}>{line.text}</p>
-                  {translation?.source === line.text && translation.visible && <p className="reading-translation">{translation.text}</p>}
+                  <p className="reading-text" data-gsm-reader-scan="shift" onMouseUp={() => { if (window.getSelection()?.toString()) setFollowing(false); }}>{line.text}</p>
+                  {translation?.source === line.text && translation.visible && <p className="reading-translation" data-gsm-reader-scan="shift">{translation.text}</p>}
                   <div className="reading-line-meta">
                     <span>{Number.isFinite(date.getTime()) ? timeFormat.format(date) : ''}{line.source ? ` · ${line.source}` : ''}{!usable ? ` · ${t('reader.historyOnly')}` : ''}</span>
                     <div className="reading-line-actions">
@@ -155,6 +170,6 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
     </div>
     {reader.selected.size > 0 && <div className="reading-selection"><span aria-live="polite">{t('reader.selected', { count: reader.selected.size })}</span><button type="button" disabled={reader.selecting} onClick={() => void reader.select(new Set()).then(() => selectionFocus.current?.focus()).catch(() => {})}>{t('reader.clearSelection')}</button><button type="button" disabled={reader.connection !== 'live' || reader.selecting || !selectedLines.length || selectedLines.some(line => !canUseMedia(line))} onClick={() => void reader.request('createMedia', { ids: selectedLines.map(line => line.id) }).then(() => reader.setNotice('reader.requested')).catch(() => {})}><Icon name="clip" />{t('reader.createMedia')}</button></div>}
     {reader.notice && <div className="reading-notice" role="status"><span>{t(reader.notice)}</span><button type="button" onClick={() => reader.setNotice('')} aria-label={t('reader.dismiss')}><Icon name="close" /></button></div>}
-    <footer className="reading-footer"><span>{t('reader.lineCount', { count: filtered.length })}</span><span>{t('reader.characterCount', { count: characterCount })}</span><button type="button" aria-pressed={following} onClick={following ? () => setFollowing(false) : follow}><Icon name="down" />{t(following ? 'reader.following' : unseen ? 'reader.newLines' : 'reader.follow', { count: unseen })}</button></footer>
+    <footer className="reading-footer"><span>{t('reader.lineCount', { count: filtered.length })}</span><span>{t('reader.characterCount', { count: characterCount })}</span><span>{t('reader.lookupHint')}</span><button type="button" aria-pressed={following} onClick={following ? () => setFollowing(false) : follow}><Icon name="down" />{t(following ? 'reader.following' : unseen ? 'reader.newLines' : 'reader.follow', { count: unseen })}</button></footer>
   </section>;
 });

@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 
 from GameSentenceMiner.util.config.configuration import (
@@ -9,7 +12,6 @@ from GameSentenceMiner.util.text_processing import (
     apply_string_replacements,
     apply_text_processing,
     extract_bracketed_text,
-    preview_text_processing_request,
     remove_control_chars,
     remove_newlines,
 )
@@ -51,9 +53,8 @@ def test_apply_text_processing_passthrough_for_empty_and_none_config():
         ("\x01\x02\x03", ""),
     ],
 )
-def test_control_characters_are_removed_by_default_in_processing_and_preview(text, expected):
+def test_control_characters_are_removed_by_default_in_processing(text, expected):
     assert apply_text_processing(text, TextProcessing()) == expected
-    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": expected}
 
 
 def test_control_character_filter_removes_ascii_controls_but_preserves_text_formatting():
@@ -71,17 +72,15 @@ def test_control_character_filter_keeps_explicit_opt_out_and_replacements_before
     assert apply_text_processing(raw, config) == "名前：台詞"
 
 
-def test_repeated_lines_are_removed_by_default_in_processing_and_preview():
+def test_repeated_lines_are_removed_by_default_in_processing():
     text = "これは同じ文章です。これは同じ文章です。"
 
     assert apply_text_processing(text, TextProcessing()) == "これは同じ文章です。"
-    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": "これは同じ文章です。"}
 
 
 @pytest.mark.parametrize("text", ["いい", "ええ", "あああ", "www"])
 def test_default_line_removal_preserves_single_character_repetitions(text):
     assert apply_text_processing(text, TextProcessing()) == text
-    assert preview_text_processing_request({"text": text, "config": {}}) == {"result": text}
 
 
 @pytest.mark.parametrize("legacy_enabled", [False, True])
@@ -96,7 +95,6 @@ def test_repeated_lines_can_stay_disabled_after_the_default_change():
     text = "同じ文章。同じ文章。"
 
     assert apply_text_processing(text, config) == text
-    assert preview_text_processing_request({"text": text, "config": config.to_dict()}) == {"result": text}
     assert TextProcessing.from_dict(config.to_dict()).remove_repeated_lines_v2 is False
 
 
@@ -122,29 +120,13 @@ def test_apply_text_processing_runs_string_replacement():
     assert apply_text_processing("foo", config) == "bar"
 
 
-def test_preview_text_processing_request_uses_text_processing_config_dict():
-    result = preview_text_processing_request(
-        {
-            "text": "foo",
-            "config": {
-                "string_replacement": {
-                    "enabled": True,
-                    "rules": [
-                        {
-                            "enabled": True,
-                            "mode": "plain",
-                            "find": "foo",
-                            "replace": "bar",
-                            "case_sensitive": False,
-                            "whole_word": False,
-                        }
-                    ],
-                }
-            },
-        }
-    )
-
-    assert result == {"result": "bar"}
+def test_processing_matches_native_preview_contract(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "python")
+    fixture = Path(__file__).resolve().parents[2] / "native/gsm-text-preview/tests/fixtures/parity.json"
+    for i, case in enumerate(json.loads(fixture.read_text(encoding="utf-8"))["cases"]):
+        config = TextProcessing.from_dict(case["config"])
+        actual = apply_text_processing(case["text"], config, target_language=case.get("target_language", "ja"))
+        assert actual == case["expected"], (i, case.get("name"))
 
 
 @pytest.mark.parametrize("mode", ["python", "native", "shadow"])
@@ -159,12 +141,11 @@ def test_preview_text_processing_request_uses_text_processing_config_dict():
         ("ええ日日日本本本語語語", "ええ日本語"),
     ],
 )
-def test_repeated_character_autodetection_requires_three_in_processing_and_preview(monkeypatch, mode, text, expected):
+def test_repeated_character_autodetection_requires_three_in_processing(monkeypatch, mode, text, expected):
     monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", mode)
     config = TextProcessing(remove_repeated_chars=True)
 
     assert apply_text_processing(text, config) == expected
-    assert preview_text_processing_request({"text": text, "config": config.to_dict()}) == {"result": expected}
 
 
 def test_extract_bracketed_text_returns_text_between_japanese_quotes():

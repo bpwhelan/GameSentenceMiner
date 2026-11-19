@@ -1,4 +1,4 @@
-"""Acknowledged, short-lived requests to configure the running overlay's Yomitan."""
+"""Acknowledged requests to the desktop-owned Yomitan service."""
 
 import threading
 import time
@@ -22,6 +22,17 @@ def accept_yomitan_setup_result(message: dict) -> bool:
 
 
 def configure_yomitan(payload: dict, *, timeout: float = 25) -> str:
+    from GameSentenceMiner.util.communication.dictionary_client import request as desktop_request
+
+    try:
+        result = desktop_request("dictionary.ankiSetup", payload, timeout)
+    except (RuntimeError, TimeoutError, ConnectionError) as error:
+        raise AnkiSetupError(str(error)) from error
+    if result is not None:
+        if not isinstance(result.get("profileName"), str):
+            raise AnkiSetupError("Yomitan did not confirm the configured profile.")
+        return result["profileName"]
+
     from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
 
     if not websocket_manager.has_clients(ID_OVERLAY):

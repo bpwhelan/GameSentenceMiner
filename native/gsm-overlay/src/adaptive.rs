@@ -333,6 +333,7 @@ impl Retry {
 pub struct HookTiming {
     reference: String,
     first: Option<f64>,
+    first_match: Option<f64>,
     ready: Option<f64>,
     partial: bool,
 }
@@ -341,6 +342,7 @@ impl HookTiming {
         Self {
             reference: normalize(reference),
             first: None,
+            first_match: None,
             ready: None,
             partial: false,
         }
@@ -351,12 +353,44 @@ impl HookTiming {
             return;
         }
         let text = normalize(text);
-        self.first.get_or_insert(captured);
-        if text.contains(&self.reference) {
+        let fully_present = text.contains(&self.reference);
+        let ratio = if fully_present {
+            1.
+        } else {
+            matched(&self.reference, &text) as f64 / len as f64
+        };
+        if self.first.is_none() {
+            self.first = Some(captured);
+            self.first_match = Some(ratio);
+        }
+        if fully_present {
             self.ready = Some(captured);
-        } else if matched(&self.reference, &text) as f64 / len as f64 > 0.1 {
+        } else if ratio > 0.1 {
             self.partial = true;
         }
+    }
+
+    pub fn summary(&self, initial_delay: f64, next_delay: f64) -> String {
+        let outcome = match self.ready {
+            None if self.reference.chars().count() < 3 => "short_reference",
+            None => "unconfirmed",
+            ready if ready == self.first => "first_capture_ready",
+            Some(_) if self.partial => "partial_text",
+            Some(_) => "late_reveal",
+        };
+        let capture_ms = |seconds: Option<f64>| {
+            seconds.map_or_else(|| "unknown".into(), |s| format!("{:.0}ms", s * 1000.))
+        };
+        let initial_match = self
+            .first_match
+            .map_or_else(|| "unknown".into(), |ratio| format!("{:.0}%", ratio * 100.));
+        format!(
+            "initial delay: {:.0}ms -> {:.0}ms, initial match: {initial_match}, timing: {outcome}, first capture: {}, ready capture: {}",
+            initial_delay * 1000.,
+            next_delay * 1000.,
+            capture_ms(self.first),
+            capture_ms(self.ready),
+        )
     }
 }
 #[derive(Default)]

@@ -21,7 +21,8 @@ def offline(monkeypatch, tmp_path):
     def unexpected(*args, **kwargs):
         pytest.fail("Bundled VOCR attempted a download or native VOCR access")
 
-    monkeypatch.setattr(vocr_runtime.urllib.request, "urlopen", unexpected)
+    monkeypatch.setattr(vocr_runtime, "download_file", unexpected)
+    monkeypatch.setattr(vocr_onnx, "asset_path", unexpected)
     monkeypatch.setattr(vocr_runtime, "_install_runtime", unexpected)
     monkeypatch.setattr(vocr_runtime, "platform_key", unexpected)
     monkeypatch.setattr(vita_ocr, "VitaOCRRuntime", unexpected)
@@ -124,13 +125,37 @@ def test_invalid_selection_can_be_repaired_explicitly(offline):
     assert vita_ocr.read_installation(offline)["model"] == "small"
 
 
-def test_bundle_contains_only_faithful_graphs_and_upstream_notices():
+def test_bundle_contains_pinned_graphs_and_upstream_notices():
     assets = vocr_onnx.bundled_directory()
     expected = {f"{tier}-faithful.onnx" for tier in ("small", "normal", "large", "textspot8")}
     manifest = json.loads((assets / "manifest.json").read_text(encoding="utf-8"))
+    expected.add("large-fast.onnx")
     assert set(manifest["files"]) == expected
     assert {file.name for file in assets.glob("*.onnx")} == expected
     assert set(vocr_onnx.installed_models(assets)) == set(vita_ocr.MODELS)
     assert "GNU GENERAL PUBLIC LICENSE" in (assets / "COPYING").read_text(encoding="utf-8")
     for notice in ("VOCR6-ATTRIBUTION.md", "SPOTTER-ATTRIBUTION.md"):
         assert "non-commercial purposes only" in (assets / notice).read_text(encoding="utf-8")
+
+
+def test_model_only_package_uses_the_cache_and_fetches_the_selected_tier(offline, monkeypatch, tmp_path):
+    bundled = vocr_onnx.bundled_directory()
+    assets = tmp_path / "package"
+    assets.mkdir()
+    shutil.copyfile(bundled / "manifest.json", assets / "manifest.json")
+    available = {}
+    requests = []
+
+    def fetch(asset, _bundled):
+        requests.append(asset)
+        path = bundled / asset.split("/", 1)[1]
+        available[asset] = path
+        return path
+
+    monkeypatch.setattr(vocr_onnx, "bundled_directory", lambda: assets)
+    monkeypatch.setattr(vocr_onnx, "asset_path", fetch)
+    monkeypatch.setattr(vocr_onnx, "cached_asset_path", available.get)
+    assert manager.get_model_status()["installed"] == []
+    assert requests == []
+    assert manager.select_model("small")["installed"] == ["small"]
+    assert set(requests) == {"vocr/small-faithful.onnx", "vocr/textspot8-faithful.onnx"}

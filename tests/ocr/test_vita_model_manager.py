@@ -1,5 +1,4 @@
 import hashlib
-import io
 import json
 
 import pytest
@@ -30,14 +29,10 @@ def installation(monkeypatch, tmp_path):
     return tmp_path
 
 
-def test_select_downloads_verifies_and_persists_without_rebuilding_runtime(installation, monkeypatch):
-    urls = []
-
-    def download(request, **kwargs):
-        urls.append(request.full_url)
-        return io.BytesIO(b"large")
-
-    monkeypatch.setattr(installer.urllib.request, "urlopen", download)
+def test_select_downloads_verifies_and_persists_without_rebuilding_runtime(installation, monkeypatch, model_origin):
+    urls = model_origin.requests
+    (model_origin.files / "large.vocr").write_bytes(b"large")
+    monkeypatch.setattr(installer, "download_file", model_origin.download)
     result = manager.select_model("large")
     assert result["available"] is True
     assert result["model"] == "large"
@@ -52,15 +47,12 @@ def test_select_downloads_verifies_and_persists_without_rebuilding_runtime(insta
 
 
 @pytest.mark.parametrize("failure", ["checksum", "network", "native", "save"])
-def test_failed_switch_keeps_previous_model(installation, monkeypatch, failure):
+def test_failed_switch_keeps_previous_model(installation, monkeypatch, failure, model_origin):
     before = (installation / "installation.json").read_bytes()
 
-    def download(*args, **kwargs):
-        if failure == "network":
-            raise OSError("offline")
-        return io.BytesIO(b"broken" if failure == "checksum" else b"large")
-
-    monkeypatch.setattr(installer.urllib.request, "urlopen", download)
+    if failure != "network":
+        (model_origin.files / "large.vocr").write_bytes(b"broken" if failure == "checksum" else b"large")
+    monkeypatch.setattr(installer, "download_file", model_origin.download)
     if failure == "native":
         monkeypatch.setattr(
             installer, "validate_installation", lambda *a, **k: (_ for _ in ()).throw(ValueError("native"))
@@ -74,13 +66,13 @@ def test_failed_switch_keeps_previous_model(installation, monkeypatch, failure):
     assert not list(installation.glob("*.download"))
 
 
-def test_request_validates_model_and_reports_download_errors(installation, monkeypatch):
+def test_request_validates_model_and_reports_download_errors(installation, monkeypatch, model_origin):
     result = manager.handle_model_request({"data": {"model": "../../other"}})
     assert result["error"]
     assert result["model"] == "normal"
     (installation / vita_ocr.library_name()).unlink()
     assert manager.get_model_status()["available"] is False
-    monkeypatch.setattr(installer.urllib.request, "urlopen", lambda *a, **kw: (_ for _ in ()).throw(OSError("offline")))
+    monkeypatch.setattr(installer, "download_file", model_origin.download)
     assert manager.handle_model_request({"data": {"model": "large"}})["error"]
 
 

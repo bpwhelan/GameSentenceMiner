@@ -1,7 +1,8 @@
-:root { color-scheme: dark; font-family: "Segoe UI", "Yu Gothic UI", sans-serif; }
+:root { color-scheme: only light; font-family: "Segoe UI", "Yu Gothic UI", sans-serif; background: transparent; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; padding: 0; background: transparent; color: #edf3f6; }
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+body { color: #edf3f6; }
 .card { height: 100vh; display: flex; flex-direction: column; padding: 14px 16px; border: 1px solid #ffffff28; border-left: 3px solid #76d5c7; border-radius: 12px; background: #141e27f2; }
 .card[data-kind="save"], .card[data-kind="load"], .card[data-save-notice="true"] { border-left-color: #f6c777; }
 header { display: flex; align-items: center; gap: 10px; color: #9ce3d7; font-size: 12px; font-weight: 650; }

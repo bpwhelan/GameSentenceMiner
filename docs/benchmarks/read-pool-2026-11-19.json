@@ -1,0 +1,363 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "search-like": {
+      "iterations_per_run": 12,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 8.67629999993369,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 69.74609375,
+            "first_request_ms": 66.0432000295259,
+            "search_baseline_mib": 69.74609375,
+            "search_peak_mib": 69.74609375
+          },
+          {
+            "wall_ms": 8.549700001215873,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 69.515625,
+            "first_request_ms": 58.6769999936223,
+            "search_baseline_mib": 69.515625,
+            "search_peak_mib": 69.515625
+          },
+          {
+            "wall_ms": 8.830991665793894,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 69.38671875,
+            "first_request_ms": 67.19080003676936,
+            "search_baseline_mib": 69.390625,
+            "search_peak_mib": 69.390625
+          },
+          {
+            "wall_ms": 9.051558333643092,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 69.359375,
+            "first_request_ms": 60.066199977882206,
+            "search_baseline_mib": 69.359375,
+            "search_peak_mib": 69.359375
+          },
+          {
+            "wall_ms": 8.996583332191221,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 69.75390625,
+            "first_request_ms": 63.36209998698905,
+            "search_baseline_mib": 69.75390625,
+            "search_peak_mib": 69.7578125
+          }
+        ],
+        "median": {
+          "wall_ms": 8.831,
+          "cpu_ms": 9.115,
+          "uss_mib": 69.516,
+          "first_request_ms": 63.362,
+          "search_baseline_mib": 69.516,
+          "search_peak_mib": 69.516
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 7.2479833324905485,
+            "cpu_ms": 6.510416666666667,
+            "uss_mib": 69.390625,
+            "first_request_ms": 19.981799996457994,
+            "search_baseline_mib": 69.390625,
+            "search_peak_mib": 69.40234375
+          },
+          {
+            "wall_ms": 7.605666668193105,
+            "cpu_ms": 7.8125,
+            "uss_mib": 69.28515625,
+            "first_request_ms": 20.74399997945875,
+            "search_baseline_mib": 69.28515625,
+            "search_peak_mib": 69.33203125
+          },
+          {
+            "wall_ms": 6.847099997685291,
+            "cpu_ms": 7.8125,
+            "uss_mib": 69.2578125,
+            "first_request_ms": 19.936099997721612,
+            "search_baseline_mib": 69.2578125,
+            "search_peak_mib": 69.28515625
+          },
+          {
+            "wall_ms": 7.001849997323006,
+            "cpu_ms": 7.8125,
+            "uss_mib": 68.859375,
+            "first_request_ms": 19.94819997344166,
+            "search_baseline_mib": 68.859375,
+            "search_peak_mib": 68.90234375
+          },
+          {
+            "wall_ms": 6.811141667033856,
+            "cpu_ms": 5.208333333333333,
+            "uss_mib": 69.10546875,
+            "first_request_ms": 19.366700027603656,
+            "search_baseline_mib": 69.109375,
+            "search_peak_mib": 69.13671875
+          }
+        ],
+        "median": {
+          "wall_ms": 7.002,
+          "cpu_ms": 7.812,
+          "uss_mib": 69.258,
+          "first_request_ms": 19.948,
+          "search_baseline_mib": 69.258,
+          "search_peak_mib": 69.285
+        }
+      }
+    },
+    "search-tokenized": {
+      "iterations_per_run": 20,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 2.8322250000201166,
+            "cpu_ms": 2.34375,
+            "uss_mib": 69.61328125,
+            "first_request_ms": 53.67809999734163,
+            "search_baseline_mib": 69.61328125,
+            "search_peak_mib": 69.61328125
+          },
+          {
+            "wall_ms": 2.553024998633191,
+            "cpu_ms": 2.34375,
+            "uss_mib": 69.5,
+            "first_request_ms": 64.88150003133342,
+            "search_baseline_mib": 69.5,
+            "search_peak_mib": 69.5
+          },
+          {
+            "wall_ms": 2.6333649992011487,
+            "cpu_ms": 2.34375,
+            "uss_mib": 69.5625,
+            "first_request_ms": 54.37900003744289,
+            "search_baseline_mib": 69.5625,
+            "search_peak_mib": 69.5625
+          },
+          {
+            "wall_ms": 2.5541899987729266,
+            "cpu_ms": 2.34375,
+            "uss_mib": 69.52734375,
+            "first_request_ms": 63.09899996267632,
+            "search_baseline_mib": 69.52734375,
+            "search_peak_mib": 69.52734375
+          },
+          {
+            "wall_ms": 2.6056100003188476,
+            "cpu_ms": 2.34375,
+            "uss_mib": 69.3828125,
+            "first_request_ms": 52.10789997363463,
+            "search_baseline_mib": 69.3828125,
+            "search_peak_mib": 69.38671875
+          }
+        ],
+        "median": {
+          "wall_ms": 2.606,
+          "cpu_ms": 2.344,
+          "uss_mib": 69.527,
+          "first_request_ms": 54.379,
+          "search_baseline_mib": 69.527,
+          "search_peak_mib": 69.527
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 3.408534999471158,
+            "cpu_ms": 3.90625,
+            "uss_mib": 68.875,
+            "first_request_ms": 19.14540003053844,
+            "search_baseline_mib": 68.87890625,
+            "search_peak_mib": 68.90234375
+          },
+          {
+            "wall_ms": 3.5069850011495873,
+            "cpu_ms": 4.6875,
+            "uss_mib": 69.15234375,
+            "first_request_ms": 19.026399997528642,
+            "search_baseline_mib": 69.1640625,
+            "search_peak_mib": 69.1640625
+          },
+          {
+            "wall_ms": 3.2382400007918477,
+            "cpu_ms": 3.125,
+            "uss_mib": 69.16796875,
+            "first_request_ms": 17.854199977591634,
+            "search_baseline_mib": 69.16796875,
+            "search_peak_mib": 69.16796875
+          },
+          {
+            "wall_ms": 3.3262249984545633,
+            "cpu_ms": 3.125,
+            "uss_mib": 68.9609375,
+            "first_request_ms": 21.661399980075657,
+            "search_baseline_mib": 68.9609375,
+            "search_peak_mib": 68.9609375
+          },
+          {
+            "wall_ms": 3.4599850012455136,
+            "cpu_ms": 3.90625,
+            "uss_mib": 69.37890625,
+            "first_request_ms": 17.548800038639456,
+            "search_baseline_mib": 69.37890625,
+            "search_peak_mib": 69.37890625
+          }
+        ],
+        "median": {
+          "wall_ms": 3.409,
+          "cpu_ms": 3.906,
+          "uss_mib": 69.152,
+          "first_request_ms": 19.026,
+          "search_baseline_mib": 69.164,
+          "search_peak_mib": 69.164
+        }
+      }
+    },
+    "frequency": {
+      "iterations_per_run": 20,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 7.508119998965412,
+            "cpu_ms": 6.25,
+            "uss_mib": 61.21484375
+          },
+          {
+            "wall_ms": 6.9296900008339435,
+            "cpu_ms": 6.25,
+            "uss_mib": 60.58203125
+          },
+          {
+            "wall_ms": 7.689865000429563,
+            "cpu_ms": 7.8125,
+            "uss_mib": 60.98046875
+          },
+          {
+            "wall_ms": 7.274289999622852,
+            "cpu_ms": 7.03125,
+            "uss_mib": 59.98828125
+          },
+          {
+            "wall_ms": 7.724065001821145,
+            "cpu_ms": 7.8125,
+            "uss_mib": 61.0
+          }
+        ],
+        "median": {
+          "wall_ms": 7.508,
+          "cpu_ms": 7.031,
+          "uss_mib": 60.98
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 6.030384998302907,
+            "cpu_ms": 6.25,
+            "uss_mib": 47.6484375
+          },
+          {
+            "wall_ms": 5.9705749998101965,
+            "cpu_ms": 6.25,
+            "uss_mib": 47.76171875
+          },
+          {
+            "wall_ms": 5.623375001596287,
+            "cpu_ms": 4.6875,
+            "uss_mib": 47.51171875
+          },
+          {
+            "wall_ms": 5.773060000501573,
+            "cpu_ms": 5.46875,
+            "uss_mib": 47.72265625
+          },
+          {
+            "wall_ms": 5.851754997274838,
+            "cpu_ms": 7.03125,
+            "uss_mib": 47.62890625
+          }
+        ],
+        "median": {
+          "wall_ms": 5.852,
+          "cpu_ms": 6.25,
+          "uss_mib": 47.648
+        }
+      }
+    },
+    "dashboard": {
+      "iterations_per_run": 6,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 13.854733328723038,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 60.24609375
+          },
+          {
+            "wall_ms": 14.164366662347069,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 59.9921875
+          },
+          {
+            "wall_ms": 13.794066665771728,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 61.7265625
+          },
+          {
+            "wall_ms": 17.603033338673413,
+            "cpu_ms": 15.625,
+            "uss_mib": 60.51953125
+          },
+          {
+            "wall_ms": 13.75588333272996,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 62.18359375
+          }
+        ],
+        "median": {
+          "wall_ms": 13.855,
+          "cpu_ms": 13.021,
+          "uss_mib": 60.52
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 16.484316671267152,
+            "cpu_ms": 20.833333333333332,
+            "uss_mib": 51.2421875
+          },
+          {
+            "wall_ms": 16.72375000392397,
+            "cpu_ms": 18.229166666666668,
+            "uss_mib": 50.87109375
+          },
+          {
+            "wall_ms": 16.74941666230249,
+            "cpu_ms": 15.625,
+            "uss_mib": 51.3671875
+          },
+          {
+            "wall_ms": 16.927566670347005,
+            "cpu_ms": 18.229166666666668,
+            "uss_mib": 50.96484375
+          },
+          {
+            "wall_ms": 16.08354999916628,
+            "cpu_ms": 15.625,
+            "uss_mib": 51.27734375
+          }
+        ],
+        "median": {
+          "wall_ms": 16.724,
+          "cpu_ms": 18.229,
+          "uss_mib": 51.242
+        }
+      }
+    }
+  },
+  "desktop_sha256": "89bef8df827bfef9c0b93acf4be8bf1825ede342dbaf836dfe1f948d36c37696"
+}

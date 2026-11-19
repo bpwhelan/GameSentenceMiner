@@ -46,6 +46,7 @@ _LANGUAGE_SCRIPTS = {
 }
 _KNOWN_LANGUAGES = frozenset(CommonLanguages.get_all_codes())
 _LINE_ENDINGS = "\r\n\v\f\x1c\x1d\x1e\x85\u2028\u2029"
+LANGUAGE_FILTER_MODES = ("blocks", "trim", "strict")
 
 
 @lru_cache(maxsize=256)
@@ -69,7 +70,7 @@ def _is_dialogue_punctuation(char: str, *, leading: bool = False) -> bool:
 
 def filter_target_language(text: str, language: str, mode: str = "blocks") -> str:
     """Filter newline-delimited blocks, their edges, or every nonmatching character."""
-    if not text or mode not in ("blocks", "trim", "strict"):
+    if not text or mode not in LANGUAGE_FILTER_MODES:
         return text
     pattern = _target_characters(language)
     if pattern is None:

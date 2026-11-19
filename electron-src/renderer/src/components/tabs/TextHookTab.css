@@ -459,15 +459,6 @@
   color: var(--gsm-text-secondary);
   font-size: 12px;
 }
-.texthook-desk .texthook-hook-quality {
-  display: block;
-  margin-top: 3px;
-  color: var(--gsm-text-muted);
-  font-size: 10px;
-}
-.texthook-desk .texthook-hook-quality--match {
-  color: var(--gsm-accent-text);
-}
 .texthook-desk .texthook-hook-preview {
   grid-area: preview;
   display: -webkit-box;
@@ -502,7 +493,6 @@
 .texthook-desk .texthook-hook-filters {
   padding: 15px 3px 0;
 }
-.texthook-desk .texthook-noise-toggle,
 .texthook-desk .th-clipboard-toggle {
   display: flex;
   align-items: center;
@@ -605,10 +595,6 @@
 .texthook-desk .texthook-profile-heading h2 {
   font-size: 13px;
 }
-.texthook-desk .texthook-save-recommendation {
-  color: var(--gsm-accent-text);
-  font-size: 10px;
-}
 .texthook-desk .texthook-profile-auto {
   display: flex;
   align-items: center;
@@ -625,11 +611,6 @@
 }
 .texthook-desk .texthook-profile-actions button {
   font-size: 12px;
-}
-.texthook-desk button.texthook-save-hook--recommended {
-  background: var(--gsm-accent-soft);
-  border-color: var(--gsm-accent-border);
-  color: var(--gsm-accent-text);
 }
 .texthook-desk .texthook-profile-actions .danger {
   background: transparent;

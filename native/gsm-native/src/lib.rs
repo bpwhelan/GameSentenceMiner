@@ -1,3 +1,9 @@
+mod card_matching;
+mod correlation;
+mod dialogue_journal;
+mod py_journal;
+mod py_correlation;
+mod skip_detection;
 mod layout;
 mod overlay_coordinates;
 mod overlay_filter;
@@ -10,8 +16,10 @@ mod text_matching;
 use layout::LayoutInput;
 use overlay_filter::OverlayFilterInput;
 use pyo3::prelude::*;
+use pyo3::pybacked::PyBackedStr;
 use pyo3::types::PyDict;
 use spatial_text::SpatialLineInput;
+use std::path::PathBuf;
 
 type PyBoundingBox = (f64, f64, f64, f64);
 type PyLayoutLine = (String, PyBoundingBox, Vec<usize>);
@@ -21,6 +29,52 @@ type PyOverlayFilterDecision = (usize, bool, Vec<usize>);
 #[pyfunction]
 fn api_version() -> u32 {
     1
+}
+
+#[pyfunction]
+fn rank_card_lines(
+    py: Python<'_>,
+    rows: &Bound<'_, PyAny>,
+    sentence: (String, String, String),
+    context: (String, Vec<(usize, usize)>, bool),
+    prefer_recent: bool,
+    minimum_score: f64,
+) -> PyResult<Option<Py<PyAny>>> {
+    let (sentence, punctuation, expression) = sentence;
+    let (context, spans, bold) = context;
+    let mut matcher = card_matching::Matcher::new(card_matching::Query {
+        sentence,
+        punctuation,
+        expression,
+        context,
+        spans,
+        bold,
+        recent: prefer_recent,
+        minimum: minimum_score,
+    });
+    let mut rows = rows.try_iter()?;
+    // Bound conversion memory independently of history size and release the GIL for scoring.
+    const BATCH_SIZE: usize = 8;
+    let mut batch =
+        Vec::<(Py<PyAny>, PyBackedStr, PyBackedStr, PyBackedStr)>::with_capacity(BATCH_SIZE);
+    loop {
+        for row in (&mut rows).take(BATCH_SIZE) {
+            batch.push(row?.extract()?);
+        }
+        let last = batch.len() < BATCH_SIZE;
+        if let Some(winner) = py.detach(|| {
+            batch
+                .drain(..)
+                .find_map(|(original, id, line, punctuation)| {
+                    matcher.observe(original, id, &line, &punctuation)
+                })
+        }) {
+            return Ok(Some(winner));
+        }
+        if last {
+            return Ok(py.detach(|| matcher.finish()));
+        }
+    }
 }
 
 #[pyfunction]
@@ -189,8 +243,62 @@ fn count_kanji(py: Python<'_>, texts: Vec<String>) -> PyResult<Bound<'_, PyDict>
     Ok(result)
 }
 
+#[pyfunction]
+#[pyo3(signature = (url, destination, sha256=None, *, limit=gsm_downloads::MAX_BYTES, progress=None))]
+fn download_file(
+    py: Python<'_>,
+    url: String,
+    destination: PathBuf,
+    sha256: Option<String>,
+    limit: u64,
+    progress: Option<Py<PyAny>>,
+) -> PyResult<()> {
+    py.detach(|| {
+        gsm_downloads::download(
+            &url,
+            &destination,
+            sha256.as_deref(),
+            limit,
+            &|done, total| {
+                if let Some(callback) = &progress {
+                    Python::attach(|py| {
+                        if let Err(error) = callback.call1(py, (done, total)) {
+                            error.write_unraisable(py, Some(callback.bind(py)));
+                        }
+                    });
+                }
+            },
+        )
+    })
+    .map_err(pyo3::exceptions::PyOSError::new_err)
+}
+
+#[pyfunction]
+fn ensure_download_asset(
+    py: Python<'_>,
+    cache: PathBuf,
+    id: String,
+    bundled: Option<PathBuf>,
+) -> PyResult<PathBuf> {
+    py.detach(|| gsm_downloads::ensure_asset(&cache, &id, bundled.as_deref()))
+        .map_err(pyo3::exceptions::PyOSError::new_err)
+}
+
+#[pyfunction]
+fn cached_download_asset(cache: PathBuf, id: String) -> Option<PathBuf> {
+    gsm_downloads::cached_asset(&cache, &id, None)
+}
+
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(rank_card_lines, module)?)?;
+    module.add_function(wrap_pyfunction!(py_correlation::classify_dialogue, module)?)?;
+    module.add_class::<py_correlation::DialogueSkipDetector>()?;
+    module.add_class::<py_journal::DialogueJournal>()?;
+    module.add_function(wrap_pyfunction!(py_correlation::compact_dialogue, module)?)?;
+    module.add_function(wrap_pyfunction!(download_file, module)?)?;
+    module.add_function(wrap_pyfunction!(ensure_download_asset, module)?)?;
+    module.add_function(wrap_pyfunction!(cached_download_asset, module)?)?;
     module.add_function(wrap_pyfunction!(api_version, module)?)?;
     module.add_function(wrap_pyfunction!(filter_ocr_text, module)?)?;
     module.add_function(wrap_pyfunction!(order_ocr_layout, module)?)?;

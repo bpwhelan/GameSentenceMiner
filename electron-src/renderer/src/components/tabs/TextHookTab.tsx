@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import "./TextHookTab.css";
 import { startVisiblePolling } from '../../lib/visiblePolling';
 import { invokeIpc, onIpc } from "../../lib/ipc";
+import { originCategory, splitLogOrigin } from "../../lib/logFormat";
 import { useBufferedState } from "../../lib/useBufferedState";
 import {
   DEBUG_LOG_HISTORY_LIMIT as MAX_LOG_LINES,
@@ -9,8 +10,11 @@ import {
 } from "../../lib/debugHistory";
 import { useLocale, useTranslation } from "../../i18n";
 import { AgentScriptSearchDialog } from "../AgentScriptSearchDialog";
+import {
+  HookFinderStatus, HookMatchDetails, HookNoiseToggle, HookQualityLabel, selectTextHook, useHookFinder, useRankedHookList,
+  type HookFinderSelection, type ProcessorOverrides,
+} from "../HookFinder";
 import type { EngineUpdateState } from "../../../../shared/texthook_updates";
-import { createHookRanker, type HookQualityReason } from "../../../../shared/texthook_quality";
 import {
   buildAgentScriptCandidateList,
   type AgentScriptCandidate,
@@ -64,6 +68,7 @@ interface RuntimeStatusRunning {
   agentHasUi?: boolean;
   agentDetached?: boolean;
   sessionId?: string;
+  processorOverrides?: ProcessorOverrides | null;
   agentPhase?: "starting" | "waiting" | "receiving";
 }
 
@@ -91,6 +96,7 @@ interface SavedProfile {
   flushDelayMs?: number;
   hookId?: string | null;
   hookFunction?: string | null;
+  processorOverrides?: ProcessorOverrides | null;
   manualHookCode?: string | null;
   agentScriptPath?: string | null;
   agentDetached?: boolean;
@@ -141,18 +147,6 @@ const DEV_JAPANESE_PAYLOAD_FRAGMENTS = [
 const AGENT_RELEASES_URL = "https://github.com/0xDC00/agent/releases/latest";
 const LUNA_TRANSLATOR_RELEASES_URL = "https://github.com/HIllya51/LunaTranslator/releases";
 const TEXTRACTOR_RELEASES_URL = "https://github.com/Chenx221/Textractor/releases";
-
-const HOOK_QUALITY_LABEL_KEYS: Record<HookQualityReason, string> = {
-  targetLanguage: "texthook.hooks.quality.targetLanguage",
-  possibleLanguage: "texthook.hooks.quality.possibleLanguage",
-  readable: "texthook.hooks.quality.readable",
-  mixed: "texthook.hooks.quality.mixed",
-  paths: "texthook.hooks.quality.paths",
-  garbled: "texthook.hooks.quality.garbled",
-  repetitive: "texthook.hooks.quality.repetitive",
-  symbols: "texthook.hooks.quality.symbols",
-  noText: "texthook.hooks.noTextYet",
-};
 
 function normalizeFlushDelayMs(value: unknown): number {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -235,7 +229,6 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const [hooks, setHooks] = useBufferedState<HookEntry[]>([], active);
   const [targetLanguage, setTargetLanguage] = useState("");
   const [showLikelyNoise, setShowLikelyNoise] = useState(false);
-  const rankHookCandidates = useMemo(() => createHookRanker(), []);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [engine, setEngine] = useState<TextHookEngine>("luna");
   const [builtInHookTargets, setBuiltInHookTargets] = useState<BuiltInHookTarget[]>([]);
@@ -683,12 +676,23 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   }, [showNotice, t]);
 
   const selectHook = useCallback(
-    async (hookId: string) => {
-      const ok = await invokeIpc<{ success: boolean }>("texthook.selectHook", hookId);
-      if (ok?.success) {
+    async (hookId: string, selection?: HookFinderSelection) => {
+      const session = activeSessionKeyRef.current;
+      try {
+        const result = await selectTextHook(hookId, selection);
+        if (session !== activeSessionKeyRef.current) return;
+        if (!result?.success) {
+          showNotice(t("texthook.finder.selectFailed"), "error");
+          return;
+        }
         setSelectedHookId(hookId);
+        setStatus((current) => current.running
+          ? { ...current, selectedHookId: hookId, processorOverrides: result.processorOverrides }
+          : current);
         setTextLines([]);
         showNotice(t("texthook.notices.selected", { id: hookId }), "success");
+      } catch {
+        showNotice(t("texthook.finder.selectFailed"), "error");
       }
     },
     [showNotice, t],
@@ -777,6 +781,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
         copyToClipboard,
         hookId: selectedHookId,
         hookFunction: targetHook?.function ?? null,
+        processorOverrides: status.running ? status.processorOverrides ?? null : null,
         manualHookCode:
           engine === "luna" || engine === "textractor" ? manualHookCode.trim() || null : null,
         agentScriptPath: engine === "agent" ? agentScriptPath.trim() || null : null,
@@ -809,12 +814,12 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
     if (!savedProfile) return;
     await invokeIpc("texthook.deleteProfile", {
       exeName: savedProfile.exeName,
-      sceneId: savedProfile.sceneId ?? capture?.sceneId,
+      sceneId: savedProfile.sceneId,
     });
     setSavedProfile(null);
     setAgentDetached(true);
     showNotice(t("texthook.notices.profileDeleted"), "info");
-  }, [capture?.sceneId, savedProfile, showNotice, t]);
+  }, [savedProfile, showNotice, t]);
 
   const browseAgentScript = useCallback(async () => {
     const response = await invokeIpc<{ status?: string; path?: string }>(
@@ -919,28 +924,26 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const sceneDisplay = capture?.sceneName || t("texthook.capture.noScene");
 
   const rankHooks = engine === "luna" || engine === "textractor";
+  const finder = useHookFinder(
+    active && status.running && (status.engine === "luna" || status.engine === "textractor"),
+    status.running ? status.sessionId : undefined,
+    capture?.sceneId,
+  );
+  const discovery = finder.result;
   const selectedHook = hooks.find((hook) => hook.id === selectedHookId);
-  const saveRecommended = Boolean(
-    selectedHookId &&
-      (savedProfile?.engine !== engine ||
-        savedProfile?.hookId !== selectedHookId ||
-        (savedProfile?.hookFunction ?? null) !== (selectedHook?.function ?? null)),
+  const currentOverrides = status.running ? status.processorOverrides : null;
+  const showSavedProfile = savedProfile && (
+    !selectedHookId || (
+      savedProfile.engine === engine &&
+      savedProfile.hookId === selectedHookId &&
+      JSON.stringify(savedProfile.processorOverrides ?? {}) === JSON.stringify(currentOverrides ?? {}) &&
+      (savedProfile.hookFunction ?? null) === (selectedHook?.function ?? null)
+    )
   );
-  const rankedHooks = useMemo(
-    () =>
-      rankHooks
-        ? rankHookCandidates(hooks, targetLanguage, selectedHookId).filter(
-            ({ hook, quality }) => hook.id === selectedHookId || quality.hasText,
-          )
-        : hooks.map((hook) => ({ hook, quality: null })),
-    [rankHooks, hooks, targetLanguage, selectedHookId, rankHookCandidates],
-  );
-  const likelyNoiseCount = rankedHooks.filter(
-    ({ hook, quality }) => quality?.likelyNoise && hook.id !== selectedHookId,
-  ).length;
-  const visibleHooks = rankedHooks.filter(
-    ({ hook, quality }) => showLikelyNoise || !quality?.likelyNoise || hook.id === selectedHookId,
-  );
+  const { visibleHooks: rankedHooks, likelyNoiseCount } = useRankedHookList(hooks, {
+    targetLanguage, selectedHookId, showLikelyNoise, discovery,
+  });
+  const visibleHooks = rankHooks ? rankedHooks : hooks.map((hook) => ({ hook, quality: null, match: null }));
   const startDisabled =
     busy ||
     stopping ||
@@ -1358,7 +1361,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   <div className="th-section-heading">
                     <div>
                       <h2 className="texthook-section-title">{t("texthook.hooks.title")}</h2>
-                      <p className="texthook-card-hint">{t("texthook.hooks.selectHint")}</p>
+                      {!discovery ? <p className="texthook-card-hint">{t("texthook.hooks.selectHint")}</p> : null}
                     </div>
                     <div className="texthook-hook-summary">
                       <span className="texthook-hook-count">
@@ -1366,10 +1369,11 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       </span>
                     </div>
                   </div>
+                  <HookFinderStatus finder={finder} hooks={visibleHooks} selectedHookId={selectedHookId} />
                   <div className="texthook-hooks">
                     {visibleHooks.length === 0 ? (
                       <div className="texthook-empty">
-                        {likelyNoiseCount > 0
+                        {rankHooks && likelyNoiseCount > 0
                           ? t("texthook.hooks.onlyNoise")
                           : status.running
                             ? t("texthook.hooks.waiting")
@@ -1377,7 +1381,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       </div>
                     ) : (
                       <ul className="texthook-hook-rows">
-                        {visibleHooks.map(({ hook, quality }) => {
+                        {visibleHooks.map(({ hook, quality, match }) => {
                           const isSelected = hook.id === selectedHookId;
                           return (
                             <li
@@ -1387,7 +1391,11 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                               <button
                                 type="button"
                                 className="texthook-hook-button"
-                                onClick={() => void selectHook(hook.id)}
+                                onClick={() => void selectHook(hook.id, discovery && match ? {
+                                  sessionId: discovery.sessionId,
+                                  sceneId: discovery.sceneId,
+                                  processorOverrides: match.processorOverrides,
+                                } : undefined)}
                                 aria-pressed={isSelected}
                                 aria-label={t("texthook.hooks.rowLabel", {
                                   id: hook.id,
@@ -1397,17 +1405,11 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                                 <span className="texthook-hook-id">#{hook.id}</span>
                                 <span className="texthook-hook-fn">
                                   <span className="texthook-hook-name">{hook.function}</span>
-                                  {quality?.hasText ? (
-                                    <span
-                                      className={`texthook-hook-quality ${quality.score >= 3 ? "texthook-hook-quality--match" : ""}`}
-                                      title={t(HOOK_QUALITY_LABEL_KEYS[quality.reason])}
-                                    >
-                                      {t(HOOK_QUALITY_LABEL_KEYS[quality.reason])}
-                                    </span>
-                                  ) : null}
+                                  <HookQualityLabel quality={quality} />
+                                  <HookMatchDetails match={match} />
                                 </span>
-                                <span className="texthook-hook-preview">
-                                  {hook.preview || t("texthook.hooks.noTextYet")}
+                                <span className="texthook-hook-preview" title={match?.sample}>
+                                  {match?.output || hook.preview || t("texthook.hooks.noTextYet")}
                                 </span>
                                 <span
                                   className="texthook-hook-radio"
@@ -1424,25 +1426,13 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   </div>
                   {rankHooks ? (
                     <div className="texthook-hook-filters">
-                      <label
-                        className="texthook-noise-toggle"
-                        htmlFor="texthook-show-noise"
-                        data-tip={
-                          targetLanguage
-                            ? t("texthook.hooks.rankingHint", {
-                                language: targetLanguage.toUpperCase(),
-                              })
-                            : t("texthook.hooks.readabilityHint")
-                        }
-                      >
-                        <input
-                          id="texthook-show-noise"
-                          type="checkbox"
-                          checked={showLikelyNoise}
-                          onChange={(event) => setShowLikelyNoise(event.target.checked)}
-                        />
-                        {t("texthook.hooks.showNoise", { count: likelyNoiseCount })}
-                      </label>
+                      <HookNoiseToggle
+                        id="texthook-show-noise"
+                        count={likelyNoiseCount}
+                        targetLanguage={targetLanguage}
+                        checked={showLikelyNoise}
+                        onChange={setShowLikelyNoise}
+                      />
                     </div>
                   ) : null}
                 </section>
@@ -1524,9 +1514,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                 </section>
               </div>
 
-              <section
-                className={`texthook-profile-card ${saveRecommended ? "texthook-profile-card--recommended" : ""}`}
-              >
+              <section className="texthook-profile-card">
                 <div className="texthook-profile-row">
                   <div className="texthook-profile-summary">
                     <div className="texthook-profile-heading">
@@ -1537,11 +1525,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                         aria-live="polite"
                         aria-label={t("texthook.profile.save")}
                       >
-                        {saveRecommended ? (
-                          <span className="texthook-save-recommendation">
-                            {t("texthook.profile.recommended")}
-                          </span>
-                        ) : savedProfile ? (
+                        {showSavedProfile ? (
                           <span className="th-badge">{t("texthook.profile.saved")}</span>
                         ) : null}
                       </span>
@@ -1550,7 +1534,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                       id="texthook-save-hint"
                       className="texthook-card-hint"
                     >
-                      {t("texthook.profile.saveHint")}
+                      {t(rankHooks ? "texthook.profile.autoSaveHint" : "texthook.profile.saveHint")}
                     </p>
                     <label className="texthook-profile-auto">
                       <input
@@ -1564,7 +1548,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   <div className="link-row texthook-profile-actions">
                     <button
                       type="button"
-                      className={`secondary texthook-save-hook ${saveRecommended ? "texthook-save-hook--recommended" : ""}`}
+                      className="secondary texthook-save-hook"
                       aria-describedby="texthook-save-hint"
                       onClick={() => void saveProfile()}
                     >
@@ -1667,14 +1651,26 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                   <div className="texthook-empty">{t("texthook.log.empty")}</div>
                 ) : (
                   <ul className="texthook-log-list">
-                    {logLines.map((line) => (
-                      <li
-                        key={line.id}
-                        className={`texthook-log-line texthook-log-line--${line.level}`}
-                      >
-                        {line.message}
-                      </li>
-                    ))}
+                    {logLines.map((line) => {
+                      const { origin, rest } = splitLogOrigin(line.message);
+                      return (
+                        <li
+                          key={line.id}
+                          className={`texthook-log-line texthook-log-line--${line.level}`}
+                        >
+                          {origin ? (
+                            <>
+                              <span className={`log-origin-badge log-origin-badge--${originCategory(origin)}`}>
+                                [{origin}]
+                              </span>{" "}
+                              {rest}
+                            </>
+                          ) : (
+                            line.message
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 )}
               </div>

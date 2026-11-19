@@ -1475,12 +1475,16 @@ export class Display extends EventDispatcher {
         this._triggerContentUpdateStart();
 
         let i = 0;
+        // Yield after the first visible entry, then give the rest short slices.
+        // A timer per entry adds the browser's timer clamp to every small result.
+        let yieldAfter = 0;
         for (const dictionaryEntry of dictionaryEntries) {
             safePerformance.mark('display:createEntry:start');
 
-            if (i > 0) {
+            if (i > 0 && safePerformance.now() >= yieldAfter) {
                 await promiseTimeout(1);
                 if (this._setContentToken !== token) { return; }
+                yieldAfter = safePerformance.now() + 4;
             }
 
             safePerformance.mark('display:createEntryReal:start');

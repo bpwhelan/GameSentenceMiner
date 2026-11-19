@@ -2,7 +2,7 @@
 //! Replaces `electron-src/main/services/reader.ts` and `reader_dictionary.ts`.
 
 use crate::dictionary_host::{
-    apply_profile_data_directory, evaluate_raw, extension_kind, overlay_data_path,
+    apply_profile_data_directory, evaluate_raw, overlay_data_path,
     strip_windows_verbatim_prefix, use_windows_native_extensions, DictionaryManager,
     LoadedExtension,
 };
@@ -391,13 +391,20 @@ async fn prepare_reader(
         let parsed = desktop.assets.url(&target_url)?;
         let token = uuid::Uuid::new_v4().to_string();
         desktop.register_window_with_token(LOOKUP_PAGE_LABEL, "dictionary", token.clone());
+        let (loaded, mut ready) = tokio::sync::watch::channel(false);
+        let expected_url = parsed.clone();
 
         let mut builder = crate::dictionary_host::apply_shared_webview_options(
             WebviewWindowBuilder::new(app, LOOKUP_PAGE_LABEL, WebviewUrl::External(parsed))
                 .title("GSM Reader Lookup")
                 .inner_size(1.0, 1.0)
                 .visible(false)
-                .skip_taskbar(true),
+                .skip_taskbar(true)
+                .on_page_load(move |_, payload| {
+                    if payload.url() == &expected_url && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                        loaded.send_replace(true);
+                    }
+                }),
         );
 
         if !use_windows_native_extensions() {
@@ -409,6 +416,19 @@ async fn prepare_reader(
         }
         builder = apply_profile_data_directory(builder, &overlay_data)?;
         let win = builder.build().map_err(|e| e.to_string())?;
+        // Evaluating against the initial about:blank document can lose the
+        // result during navigation and stall for the IPC timeout. Use Tauri's
+        // load event instead of a fixed startup sleep.
+        let document_ready = tokio::time::timeout(Duration::from_secs(20), async {
+            while !*ready.borrow_and_update() {
+                ready.changed().await.map_err(|_| "Dictionary window closed")?;
+            }
+            Ok::<(), &str>(())
+        }).await;
+        if !matches!(document_ready, Ok(Ok(()))) {
+            let _ = destroy_reader_window(app, &win).await;
+            return Err("Dictionary page did not finish loading".into());
+        }
         if reader == "hachidori" {
             let _ = manager.ensure_hachidori_engine(app, &ext).await?;
         }
@@ -422,30 +442,11 @@ pub async fn attach_home_dictionary(app: &AppHandle, label: &str) -> Result<Valu
     let window = app
         .get_webview_window(label)
         .ok_or("Reading window is closed.")?;
-    let (reader, ext) = adopt_or_load_extension(app).await?;
+    let (_, ext) = adopt_or_load_extension(app).await?;
     let manager = app.state::<DictionaryManager>();
-
-    // During transitional startup when Node may have already enabled the WebView2
-    // extension before the Home React tab mounted, avoid reloading on first mount
-    // if the target extension is already enabled on the window profile.
-    #[cfg(windows)]
-    if use_windows_native_extensions() && manager.get_home_reader_extension(label).is_none() {
-        if let Ok(list) = crate::browser_extensions::list(&window).await {
-            let already_active = list.as_array().is_some_and(|items| {
-                items.iter().any(|item| {
-                    item["enabled"].as_bool() == Some(true)
-                        && item["name"]
-                            .as_str()
-                            .is_some_and(|n| extension_kind(n) == reader)
-                })
-            });
-            if already_active {
-                manager.set_home_reader_extension(label, &ext.id);
-                return Ok(Value::Null);
-            }
-        }
-    }
-
+    // Enabled on a shared profile does not mean content scripts attached to this
+    // document. The manager reloads once after loading the extension and records
+    // the attachment so subsequent Home mounts don't reload again.
     manager.attach_reader_window(app, &window, &ext).await?;
     Ok(Value::Null)
 }
@@ -525,7 +526,7 @@ pub async fn lookup_reader_dictionary(app: &AppHandle, text: &str) -> Result<Val
     let arg_json = json!(text).to_string();
     let script = if reader == "yomitan" {
         format!(
-            "(async () => {{\nconst {{API}} = await import('./js/comm/api.js');\nconst {{WebExtension}} = await import('./js/extension/web-extension.js');\nconst api = new API(new WebExtension());\nconst options = await api.optionsGetFull();\nreturn api.termsFind({arg_json}, {{}}, {{index: options.profileCurrent}});\n}})()"
+            "(async () => {{\nconst {{API}} = await import('./js/comm/api.js');\nconst {{WebExtension}} = await import('./js/extension/web-extension.js');\nconst api = globalThis.__gsmReaderDictionaryApi ??= new API(new WebExtension());\nreturn api.termsFind({arg_json}, {{}}, {{current: true}});\n}})()"
         )
     } else {
         format!(
@@ -696,7 +697,7 @@ pub async fn handle_ws2_anki_setup(app: &AppHandle, msg: &Value) -> Value {
     let res = async {
         let (reader, _ext, win) = prepare_reader(app).await?;
         if reader != "yomitan" {
-            return Err("Start the GSM overlay with Yomitan selected, then retry.".to_string());
+            return Err("Select Yomitan in dictionary settings, then retry.".to_string());
         }
         let script = format!(
             r#"(async () => {{
@@ -872,10 +873,10 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
         }
 
         if action == "open" {
-            let _ = app
+            app
                 .state::<DictionaryManager>()
                 .open_selected_extension_options(app)
-                .await;
+                .await?;
         }
 
         let resources_root = crate::dictionary_host::overlay_resources_root(app);

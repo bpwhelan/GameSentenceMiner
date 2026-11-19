@@ -138,6 +138,37 @@ pub struct Projection {
     pub image_size: (u32, u32),
 }
 
+pub(crate) fn order_lines(
+    lines: &[TextBox],
+    language: &str,
+    furigana_filter: bool,
+) -> Vec<crate::layout::LayoutParagraphOutput> {
+    let input = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| {
+            let [left, top, right, bottom] = l.bounds;
+            let direction = if l.vertical {
+                "TOP_TO_BOTTOM"
+            } else {
+                "LEFT_TO_RIGHT"
+            };
+            (
+                i,
+                l.text.clone(),
+                (left + right) / 2.,
+                (top + bottom) / 2.,
+                right - left,
+                bottom - top,
+                Some(direction.into()),
+                None,
+            )
+        })
+        .collect();
+    // TextBox bounds are already in pixels.
+    crate::layout::order_layout(input, 1., 1., language, furigana_filter, true, false)
+}
+
 fn union(words: &[TextBox]) -> [f64; 4] {
     words.iter().fold(
         [
@@ -154,6 +185,37 @@ fn union(words: &[TextBox]) -> [f64; 4] {
             b
         },
     )
+}
+
+/// Group scene text into spatial blocks without joining separate screen regions.
+pub fn text_blocks(recognition: Recognition, language: &str) -> Vec<String> {
+    if recognition.lines.is_empty() {
+        return recognition
+            .text
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+            .collect();
+    }
+    let (positioned, unpositioned): (Vec<_>, Vec<_>) = recognition
+        .lines
+        .into_iter()
+        .filter(|line| !line.text.trim().is_empty())
+        .flat_map(|line| visual_lines(line, language))
+        .partition(|line| line.bounds[2] > line.bounds[0] && line.bounds[3] > line.bounds[1]);
+    order_lines(&positioned, language, language == "ja")
+        .into_iter()
+        .map(|block| {
+            block
+                .lines
+                .into_iter()
+                .map(|line| line.text)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .chain(unpositioned.into_iter().map(|line| line.text))
+        .filter(|text| !text.trim().is_empty())
+        .collect()
 }
 
 /// Some engines put wrapped rows into one line. Split on word geometry before
@@ -279,39 +341,7 @@ pub fn prepare(
             .map(|d| lines[d.source_id].clone())
             .collect();
     }
-    let input = lines
-        .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let b = l.bounds;
-            (
-                i,
-                l.text.clone(),
-                (b[0] + b[2]) / 2.,
-                (b[1] + b[3]) / 2.,
-                b[2] - b[0],
-                b[3] - b[1],
-                Some(
-                    if l.vertical {
-                        "TOP_TO_BOTTOM"
-                    } else {
-                        "LEFT_TO_RIGHT"
-                    }
-                    .into(),
-                ),
-                None,
-            )
-        })
-        .collect();
-    let paragraphs = crate::layout::order_layout(
-        input,
-        projection.image_size.0 as f64,
-        projection.image_size.1 as f64,
-        language,
-        false,
-        true,
-        false,
-    );
+    let paragraphs = order_lines(&lines, language, filter && language == "ja");
     let box_json = |b: [f64; 4]| {
         let x = |v| {
             (v * projection.capture[2] / projection.image_size.0 as f64 + projection.capture[0]
@@ -377,6 +407,18 @@ mod tests {
         }
     }
     #[test]
+    fn scene_blocks_keep_wrapped_dialogue_separate_from_the_menu() {
+        let scene = Recognition::from_lines(vec![
+            line("設定", [720., 40., 760., 62.]),
+            line("今日の放課後は", [100., 480., 240., 502.]),
+            line("図書館で待とう", [100., 508., 240., 530.]),
+        ]);
+        let blocks = text_blocks(scene, "ja");
+        assert_eq!(blocks.len(), 2);
+        assert!(blocks.contains(&"設定".into()));
+        assert!(blocks.contains(&"今日の放課後は\n図書館で待とう".into()));
+    }
+    #[test]
     fn projection_handles_scaled_window_on_negative_monitor() {
         let result = prepare(
             vec![line("テスト", [50., 50., 150., 70.])],
@@ -410,6 +452,19 @@ mod tests {
         );
         assert_eq!(result["data"].as_array().unwrap().len(), 1);
         assert_eq!(result["data"][0]["text"], "日本語");
+    }
+    #[test]
+    fn japanese_overlay_filters_furigana_with_text_filtering_enabled() {
+        let lines = vec![
+            line("にほんご", [10., 18., 50., 28.]),
+            line("日本語の文章", [10., 30., 130., 50.]),
+        ];
+        let filtered = prepare(lines.clone(), "ja", 0., true, &projection());
+        assert_eq!(filtered["data"].as_array().unwrap().len(), 1);
+        assert_eq!(filtered["data"][0]["text"], "日本語の文章");
+
+        let unfiltered = prepare(lines, "ja", 0., false, &projection());
+        assert_eq!(unfiltered["data"].as_array().unwrap().len(), 2);
     }
     #[test]
     fn separate_choices_do_not_join_dialogue() {

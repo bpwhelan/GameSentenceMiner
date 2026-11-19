@@ -1,48 +1,44 @@
 import base64
 import copy
 import ctypes
-import curl_cffi
 import functools
 import importlib
 import io
 import json
 import locale
-import logging
-import numpy as np
 import os
 import platform
 import random
 import re
-import regex
 import struct
 import sys
 import threading
 import time
-import urllib.request
-import jaconv
-from PIL import Image, ImageOps, UnidentifiedImageError
 from contextlib import contextmanager
-from dataclasses import dataclass, field, fields, asdict
-from math import sqrt, floor, sin, cos, atan2
+from dataclasses import asdict, dataclass, field, fields
+from math import atan2, cos, floor, sin, sqrt
 from pathlib import Path
 from typing import ClassVar, List, Optional
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import parse_qs, urlparse
+
+import curl_cffi
+import jaconv
+import numpy as np
+import regex
+from PIL import Image, ImageOps, UnidentifiedImageError
 from tzlocal import get_localzone_name
 
 from GameSentenceMiner.ocr import SharedMeikiOCRModel
-from GameSentenceMiner.util.gpu_runtime import gpu_enabled
 from GameSentenceMiner.ocr.debug_logging import emit_ocr_debug
-from .screen_ai_downloader import ensure_screen_ai_resources
+from GameSentenceMiner.util.config.configuration import logger
 from GameSentenceMiner.util.config.electron_config import (
-    get_ocr_language,
-    get_ocr_advanced_debug_logging,
     get_furigana_filter_sensitivity,
+    get_ocr_advanced_debug_logging,
+    get_ocr_language,
 )
-from GameSentenceMiner.util.config.configuration import (
-    CommonLanguages,
-    logger,
-    get_config,
-)
+from GameSentenceMiner.util.gpu_runtime import gpu_enabled
+
+from .screen_ai_downloader import ensure_screen_ai_resources
 
 # from GameSentenceMiner.util.config.configuration import get_temporary_directory
 
@@ -50,14 +46,8 @@ _UNINITIALIZED = object()
 
 _FPNG_MODULE = _UNINITIALIZED
 _CV2_MODULE = _UNINITIALIZED
-_MANGA_OCR_MODULE = _UNINITIALIZED
-_MANGA_OCR_SEGMENTED_DEPS = _UNINITIALIZED
 _APPLE_VISION_DEPS = _UNINITIALIZED
 _GOOGLE_VISION_DEPS = _UNINITIALIZED
-_AZURE_VISION_DEPS = _UNINITIALIZED
-_EASYOCR_MODULE = _UNINITIALIZED
-_RAPIDOCR_DEPS = _UNINITIALIZED
-_PADDLEOCR_MODULE = _UNINITIALIZED
 _WINOCR_MODULE = _UNINITIALIZED
 _ONEOCR_MODULE = _UNINITIALIZED
 _LENS_PROTO_DEPS = _UNINITIALIZED
@@ -111,49 +101,6 @@ def _load_cv2_module():
     return _CV2_MODULE
 
 
-def _load_manga_ocr_module():
-    global _MANGA_OCR_MODULE
-    if _MANGA_OCR_MODULE is _UNINITIALIZED:
-        try:
-            package = importlib.import_module("manga_ocr")
-            _MANGA_OCR_MODULE = {
-                "MangaOcr": package.MangaOcr,
-                "ocr": importlib.import_module("manga_ocr.ocr"),
-            }
-        except ImportError:
-            _MANGA_OCR_MODULE = None
-    return _MANGA_OCR_MODULE
-
-
-def _gaussian_window(M, std):
-    # Replaces scipy.signal.windows.gaussian so we don't pull in scipy/scikit-image.
-    n = np.arange(0, M) - (M - 1) / 2
-    return np.exp(-0.5 * (n / std) ** 2)
-
-
-def _load_manga_ocr_segmented_dependencies():
-    global _MANGA_OCR_SEGMENTED_DEPS
-    if _MANGA_OCR_SEGMENTED_DEPS is _UNINITIALIZED:
-        base = _load_manga_ocr_module()
-        cv2_module = _load_cv2_module()
-        if base is None or cv2_module is None:
-            _MANGA_OCR_SEGMENTED_DEPS = None
-        else:
-            try:
-                text_detector_module = importlib.import_module("comic_text_detector.inference")
-                torch_module = importlib.import_module("torch")
-                _MANGA_OCR_SEGMENTED_DEPS = {
-                    **base,
-                    "TextDetector": text_detector_module.TextDetector,
-                    "gaussian": _gaussian_window,
-                    "torch": torch_module,
-                    "cv2": cv2_module,
-                }
-            except ImportError:
-                _MANGA_OCR_SEGMENTED_DEPS = None
-    return _MANGA_OCR_SEGMENTED_DEPS
-
-
 def _load_apple_vision_dependencies():
     global _APPLE_VISION_DEPS
     if _APPLE_VISION_DEPS is _UNINITIALIZED:
@@ -186,59 +133,6 @@ def _load_google_vision_dependencies():
         except ImportError:
             _GOOGLE_VISION_DEPS = None
     return _GOOGLE_VISION_DEPS
-
-
-def _load_azure_vision_dependencies():
-    global _AZURE_VISION_DEPS
-    if _AZURE_VISION_DEPS is _UNINITIALIZED:
-        try:
-            _AZURE_VISION_DEPS = {
-                "ImageAnalysisClient": importlib.import_module("azure.ai.vision.imageanalysis").ImageAnalysisClient,
-                "VisualFeatures": importlib.import_module("azure.ai.vision.imageanalysis.models").VisualFeatures,
-                "AzureKeyCredential": importlib.import_module("azure.core.credentials").AzureKeyCredential,
-                "ServiceRequestError": importlib.import_module("azure.core.exceptions").ServiceRequestError,
-            }
-        except ImportError:
-            _AZURE_VISION_DEPS = None
-    return _AZURE_VISION_DEPS
-
-
-def _load_easyocr_module():
-    global _EASYOCR_MODULE
-    if _EASYOCR_MODULE is _UNINITIALIZED:
-        try:
-            _EASYOCR_MODULE = importlib.import_module("easyocr")
-        except ImportError:
-            _EASYOCR_MODULE = None
-    return _EASYOCR_MODULE
-
-
-def _load_rapidocr_dependencies():
-    global _RAPIDOCR_DEPS
-    if _RAPIDOCR_DEPS is _UNINITIALIZED:
-        try:
-            rapidocr_module = importlib.import_module("rapidocr_onnxruntime")
-            _RAPIDOCR_DEPS = {
-                "RapidOCR": rapidocr_module.RapidOCR,
-                "EngineType": rapidocr_module.EngineType,
-                "LangDet": rapidocr_module.LangDet,
-                "LangRec": rapidocr_module.LangRec,
-                "ModelType": rapidocr_module.ModelType,
-                "OCRVersion": rapidocr_module.OCRVersion,
-            }
-        except ImportError:
-            _RAPIDOCR_DEPS = None
-    return _RAPIDOCR_DEPS
-
-
-def _load_paddleocr_module():
-    global _PADDLEOCR_MODULE
-    if _PADDLEOCR_MODULE is _UNINITIALIZED:
-        try:
-            _PADDLEOCR_MODULE = importlib.import_module("paddleocr")
-        except ImportError:
-            _PADDLEOCR_MODULE = None
-    return _PADDLEOCR_MODULE
 
 
 def _load_winocr_module():
@@ -353,9 +247,6 @@ def _load_screen_ai_pb2():
             os.environ.pop("TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK", None)
         else:
             os.environ["TEMPORARILY_DISABLE_PROTOBUF_VERSION_CHECK"] = previous
-
-
-manga_ocr_model = None
 
 
 @dataclass
@@ -628,12 +519,6 @@ def pil_image_to_bytes(img, img_format="png", png_compression=6, jpeg_quality=80
     return image_bytes
 
 
-def pil_image_to_numpy_array(img):
-    if img.mode == "L":
-        return np.array(img)
-    return pil_image_to_rgb_numpy_array(img)
-
-
 def pil_image_to_rgb_numpy_array(img):
     """Return a writable RGB array without reconverting an existing RGB image."""
     if img.mode == "RGB":
@@ -901,23 +786,6 @@ def merge_bounding_boxes(ocr_element_list, rotated=False):
         height=height,
         rotation_z=angle,
     )
-
-
-def initialize_manga_ocr(pretrained_model_name_or_path, force_cpu):
-    def empty_post_process(text):
-        text = re.sub(r"\s+", "", text)
-        return text
-
-    global manga_ocr_model
-    if not manga_ocr_model:
-        deps = _load_manga_ocr_module()
-        if deps is None:
-            raise ImportError("manga_ocr is not installed")
-        logger.disable("manga_ocr")
-        logging.getLogger("transformers").setLevel(logging.ERROR)  # silence transformers >=4.46 warnings
-        deps["ocr"].post_process = empty_post_process
-        logger.info("Loading Manga OCR model")
-        manga_ocr_model = deps["MangaOcr"](pretrained_model_name_or_path, force_cpu)
 
 
 def _line_metrics_from_quad_rect(bounding_rect):
@@ -1217,230 +1085,6 @@ def ocr_result_to_oneocr_tuple(
     )
 
 
-class MangaOcrSegmented:
-    name = "mangaocrs"
-    readable_name = "Manga OCR (segmented)"
-    key = "n"
-    config_entry = "mangaocr"
-    available = False
-    local = True
-    manual_language = False
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=True,
-        paragraph_bounding_boxes=True,
-    )
-
-    def __init__(self, config={}):
-        deps = _load_manga_ocr_segmented_dependencies()
-        if deps is None:
-            logger.warning("manga-ocr not available, Manga OCR (segmented) will not work!")
-        else:
-            comic_text_detector_path = Path.home() / ".cache" / "manga-ocr"
-            comic_text_detector_file = comic_text_detector_path / "comictextdetector.pt"
-
-            if not comic_text_detector_file.exists():
-                comic_text_detector_path.mkdir(parents=True, exist_ok=True)
-                logger.info("Downloading comic text detector model " + str(comic_text_detector_file))
-                try:
-                    urllib.request.urlretrieve(
-                        "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/comictextdetector.pt",
-                        str(comic_text_detector_file),
-                    )
-                except:
-                    logger.warning("Download failed. Manga OCR (segmented) will not work!")
-                    return
-
-            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
-            force_cpu = config.get("force_cpu", False)
-            initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
-
-            torch_module = deps["torch"]
-            if not force_cpu and torch_module.cuda.is_available():
-                device = "cuda"
-            elif not force_cpu and torch_module.backends.mps.is_available():
-                device = "mps"
-            else:
-                device = "cpu"
-            logger.info(f"Loading comic text detector model, using device {device}")
-            self.text_detector_model = deps["TextDetector"](
-                model_path=comic_text_detector_file,
-                input_size=1024,
-                device=device,
-                act="leaky",
-            )
-
-            self.available = True
-            logger.info("Manga OCR (segmented) ready")
-
-    def _convert_line_bbox(self, rect, img_width, img_height):
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
-
-    def _convert_box_bbox(self, rect, img_width, img_height):
-        x1, y1, x2, y2 = map(float, rect)
-        return rectangle_to_bounding_box(x1, y1, x2, y2, img_width, img_height)
-
-    # from https://github.com/kha-white/mokuro/blob/master/mokuro/manga_page_ocr.py
-    def _split_into_chunks(self, img, mask_refined, blk, line_idx, textheight, max_ratio, anchor_window):
-        deps = _load_manga_ocr_segmented_dependencies()
-        if deps is None:
-            raise RuntimeError("Manga OCR segmented dependencies are unavailable")
-        line_crop = blk.get_transformed_region(img, line_idx, textheight)
-
-        h, w, *_ = line_crop.shape
-        ratio = w / h
-
-        if ratio <= max_ratio:
-            return [line_crop], []
-        else:
-            k = deps["gaussian"](textheight * 2, textheight / 8)
-
-            line_mask = blk.get_transformed_region(mask_refined, line_idx, textheight)
-            num_chunks = int(np.ceil(ratio / max_ratio))
-
-            anchors = np.linspace(0, w, num_chunks + 1)[1:-1]
-
-            line_density = line_mask.sum(axis=0)
-            line_density = np.convolve(line_density, k, "same")
-            line_density /= line_density.max()
-
-            anchor_window *= textheight
-
-            cut_points = []
-            for anchor in anchors:
-                anchor = int(anchor)
-
-                n0 = np.clip(anchor - anchor_window // 2, 0, w)
-                n1 = np.clip(anchor + anchor_window // 2, 0, w)
-
-                p = line_density[n0:n1].argmin()
-                p += n0
-
-                cut_points.append(p)
-
-            return np.split(line_crop, cut_points, axis=1), cut_points
-
-    # derived from https://github.com/kha-white/mokuro/blob/master/mokuro/manga_page_ocr.py
-    def _to_generic_result(self, mask_refined, blk_list, img_np, img_height, img_width):
-        cv2_module = _load_cv2_module()
-        if cv2_module is None:
-            raise RuntimeError("opencv-python is not installed")
-        paragraphs = []
-        for blk_idx, blk in enumerate(blk_list):
-            lines = []
-            for line_idx, line in enumerate(blk.lines_array()):
-                if blk.vertical:
-                    max_ratio = 16
-                else:
-                    max_ratio = 8
-
-                line_crops, cut_points = self._split_into_chunks(
-                    img_np,
-                    mask_refined,
-                    blk,
-                    line_idx,
-                    textheight=64,
-                    max_ratio=max_ratio,
-                    anchor_window=2,
-                )
-
-                l_text = ""
-                for line_crop in line_crops:
-                    if blk.vertical:
-                        line_crop = cv2_module.rotate(line_crop, cv2_module.ROTATE_90_CLOCKWISE)
-                    l_text += manga_ocr_model(Image.fromarray(line_crop))
-                l_bbox = self._convert_line_bbox(line.tolist(), img_width, img_height)
-
-                word = Word(text=l_text, bounding_box=l_bbox)
-                words = [word]
-
-                line = Line(text=l_text, bounding_box=l_bbox, words=words)
-
-                lines.append(line)
-
-            p_bbox = self._convert_box_bbox(list(blk.xyxy), img_width, img_height)
-            writing_direction = "TOP_TO_BOTTOM" if blk.vertical else "LEFT_TO_RIGHT"
-            paragraph = Paragraph(bounding_box=p_bbox, lines=lines, writing_direction=writing_direction)
-
-            paragraphs.append(paragraph)
-
-        return OcrResult(
-            image_properties=ImageProperties(width=img_width, height=img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        img_np = pil_image_to_numpy_array(img)
-        img_width, img_height = img.size
-
-        _, mask_refined, blk_list = self.text_detector_model(img_np, refine_mode=1, keep_undetected_mask=True)
-        ocr_result = self._to_generic_result(mask_refined, blk_list, img_np, img_height, img_width)
-
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-
-class MangaOcr:
-    name = "mangaocr"
-    readable_name = "Manga OCR"
-    key = "m"
-    config_entry = "mangaocr"
-    available = False
-    local = True
-    manual_language = False
-    coordinate_support = False
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=True,
-        line_bounding_boxes=False,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(
-        self,
-        config={
-            "pretrained_model_name_or_path": "kha-white/manga-ocr-base",
-            "force_cpu": False,
-        },
-        lang="ja",
-    ):
-        if _load_manga_ocr_module() is None:
-            logger.warning("manga-ocr not available, Manga OCR will not work!")
-        else:
-            pretrained_model_name_or_path = config.get("pretrained_model_name_or_path", "kha-white/manga-ocr-base")
-            force_cpu = config.get("force_cpu", False)
-            initialize_manga_ocr(pretrained_model_name_or_path, force_cpu)
-            self.available = True
-            logger.info("Manga OCR ready")
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        x = (True, manga_ocr_model(img), None, None, None, None)
-
-        # img.close()
-        return x
-
-
 class GoogleVision:
     name = "gvision"
     readable_name = "Google Vision"
@@ -1466,21 +1110,26 @@ class GoogleVision:
             logger.warning("google-cloud-vision not available, Google Vision will not work!")
         else:
             logger.info("Parsing Google credentials")
-            from GameSentenceMiner.util.data_directory import get_profile_directory
+            from GameSentenceMiner.util.data_directory import get_profile_directory, resolve_data_directory
 
-            credentials_directory = get_profile_directory() or os.path.join(os.path.expanduser("~"), ".config")
-            google_credentials_file = os.path.join(credentials_directory, "google_vision.json")
             try:
+                credentials_override = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+                if credentials_override:
+                    credentials_file = Path(credentials_override)
+                else:
+                    credentials_file = Path(resolve_data_directory()) / "google_vision.json"
+                    if not get_profile_directory() and not credentials_file.exists():
+                        credentials_file = Path.home() / ".config" / "google_vision.json"
                 google_credentials = deps["service_account"].Credentials.from_service_account_file(
-                    google_credentials_file
+                    str(credentials_file)
                 )
                 self._vision = deps["vision"]
                 self._service_unavailable = deps["ServiceUnavailable"]
                 self.client = self._vision.ImageAnnotatorClient(credentials=google_credentials)
                 self.available = True
                 logger.info("Google Vision ready")
-            except:
-                logger.warning("Error parsing Google credentials, Google Vision will not work!")
+            except Exception:
+                logger.warning("Google Vision requires a readable service account key (google_vision.json).")
 
     def _break_type_to_char(self, break_type):
         if break_type == self._vision.TextAnnotation.DetectedBreak.BreakType.SPACE:
@@ -3847,11 +3496,20 @@ class OneOCR:
                     logger.background("OneOCR ready")
         else:
             try:
-                self.url = config["url"]
+                self.url = (config or {}).get("url")
+                if not self.url:
+                    from GameSentenceMiner.ocr.portable_oneocr import PortableOneOCR
+
+                    self.model = PortableOneOCR()
                 self.available = True
                 logger.background("OneOCR ready")
-            except:
-                logger.warning("Error reading URL from config, OneOCR will not work!")
+            except (OSError, RuntimeError) as error:
+                logger.warning(f"OneOCR unavailable: {error}")
+
+    def close(self):
+        close = getattr(getattr(self, "model", None), "close", None)
+        if close:
+            close()
 
     def get_regex(self, lang):
         if lang == "ja":
@@ -3944,7 +3602,7 @@ class OneOCR:
             return (False, "Invalid image provided")
         img = _pad_image_min_side(img, min_side=51)
 
-        if sys.platform == "win32":
+        if sys.platform == "win32" or not getattr(self, "url", None):
             img_processed = self._preprocess_windows(img)
             img_width, img_height = img_processed.size
             try:
@@ -4012,266 +3670,8 @@ class OneOCR:
         return pil_image_to_bytes(img, png_compression=1), img.width, img.height
 
 
-class MLKitOCR:
-    name = "mlkitocr"
-    readable_name = "MLKit OCR"
-    key = "x"
-    config_entry = "mlkitocr"
-    available = False
-    local = True
-    manual_language = False
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=True,
-        word_bounding_boxes=True,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=True,
-        paragraph_bounding_boxes=True,
-    )
-
-    def __init__(self, config={}, lang="ja", get_furigana_sens_from_file=True):
-        self.initial_lang = lang
-        self.regex = get_regex(lang)
-        self.get_furigana_sens_from_file = get_furigana_sens_from_file
-        self.script_override = str(config.get("script", "")).strip().lower() if config else ""
-        self.timeout = float(config.get("timeout", 3)) if config else 3.0
-        self.use_raw_upload = self._to_bool(config.get("raw_upload"), True) if config else True
-        self.include_words = self._to_bool(config.get("include_words"), True) if config else True
-        self.adaptive_jpeg = self._to_bool(config.get("adaptive_jpeg"), True) if config else True
-        self.upload_format = str(config.get("upload_format", "jpeg")).strip().lower() if config else "jpeg"
-        self.jpeg_threshold_bytes = int(config.get("jpeg_threshold_bytes", 450000)) if config else 450000
-        self.jpeg_quality = int(config.get("jpeg_quality", 88)) if config else 88
-        self.jpeg_min_savings_ratio = float(config.get("jpeg_min_savings_ratio", 0.80)) if config else 0.80
-        url = ""
-        if config:
-            url = str(config.get("url", "")).strip()
-        self.url = url or "http://192.168.1.178:8550/ocr"
-        import threading
-
-        self._thread_local = threading.local()
-        self.available = True
-        logger.background(f"MLKit OCR ready ({self.url})")
-
-    @staticmethod
-    def _to_bool(value, default=False):
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return value != 0
-        if isinstance(value, str):
-            return value.strip().lower() in ("1", "true", "yes", "on")
-        return default
-
-    def _map_script(self, lang):
-        if self.script_override:
-            return self.script_override
-
-        mapping = {
-            "ja": "japanese",
-            "zh": "chinese",
-            "ko": "korean",
-            "hi": "devanagari",
-            "mr": "devanagari",
-            "sa": "devanagari",
-        }
-        return mapping.get(lang, "latin")
-
-    @staticmethod
-    def _to_float(value, default=0.0):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return float(default)
-
-    def _bbox_from_box(self, box, img_width, img_height):
-        if isinstance(box, (list, tuple)) and len(box) >= 4:
-            x = self._to_float(box[0])
-            y = self._to_float(box[1])
-            w = max(self._to_float(box[2]), 0.0)
-            h = max(self._to_float(box[3]), 0.0)
-            return rectangle_to_bounding_box(x, y, x + w, y + h, img_width, img_height)
-        if isinstance(box, dict):
-            x = self._to_float(box.get("x"))
-            y = self._to_float(box.get("y"))
-            w = max(self._to_float(box.get("width")), 0.0)
-            h = max(self._to_float(box.get("height")), 0.0)
-            return rectangle_to_bounding_box(x, y, x + w, y + h, img_width, img_height)
-        return rectangle_to_bounding_box(0, 0, 0, 0, img_width, img_height)
-
-    def _to_generic_result(self, response, img_width, img_height, og_img_width, og_img_height):
-        lines = []
-        for line_data in response.get("lines", []):
-            words = []
-            for word_data in line_data.get("words", []):
-                words.append(
-                    Word(
-                        text=str(word_data.get("text", "") or ""),
-                        bounding_box=self._bbox_from_box(word_data.get("box"), img_width, img_height),
-                    )
-                )
-
-            line_text = str(line_data.get("text", "") or "")
-            if not line_text and words:
-                line_text = "".join(word.text for word in words)
-            if not line_text and not words:
-                continue
-
-            lines.append(
-                Line(
-                    text=line_text,
-                    bounding_box=self._bbox_from_box(line_data.get("box"), img_width, img_height),
-                    words=words,
-                )
-            )
-
-        paragraphs = []
-        if lines:
-            paragraphs.append(Paragraph(bounding_box=merge_bounding_boxes(lines), lines=lines))
-
-        return OcrResult(
-            image_properties=ImageProperties(width=og_img_width, height=og_img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def _build_request_url(self, script=None):
-        parsed = urlparse(self.url)
-        query = parse_qs(parsed.query, keep_blank_values=True)
-        if script:
-            query["script"] = [script]
-        query["schema"] = ["v2"]
-        if not self.include_words:
-            query["words"] = ["0"]
-        elif "words" in query:
-            del query["words"]
-        return parsed._replace(query=urlencode(query, doseq=True)).geturl()
-
-    def _encode_request_image(self, img):
-        if self.upload_format in ("jpg", "jpeg"):
-            jpeg_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True)
-            return jpeg_bytes, "image/jpeg", "jpeg"
-        if self.upload_format == "png":
-            png_bytes = pil_image_to_bytes(img, png_compression=1)
-            return png_bytes, "image/png", "png"
-
-        png_bytes = pil_image_to_bytes(img, png_compression=1)
-        if not self.adaptive_jpeg:
-            return png_bytes, "image/png", "png"
-        if len(png_bytes) < self.jpeg_threshold_bytes:
-            return png_bytes, "image/png", "png"
-
-        jpeg_bytes = pil_image_to_bytes(img, "jpeg", jpeg_quality=self.jpeg_quality, optimize=True)
-        if len(jpeg_bytes) <= len(png_bytes) * self.jpeg_min_savings_ratio:
-            return jpeg_bytes, "image/jpeg", "jpeg"
-
-        return png_bytes, "image/png", "png"
-
-    def _get_requests_session(self):
-        session = getattr(self._thread_local, "session", None)
-        if session is None:
-            session = curl_cffi.Session()
-            self._thread_local.session = session
-        return session
-
-    def __call__(
-        self,
-        img,
-        furigana_filter_sensitivity=0,
-        return_coords=False,
-        multiple_crop_coords=False,
-        return_one_box=True,
-        return_dict=False,
-    ):
-        lang = get_ocr_language()
-        if self.get_furigana_sens_from_file:
-            furigana_filter_sensitivity = get_furigana_filter_sensitivity()
-
-        if lang != self.initial_lang:
-            self.initial_lang = lang
-            self.regex = get_regex(lang)
-
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-        source_img_to_close = img if is_path else None
-        try:
-            img = _pad_image_min_side(img, min_side=51)
-
-            img_processed, content_type, upload_format = self._encode_request_image(img)
-            script = self._map_script(lang)
-            request_url = self._build_request_url(script if self.use_raw_upload else None)
-
-            requests_session = self._get_requests_session()
-            try:
-                request_headers = {
-                    "content-type": content_type,
-                    "connection": "keep-alive",
-                    # Prevent 100-continue handshake latency on small LAN uploads.
-                    "expect": "",
-                }
-                if self.use_raw_upload:
-                    response = requests_session.post(
-                        request_url,
-                        data=img_processed,
-                        headers=request_headers,
-                        timeout=self.timeout,
-                    )
-                else:
-                    mime = curl_cffi.CurlMime()
-                    mime.addpart(
-                        name="image",
-                        filename=f"image.{upload_format}",
-                        content_type=content_type,
-                        data=img_processed,
-                    )
-                    mime.addpart(name="script", data=script)
-                    if not self.include_words:
-                        mime.addpart(name="words", data="0")
-                    response = requests_session.post(
-                        request_url,
-                        multipart=mime,
-                        headers=request_headers,
-                        timeout=self.timeout,
-                    )
-            except curl_cffi.requests.exceptions.Timeout:
-                return (False, "Request timeout!")
-            except curl_cffi.requests.exceptions.ConnectionError:
-                return (False, "Connection error!")
-            except Exception as e:
-                return (False, str(e))
-            if response.status_code != 200:
-                return (False, f"HTTP {response.status_code}")
-
-            try:
-                raw_res = response.json()
-            except Exception:
-                return (False, "Invalid server response!")
-
-            if not isinstance(raw_res, dict):
-                return (False, "Invalid server response!")
-
-            if "error" in raw_res:
-                return (False, str(raw_res.get("error")))
-
-            img_width = int(raw_res.get("image_width") or img.width)
-            img_height = int(raw_res.get("image_height") or img.height)
-            ocr_result = self._to_generic_result(raw_res, img_width, img_height, img.width, img.height)
-            x = ocr_result_to_oneocr_tuple(
-                (True, ocr_result),
-                furigana_filter_sensitivity,
-                prefer_axis_spacing=True,
-            )
-            return x
-        finally:
-            if source_img_to_close:
-                source_img_to_close.close()
-
-
 class VitaOCR:
+    selectable_model = True
     name = "vitaocr"
     readable_name = "VOCR"
     key = "u"
@@ -4289,16 +3689,20 @@ class VitaOCR:
         paragraph_bounding_boxes=False,
     )
 
-    def __init__(self, config=None, lang="ja", get_furigana_sens_from_file=True):
-        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime
+    @staticmethod
+    def create_runtime(*args):
+        from GameSentenceMiner.ocr.vita_ocr import create_runtime
 
+        return create_runtime(*args)
+
+    def __init__(self, config=None, lang="ja", get_furigana_sens_from_file=True):
         self.available = False
         self.runtime = None
         self._runtime_lock = threading.Lock()
         self.init_error = None
         self.get_furigana_sens_from_file = get_furigana_sens_from_file
         try:
-            self.runtime = VitaOCRRuntime()
+            self.runtime = self.create_runtime()
             self.available = True
             finder = getattr(self.runtime, "finder", None)
             logger.info(
@@ -4325,7 +3729,7 @@ class VitaOCR:
         language=None,
     ):
         # Keep an in-flight read alive if an idle overlay releases its instance.
-        from GameSentenceMiner.ocr.vita_ocr import create_runtime as VitaOCRRuntime, read_model_selection
+        from GameSentenceMiner.ocr.vita_ocr import read_model_selection
 
         with self._runtime_lock:
             if not self.available and self.init_error:
@@ -4333,15 +3737,15 @@ class VitaOCR:
 
                 if get_model_status()["available"]:
                     try:
-                        self.runtime = VitaOCRRuntime()
+                        self.runtime = self.create_runtime()
                         self.available, self.init_error = True, None
                     except (OSError, ValueError, RuntimeError, AttributeError) as error:
                         self.init_error = str(error)
             runtime = self.runtime
-            if self.available and runtime is not None and hasattr(runtime, "model"):
+            if self.selectable_model and self.available and runtime is not None and hasattr(runtime, "model"):
                 try:
                     if read_model_selection(runtime.directory) != runtime.model:
-                        runtime = VitaOCRRuntime(runtime.directory)
+                        runtime = self.create_runtime(runtime.directory)
                         self.runtime = runtime
                         logger.info(f"VOCR switched to {runtime.model}")
                 except (OSError, ValueError, RuntimeError) as error:
@@ -4393,6 +3797,19 @@ class VitaOCR:
         finally:
             if is_path:
                 img.close()
+
+
+class MidaOCR(VitaOCR):
+    selectable_model = False
+    name = "mida_vocr"
+    readable_name = "MIDA + VOCR"
+    key = "i"
+
+    @staticmethod
+    def create_runtime(*args):
+        from GameSentenceMiner.ocr.mida import create_runtime
+
+        return create_runtime(*args)
 
 
 class MeikiOCR:
@@ -4731,977 +4148,6 @@ class MeikiOCR:
         return pil_image_to_bytes(img, png_compression=1)
 
 
-class AzureImageAnalysis:
-    name = "azure"
-    readable_name = "Azure Image Analysis"
-    key = "v"
-    config_entry = "azure"
-    available = False
-    local = False
-    manual_language = False
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=True,
-        word_bounding_boxes=True,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config={}, lang="ja"):
-        deps = _load_azure_vision_dependencies()
-        if deps is None:
-            logger.warning("azure-ai-vision-imageanalysis not available, Azure Image Analysis will not work!")
-        else:
-            logger.info("Parsing Azure credentials")
-            try:
-                self._visual_features = deps["VisualFeatures"]
-                self._service_request_error = deps["ServiceRequestError"]
-                self.client = deps["ImageAnalysisClient"](
-                    config["endpoint"], deps["AzureKeyCredential"](config["api_key"])
-                )
-                self.available = True
-                logger.info("Azure Image Analysis ready")
-            except:
-                logger.warning("Error parsing Azure credentials, Azure Image Analysis will not work!")
-
-    def _convert_bbox(self, rect, img_width, img_height):
-        return quad_to_bounding_box(
-            rect[0]["x"],
-            rect[0]["y"],
-            rect[1]["x"],
-            rect[1]["y"],
-            rect[2]["x"],
-            rect[2]["y"],
-            rect[3]["x"],
-            rect[3]["y"],
-            img_width,
-            img_height,
-        )
-
-    def _to_generic_result(self, read_result, img_width, img_height):
-        paragraphs = []
-        if read_result.read:
-            for block in read_result.read.blocks:
-                lines = []
-                for azure_line in block.lines:
-                    l_bbox = self._convert_bbox(azure_line.bounding_polygon, img_width, img_height)
-
-                    words = []
-                    for azure_word in azure_line.words:
-                        w_bbox = self._convert_bbox(azure_word.bounding_polygon, img_width, img_height)
-                        word = Word(text=azure_word.text, bounding_box=w_bbox)
-                        words.append(word)
-
-                    line = Line(bounding_box=l_bbox, words=words, text=azure_line.text)
-                    lines.append(line)
-
-                p_bbox = merge_bounding_boxes(lines)
-                paragraph = Paragraph(bounding_box=p_bbox, lines=lines)
-                paragraphs.append(paragraph)
-
-        return OcrResult(
-            image_properties=ImageProperties(width=img_width, height=img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        try:
-            read_result = self.client.analyze(
-                image_data=self._preprocess(img),
-                visual_features=[self._visual_features.READ],
-            )
-        except self._service_request_error:
-            return (False, "Connection error!")
-        except:
-            return (False, "Unknown error!")
-
-        ocr_result = self._to_generic_result(read_result, img.width, img.height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-    def _preprocess(self, img):
-        min_pixel_size = 50
-        max_pixel_size = 10000
-
-        if any(x < min_pixel_size for x in img.size):
-            resize_factor = max(50 / img.width, 50 / img.height)
-            new_w = int(img.width * resize_factor)
-            new_h = int(img.height * resize_factor)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-        if any(x > max_pixel_size for x in img.size):
-            resize_factor = min(max_pixel_size / img.width, max_pixel_size / img.height)
-            new_w = int(img.width * resize_factor)
-            new_h = int(img.height * resize_factor)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-
-        return pil_image_to_bytes(img)
-
-
-class EasyOCR:
-    name = "easyocr"
-    readable_name = "EasyOCR"
-    key = "e"
-    config_entry = "easyocr"
-    available = False
-    local = True
-    manual_language = True
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config={"gpu": True}, lang="ja"):
-        easyocr_module = _load_easyocr_module()
-        if easyocr_module is None:
-            logger.warning("easyocr not available, EasyOCR will not work!")
-        else:
-            logger.info("Loading EasyOCR model")
-            gpu = config.get("gpu", True)
-            logging.getLogger("easyocr.easyocr").setLevel(logging.ERROR)
-            self.model = easyocr_module.Reader(["ja", "en"], gpu=gpu)
-            self.available = True
-            logger.info("EasyOCR ready")
-
-    def _convert_bbox(self, rect, img_width, img_height):
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
-
-    def _to_generic_result(self, response, img_width, img_height):
-        lines = []
-
-        for detection in response:
-            quad_coords = detection[0]
-            text = detection[1]
-
-            bbox = self._convert_bbox(quad_coords, img_width, img_height)
-            word = Word(text=text, bounding_box=bbox)
-            line = Line(bounding_box=bbox, words=[word], text=text)
-            lines.append(line)
-
-        if lines:
-            p_bbox = merge_bounding_boxes(lines)
-            paragraph = Paragraph(bounding_box=p_bbox, lines=lines)
-            paragraphs = [paragraph]
-        else:
-            paragraphs = []
-
-        return OcrResult(
-            image_properties=ImageProperties(width=img_width, height=img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        read_results = self.model.readtext(self._preprocess(img))
-        ocr_result = self._to_generic_result(read_results, img.width, img.height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-    def _preprocess(self, img):
-        return pil_image_to_numpy_array(img)
-
-
-# NOTE: Do NOT port owocr's NDLOCR-Lite (`ndlocrlite`) engine here. It was evaluated and
-# rejected: ~1-2s per scan on even a tiny region at ~30% CPU — too slow/heavy for both the
-# main OCR and stability OCR. Final decision; see AGENTS.md. Don't re-attempt.
-class RapidOCR:
-    name = "rapidocr"
-    readable_name = "RapidOCR"
-    key = "r"
-    config_entry = "rapidocr"
-    available = False
-    local = True
-    manual_language = True
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config={}, lang="ja"):
-        deps = _load_rapidocr_dependencies()
-        if deps is None:
-            logger.warning("rapidocr_onnxruntime not available, RapidOCR will not work!")
-        else:
-            logger.info("Loading RapidOCR model")
-            high_accuracy_detection = config.get("high_accuracy_detection", False)
-            high_accuracy_recognition = config.get("high_accuracy_recognition", True)
-            self._lang_rec = deps["LangRec"]
-            lang_rec = self.language_to_model_language(lang)
-            self.model = deps["RapidOCR"](
-                params={
-                    "Det.engine_type": deps["EngineType"].ONNXRUNTIME,
-                    "Det.lang_type": deps["LangDet"].CH,
-                    "Det.model_type": deps["ModelType"].SERVER if high_accuracy_detection else deps["ModelType"].MOBILE,
-                    "Det.ocr_version": deps["OCRVersion"].PPOCRV5,
-                    "Rec.engine_type": deps["EngineType"].ONNXRUNTIME,
-                    "Rec.lang_type": lang_rec,
-                    "Rec.model_type": deps["ModelType"].SERVER
-                    if high_accuracy_recognition
-                    else deps["ModelType"].MOBILE,
-                    "Rec.ocr_version": deps["OCRVersion"].PPOCRV5,
-                    "Global.log_level": "error",
-                }
-            )
-            self.available = True
-            logger.info("RapidOCR ready")
-
-    def language_to_model_language(self, language):
-        if language == "ja":
-            return self._lang_rec.CH
-        if language == "zh":
-            return self._lang_rec.CH
-        elif language == "ko":
-            return self._lang_rec.KOREAN
-        elif language == "ru":
-            return self._lang_rec.ESLAV
-        elif language == "el":
-            return self._lang_rec.EL
-        elif language == "th":
-            return self._lang_rec.TH
-        else:
-            return self._lang_rec.LATIN
-
-    def _convert_bbox(self, rect, img_width, img_height):
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in rect]
-        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
-
-    def _to_generic_result(self, response, img_width, img_height):
-        lines = []
-        if response and response[0]:
-            # Check if response matches expectations: (bboxes, texts, scores) or similar
-            # RapidOCR usually returns list of [bbox, text, score]
-            pass
-
-        # Adjust based on observed RapidOCR output structure in __call__
-        # read_results from model(img) is list of [bbox, text, score]
-        # boxes in response? No, response IS the list.
-
-        # NOTE: rapidocr implementation in ocr_base.py uses response.boxes, response.txts if response is object?
-        # But standard rapidocr returns list.
-        # I will assume standard list of [box, text, score] here for safety if the other way fails,
-        # but try to follow ocr_base.py assuming it might be correct for that specific version.
-        # However, checking ocr.py, it does: for read_result in read_results: res += read_result[1]
-        # So it is a list of [box, text, score].
-
-        if isinstance(response, list):
-            for item in response:
-                if item is None:
-                    continue
-                box, text, score = item
-                bbox = self._convert_bbox(box, img_width, img_height)
-                word = Word(text=text, bounding_box=bbox)
-                line = Line(bounding_box=bbox, words=[word], text=text)
-                lines.append(line)
-        else:
-            # Fallback to ocr_base.py object assumption if needed
-            for i in range(len(response.boxes)):
-                box = response.boxes[i]
-                text = response.txts[i]
-                bbox = self._convert_bbox(box, img_width, img_height)
-                word = Word(text=text, bounding_box=bbox)
-                line = Line(bounding_box=bbox, words=[word], text=text)
-                lines.append(line)
-
-        if lines:
-            p_bbox = merge_bounding_boxes(lines)
-            paragraph = Paragraph(bounding_box=p_bbox, lines=lines)
-            paragraphs = [paragraph]
-        else:
-            paragraphs = []
-
-        return OcrResult(
-            image_properties=ImageProperties(width=img_width, height=img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        read_results, elapsed = self.model(self._preprocess(img))
-        ocr_result = self._to_generic_result(read_results, img.width, img.height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-    def _preprocess(self, img):
-        return pil_image_to_numpy_array(img)
-
-
-def _paddle_model_name(ocr_version, size, kind):
-    # Builds e.g. "PP-OCRv6_tiny_det"; size tokens (tiny/small/medium) are PP-OCRv6's.
-    return f"{ocr_version}_{size}_{kind}"
-
-
-class PaddleOCR:
-    name = "paddleocr"
-    readable_name = "PaddleOCR"
-    key = "p"
-    config_entry = "paddleocr"
-    available = False
-    local = True
-    manual_language = True
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=True,
-        line_bounding_boxes=True,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config={}, lang="ja"):
-        paddleocr_module = _load_paddleocr_module()
-        if paddleocr_module is None:
-            logger.warning("paddleocr not available, PaddleOCR will not work!")
-            return
-
-        ocr_version = config.get("ocr_version", "PP-OCRv6")
-        det_size = config.get("det_model", "tiny")
-        rec_size = config.get("rec_model", "medium")
-        logger.info(f"Loading PaddleOCR model (det={det_size}, rec={rec_size})")
-        # Document-oriented stages slow things down and hurt game text; off by default.
-        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
-        self.model = paddleocr_module.PaddleOCR(
-            lang=self.language_to_model_language(lang),
-            ocr_version=ocr_version,
-            text_detection_model_name=_paddle_model_name(ocr_version, det_size, "det"),
-            text_recognition_model_name=_paddle_model_name(ocr_version, rec_size, "rec"),
-            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
-            enable_mkldnn=config.get("enable_mkldnn", False),
-            use_doc_orientation_classify=config.get("use_doc_orientation_classify", False),
-            use_doc_unwarping=config.get("use_doc_unwarping", False),
-            use_textline_orientation=config.get("use_textline_orientation", False),
-        )
-        self.available = True
-        logger.info("PaddleOCR ready")
-
-    def language_to_model_language(self, language):
-        return {
-            "ja": "japan",
-            "zh": "ch",
-            "ko": "korean",
-            "en": "en",
-            "es": "es",
-            "fr": "fr",
-            "de": "german",
-            "ru": "ru",
-            "ar": "ar",
-            "hi": "hi",
-        }.get(language, "en")
-
-    def _convert_bbox(self, poly, img_width, img_height):
-        (x1, y1), (x2, y2), (x3, y3), (x4, y4) = [(float(x), float(y)) for x, y in poly]
-        return quad_to_bounding_box(x1, y1, x2, y2, x3, y3, x4, y4, img_width, img_height)
-
-    def _to_generic_result(self, response, img_width, img_height):
-        lines = []
-
-        for res in response or []:
-            texts = res["rec_texts"]
-            polys = res["rec_polys"]
-            for text, poly in zip(texts, polys):
-                bbox = self._convert_bbox(poly, img_width, img_height)
-                word = Word(text=text, bounding_box=bbox)
-                line = Line(bounding_box=bbox, words=[word], text=text)
-                lines.append(line)
-
-        if lines:
-            p_bbox = merge_bounding_boxes(lines)
-            paragraphs = [Paragraph(bounding_box=p_bbox, lines=lines)]
-        else:
-            paragraphs = []
-
-        return OcrResult(
-            image_properties=ImageProperties(width=img_width, height=img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        read_results = self.model.predict(self._preprocess(img))
-        ocr_result = self._to_generic_result(read_results, img.width, img.height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-    def _preprocess(self, img):
-        return pil_image_to_numpy_array(img)
-
-
-class OCRSpace:
-    name = "ocrspace"
-    readable_name = "OCRSpace"
-    key = "o"
-    config_entry = "ocrspace"
-    available = False
-    local = False
-    manual_language = True
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=True,
-        word_bounding_boxes=True,
-        lines=True,
-        line_bounding_boxes=False,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config={}, language="ja"):
-        try:
-            self.api_key = config["api_key"]
-            self.max_byte_size = config.get("file_size_limit", 1000000)
-            self.engine_version = config.get("engine_version", 2)
-            self.language = self.language_to_model_language(language)
-            self.available = True
-            logger.info("OCRSpace ready")
-        except:
-            logger.warning("Error reading API key from config, OCRSpace will not work!")
-
-    def language_to_model_language(self, language):
-        if language == "ja":
-            return "jpn"
-        if language == "zh":
-            return "chs"
-        elif language == "ko":
-            return "kor"
-        elif language == "ar":
-            return "ara"
-        elif language == "ru":
-            return "rus"
-        elif language == "el":
-            return "gre"
-        elif language == "th":
-            return "tha"
-        else:
-            return "auto"
-
-    def _convert_bbox(self, word_data, img_width, img_height):
-        left = word_data["Left"] / img_width
-        top = word_data["Top"] / img_height
-        width = word_data["Width"] / img_width
-        height = word_data["Height"] / img_height
-
-        center_x = left + width / 2
-        center_y = top + height / 2
-
-        return BoundingBox(center_x=center_x, center_y=center_y, width=width, height=height)
-
-    def _to_generic_result(self, api_result, img_width, img_height, og_img_width, og_img_height):
-        parsed_result = api_result["ParsedResults"][0]
-        text_overlay = parsed_result.get("TextOverlay", {})
-        lines_data = text_overlay.get("Lines", [])
-
-        lines = []
-        for line_data in lines_data:
-            words = []
-            for word_data in line_data.get("Words", []):
-                w_bbox = self._convert_bbox(word_data, img_width, img_height)
-                words.append(Word(text=word_data["WordText"], bounding_box=w_bbox))
-
-            l_bbox = merge_bounding_boxes(words)
-            lines.append(Line(bounding_box=l_bbox, words=words))
-
-        if lines:
-            p_bbox = merge_bounding_boxes(lines)
-            paragraph = Paragraph(bounding_box=p_bbox, lines=lines)
-            paragraphs = [paragraph]
-        else:
-            paragraphs = []
-
-        return OcrResult(
-            image_properties=ImageProperties(width=og_img_width, height=og_img_height),
-            paragraphs=paragraphs,
-            engine_capabilities=self.capabilities,
-        )
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        img, is_path = input_to_pil_image(img)
-        if not img:
-            return (False, "Invalid image provided")
-
-        og_img_width, og_img_height = img.size
-        img_bytes, img_extension, img_size = self._preprocess(img)
-        if not img_bytes:
-            return (False, "Image is too big!")
-
-        data = {
-            "apikey": self.api_key,
-            "language": self.language,
-            "OCREngine": str(self.engine_version),
-            "isOverlayRequired": "True",
-        }
-        mp = curl_cffi.CurlMime()
-        mp.addpart(
-            name="file",
-            filename=f"image.{img_extension}",
-            content_type=f"image/{img_extension}",
-            data=img_bytes,
-        )
-
-        try:
-            res = curl_cffi.post("https://api.ocr.space/parse/image", data=data, multipart=mp, timeout=5)
-        except curl_cffi.requests.exceptions.Timeout:
-            return (False, "Request timeout!")
-        except curl_cffi.requests.exceptions.ConnectionError:
-            return (False, "Connection error!")
-
-        if res.status_code != 200:
-            return (False, "Unknown error!")
-
-        res = res.json()
-
-        if isinstance(res, str):
-            return (False, "Unknown error!")
-        if res["IsErroredOnProcessing"]:
-            return (False, res["ErrorMessage"])
-
-        img_width, img_height = img_size
-        ocr_result = self._to_generic_result(res, img_width, img_height, og_img_width, og_img_height)
-        x = ocr_result_to_oneocr_tuple((True, ocr_result), furigana_filter_sensitivity)
-
-        if is_path:
-            img.close()
-        return x
-
-    def _preprocess(self, img):
-        return limit_image_size(img, self.max_byte_size)
-
-
-class GeminiOCR:
-    name = "gemini"
-    readable_name = "Gemini"
-    key = ";"
-    available = False
-
-    def __init__(self, config={"api_key": None}, lang="ja"):
-        # if "google-generativeai" not in sys.modules:
-        #     logger.warning('google-generativeai not available, GeminiOCR will not work!')
-        # else:
-        from google import genai
-        from google.genai import types
-
-        try:
-            self.api_key = config["api_key"]
-            if not self.api_key:
-                logger.warning("Gemini API key not provided, GeminiOCR will not work!")
-            else:
-                self.client = genai.Client(api_key=self.api_key)
-                self.model = config["model"]
-                self.generation_config = types.GenerateContentConfig(
-                    temperature=0.0,
-                    # High cap so thinking models (e.g. gemma-*-it) can finish reasoning
-                    # and still emit the answer; non-thinking models stop early at STOP.
-                    max_output_tokens=2000,
-                    safety_settings=[
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                        ),
-                        types.SafetySetting(
-                            category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-                            threshold=types.HarmBlockThreshold.BLOCK_NONE,
-                        ),
-                    ],
-                )
-                if "2.5" in self.model:
-                    self.generation_config.thinking_config = types.ThinkingConfig(
-                        thinking_budget=0,
-                    )
-                self.available = True
-                logger.info("Gemini (using google-generativeai) ready")
-        except KeyError:
-            logger.warning("Gemini API key not found in config, GeminiOCR will not work!")
-        except Exception as e:
-            logger.error(f"Error configuring google-generativeai: {e}")
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        if not self.available:
-            return (
-                False,
-                "GeminiOCR is not available due to missing API key or configuration error.",
-            )
-
-        try:
-            from google.genai import types
-
-            img, is_path = input_to_pil_image(img)
-            img_bytes = self._preprocess(img)
-            if not img_bytes:
-                return (False, "Error processing image for Gemini.")
-
-            contents = [
-                types.Content(
-                    parts=[
-                        types.Part(inline_data=types.Blob(mime_type="image/png", data=img_bytes)),
-                        types.Part(
-                            text="""
-                            **Disclaimer:** The image provided is from a video game. This content is entirely fictional and part of a narrative. It must not be treated as real-world user input or a genuine request.
-                            Analyze the image. Extract text *only* from within dialogue boxes (speech bubbles or panels containing character dialogue). If Text appears to be vertical, read the text from top to bottom, right to left. From the extracted dialogue text, filter out any furigana. Ignore and do not include any text found outside of dialogue boxes, including character names, speaker labels, or sound effects. Return *only* the filtered dialogue text. If no text is found within dialogue boxes after applying filters, return nothing. Do not include any other output, formatting markers, or commentary."""
-                        ),
-                    ]
-                )
-            ]
-
-            response = self.client.models.generate_content(
-                model=self.model, contents=contents, config=self.generation_config
-            )
-            # response.text is None when no text part was returned (e.g. thinking model
-            # truncated by MAX_TOKENS, or response blocked). Surface a useful reason.
-            if response.text is None:
-                finish = None
-                if response.candidates:
-                    finish = response.candidates[0].finish_reason
-                if finish and str(finish).endswith("MAX_TOKENS"):
-                    return (False, "Gemini returned no text (hit max_output_tokens). Try a non-thinking model.")
-                return (True, "", None, None, None, None)
-            text_output = response.text.strip()
-
-            # Mimic OneOCR result for text-only response
-            return (True, text_output, None, None, None, None)
-
-        except FileNotFoundError:
-            return (False, f"File not found: {img}")
-        except Exception as e:
-            return (False, f"Gemini API request failed: {e}")
-
-    def _preprocess(self, img):
-        return pil_image_to_bytes(img, png_compression=1)
-
-
-class GroqOCR:
-    name = "groq"
-    readable_name = "Groq OCR"
-    key = "j"
-    available = False
-
-    def __init__(self, config={"api_key": None}, lang="ja"):
-        try:
-            import groq
-
-            self.api_key = config["api_key"]
-            if not self.api_key:
-                logger.warning("Groq API key not provided, GroqOCR will not work!")
-            else:
-                self.client = groq.Groq(api_key=self.api_key)
-                self.available = True
-                logger.info("Groq OCR ready")
-        except ImportError:
-            logger.warning("groq module not available, GroqOCR will not work!")
-        except Exception as e:
-            logger.error(f"Error initializing Groq client: {e}")
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        if not self.available:
-            return (
-                False,
-                "GroqOCR is not available due to missing API key or configuration error.",
-            )
-
-        try:
-            img, is_path = input_to_pil_image(img)
-
-            img_base64 = self._preprocess(img)
-            if not img_base64:
-                return (False, "Error processing image for Groq.")
-
-            prompt = (
-                "Analyze the image. Extract text *only* from within dialogue boxes (speech bubbles or panels containing character dialogue). If Text appears to be vertical, read the text from top to bottom, right to left. From the extracted dialogue text, filter out any furigana. Ignore and do not include any text found outside of dialogue boxes, including character names, speaker labels, or sound effects. Return *only* the filtered dialogue text. If no text is found within dialogue boxes after applying filters, return nothing. Do not include any other output, formatting markers, or commentary."
-                # "Analyze this i#mage and extract text from it"
-                # "(speech bubbles or panels containing character dialogue). From the extracted dialogue text, "
-                # "filter out any furigana. Ignore and do not include any text found outside of dialogue boxes, "
-                # "including character names, speaker labels, or sound effects. Return *only* the filtered dialogue text. "
-                # "If no text is found within dialogue boxes after applying filters, return an empty string. "
-                # "OR, if there are no text bubbles or dialogue boxes found, return everything."
-                # "Do not include any other output, formatting markers, or commentary, only the text from the image."
-            )
-
-            response = self.client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:image/png;base64,{img_base64}"},
-                            },
-                        ],
-                    }
-                ],
-                max_tokens=300,
-                temperature=0.0,
-            )
-
-            if response.choices and response.choices[0].message.content:
-                text_output = response.choices[0].message.content.strip()
-                return (True, text_output, None, None, None, None)
-            else:
-                return (True, "", None, None, None, None)
-
-        except FileNotFoundError:
-            return (False, f"File not found: {img}")
-        except Exception as e:
-            return (False, f"Groq API request failed: {e}")
-
-    def _preprocess(self, img):
-        return base64.b64encode(pil_image_to_bytes(img, png_compression=1)).decode("utf-8")
-
-
-# OpenAI-Compatible Endpoint OCR using LM Studio
-class OpenAICompatibleOCR:
-    # `name`/`key` are kept stable ("local_llm_ocr") so existing user configs and the
-    # frontend engine selection keep working. This now talks to any OpenAI-compatible
-    # /chat/completions endpoint (OpenAI, OpenRouter, LM Studio, Ollama, vLLM, ...).
-    name = "local_llm_ocr"
-    readable_name = "OpenAI-Compatible OCR"
-    key = "a"
-    available = False
-    last_ocr_time = time.time() - 5
-
-    DEFAULT_BASE_URL = "https://api.openai.com/v1"
-
-    def __init__(self, config={}, lang="ja"):
-        self.keep_llm_hot_thread = None
-        self.available = False
-
-        try:
-            import openai
-        except ImportError:
-            logger.warning("openai module not available, OpenAI-Compatible OCR will not work!")
-            return
-
-        config = config or {}
-        ai_config = getattr(get_config(), "ai", None)
-
-        # Engine config (owocr ini) takes priority; fall back to the GSM AI `open_ai_*` settings.
-        api_url = config.get("url") or config.get("api_url") or getattr(ai_config, "open_ai_url", "")
-        self.model = config.get("model") or getattr(ai_config, "open_ai_model", "")
-        api_key = config.get("api_key") or getattr(ai_config, "open_ai_api_key", "")
-
-        if not self.model:
-            logger.warning("OpenAI-Compatible OCR requires a model (open_ai_model), it will not work!")
-            return
-
-        # Some local endpoints don't check the key; send a placeholder so the client still works.
-        self.api_key = api_key or "sk-no-key-required"
-        self.base_url = self._normalize_base_url(api_url)
-        self.custom_prompt = config.get("prompt", None)
-        self.temperature = config.get("temperature", getattr(ai_config, "temperature", 0.1))
-        self.max_tokens = config.get("max_tokens", getattr(ai_config, "max_output_tokens", 4096))
-        self.keep_warm = config.get("keep_warm", False)  # only useful for local models
-        timeout = config.get("timeout", 30)
-
-        try:
-            self.client = openai.OpenAI(
-                base_url=self.base_url,
-                api_key=self.api_key,
-                timeout=timeout,
-            )
-        except Exception as e:
-            logger.warning(f"Error initializing OpenAI-Compatible OCR: {e}")
-            return
-
-        self.available = True
-        logger.info(f"OpenAI-Compatible OCR ready with model '{self.model}' at {self.base_url}")
-        if self.keep_warm:
-            import threading
-
-            self.keep_llm_hot_thread = threading.Thread(target=self.keep_llm_warm, daemon=True)
-            self.keep_llm_hot_thread.start()
-
-    def _normalize_base_url(self, url):
-        # Accept a bare host, a base URL, or a full chat/completions endpoint and reduce
-        # it to the base the OpenAI client expects.
-        url = (url or "").strip().rstrip("/")
-        if not url:
-            return self.DEFAULT_BASE_URL
-        if url.endswith("/chat/completions"):
-            url = url[: -len("/chat/completions")]
-        return url
-
-    def _create_completion(self, messages):
-        # Newer models (gpt-5 / o-series) reject `max_tokens` (want `max_completion_tokens`)
-        # and a non-default `temperature`. Adapt on the fly so we stay endpoint-agnostic.
-        params = {
-            "model": self.model,
-            "messages": messages,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-        }
-        for _ in range(3):
-            try:
-                return self.client.chat.completions.create(**params)
-            except Exception as e:
-                msg = str(e).lower()
-                if "max_tokens" in params and "max_tokens" in msg and "max_completion_tokens" in msg:
-                    params["max_completion_tokens"] = params.pop("max_tokens")
-                    continue
-                if "temperature" in params and "temperature" in msg and "unsupported" in msg:
-                    params.pop("temperature")
-                    continue
-                raise
-
-    def keep_llm_warm(self):
-        def ocr_blank_black_image():
-            if self.last_ocr_time and (time.time() - self.last_ocr_time) < 5:
-                return
-            import numpy as np
-            from PIL import Image
-
-            # Create a blank black image
-            blank_image = Image.fromarray(np.zeros((100, 100, 3), dtype=np.uint8))
-            logger.info("Keeping OpenAI-Compatible OCR warm with a blank black image")
-            self(blank_image)
-
-        while True:
-            ocr_blank_black_image()
-            time.sleep(5)
-
-    def __call__(self, img, furigana_filter_sensitivity=0):
-        import base64
-
-        try:
-            img, is_path = input_to_pil_image(img)
-            img_bytes = pil_image_to_bytes(img)
-            img_base64 = base64.b64encode(img_bytes).decode("utf-8")
-            if self.custom_prompt and self.custom_prompt.strip() != "":
-                prompt = self.custom_prompt.strip()
-            else:
-                prompt = f"""
-                Extract all {CommonLanguages.from_code(get_ocr_language()).name} Text from Image. Ignore all Furigana. Do not return any commentary, just the text in the image. Do not Translate. If there is no text in the image, return "" (Empty String).
-                """
-
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{img_base64}"},
-                        },
-                    ],
-                }
-            ]
-            response = self._create_completion(messages)
-            self.last_ocr_time = time.time()
-            if response.choices and response.choices[0].message.content:
-                text_output = response.choices[0].message.content.strip()
-                return (True, text_output, None, None, None, None)
-            else:
-                return (True, "", None, None, None, None)
-        except Exception as e:
-            return (False, f"OpenAI-Compatible OCR request failed: {e}")
-
-
-# import os
-# import onnxruntime as ort
-# import numpy as np
-# import cv2
-# from huggingface_hub import hf_hub_download
-# from PIL import Image
-# import requests
-# from io import BytesIO
-
-
-# --- HELPER FUNCTION FOR VISUALIZATION (Optional but useful) ---
-def draw_detections(image: np.ndarray, detections: list, model_name: str) -> np.ndarray:
-    """
-    Draws bounding boxes from the detection results onto an image.
-
-    Args:
-        image (np.ndarray): The original image (in BGR format).
-        detections (list): A list of detection dictionaries, e.g., [{"box": [x1, y1, x2, y2], "score": 0.95}, ...].
-        model_name (str): The name of the model ('tiny' or 'small') to determine box color.
-
-    Returns:
-        np.ndarray: The image with bounding boxes drawn on it.
-    """
-    cv2_module = _load_cv2_module()
-    if cv2_module is None:
-        raise RuntimeError("opencv-python is not installed")
-    output_image = image.copy()
-    color = (0, 255, 0) if model_name == "small" else (0, 0, 255)  # Green for small, Blue for tiny
-
-    for detection in detections:
-        box = detection["box"]
-        score = detection["score"]
-
-        # Ensure coordinates are integers for drawing
-        x_min, y_min, x_max, y_max = map(int, box)
-
-        # Draw the rectangle
-        cv2_module.rectangle(output_image, (x_min, y_min), (x_max, y_max), color, 2)
-
-        # Optionally, add the score text
-        label = f"{score:.2f}"
-        cv2_module.putText(
-            output_image,
-            label,
-            (x_min, y_min - 10),
-            cv2_module.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            2,
-        )
-
-    return output_image
-
-
 TEXT_DETECTION_RESULT_SCHEMA = "gsm_text_detection_v1"
 
 
@@ -5846,15 +4292,19 @@ class VOCRTextDetector(BaseTextDetector):
         paragraph_bounding_boxes=False,
     )
 
-    def __init__(self, config=None, lang="ja", **kwargs):
-        from GameSentenceMiner.ocr.vocr_line_finder import create_line_finder as VOCRLineFinder
+    @staticmethod
+    def create_finder():
+        from GameSentenceMiner.ocr.vocr_line_finder import create_line_finder
 
+        return create_line_finder()
+
+    def __init__(self, config=None, lang="ja", **kwargs):
         self.finder = None
         self.available = False
         self.init_error = ""
         self.crop_padding = 0  # The upstream spotter already pads its line boxes.
         try:
-            self.finder = VOCRLineFinder()
+            self.finder = self.create_finder()
             self.available = True
         except (OSError, ValueError, RuntimeError, AttributeError) as error:
             self.init_error = str(error)
@@ -5892,6 +4342,18 @@ class VOCRTextDetector(BaseTextDetector):
         finally:
             if image is not None and is_path:
                 image.close()
+
+
+class MidaTextDetector(VOCRTextDetector):
+    name = "mida_detector"
+    readable_name = "MIDA Line Detector"
+    key = "}"
+
+    @staticmethod
+    def create_finder():
+        from GameSentenceMiner.ocr.mida import MidaFinder
+
+        return MidaFinder(classify_polarity=False)
 
 
 class MeikiTextDetector(BaseTextDetector):
@@ -5980,759 +4442,3 @@ class MeikiTextDetector(BaseTextDetector):
                 img_pil.close()
 
         return result
-
-
-class OpenCvEastTextDetector(BaseTextDetector):
-    """Text detector backed by OpenCV's EAST network."""
-
-    name = "opencv_east_text_detector"
-    readable_name = "OpenCV EAST Text Detector"
-    key = "["
-    config_entry = "opencv_east_text_detector"
-    local = True
-    manual_language = False
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=False,
-        line_bounding_boxes=False,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    _EAST_OUTPUT_LAYER_NAMES = [
-        "feature_fusion/Conv_7/Sigmoid",
-        "feature_fusion/concat_3",
-    ]
-    _DEFAULT_MODEL_URL = (
-        "https://raw.githubusercontent.com/oyyd/frozen_east_text_detection.pb/master/frozen_east_text_detection.pb"
-    )
-    _FALLBACK_MODEL_URLS = (
-        "https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb",
-    )
-
-    def __init__(self, config=None, lang="ja"):
-        config = config or {}
-        self.default_confidence_threshold = float(
-            config.get("confidence_threshold", config.get("score_threshold", 0.5))
-        )
-        self.nms_threshold = float(config.get("nms_threshold", 0.4))
-        self.crop_padding = int(config.get("crop_padding", 5))
-        self.input_width = int(config.get("input_width", 320))
-        self.input_height = int(config.get("input_height", 320))
-        self.input_width = max(32, self.input_width - (self.input_width % 32))
-        self.input_height = max(32, self.input_height - (self.input_height % 32))
-        self.auto_download_model = bool(config.get("auto_download_model", True))
-        self.model_url = str(config.get("model_url", self._DEFAULT_MODEL_URL))
-        self.model_path = Path(
-            str(config.get("model_path", "~/.cache/gsm/east/frozen_east_text_detection.pb"))
-        ).expanduser()
-        self.model = None
-        self._cv2 = None
-        self.available = False
-
-        try:
-            import cv2 as cv2_module
-
-            self._cv2 = cv2_module
-        except ImportError:
-            logger.warning("opencv-python not available, OpenCV EAST Text Detector will not work!")
-            return
-
-        model_file = self._ensure_model_file()
-        if model_file is None:
-            return
-
-        try:
-            self.model = self._cv2.dnn.readNet(str(model_file))
-            self.available = True
-            logger.info("OpenCvEastTextDetector ready")
-        except Exception as e:
-            logger.warning(f"Failed to load EAST model from {model_file}: {e}")
-
-    def _ensure_model_file(self):
-        if self.model_path.exists():
-            return self.model_path
-        if not self.auto_download_model:
-            logger.warning(f"EAST model file not found: {self.model_path}")
-            return None
-
-        self.model_path.parent.mkdir(parents=True, exist_ok=True)
-        candidate_urls = [self.model_url] + [u for u in self._FALLBACK_MODEL_URLS if u != self.model_url]
-        last_error = None
-        for url in candidate_urls:
-            try:
-                logger.info(f"Downloading EAST text detector model from {url} to {self.model_path}")
-                urllib.request.urlretrieve(url, str(self.model_path))
-                if self.model_path.exists():
-                    return self.model_path
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Failed to download EAST model from {url}: {e}")
-                continue
-
-        if last_error is not None:
-            logger.warning(f"Failed to download EAST model: {last_error}")
-        return None
-
-    @staticmethod
-    def _decode_east_predictions(scores, geometry, score_threshold):
-        rects = []
-        confidences = []
-
-        num_rows = scores.shape[2]
-        num_cols = scores.shape[3]
-
-        for y in range(num_rows):
-            scores_data = scores[0, 0, y]
-            x_data0 = geometry[0, 0, y]
-            x_data1 = geometry[0, 1, y]
-            x_data2 = geometry[0, 2, y]
-            x_data3 = geometry[0, 3, y]
-            angles_data = geometry[0, 4, y]
-
-            for x in range(num_cols):
-                score = float(scores_data[x])
-                if score < score_threshold:
-                    continue
-
-                offset_x = x * 4.0
-                offset_y = y * 4.0
-
-                angle = angles_data[x]
-                cos_a = cos(angle)
-                sin_a = sin(angle)
-                h = x_data0[x] + x_data2[x]
-                w = x_data1[x] + x_data3[x]
-
-                end_x = int(offset_x + (cos_a * x_data1[x]) + (sin_a * x_data2[x]))
-                end_y = int(offset_y - (sin_a * x_data1[x]) + (cos_a * x_data2[x]))
-                start_x = int(end_x - w)
-                start_y = int(end_y - h)
-
-                rects.append([start_x, start_y, int(w), int(h)])
-                confidences.append(score)
-
-        return rects, confidences
-
-    def __call__(
-        self,
-        img,
-        furigana_filter_sensitivity=0,
-        confidence_threshold: float = None,
-        **kwargs,
-    ):
-        if not self.available or self.model is None:
-            return (False, "OpenCvEastTextDetector is not available.")
-
-        threshold = self._resolve_confidence_threshold(confidence_threshold)
-        img_pil, is_path = input_to_pil_image(img)
-        if not img_pil:
-            return (False, "Invalid image provided")
-
-        try:
-            rgb_image = pil_image_to_rgb_numpy_array(img_pil)
-            bgr_image = self._cv2.cvtColor(rgb_image, self._cv2.COLOR_RGB2BGR)
-            original_h, original_w = bgr_image.shape[:2]
-            if original_w <= 0 or original_h <= 0:
-                return (False, "Invalid image dimensions")
-
-            resized = self._cv2.resize(bgr_image, (self.input_width, self.input_height))
-            ratio_w = float(original_w) / float(self.input_width)
-            ratio_h = float(original_h) / float(self.input_height)
-
-            blob = self._cv2.dnn.blobFromImage(
-                resized,
-                scalefactor=1.0,
-                size=(self.input_width, self.input_height),
-                mean=(123.68, 116.78, 103.94),
-                swapRB=True,
-                crop=False,
-            )
-            self.model.setInput(blob)
-            scores, geometry = self.model.forward(self._EAST_OUTPUT_LAYER_NAMES)
-
-            rects, confidences = self._decode_east_predictions(scores, geometry, threshold)
-            detections = []
-            if rects:
-                indices = self._cv2.dnn.NMSBoxes(rects, confidences, threshold, self.nms_threshold)
-                for idx in np.array(indices).flatten() if len(indices) else []:
-                    x, y, w, h = rects[int(idx)]
-                    x1 = max(0, int(x * ratio_w))
-                    y1 = max(0, int(y * ratio_h))
-                    x2 = min(original_w, int((x + w) * ratio_w))
-                    y2 = min(original_h, int((y + h) * ratio_h))
-                    if x2 <= x1 or y2 <= y1:
-                        continue
-                    detections.append(
-                        {
-                            "box": [float(x1), float(y1), float(x2), float(y2)],
-                            "score": float(confidences[int(idx)]),
-                        }
-                    )
-
-            return self._as_detection_result(detections, original_w, original_h)
-        except Exception as e:
-            logger.error(f"OpenCvEastTextDetector error: {e}")
-            return (False, f"OpenCvEastTextDetector error: {e}")
-        finally:
-            if is_path:
-                img_pil.close()
-
-
-class PaddleTextDetector(BaseTextDetector):
-    """Detection-only engine backed by PaddleOCR's standalone text detector."""
-
-    name = "paddle_text_detector"
-    readable_name = "PaddleOCR Text Detector"
-    key = "t"
-    config_entry = "paddle_text_detector"
-    local = True
-    manual_language = False
-    coordinate_support = True
-    threading_support = True
-    capabilities = EngineCapabilities(
-        words=False,
-        word_bounding_boxes=False,
-        lines=False,
-        line_bounding_boxes=False,
-        paragraphs=False,
-        paragraph_bounding_boxes=False,
-    )
-
-    def __init__(self, config=None, lang="ja"):
-        config = config or {}
-        self.default_confidence_threshold = float(config.get("confidence_threshold", 0.4))
-        self.crop_padding = int(config.get("crop_padding", 5))
-        self.model = None
-
-        paddleocr_module = _load_paddleocr_module()
-        if paddleocr_module is None:
-            logger.warning("paddleocr not available, PaddleTextDetector will not work!")
-            return
-
-        ocr_version = config.get("ocr_version", "PP-OCRv6")
-        det_size = config.get("det_model", "tiny")
-        logger.info(f"Loading PaddleTextDetector model (det={det_size})")
-        # mkldnn (oneDNN) crashes some PP-OCR models on CPU, so it's off unless opted in.
-        self.model = paddleocr_module.TextDetection(
-            model_name=_paddle_model_name(ocr_version, det_size, "det"),
-            device=config.get("device", "gpu" if config.get("gpu", False) else "cpu"),
-            enable_mkldnn=config.get("enable_mkldnn", False),
-        )
-        self.available = True
-        logger.info("PaddleTextDetector ready")
-
-    def __call__(
-        self,
-        img,
-        furigana_filter_sensitivity=0,
-        confidence_threshold: float = None,
-        **kwargs,
-    ):
-        if not self.available or self.model is None:
-            return (False, "PaddleTextDetector is not available.")
-
-        threshold = self._resolve_confidence_threshold(confidence_threshold)
-        img_pil, is_path = input_to_pil_image(img)
-        if not img_pil:
-            return (False, "Invalid image provided")
-
-        try:
-            input_image = pil_image_to_rgb_numpy_array(img_pil)
-            detections = []
-            for res in self.model.predict(input_image):
-                polys = res.get("dt_polys")
-                scores = res.get("dt_scores")
-                for poly, score in zip(polys, scores):
-                    try:
-                        score = float(score)
-                    except (TypeError, ValueError):
-                        score = 1.0
-                    if score < threshold:
-                        continue
-                    xs = [float(p[0]) for p in poly]
-                    ys = [float(p[1]) for p in poly]
-                    detections.append({"box": [min(xs), min(ys), max(xs), max(ys)], "score": score})
-            result = self._as_detection_result(detections, input_image.shape[1], input_image.shape[0])
-        except Exception as e:
-            logger.error(f"PaddleTextDetector error: {e}")
-            result = (False, f"PaddleTextDetector error: {e}")
-        finally:
-            if is_path:
-                img_pil.close()
-
-        return result
-
-
-# --- EXAMPLE USAGE ---
-if __name__ == "__main__":
-    img = Image.open(r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\test_furigana.png")
-    # meiki = MeikiOCR()
-    meiki = MeikiTextDetector(model_name="small")
-
-    times = []
-    results = []
-    for i in range(500):
-        start_t = time.time()
-        res = meiki(img)
-        end_t = time.time()
-        times.append(end_t - start_t)
-        results.append(res)
-        # time.sleep(0.1)
-
-    avg_time = sum(times) / len(times) if times else 0.0
-    print(f"Average inference time over 50 runs: {avg_time:.4f} seconds")
-    print(results[0])
-
-    # bing = Bing()
-
-    # re = bing(Image.open(r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\test_furigana.png"))
-
-    # print(re)
-    # import datetime
-    # # You can choose 'tiny' or 'small' here
-    # meiki = MeikiTextDetector(model_name='small')
-    # # Example: run a short warm-up then measure average over N runs
-    # image_path = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\lotsofsmalltext.png"
-    # video_path = r"C:\Users\Beangate\GSM\GameSentenceMiner\GameSentenceMiner\owocr\owocr\tanetsumi_CdACfZkwMY.mp4"
-    # # Warm-up run (helps with any one-time setup cost)
-    # try:
-    #     _ = meiki(image_path, confidence_threshold=0.4)
-    # except Exception as e:
-    #     print(f"Error running MeikiTextDetector on warm-up: {e}")
-    #     raise
-
-    # # runs = 500
-    # times = []
-    # detections_list = []
-    # # for i in range(runs):
-    # #     start_time = datetime.datetime.now()
-    # #     res, resp_dict = meiki(image_path, confidence_threshold=0.4)
-    # #     detections = resp_dict['boxes']
-    # #     dections_list.append(detections)
-    # #     end_time = datetime.datetime.now()
-    # #     times.append((end_time - start_time).total_seconds())
-
-    # # Process video frame by frame with cv2 (sample at ~10 FPS)
-    # cap = cv2.VideoCapture(video_path)
-    # try:
-    #     src_fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    # except Exception:
-    #     src_fps = 30.0
-
-    # target_fps = 10
-    # sample_interval = max(1, int(round(src_fps / target_fps)))
-    # runs = 0
-    # last_detections = []
-    # pil_img = None
-
-    # while True:
-    #     ret, frame = cap.read()
-    #     if not ret:
-    #         break
-
-    #     # Only process sampled frames
-    #     if runs % sample_interval == 0:
-    #         # Convert to PIL image
-    #         try:
-    #             pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    #         except Exception:
-    #             runs += 1
-    #             continue
-
-    #         # Run Meiki detector on the full frame (or you can crop before passing)
-    #         start_t = time.time()
-    #         try:
-    #             ok, resp = meiki(pil_img, confidence_threshold=0.4)
-    #             if ok:
-    #                 detections = resp.get('boxes', [])
-    #             else:
-    #                 detections = []
-    #         except Exception as e:
-    #             # on error, record empty detections but keep going
-    #             detections = []
-    #         end_t = time.time()
-
-    #         times.append(end_t - start_t)
-    #         detections_list.append(detections)
-    #         last_detections = detections
-
-    #     runs += 1
-
-    # cap.release()
-
-    # # Make sure 'detections' variable exists for later visualization
-    # detections = last_detections
-
-    # avg_time = sum(times) / len(times) if times else 0.0
-
-    # print(f"Average processing/inference time over {runs} runs: {avg_time:.4f} seconds")
-
-    # # --- Stability / similarity analysis across detection runs ---
-    # # We consider two boxes the same if their IoU >= iou_threshold.
-    # def iou(boxA, boxB):
-    #     # boxes are [x_min, y_min, x_max, y_max]
-    #     xA = max(boxA[0], boxB[0])
-    #     yA = max(boxA[1], boxB[1])
-    #     xB = min(boxA[2], boxB[2])
-    #     yB = min(boxA[3], boxB[3])
-
-    #     interW = max(0.0, xB - xA)
-    #     interH = max(0.0, yB - yA)
-    #     interArea = interW * interH
-
-    #     boxAArea = max(0.0, boxA[2] - boxA[0]) * max(0.0, boxA[3] - boxA[1])
-    #     boxBArea = max(0.0, boxB[2] - boxB[0]) * max(0.0, boxB[3] - boxB[1])
-
-    #     union = boxAArea + boxBArea - interArea
-    #     if union <= 0:
-    #         return 0.0
-    #     return interArea / union
-
-    # def match_counts(ref_boxes, other_boxes, iou_threshold=0.5):
-    #     # Greedy matching by IoU
-    #     if not ref_boxes or not other_boxes:
-    #         return 0, []
-    #     ref_idx = list(range(len(ref_boxes)))
-    #     oth_idx = list(range(len(other_boxes)))
-    #     matches = []
-    #     # compute all IoUs
-    #     iou_matrix = []
-    #     for i, rb in enumerate(ref_boxes):
-    #         row = []
-    #         for j, ob in enumerate(other_boxes):
-    #             row.append(iou(rb, ob))
-    #         iou_matrix.append(row)
-
-    #     iou_matrix = np.array(iou_matrix)
-    #     while True:
-    #         if iou_matrix.size == 0:
-    #             break
-    #         # find best remaining pair
-    #         idx = np.unravel_index(np.argmax(iou_matrix), iou_matrix.shape)
-    #         best_i, best_j = idx[0], idx[1]
-    #         best_val = iou_matrix[best_i, best_j]
-    #         if best_val < iou_threshold:
-    #             break
-    #         matches.append((ref_idx[best_i], oth_idx[best_j], float(best_val)))
-    #         # remove matched row and column
-    #         iou_matrix = np.delete(iou_matrix, best_i, axis=0)
-    #         iou_matrix = np.delete(iou_matrix, best_j, axis=1)
-    #         del ref_idx[best_i]
-    #         del oth_idx[best_j]
-
-    #     return len(matches), matches
-
-    # # canonical reference: first run (if any)
-    # stability_scores = []
-    # avg_ious = []
-    # if len(detections_list) == 0:
-    #     stability_avg = 0.0
-    # else:
-    #     ref = detections_list[0]
-    #     # extract boxes list-of-lists
-    #     print(ref)
-    #     ref_boxes = [d['box'] for d in ref]
-    #     for run_idx, run in enumerate(detections_list):
-    #         other_boxes = [d['box'] for d in run]
-    #         matched_count, matches = match_counts(ref_boxes, other_boxes, iou_threshold=0.5)
-    #         denom = max(len(ref_boxes), len(other_boxes), 1)
-    #         score = matched_count / denom
-    #         stability_scores.append(score)
-    #         if matches:
-    #             avg_ious.append(sum(m for (_, _, m) in matches) / len(matches))
-
-    #     stability_avg = float(np.mean(stability_scores)) if stability_scores else 0.0
-    #     stability_std = float(np.std(stability_scores)) if stability_scores else 0.0
-    #     median_stability = float(np.median(stability_scores)) if stability_scores else 0.0
-    #     avg_iou_over_matches = float(np.mean(avg_ious)) if avg_ious else 0.0
-
-    # # Heuristic for recommended pixel offset to treat boxes as identical
-    # # Use median box dimension across all detections and suggest a small fraction
-    # all_widths = []
-    # all_heights = []
-    # for run in detections_list:
-    #     for d in run:
-    #         b = d['box']
-    #         w = abs(b[2] - b[0])
-    #         h = abs(b[3] - b[1])
-    #         all_widths.append(w)
-    #         all_heights.append(h)
-
-    # if all_widths and all_heights:
-    #     med_w = float(np.median(all_widths))
-    #     med_h = float(np.median(all_heights))
-    #     # suggestion_px: 5px absolute, and also ~5% of median min dimension
-    #     suggestion_px = max(5.0, min(med_w, med_h) * 0.05)
-    #     suggestion_px_rounded = int(round(suggestion_px))
-    # else:
-    #     med_w = med_h = 0.0
-    #     suggestion_px_rounded = 5
-
-    # # Additional check: if we expand each box by suggestion_px_rounded (on all sides),
-    # # would that cause every run to fully match the reference (i.e., every box in
-    # # each run matches some reference box and vice-versa using the same IoU threshold)?
-    # def expand_box(box, px, img_w=None, img_h=None):
-    #     # box: [x_min, y_min, x_max, y_max]
-    #     x0, y0, x1, y1 = box
-    #     x0 -= px
-    #     y0 -= px
-    #     x1 += px
-    #     y1 += px
-    #     if img_w is not None and img_h is not None:
-    #         x0 = max(0, x0)
-    #         y0 = max(0, y0)
-    #         x1 = min(img_w, x1)
-    #         y1 = min(img_h, y1)
-    #     return [x0, y0, x1, y1]
-
-    # def all_boxes_match_after_expansion(ref_boxes, other_boxes, px_expand, iou_threshold=0.5):
-    #     # Expand both sets and perform greedy matching. True if both sets are fully matched.
-    #     if not ref_boxes and not other_boxes:
-    #         return True
-    #     if not ref_boxes or not other_boxes:
-    #         return False
-
-    #     # Expand boxes
-    #     ref_exp = [expand_box(b, px_expand) for b in ref_boxes]
-    #     oth_exp = [expand_box(b, px_expand) for b in other_boxes]
-
-    #     # compute IoU matrix
-    #     mat = np.zeros((len(ref_exp), len(oth_exp)), dtype=float)
-    #     for i, rb in enumerate(ref_exp):
-    #         for j, ob in enumerate(oth_exp):
-    #             mat[i, j] = iou(rb, ob)
-
-    #     # greedy match
-    #     ref_idx = list(range(len(ref_exp)))
-    #     oth_idx = list(range(len(oth_exp)))
-    #     matches = 0
-    #     m = mat.copy()
-    #     while m.size:
-    #         idx = np.unravel_index(np.argmax(m), m.shape)
-    #         best_i, best_j = idx[0], idx[1]
-    #         best_val = m[best_i, best_j]
-    #         if best_val < iou_threshold:
-    #             break
-    #         matches += 1
-    #         m = np.delete(m, best_i, axis=0)
-    #         m = np.delete(m, best_j, axis=1)
-    #         del ref_idx[best_i]
-    #         del oth_idx[best_j]
-
-    #     # Fully matched if matches equals both lengths
-    #     return (matches == len(ref_exp)) and (matches == len(oth_exp))
-
-    # would_treat_all_same = False
-    # per_run_expanded_match = []
-    # try:
-    #     if len(detections_list) == 0:
-    #         would_treat_all_same = False
-    #     else:
-    #         ref = detections_list[0]
-    #         ref_boxes = [d['box'] for d in ref]
-    #         for run in detections_list:
-    #             other_boxes = [d['box'] for d in run]
-    #             matched = all_boxes_match_after_expansion(ref_boxes, other_boxes, suggestion_px_rounded, iou_threshold=0.5)
-    #             per_run_expanded_match.append(bool(matched))
-    #         would_treat_all_same = all(per_run_expanded_match) if per_run_expanded_match else False
-    # except Exception:
-    #     would_treat_all_same = False
-
-    # # Print results
-    # print(f"Average processing time over {runs} runs: {avg_time:.4f} seconds")
-    # print("--- Stability summary (reference = first run) ---")
-    # if len(detections_list) == 0:
-    #     print("No detections recorded.")
-    # else:
-    #     print(f"Per-run similarity ratios vs first run: {[round(s,3) for s in stability_scores]}")
-    #     print(f"Stability average: {stability_avg:.4f}, std: {stability_std:.4f}, median: {median_stability:.4f}")
-    #     print(f"Average IoU (matched boxes): {avg_iou_over_matches:.4f}")
-    #     print(f"Median box size (w x h): {med_w:.1f} x {med_h:.1f} px")
-    #     print(f"Recommended pixel-offset heuristic to treat boxes as identical: {suggestion_px_rounded} px (~5% of median box min-dim).")
-    #     print(f"Per-run fully-matched after expanding by {suggestion_px_rounded}px: {per_run_expanded_match}")
-    #     print(f"Would the recommendation treat all runs as identical? {would_treat_all_same}")
-    #     print("Also consider fixed offsets like 5px or 10px depending on image DPI and scaling.")
-
-    # # Draw and save the last-run detections for inspection
-    # if pil_img:
-    #     image_path = os.path.join(os.getcwd(), "last_frame_for_detections.png")
-    #     pil_img.save(image_path)
-    # try:
-    #     src_img = cv2.imread(image_path)
-    #     if src_img is not None:
-    #         res_img = draw_detections(image=src_img, detections=detections, model_name=meiki.model_name)
-    #         out_path = Path(image_path).with_name(f"detection_result_{meiki.model_name}.png")
-    #         cv2.imwrite(str(out_path), res_img)
-    #         print(f"Saved detection visualization to: {out_path}")
-    #     else:
-    #         print(f"Could not read image for visualization: {image_path}")
-    # except Exception as e:
-    #     print(f"Error drawing/saving detections: {e}")
-
-    # print(f"Average processing time over {runs} runs: {avg_time:.4f} seconds")
-
-    # if detector.available:
-    #     # Example image URL
-    #     # image_url = "https://huggingface.co/rtr46/meiki.text.detect.v0/resolve/main/test_images/manga.jpg"
-    #     # image_url = "https://huggingface.co/rtr46/meiki.text.detect.v0/resolve/main/test_images/sign.jpg"
-
-    #     print(f"\nProcessing image from URL: {image_url}")
-
-    #     # The __call__ method handles the URL directly
-    #     detections = detector(image_url, confidence_threshold=0.4)
-
-    #     # Print the results
-    #     print("\nDetections:")
-    #     for det in detections:
-    #         # Formatting the box coordinates to 2 decimal places for cleaner printing
-    #         formatted_box = [f"{coord:.2f}" for coord in det['box']]
-    #         print(f"  - Box: {formatted_box}, Score: {det['score']:.4f}")
-
-    #     # --- Visualization ---
-    #     print("\nVisualizing results... Check for a window named 'Detection Result'.")
-    #     # Load image again for drawing
-    #     response = requests.get(image_url)
-    #     pil_img = Image.open(BytesIO(response.content)).convert("RGB")
-    #     original_image_np = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-
-    #     # Use the helper function to draw the detections
-    #     result_image = draw_detections(original_image_np, detections, detector.model_name)
-
-    #     # Save or display the image
-    #     output_path = "detection_result.jpg"
-    #     cv2.imwrite(output_path, result_image)
-    #     print(f"Result saved to {output_path}")
-
-    #     # To display in a window (press any key to close)
-    #     # cv2.imshow("Detection Result", result_image)
-    #     # cv2.waitKey(0)
-    #     # cv2.destroyAllWindows()
-    # else:
-    #     print("\nDetector could not be initialized. Please check the error messages above.")
-
-
-# class QWENOCR:
-#     name = 'qwenv2'
-#     readable_name = 'Qwen2-VL'
-#     key = 'q'
-
-#     # Class-level attributes for model and processor to ensure they are loaded only once
-#     model = None
-#     processor = None
-#     device = None
-#     available = False
-
-#     @classmethod
-#     def initialize(cls):
-#         import torch
-#         from transformers import AutoModelForImageTextToText, AutoProcessor
-#         """
-#         Class method to initialize the model. Call this once at the start of your application.
-#         This prevents reloading the model on every instantiation.
-#         """
-#         if cls.model is not None:
-#             logger.info('Qwen2-VL is already initialized.')
-#             return
-
-#         try:
-#             if not torch.cuda.is_available():
-#                 logger.warning("CUDA not available, Qwen2-VL will run on CPU, which will be very slow.")
-#                 # You might want to prevent initialization on CPU entirely
-#                 # raise RuntimeError("CUDA is required for efficient Qwen2-VL operation.")
-
-#             cls.device = "cuda" if torch.cuda.is_available() else "cpu"
-
-#             cls.model = AutoModelForImageTextToText.from_pretrained(
-#                 "Qwen/Qwen2-VL-2B-Instruct",
-#                 torch_dtype="auto", # Uses bfloat16/float16 if available, which is faster
-#                 device_map=cls.device
-#             )
-#             # For PyTorch 2.0+, torch.compile can significantly speed up inference after a warm-up call
-#             # cls.model = torch.compile(cls.model)
-
-#             cls.processor = AutoProcessor.from_pretrained(
-#                 "Qwen/Qwen2-VL-2B-Instruct",
-#                 use_fast=True
-#             )
-
-#             cls.available = True
-
-#             conversation = [
-#                 {
-#                     "role": "user",
-#                     "content": [
-#                         {"type": "image"},
-#                         {"type": "text", "text": "Extract all the text from this image, ignore all furigana."},
-#                     ],
-#                 }
-#             ]
-
-#             # The same prompt is applied to all images in the batch
-#             cls.text_prompt = cls.processor.apply_chat_template(conversation, add_generation_prompt=True, tokenize=False)
-#             logger.info(f'Qwen2.5-VL ready on device: {cls.device}')
-#         except Exception as e:
-#             logger.warning(f'Qwen2-VL not available: {e}')
-#             cls.available = False
-
-#     def __init__(self, config={}, lang='ja'):
-#         # The __init__ is now very lightweight. It just checks if initialization has happened.
-#         if not self.available:
-#             raise RuntimeError("QWENOCR has not been initialized. Call QWENOCR.initialize() first.")
-
-#     def __call__(self, images):
-#         """
-#         Processes a single image or a list of images.
-#         :param images: A single image (path or PIL.Image) or a list of images.
-#         :return: A tuple (success, list_of_results)
-#         """
-#         if not self.available:
-#             return (False, ['Qwen2-VL is not available.'])
-
-#         try:
-#             # Standardize input to be a list
-#             if not isinstance(images, list):
-#                 images = [images]
-
-#             pil_images = [input_to_pil_image(img)[0] for img in images]
-
-#             # The processor handles batching of images and text prompts
-#             inputs = self.processor(
-#                 text=[self.text_prompt] * len(pil_images),
-#                 images=pil_images,
-#                 padding=True,
-#                 return_tensors="pt"
-#             ).to(self.device)
-
-#             output_ids = self.model.generate(**inputs, max_new_tokens=32)
-
-#             # The decoding logic needs to be slightly adjusted for batching
-#             input_ids_len = [len(x) for x in inputs.input_ids]
-#             generated_ids = [
-#                 output_ids[i][input_ids_len[i]:] for i in range(len(input_ids_len))
-#             ]
-
-#             output_text = self.processor.batch_decode(
-#                 generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True
-#             )
-
-#             return (True, output_text)
-#         except Exception as e:
-#             return (False, [f'Qwen2-VL inference failed: {e}'])
-
-
-# QWENOCR.initialize()
-# qwenocr = QWENOCR()
-
-# localOCR = OpenAICompatibleOCR(config={'api_url': 'http://localhost:1234/v1/chat/completions', 'model': 'qwen2.5-vl-3b-instruct'})
-
-# for i in range(10):
-#     start_time = time.time()
-#     res, text = localOCR(Image.open('test_furigana.png'))  # Example usage
-#     end_time = time.time()
-
-#     print(f"Time taken: {end_time - start_time:.2f} seconds")
-#     print(text)

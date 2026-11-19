@@ -1,4 +1,4 @@
-"""Validate bundled VOCR models; download native assets only for the opt-in C backend."""
+"""Prepare VOCR models and the optional native C runtime."""
 
 import ctypes
 import hashlib
@@ -10,12 +10,12 @@ import sysconfig
 import tempfile
 import threading
 import time
-import urllib.request
 import uuid
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 
+from GameSentenceMiner.native.downloads import download_file
 from GameSentenceMiner.ocr import vita_ocr
 from GameSentenceMiner.ocr.vocr_line_finder import SPOTTER_ATTRIBUTION, SPOTTER_FILE, spotter_library_name
 
@@ -104,21 +104,7 @@ def verified(path, digest):
 def download_verified(url, destination, digest, *, limit=8_000_000):
     if verified(destination, digest):
         return
-    request = urllib.request.Request(url, headers={"User-Agent": "GameSentenceMiner-VOCR"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        data = response.read(limit + 1)
-    if len(data) > limit or hashlib.sha256(data).hexdigest() != digest:
-        raise ValueError(f"VOCR checksum failed for {destination.name}. Try again.")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=destination.parent, suffix=".download", delete=False) as file:
-            temporary = Path(file.name)
-            file.write(data)
-        _replace(temporary, destination)
-    finally:
-        if temporary is not None:
-            temporary.unlink(missing_ok=True)
+    download_file(url, destination, digest, limit=limit)
 
 
 @contextmanager

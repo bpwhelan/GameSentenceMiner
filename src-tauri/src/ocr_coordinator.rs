@@ -2,7 +2,7 @@
 //! preview captures/areas, dependency installs, furigana preview, and native/Python OCR runtime sessions.
 
 use crate::desktop_services::paths_for;
-use crate::desktop_state::{emit_to_desktop_windows, emit_to_window};
+use crate::desktop_state::emit_to_desktop_windows;
 use crate::native::{dialog_message, shell_open_path};
 use crate::obs::Obs;
 use crate::ocr::Ocr;
@@ -19,7 +19,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[cfg(windows)]
@@ -28,7 +28,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-const NATIVE_ENGINES: &[&str] = &[
+pub(crate) const NATIVE_ENGINES: &[&str] = &[
     "oneocr",
     "screenai",
     "lens",
@@ -37,22 +37,18 @@ const NATIVE_ENGINES: &[&str] = &[
     "meiki_text_detector",
     "vitaocr",
     "vocr_detector",
+    "mida_detector",
+    "mida_vocr",
     "vocr_lens",
     "alivetext",
     "bing",
-    "mlkitocr",
-    "azure",
     "gvision",
-    "ocrspace",
-    "gemini",
-    "local_llm_ocr",
 ];
 
 const LIVE_AREA_SAVED_MARKER: &str = "GSM_AREA_SAVED";
 const MAX_AREA_BACKUPS: usize = 10;
 const SCENE_CONFIG_DEBOUNCE: Duration = Duration::from_millis(500);
 const CONTEXT_HEARTBEAT_INTERVAL: Duration = Duration::from_millis(1500);
-const CONTEXT_REQUEST_TIMEOUT_MS: u64 = 2500;
 const MODEL_REQUEST_TIMEOUT_MS: u64 = 300_000;
 const MAX_DELIVERY_QUEUE: usize = 16;
 
@@ -128,7 +124,6 @@ struct OcrState {
     delivery_queue: VecDeque<(String, String, Value)>,
     delivery_worker_active: bool,
     scene_debounce: HashMap<PathBuf, u64>,
-    last_scene_name: Option<String>,
 }
 
 #[derive(Default)]
@@ -225,7 +220,7 @@ fn default_ocr_config() -> Value {
         "text_appears_instantly": false,
         "advanced_debug_logging": false,
         "useOnlineOcr": false,
-        "ocr1": "oneocr",
+        "ocr1": "screenai",
         "ocr2": "glens",
         "menuAreaOcrEngine": "main",
         "scanRate": 0.5,
@@ -285,6 +280,37 @@ fn write_json_atomic(path: &Path, value: &Value) -> Result<(), String> {
     })
 }
 
+fn replace_retired_ocr_engines(config: &mut Value) {
+    for (key, fallback) in [
+        ("ocr1", "screenai"),
+        ("ocr2", "screenai"),
+        ("ocr1_advanced", "screenai"),
+        ("ocr2_advanced", "screenai"),
+        ("menuAreaOcrEngine", "main"),
+    ] {
+        if config[key].as_str().is_some_and(|engine| {
+            matches!(
+                engine.trim().to_ascii_lowercase().as_str(),
+                "mlkitocr"
+                    | "local_llm_ocr"
+                    | "gemini"
+                    | "ocrspace"
+                    | "azure"
+                    | "easyocr"
+                    | "rapidocr"
+                    | "groq"
+                    | "paddleocr"
+                    | "paddle_text_detector"
+                    | "opencv_east_text_detector"
+                    | "mangaocr"
+                    | "mangaocrs"
+            )
+        }) {
+            config[key] = json!(fallback);
+        }
+    }
+}
+
 pub fn read_ocr_config(app: &tauri::AppHandle) -> Value {
     let paths = paths_for(app);
     let _lock = OCR_FILE_LOCK.lock().unwrap();
@@ -302,6 +328,7 @@ pub fn read_ocr_config(app: &tauri::AppHandle) -> Value {
             base.insert("addAreaOcrHotkey".into(), json!("Alt+Shift+N"));
         }
     }
+    replace_retired_ocr_engines(&mut merged);
     merged
 }
 
@@ -323,6 +350,7 @@ pub fn save_ocr_config(app: &tauri::AppHandle, next: &Value) -> Result<Value, St
             }
         }
     }
+    replace_retired_ocr_engines(&mut merged);
     store.insert("OCR".into(), merged.clone());
     write_json_atomic(&config_path, &Value::Object(store))?;
     Ok(merged)
@@ -529,34 +557,11 @@ pub async fn resolve_active_scene_name(
         return s.to_owned();
     }
     if let Some(obs) = app.try_state::<Obs>() {
-        if let Ok(rt) = runtime::get(app) {
-            if let Ok(ctx) = rt
-                .call(
-                    "bus.request",
-                    json!({"dst":"backend","topic":"ocr.native.context","data":{},"timeoutMs":1500}),
-                )
-                .await
-            {
-                if let Some(scene) = ctx.get("scene").and_then(Value::as_str).filter(|s| !s.trim().is_empty()) {
-                    return scene.to_owned();
-                }
-            }
-        }
-        if let Ok(scene_val) = obs.invoke(app, "obs.getActiveScene", &[]).await {
-            if let Some(name) = scene_val
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|s| !s.trim().is_empty())
-            {
-                return name.to_owned();
-            }
-        }
-    }
-    if let Some(coord) = app.try_state::<OcrCoordinator>() {
-        if let Some(last) = coord.0.lock().unwrap().last_scene_name.clone() {
-            if !last.trim().is_empty() {
-                return last;
-            }
+        if let Some(scene) = obs.game_session()["scene"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+        {
+            return scene.to_owned();
         }
     }
     "Default".to_owned()
@@ -616,21 +621,15 @@ async fn build_native_ocr_config(
         .map(str::to_owned)
         .unwrap_or_else(|| "Default".to_owned());
 
-    if let Some(coord) = app.try_state::<OcrCoordinator>() {
-        coord.0.lock().unwrap().last_scene_name = Some(scene.clone());
-    }
-
     let areas = read_scene_areas(&paths.active, &scene);
     let scene_settings = read_scene_settings(&paths.active, &scene, ocr_config);
-    let settings = native_ocr_settings(ocr_config, &scene_settings, context);
+    let settings = native_ocr_settings(ocr_config, &scene_settings);
 
     let obs_startup = app
         .try_state::<Obs>()
         .and_then(|obs| obs.startup_config().ok())
         .unwrap_or_else(|| json!({}));
 
-    let engine_config_path = owocr_config_path(&paths.active, paths.has_profile)
-        .unwrap_or_else(|_| paths.active.join("owocr_config.ini"));
     let replacements: Value = read_enabled_ocr_replacements_entries(&paths.active)
         .into_iter()
         .map(|(k, v)| json!([k, v]))
@@ -654,8 +653,6 @@ async fn build_native_ocr_config(
         "profile": paths.active.to_string_lossy(),
         "mode": mode.runtime_mode(),
         "settings": settings,
-        "engine_config_path": engine_config_path.to_string_lossy(),
-        "engine_defaults": context.get("engine_defaults").cloned().unwrap_or_else(|| json!({})),
         "input_url": input_url,
         "obs": obs_startup,
         "areas": areas,
@@ -670,8 +667,18 @@ async fn build_native_ocr_config(
     })
 }
 
-fn native_ocr_settings(ocr_config: &Value, scene_settings: &Value, context: &Value) -> Value {
-    let mut settings = ocr_config.clone();
+fn runtime_ocr_settings(mut settings: Value) -> Value {
+    if settings["advancedMode"] == false {
+        settings["ocr1"] = json!("screenai");
+        settings["ocr2"] = json!(if settings["useOnlineOcr"] == true { "glens" } else { "screenai" });
+        settings["twoPassOCR"] = json!(true);
+        settings["optimize_second_scan"] = json!(true);
+    }
+    settings
+}
+
+fn native_ocr_settings(ocr_config: &Value, scene_settings: &Value) -> Value {
+    let mut settings = runtime_ocr_settings(ocr_config.clone());
     if let Some(obj) = settings.as_object_mut() {
         // The first heartbeat includes this value. Normalize it from the first
         // start too, or an otherwise unchanged heartbeat cancels a manual scan.
@@ -682,25 +689,12 @@ fn native_ocr_settings(ocr_config: &Value, scene_settings: &Value, context: &Val
         if let Some(furi) = scene_settings.get("furigana_filter_sensitivity") {
             obj.insert("furigana_filter_sensitivity".into(), furi.clone());
         }
-        if let Some(defaults) = context.get("engine_defaults").and_then(Value::as_object) {
-            obj.insert("engine_defaults".into(), Value::Object(defaults.clone()));
-        }
     }
     settings
 }
 
 async fn fetch_native_context(app: &tauri::AppHandle) -> Value {
-    let Ok(rt) = runtime::get(app) else {
-        return json!({ "available": false });
-    };
-    request_ocr_backend(
-        &rt,
-        "ocr.native.context",
-        json!({}),
-        CONTEXT_REQUEST_TIMEOUT_MS,
-    )
-    .await
-    .unwrap_or_else(|_| json!({ "available": false }))
+    app.state::<Obs>().game_session()
 }
 
 async fn request_ocr_backend(
@@ -882,6 +876,14 @@ async fn start_native_ocr(
         Ok(status) => {
             emit_to_desktop_windows(app, "ocr-started", &[]);
             emit_to_desktop_windows(app, "ocr-ipc-started", &[]);
+            let scene = config["scene"].as_str().unwrap_or("");
+            let msg = if scene.is_empty() {
+                "Started native Rust OCR session.".to_owned()
+            } else {
+                format!("Started native Rust OCR session (scene: {scene}).")
+            };
+            emit_ocr_log(app, "rust:ocr", &msg);
+            crate::desktop_log::background(app, "ocr", &msg);
             publish_native_status(app, &status, true);
             set_backend_ocr_status(app, true);
             spawn_context_heartbeat(app.clone(), generation, session_id, stop_flag, input_url);
@@ -992,8 +994,9 @@ async fn start_python_ocr(
     let Some(coord) = app.try_state::<OcrCoordinator>() else {
         return Err("OcrCoordinator unavailable".into());
     };
+    let ocr_config = runtime_ocr_settings(ocr_config);
     let lang = ocr_config["language"].as_str().unwrap_or("ja");
-    let ocr1 = ocr_config["ocr1"].as_str().unwrap_or("oneocr");
+    let ocr1 = ocr_config["ocr1"].as_str().unwrap_or("screenai");
     let ocr2 = ocr_config["ocr2"].as_str().unwrap_or("glens");
     let two_pass = ocr_config["twoPassOCR"].as_bool().unwrap_or(true);
     let adv = ocr_config["advancedMode"].as_bool().unwrap_or(false);
@@ -1120,6 +1123,8 @@ async fn start_python_ocr(
     };
 
     emit_to_desktop_windows(app, "ocr-started", &[]);
+    emit_ocr_log(app, "rust:ocr-coordinator", "Started Python OCR process.");
+    crate::desktop_log::background(app, "ocr-coordinator", "Started Python OCR process.");
     set_backend_ocr_status(app, true);
 
     if let Some(out) = stdout {
@@ -1130,7 +1135,7 @@ async fn start_python_ocr(
                     Ok(Some((event, data))) => {
                         on_session_ocr_event(&app_clone, &session_id, false, &event, data)
                     }
-                    Ok(None) => emit_to_desktop_windows(&app_clone, "ocr-log", &[json!(line)]),
+                    Ok(None) => emit_ocr_log(&app_clone, "py:ocr", &line),
                     Err(error) => {
                         emit_to_desktop_windows(&app_clone, "ocr-ipc-error", &[json!(error)])
                     }
@@ -1142,7 +1147,7 @@ async fn start_python_ocr(
         let app_clone = app.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(err).lines().map_while(Result::ok) {
-                emit_to_desktop_windows(&app_clone, "ocr-log", &[json!(line)]);
+                emit_ocr_log(&app_clone, "py:ocr", &line);
             }
         });
     }
@@ -1179,6 +1184,15 @@ async fn start_python_ocr(
         }
     });
     Ok(())
+}
+
+fn emit_ocr_log(app: &tauri::AppHandle, origin: &str, message: &str) {
+    let payload = if message.trim() == "COMMAND_FINISHED" {
+        message.to_owned()
+    } else {
+        crate::desktop_log::ensure_origin(origin, message)
+    };
+    emit_to_desktop_windows(app, "ocr-log", &[json!(payload)]);
 }
 
 /// Forward events raised by `crate::ocr::Ocr` (`emit(...)`) to backend ingestion and desktop windows.
@@ -1275,7 +1289,8 @@ fn on_session_ocr_event(
         "status" => emit_to_desktop_windows(app, "ocr-ipc-status", &[data]),
         "log" => {
             if let Some(msg) = data["message"].as_str() {
-                emit_to_desktop_windows(app, "ocr-log", &[json!(msg)]);
+                let origin = if native { "rust:ocr" } else { "py:ocr" };
+                emit_ocr_log(app, origin, msg);
             }
         }
         "error" => emit_to_desktop_windows(
@@ -1476,10 +1491,10 @@ async fn run_screen_selector(
         return Ok(false);
     }
     let python_path = python_ops::ensure_python_path(app).await?;
-    emit_to_desktop_windows(
+    emit_ocr_log(
         app,
-        "ocr-log",
-        &[json!("Running screen area selector in background...")],
+        "rust:ocr-coordinator",
+        "Running screen area selector in background...",
     );
     let mut args = vec![
         "-m".to_owned(),
@@ -1507,7 +1522,7 @@ async fn run_screen_selector(
             let app_err = app_clone.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(err).lines().map_while(Result::ok) {
-                    emit_to_desktop_windows(&app_err, "ocr-log", &[json!(line)]);
+                    emit_ocr_log(&app_err, "py:ocr-selector", &line);
                 }
             })
         });
@@ -1520,7 +1535,7 @@ async fn run_screen_selector(
                         reload_active_ocr(&app_reload).await;
                     });
                 } else if !trimmed.is_empty() {
-                    emit_to_desktop_windows(&app_clone, "ocr-log", &[json!(trimmed)]);
+                    emit_ocr_log(&app_clone, "py:ocr-selector", &trimmed);
                 }
             }
         }
@@ -1536,25 +1551,52 @@ async fn run_screen_selector(
     .map_err(|e| e.to_string())??;
 
     if code == 0 {
-        emit_to_desktop_windows(
+        emit_ocr_log(
             app,
-            "ocr-log",
-            &[json!("Screen selector completed successfully.")],
+            "rust:ocr-coordinator",
+            "Screen selector completed successfully.",
         );
         emit_to_desktop_windows(app, "ocr-log", &[json!("COMMAND_FINISHED")]);
         reload_active_ocr(app).await;
         Ok(true)
     } else {
-        emit_to_desktop_windows(
+        emit_ocr_log(
             app,
-            "ocr-log",
-            &[json!(format!(
-                "Screen selector process exited with code {code}"
-            ))],
+            "rust:ocr-coordinator",
+            &format!("Screen selector process exited with code {code}"),
         );
         emit_to_desktop_windows(app, "ocr-log", &[json!("COMMAND_FINISHED")]);
         Err(format!("Screen selector exited with code {code}"))
     }
+}
+
+pub async fn scan_scene_text(
+    app: &tauri::AppHandle,
+    scene: &str,
+    capture: Arc<Mutex<gsm_capture::obs::Capture>>,
+    cancelled: impl Fn() -> bool + Send + 'static,
+) -> Result<Vec<String>, String> {
+    let app = app.clone();
+    let scene = scene.to_owned();
+    tauri::async_runtime::spawn_blocking(move || {
+        if cancelled() {
+            return Ok(Vec::new());
+        }
+        let config = read_ocr_config(&app);
+        let profile = paths_for(&app).active;
+        let obs = app.state::<Obs>().startup_config()?;
+        let language = config["language"].as_str().unwrap_or("ja");
+        let frame = capture.lock().unwrap().grab(&obs, &scene)?;
+        if cancelled() {
+            return Ok(Vec::new());
+        }
+        let recognition = gsm_overlay::engines::Engines::new(&profile)
+            .recognize(&frame, "screenai", language)
+            .map_err(|err| err.to_string())?;
+        Ok(gsm_overlay::pipeline::text_blocks(recognition, language))
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 async fn handle_get_preview(app: &tauri::AppHandle, req: Value) -> Value {
@@ -1726,13 +1768,13 @@ async fn run_python_streaming_to_ocr_log(
             let app_err = app_clone.clone();
             std::thread::spawn(move || {
                 for line in BufReader::new(err).lines().map_while(Result::ok) {
-                    emit_to_desktop_windows(&app_err, "ocr-log", &[json!(line)]);
+                    emit_ocr_log(&app_err, "py:ocr-deps", &line);
                 }
             })
         });
         if let Some(out) = child.stdout.take() {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                emit_to_desktop_windows(&app_clone, "ocr-log", &[json!(line)]);
+                emit_ocr_log(&app_clone, "py:ocr-deps", &line);
             }
         }
         if let Some(h) = stderr_handle {
@@ -1760,7 +1802,7 @@ async fn sync_locked_ocr_env(app: &tauri::AppHandle, python_path: &str) -> Resul
     let selection = gsm_packages::python::Python::new(
         &paths.shared,
         &crate::python_install::project_root(app),
-        cfg!(debug_assertions),
+        crate::LOCAL_BUILD,
     )
     .call("extras", &json!({ "extras": extras }), Arc::new(|_, _| {}))?;
     crate::python_install::dispatch(
@@ -1779,52 +1821,52 @@ async fn sync_locked_ocr_env(app: &tauri::AppHandle, python_path: &str) -> Resul
     .map(|_| ())
 }
 
-async fn open_or_update_furigana_window(app: &tauri::AppHandle, ch: &str, font_size: f64) {
-    if app.get_webview_window("furigana").is_none() {
-        let desktop = app.state::<crate::desktop_state::DesktopState>();
-        let root = &desktop.app_root;
-        let url_str = desktop
-            .assets
-            .url(&root.join("assets/furigana.html").to_string_lossy())
-            .map(|u| u.to_string())
-            .unwrap_or_default();
-        if let Ok(parsed) = url_str.parse::<url::Url>() {
-            let token = uuid::Uuid::new_v4().to_string();
-            let preload = crate::overlay_preload::render_desktop_preload(&token);
-            desktop.register_window_with_token("furigana", "desktop", token);
-            if let Ok(win) =
-                WebviewWindowBuilder::new(app, "furigana", WebviewUrl::External(parsed))
-                    .title("Furigana Overlay")
-                    .inner_size(220.0, 220.0)
-                    .decorations(false)
-                    .transparent(true)
-                    .always_on_top(true)
-                    .skip_taskbar(true)
-                    .initialization_script(preload)
-                    .build()
-            {
-                let cleanup_app = app.clone();
-                win.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::Destroyed) {
-                        if let Some(desktop) =
-                            cleanup_app.try_state::<crate::desktop_state::DesktopState>()
-                        {
-                            desktop.unregister_window("furigana");
-                        }
-                    }
-                });
-                let _ = win.show();
-            }
-        }
-    } else if let Some(win) = app.get_webview_window("furigana") {
-        let _ = win.show();
+fn parse_furigana_preview_selection(stdout: &str) -> Option<u32> {
+    stdout.lines().rev().find_map(|line| {
+        let value = line.trim().strip_prefix("RESULT:[")?.strip_suffix(']')?;
+        value.parse().ok().filter(|selection| *selection <= 100)
+    })
+}
+
+async fn run_furigana_preview(
+    app: &tauri::AppHandle,
+    sensitivity: Option<f64>,
+) -> Result<Value, String> {
+    if is_python_update_blocking(app) {
+        return Err("Python environment maintenance is in progress.".into());
     }
-    emit_to_window(
-        app,
-        "furigana",
-        "set-furigana-character",
-        &[json!(ch), json!(font_size)],
-    );
+    let python_path = python_ops::ensure_python_path(app).await?;
+    let current = sensitivity
+        .or_else(|| read_ocr_config(app)["furigana_filter_sensitivity"].as_f64())
+        .unwrap_or_default()
+        .clamp(0.0, 100.0) as u32;
+    let project_root = crate::python_install::project_root(app);
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = Command::new(python_path);
+        cmd.args(["-m", "GameSentenceMiner.ui.furigana_filter_preview_qt"])
+            .arg(current.to_string())
+            .current_dir(project_root)
+            .env_clear()
+            .envs(gsm_packages::python::environment());
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.output()
+    })
+    .await
+    .map_err(|e| format!("Furigana preview task failed: {e}"))?
+    .map_err(|e| format!("Failed to start the furigana preview: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Furigana preview exited with {}. {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let selected = parse_furigana_preview_selection(&String::from_utf8_lossy(&output.stdout));
+    if let Some(value) = selected {
+        emit_to_desktop_windows(app, "furigana-script-result", &[json!(value)]);
+    }
+    Ok(json!(selected))
 }
 
 pub async fn try_invoke(
@@ -1949,45 +1991,7 @@ pub async fn try_invoke(
             Some(Ok(snap))
         }
         "run-furigana-window" => {
-            let ocr_cfg = read_ocr_config(app);
-            let current = ocr_cfg["furigana_filter_sensitivity"]
-                .as_f64()
-                .unwrap_or(0.0);
-            if is_python_update_blocking(app) {
-                return Some(Ok(json!(current)));
-            }
-            let Ok(python_path) = python_ops::ensure_python_path(app).await else {
-                return Some(Ok(json!(current)));
-            };
-            let arg_val = current.to_string();
-            let app_clone = app.clone();
-            let out = tauri::async_runtime::spawn_blocking(move || {
-                let mut cmd = Command::new(&python_path);
-                cmd.args([
-                    "-m",
-                    "GameSentenceMiner.ui.furigana_filter_preview_qt",
-                    &arg_val,
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-                #[cfg(windows)]
-                cmd.creation_flags(CREATE_NO_WINDOW);
-                cmd.output()
-            })
-            .await
-            .ok()
-            .and_then(Result::ok);
-            let extracted = out
-                .map(|o| {
-                    let text = String::from_utf8_lossy(&o.stdout);
-                    text.lines()
-                        .last()
-                        .and_then(|l| l.trim().parse::<f64>().ok())
-                        .unwrap_or(current)
-                })
-                .unwrap_or(current);
-            emit_to_desktop_windows(&app_clone, "furigana-script-result", &[json!(extracted)]);
-            Some(Ok(json!(extracted)))
+            Some(run_furigana_preview(app, args.first().and_then(Value::as_f64)).await)
         }
         "ocr.export-ocr-config" => {
             let paths = paths_for(app);
@@ -2089,13 +2093,13 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                 .try_state::<OcrCoordinator>()
                 .is_some_and(|c| c.is_running())
             {
-                emit_to_desktop_windows(&app, "ocr-log", &[json!("Stopping OCR process...")]);
+                emit_ocr_log(&app, "rust:ocr-coordinator", "Stopping OCR process...");
                 stop_ocr_sync(&app, "user-stop-request", None);
             }
             true
         }
         "ocr.restart-ocr" => {
-            emit_to_desktop_windows(&app, "ocr-log", &[json!("Restarting OCR Process...")]);
+            emit_ocr_log(&app, "rust:ocr-coordinator", "Restarting OCR Process...");
             tauri::async_runtime::spawn(async move {
                 let (src, mode) = app
                     .try_state::<OcrCoordinator>()
@@ -2210,42 +2214,37 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
             tauri::async_runtime::spawn(async move {
                 let _ = python_ops::close_all_python_processes(&app, false).await;
                 let Ok(py) = python_ops::ensure_python_path(&app).await else {
-                    emit_to_desktop_windows(
-                        &app,
-                        "ocr-log",
-                        &[json!("Python executable not found.")],
-                    );
+                    emit_ocr_log(&app, "rust:ocr-coordinator", "Python executable not found.");
                     return;
                 };
-                emit_to_desktop_windows(&app, "ocr-log", &[json!("Downloading OneOCR files...")]);
-                let _ = run_python_streaming_to_ocr_log(
+                #[cfg(windows)]
+                {
+                    emit_ocr_log(&app, "rust:ocr-coordinator", "Downloading OneOCR files...");
+                    let _ = run_python_streaming_to_ocr_log(
+                        &app,
+                        &py,
+                        vec![
+                            "-m".into(),
+                            "GameSentenceMiner.util.downloader.oneocr_dl".into(),
+                        ],
+                    )
+                    .await;
+                }
+                emit_ocr_log(
                     &app,
-                    &py,
-                    vec![
-                        "-m".into(),
-                        "GameSentenceMiner.util.downloader.oneocr_dl".into(),
-                    ],
-                )
-                .await;
-                emit_to_desktop_windows(
-                    &app,
-                    "ocr-log",
-                    &[json!(
-                        "Restoring recommended dependencies from the lockfile..."
-                    )],
+                    "rust:ocr-coordinator",
+                    "Restoring recommended dependencies from the lockfile...",
                 );
                 let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!(
-                        "\x1b[32mRecommended dependencies restored successfully!\x1b[0m"
-                    )],
+                    "rust:ocr-coordinator",
+                    "\x1b[32mRecommended dependencies restored successfully!\x1b[0m",
                 );
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!("\x1b[32mYou can now close this console.\x1b[0m")],
+                    "rust:ocr-coordinator",
+                    "\x1b[32mYou can now close this console.\x1b[0m",
                 );
             });
             true
@@ -2265,10 +2264,10 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                 let Ok(py) = python_ops::ensure_python_path(&app).await else {
                     return;
                 };
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!(format!("Installing {dep} dependencies..."))],
+                    "rust:ocr-coordinator",
+                    &format!("Installing {dep} dependencies..."),
                 );
                 let uv_args: Vec<String> = if dep.contains("numpy") {
                     vec![
@@ -2287,17 +2286,15 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                 };
                 let _ = run_python_streaming_to_ocr_log(&app, &py, uv_args).await;
                 let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!(format!(
-                        "\x1b[32mInstalled {dep} successfully.\x1b[0m"
-                    ))],
+                    "rust:ocr-coordinator",
+                    &format!("\x1b[32mInstalled {dep} successfully.\x1b[0m"),
                 );
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!("\x1b[32mYou can now close this console.\x1b[0m")],
+                    "rust:ocr-coordinator",
+                    "\x1b[32mYou can now close this console.\x1b[0m",
                 );
             });
             true
@@ -2326,10 +2323,10 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                     return;
                 };
                 if choice != 0 {
-                    emit_to_desktop_windows(
+                    emit_ocr_log(
                         &app,
-                        "ocr-log",
-                        &[json!(format!("Uninstall canceled for {dep}."))],
+                        "rust:ocr-coordinator",
+                        &format!("Uninstall canceled for {dep}."),
                     );
                     return;
                 }
@@ -2337,10 +2334,10 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                 let Ok(py) = python_ops::ensure_python_path(&app).await else {
                     return;
                 };
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!(format!("Uninstalling {dep} dependencies..."))],
+                    "rust:ocr-coordinator",
+                    &format!("Uninstalling {dep} dependencies..."),
                 );
                 let mut uv_args = vec![
                     "-m".into(),
@@ -2352,37 +2349,17 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
                 uv_args.extend(dep.split_whitespace().map(str::to_owned));
                 let _ = run_python_streaming_to_ocr_log(&app, &py, uv_args).await;
                 let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!(format!(
-                        "\x1b[32mUninstalled {dep} successfully.\x1b[0m"
-                    ))],
+                    "rust:ocr-coordinator",
+                    &format!("\x1b[32mUninstalled {dep} successfully.\x1b[0m"),
                 );
-                emit_to_desktop_windows(
+                emit_ocr_log(
                     &app,
-                    "ocr-log",
-                    &[json!("\x1b[32mYou can now close this console.\x1b[0m")],
+                    "rust:ocr-coordinator",
+                    "\x1b[32mYou can now close this console.\x1b[0m",
                 );
             });
-            true
-        }
-        "update-furigana-character" => {
-            let ch = args
-                .first()
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .to_owned();
-            let font_size = args.get(1).and_then(Value::as_f64).unwrap_or(24.0);
-            tauri::async_runtime::spawn(async move {
-                open_or_update_furigana_window(&app, &ch, font_size).await;
-            });
-            true
-        }
-        "close-furigana-window" => {
-            if let Some(win) = app.get_webview_window("furigana") {
-                let _ = win.hide();
-            }
             true
         }
         _ => false,
@@ -2393,6 +2370,19 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
 mod tests {
     use super::*;
     use std::time::Instant;
+
+    #[test]
+    fn furigana_preview_reads_the_python_result_among_logs() {
+        assert_eq!(
+            parse_furigana_preview_selection("Starting OCR\r\nRESULT:[23]\r\nFinished\r\n"),
+            Some(23)
+        );
+        assert_eq!(parse_furigana_preview_selection("RESULT:[0]\n"), Some(0));
+        assert_eq!(
+            parse_furigana_preview_selection("Closed preview\n23\n"),
+            None
+        );
+    }
 
     #[test]
     fn python_fallback_messages_and_commands_preserve_the_wire_protocol() {
@@ -2412,15 +2402,51 @@ mod tests {
     }
 
     #[test]
+    fn advanced_defaults_to_two_pass_lens_and_basic_follows_online_switch() {
+        let mut cfg = default_ocr_config();
+        cfg["advancedMode"] = json!(true);
+        let advanced = runtime_ocr_settings(cfg.clone());
+        assert_eq!(advanced["ocr1"], "screenai");
+        assert_eq!(advanced["ocr2"], "glens");
+        assert_eq!(advanced["twoPassOCR"], true);
+        assert_eq!(advanced["optimize_second_scan"], true);
+        cfg["ocr2"] = json!("bing");
+        cfg["twoPassOCR"] = json!(false);
+        assert_eq!(runtime_ocr_settings(cfg.clone()), cfg);
+        cfg["advancedMode"] = json!(false);
+        assert_eq!(runtime_ocr_settings(cfg.clone())["ocr2"], "screenai");
+        cfg["useOnlineOcr"] = json!(true);
+        let online = runtime_ocr_settings(cfg);
+        assert_eq!(online["ocr2"], "glens");
+        assert_eq!(online["twoPassOCR"], true);
+    }
+
+    #[test]
+    fn retired_selections_fall_back_without_changing_supported_engines() {
+        let mut config = json!({
+            "ocr1": "  MLKitOCR ",
+            "ocr2": "gvision",
+            "ocr1_advanced": "oneocr",
+            "ocr2_advanced": "mangaocrs",
+            "menuAreaOcrEngine": "gemini",
+        });
+        replace_retired_ocr_engines(&mut config);
+        assert_eq!(config["ocr1"], "screenai");
+        assert_eq!(config["ocr2"], "gvision");
+        assert_eq!(config["ocr1_advanced"], "oneocr");
+        assert_eq!(config["ocr2_advanced"], "screenai");
+        assert_eq!(config["menuAreaOcrEngine"], "main");
+    }
+
+    #[test]
     fn initial_native_settings_equal_first_heartbeat_settings() {
         let initial = default_ocr_config();
         let mut heartbeat = initial.clone();
         heartbeat["force_stable"] = json!(false);
         let scene = json!({"furigana_filter_sensitivity":0});
-        let context = json!({"engine_defaults":{}});
         assert_eq!(
-            native_ocr_settings(&initial, &scene, &context),
-            native_ocr_settings(&heartbeat, &scene, &context)
+            native_ocr_settings(&initial, &scene),
+            native_ocr_settings(&heartbeat, &scene)
         );
     }
 
@@ -2462,7 +2488,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ocr_context_and_results_reach_backend_over_native_bus() {
+    async fn ocr_results_reach_backend_over_native_bus() {
         use futures_util::{SinkExt, StreamExt};
         use tokio_tungstenite::{connect_async, tungstenite::Message};
         let rt = gsm_runtime::Runtime::start(json!({}), |_, _| {}).unwrap();
@@ -2477,31 +2503,21 @@ mod tests {
             "bus.welcome"
         );
         let server = tokio::spawn(async move {
-            for topic in ["ocr.native.context", "ocr.native.result"] {
-                let raw = tokio::time::timeout(Duration::from_secs(3), socket.next())
-                    .await
-                    .unwrap()
-                    .unwrap()
-                    .unwrap();
-                let request: Value = serde_json::from_str(raw.to_text().unwrap()).unwrap();
-                assert_eq!(request["topic"], topic);
-                let data = if topic.ends_with("context") {
-                    json!({"available":true,"scene":"Muv-Luv EXTRA", "target_id":123})
-                } else {
-                    assert_eq!(request["data"]["text"], "認識した文章");
-                    json!({"status":"accepted"})
-                };
-                socket.send(Message::Text(json!({"v":1,"id":uuid::Uuid::new_v4().to_string(),"src":"backend","dst":"main","topic":topic,"kind":"response","corr":request["id"],"ok":true,"data":data}).to_string().into())).await.unwrap();
-            }
+            let topic = "ocr.native.result";
+            let raw = tokio::time::timeout(Duration::from_secs(3), socket.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            let request: Value = serde_json::from_str(raw.to_text().unwrap()).unwrap();
+            assert_eq!(request["topic"], topic);
+            assert_eq!(request["data"]["text"], "認識した文章");
+            socket.send(Message::Text(json!({"v":1,"id":uuid::Uuid::new_v4().to_string(),"src":"backend","dst":"main","topic":topic,"kind":"response","corr":request["id"],"ok":true,"data":{"status":"accepted"}}).to_string().into())).await.unwrap();
         });
-        let ctx = request_ocr_backend(&rt, "ocr.native.context", json!({}), 2000)
-            .await
-            .unwrap();
-        assert_eq!(ctx["available"], true);
         let ack = request_ocr_backend(
             &rt,
             "ocr.native.result",
-            json!({"text":"認識した文章", "ocr_scene":ctx["scene"]}),
+            json!({"text":"認識した文章", "ocr_scene":"Muv-Luv EXTRA"}),
             2000,
         )
         .await

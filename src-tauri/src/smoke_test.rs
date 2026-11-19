@@ -16,12 +16,65 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+#[path = "smoke/memory.rs"]
+mod memory;
+
+#[cfg(windows)]
+pub fn own_process_tree() -> windows::core::Result<()> {
+    use windows::{
+        core::{Owned, PCWSTR},
+        Win32::System::{JobObjects::*, Threading::GetCurrentProcess},
+    };
+
+    // WebView2 can open extension windows that Tauri does not own. Tie them to
+    // the isolated test process even when the runner kills it after a timeout.
+    unsafe {
+        let job = Owned::new(CreateJobObjectW(None, PCWSTR::null())?);
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        SetInformationJobObject(
+            *job,
+            JobObjectExtendedLimitInformation,
+            (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+            std::mem::size_of_val(&limits) as u32,
+        )?;
+        AssignProcessToJobObject(*job, GetCurrentProcess())?;
+
+        // This handle is not inherited. Windows closes it when the host exits.
+        std::mem::forget(job);
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn stage_jiten_extension(source: &Path, profile: &Path) -> Result<PathBuf, String> {
+    let fixture = profile.join("test-extensions").join("jiten.reader");
+    crate::dictionary_host::copy_dir_recursive(source, &fixture)?;
+    let manifest = crate::dictionary_host::read_manifest(&fixture)?;
+    let worker = manifest["background"]["service_worker"]
+        .as_str()
+        .ok_or("Jiten smoke fixture is missing its service worker")?;
+    let worker = fixture.join(worker);
+    let source = std::fs::read_to_string(&worker).map_err(|e| e.to_string())?;
+    // An extension's first-install handler opens an unmanaged WebView2 window.
+    // Keep its startup logic active while the smoke check opens its own page.
+    std::fs::write(
+        worker,
+        format!("'use strict';\nchrome.runtime.openOptionsPage = async () => {{}};\n{source}"),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(fixture)
+}
+
 pub fn spawn_if_requested(app: AppHandle) {
     let Some(result_path) = std::env::var_os("GSM_TEST_RESULT").map(PathBuf::from) else {
         return;
     };
     tauri::async_runtime::spawn(async move {
         let outcome = run_smoke(&app).await;
+        for window in app.webview_windows().into_values() {
+            let _ = window.destroy();
+        }
         let (code, payload) = match outcome {
             Ok(detail) => (0, json!({ "code": 0, "detail": detail })),
             Err(err) => {
@@ -63,6 +116,14 @@ async fn wait_window_ready(
     ))
 }
 
+async fn wait_overlay_dictionary(app: &AppHandle) -> Result<(), String> {
+    tokio::time::timeout(Duration::from_secs(45), async {
+        while app.state::<crate::overlay_host::OverlayHost>().status()["dictionaryReady"] != true {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }).await.map_err(|_| "Overlay dictionary did not become ready".to_owned())
+}
+
 async fn wait_hub_visibility(app: &AppHandle, visible: bool) -> Result<(), String> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -94,6 +155,23 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
     )
     .await?;
     crate::tray::ensure_created(app)?;
+    // Native dictionary installation reloads the first Home document once.
+    // Finish that startup work before asserting that tray hiding preserves it.
+    crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
+    let mut previous_document = Value::Null;
+    let mut stable = 0;
+    for _ in 0..100 {
+        let document = evaluate_raw(app, hub, "document.readyState === 'complete' ? performance.timeOrigin : null").await?;
+        if !document.is_null() && document == previous_document {
+            stable += 1;
+            if stable == 3 { break; }
+        } else {
+            stable = 0;
+        }
+        previous_document = document;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    if stable < 3 { return Err("Home dictionary initialization did not settle".into()); }
     evaluate_raw(app, hub, "window.__gsmCloseToTrayCount = 0").await?;
 
     crate::tray::show_main_window(app);
@@ -103,6 +181,8 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
         eprintln!("[smoke] Closing hub to tray (cycle {cycle})");
         hub.close().map_err(|e| e.to_string())?;
         wait_hub_visibility(app, false).await?;
+        // Exercise both immediate reuse and the browser's reduced-memory state.
+        if cycle == 2 { tokio::time::sleep(Duration::from_secs(16)).await; }
         if app
             .state::<DesktopState>()
             .quitting
@@ -113,8 +193,12 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
         }
         crate::tray::show_main_window(app);
         wait_hub_visibility(app, true).await?;
-        if evaluate_raw(app, hub, "++window.__gsmCloseToTrayCount").await? != json!(cycle) {
-            return Err("Reopening the hub lost its renderer state".into());
+        let count = evaluate_raw(app, hub, "++window.__gsmCloseToTrayCount").await?;
+        if count != json!(cycle) {
+            return Err(format!("Reopening the hub lost its renderer state: cycle {cycle}, count {count}"));
+        }
+        if evaluate_raw(app, hub, "performance.timeOrigin").await? != previous_document {
+            return Err("Reopening the hub reloaded its document".into());
         }
     }
     #[cfg(windows)]
@@ -159,6 +243,21 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
                         let Ok(message) = serde_json::from_str::<Value>(&text) else {
                             continue;
                         };
+                        if message["event"] == "text_v2_snapshot_request" {
+                            let mut snapshot = json!({"event":"text_v2_snapshot","session_id":"smoke",
+                                "snapshot_sequence":1,"lines":[{"id":"home-word","text":"食べる",
+                                "session_id":"smoke","sequence":1,"revision":1}]});
+                            if std::env::var("GSM_SMOKE_SUITE").as_deref() == Ok("memory") {
+                                snapshot["snapshot_sequence"] = json!(1000);
+                                snapshot["lines"] = json!((0..1000).map(|i| json!({
+                                    "id":format!("memory-{i}"),"session_id":"smoke","sequence":i+1,
+                                    "revision":1,"text":"ゲームの文章を読みながら、日本語の言葉を勉強しています。",
+                                    "captured_at":"2026-11-15T12:00:00Z"
+                                })).collect::<Vec<_>>());
+                            }
+                            if socket.send(Message::Text(snapshot.to_string().into())).await.is_err() { break; }
+                            continue;
+                        }
                         let reply = match message["type"].as_str() {
                             Some("set-gsm-overlay-config") => {
                                 if let Some(patch) = message["settings"].as_object() {
@@ -199,6 +298,34 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
     let suite = std::env::var("GSM_SMOKE_SUITE")
         .or_else(|_| std::env::var("GSM_SMOKE_SCENARIO"))
         .unwrap_or_else(|_| "foundation".into());
+    if suite == "qt-dialog" {
+        let python = std::env::var("GSM_TEST_QT_PYTHON").map_err(|e| e.to_string())?;
+        let root = app.state::<crate::settings::Settings>().paths.active.join("dialog-fixture");
+        let dialog = crate::gui_dialog::Dialog::TextInput { title:"Fixture".into(), label:"Fixture".into() };
+        let live = std::env::var("GSM_QT_FIXTURE_MODE").as_deref() == Ok("live");
+        let runtime = crate::runtime::get(app)?;
+        if live {
+            runtime.call("process.start",json!({"id":"backend","command":python,"env":gsm_packages::python::environment(),
+                "args":["-m","GameSentenceMiner.ui.desktop_dialog"],"cwd":root,"windowsHide":true})).await?;
+            let deadline = Instant::now()+Duration::from_secs(20);
+            while !runtime.call("bus.clients",json!({})).await?.as_array().is_some_and(|v|v.iter().any(|id|id=="backend")) {
+                if Instant::now()>=deadline { return Err("Qt fixture failed to connect".into()); }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        }
+        let started = Instant::now();
+        let answer = if live {
+            crate::gui_dialog::open(app,dialog).await?
+        } else {
+            crate::gui_dialog::run_worker(app, dialog, &python, &root).await?
+        };
+        let elapsed = started.elapsed().as_secs_f64()*1000.0;
+        if answer != "日本語" { return Err(format!("Unexpected Qt result: {answer}")); }
+        let state = runtime.call("process.state", json!({"id":"qt-dialog"})).await?;
+        if !state["pid"].is_null() { return Err("Qt worker remained resident".into()); }
+        if live { runtime.call("process.stop",json!({"id":"backend"})).await?; }
+        return Ok(json!({"elapsed_ms":elapsed}));
+    }
     run_suite_smoke(app, &suite).await
 }
 
@@ -274,6 +401,7 @@ async fn run_capture_fixture(app: &AppHandle) -> Result<Value, String> {
 
 async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, String> {
     let phase = std::env::var("GSM_SMOKE_PHASE").unwrap_or_else(|_| "import".into());
+    eprintln!("[smoke] {reader}/{phase}: opening Home before dictionary warmup");
     let overlay_data = overlay_data_path(app);
     std::fs::create_dir_all(&overlay_data).map_err(|e| e.to_string())?;
     std::fs::write(
@@ -287,7 +415,14 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     )
     .map_err(|e| e.to_string())?;
 
+    // Open Home before warming the extension, as in ordinary desktop startup.
+    // An enabled shared profile must not be mistaken for an attached document.
+    service_call(app, "settings.onboarding.save", &[json!({"version":1,"step":"language","status":"paused"})]).await?;
+    let hub = crate::app_lifecycle::create_hub_window(app)?;
+    let _ = wait_window_ready(app, hub.label(), Duration::from_secs(25)).await?;
+
     // Warm up the dictionary host and create the hidden lookup page.
+    eprintln!("[smoke] {reader}/{phase}: preparing dictionary lookup page");
     let _ = crate::reader_service::try_invoke(app, "gsm-hub", "reader.lookup", &[json!("日本")])
         .await
         .ok_or("reader.lookup not handled")?
@@ -412,6 +547,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         }
     }
 
+    eprintln!("[smoke] {reader}/{phase}: checking fixture lookup");
     let lookup =
         crate::reader_service::try_invoke(app, "gsm-hub", "reader.lookup", &[json!("食べる")])
             .await
@@ -435,9 +571,25 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         ));
     }
 
+    eprintln!("[smoke] {reader}/{phase}: checking Home Shift lookup");
+    crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
+    let _ = wait_window_ready(app, hub.label(), Duration::from_secs(25)).await?;
+    hub.show().map_err(|e| e.to_string())?;
+    evaluate_raw(app, &hub, include_str!("../smoke/home.js")).await?;
+    evaluate_raw(app, &hub, &format!("window.__gsmSmokeHome.lookup({})", json!(reader))).await?;
+    let home_document = evaluate_raw(app, &hub, "performance.timeOrigin").await?;
+    crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    if evaluate_raw(app, &hub, "performance.timeOrigin").await? != home_document {
+        return Err("Reentering Home reloaded an already attached dictionary".into());
+    }
+    hub.hide().map_err(|e| e.to_string())?;
+
+    eprintln!("[smoke] {reader}/{phase}: checking overlay lookups and lifecycle");
     let host = app.state::<crate::overlay_host::OverlayHost>();
     host.start(app, None, "smoke").await?;
     let overlay = wait_window_ready(app, OVERLAY_MAIN_LABEL, Duration::from_secs(25)).await?;
+    wait_overlay_dictionary(app).await?;
     host.handle_ws2_text(
         app,
         &json!({"type":"capture_status","available":true,"window_state":"active"}).to_string(),
@@ -447,12 +599,31 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         return Err("Dictionary fixture overlay is hidden".into());
     }
     evaluate_raw(app, &overlay, include_str!("../smoke/overlay.js")).await?;
-    evaluate_raw(
+    if phase == "reopen" {
+        if use_windows_native_extensions()
+            && app.state::<DesktopState>()
+                .window_scope(crate::dictionary_host::EXTENSION_CONTROLLER_LABEL)
+                .as_deref() != Some("dictionary")
+        {
+            return Err("The hidden dictionary controller must use the dictionary memory policy".into());
+        }
+        // Cross the browser's idle-worker deadline with Home hidden. This is
+        // the first popup in this overlay document, with a stationary cursor.
+        tokio::time::sleep(Duration::from_secs(65)).await;
+    }
+    let hover_ms = evaluate_raw(
         app,
         &overlay,
-        &format!("window.__gsmSmokeOverlay.lookup({})", json!(reader)),
+        &format!("window.__gsmSmokeOverlay.lookup({}, {{stationary:true}})", json!(reader)),
     )
     .await?;
+    if phase == "reopen" {
+        let elapsed = hover_ms.as_u64().ok_or("Missing popup-shown event after idle")?;
+        eprintln!("[smoke] {reader}: first hover after 65s idle: {elapsed} ms");
+        if elapsed >= 3000 {
+            return Err(format!("First {reader} hover after idle took {elapsed} ms"));
+        }
+    }
     if phase == "import" {
         let other = if reader == "yomitan" {
             "hachidori"
@@ -487,6 +658,50 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         )
         .await?;
     }
+    if reader == "hachidori" {
+        // Test the user's automatic hover path too: no Shift and no artificial
+        // mouse jiggle to restart a missing/cancelled dwell scan.
+        evaluate_raw(app, &overlay, r#"(async()=>{
+            const stored = await window.gsmHachidoriBridge.invoke('options');
+            const result = await window.gsmHachidoriBridge.invoke('updateOptions', {
+                baseRevision: stored?.revision ?? 0, profileId: 'ja', language: 'ja',
+                options: {lookupMode:'hover', scanDelayMs:100},
+            });
+            if(!result.ok) throw Error('Could not configure hover fixture: '+JSON.stringify(result));
+        })()"#).await?;
+        // Returning to the game after opening settings used to show the HWND
+        // without restoring its pointer feed. Keep the document alive here.
+        for (available, state) in [(false, "closed"), (true, "active")] {
+            host.handle_ws2_text(app, &json!({"type":"capture_status", "available":available,
+                "window_state":state}).to_string()).await;
+        }
+        #[cfg(windows)]
+        if crate::windows_input::forwarding_interval(&overlay).is_none() {
+            return Err("Hover lookup has no native pointer feed after game reactivation".into());
+        }
+        evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.lookup('hachidori', {shiftKey:false, stationary:true})").await?;
+    }
+    let document = evaluate_raw(app, &overlay, "performance.timeOrigin").await?;
+    host.stop(app).await;
+    if overlay.is_visible().unwrap_or(true) || host.status()["isRunning"] != false {
+        return Err("Disabled overlay remained active".into());
+    }
+    // Imports, lookups and settings belong to the app, even without an overlay.
+    let after_stop = crate::reader_service::lookup_reader_dictionary(app, "食べる").await?;
+    if after_stop != lookup { return Err("Disabling overlay changed dictionary lookup".into()); }
+    let setup = crate::dictionary_service::handle_request(app, "dictionary.setup", &json!({
+        "request_id":"independent-dictionary", "deadline":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() + 30_000,
+        "data":{"action":"status", "language":"ja"}
+    })).await;
+    if setup["success"] != true { return Err(format!("Dictionary status while disabled: {setup}")); }
+    let activation = Instant::now();
+    host.start(app, Some(false), "smoke").await?;
+    let elapsed = activation.elapsed();
+    if evaluate_raw(app, &overlay, "performance.timeOrigin").await? != document {
+        return Err("Warm overlay activation reloaded its document".into());
+    }
+    eprintln!("[architecture] {reader} warm overlay activation: {:.2} ms", elapsed.as_secs_f64() * 1000.0);
+    if elapsed > Duration::from_millis(500) { return Err(format!("Warm activation exceeded 500 ms: {elapsed:?}")); }
     host.stop(app).await;
 
     if phase == "import" {
@@ -508,9 +723,6 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         }
     }
 
-    for (_, w) in app.webview_windows() {
-        let _ = w.destroy();
-    }
     Ok(json!({ "reader": reader, "phase": phase }))
 }
 
@@ -540,9 +752,12 @@ async fn smoke_jiten_broker(app: &AppHandle) -> Result<(), String> {
         dictionaries.open_jiten_options(app).await?;
         let label = format!("gsm-dict-options-{}", extension.id);
         let options = wait_window_ready(app,&label,Duration::from_secs(20)).await?;
-        let result = evaluate_raw(app,&options,&format!(r#"(async()=>{{const response=await fetch({},{{method:'POST',headers:{{'Authorization':'ApiKey smoke-key','Content-Type':'application/json'}},body:JSON.stringify({{text:['猫']}})}}); return await response.json();}})()"#,json!(endpoint))).await?;
+        if options.is_visible().map_err(|e| e.to_string())? {
+            return Err("Jiten smoke test opened a visible settings window".into());
+        }
+        let result = evaluate_raw(app,&options,&format!(r#"(async()=>{{const response=await fetch({},{{method:'POST',headers:{{'Authorization':'ApiKey smoke-key','Content-Type':'application/json'}},body:JSON.stringify({{text:['猫']}})}}); return await response.json();}})()"#,json!(endpoint))).await;
         let _ = options.destroy();
-        if result != initial || cache.stats().cache_hits <= hits { return Err("Jiten extension request bypassed the shared overlay cache".into()); }
+        if result? != initial || cache.stats().cache_hits <= hits { return Err("Jiten extension request bypassed the shared overlay cache".into()); }
         Ok(())
     }.await;
     server.abort();
@@ -789,12 +1004,15 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
     wait_window_ready(app, "gsm-ocr-smoke-target", Duration::from_secs(15)).await?;
     let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize as u64;
     let scene = "Native OCR Smoke";
+    app.state::<crate::obs::Obs>().set_ocr_smoke_target(scene,hwnd);
     let area_path = paths.active.join("ocr_config/NativeOCRSmoke.json");
     std::fs::create_dir_all(area_path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&area_path, json!({"scene":scene,"coordinate_system":"percentage","rectangles":[{"coordinates":[0.0,0.0,1.0,1.0],"is_excluded":false}]}).to_string()).map_err(|e| e.to_string())?;
+    let engine = std::env::var("GSM_SMOKE_OCR_ENGINE").unwrap_or_else(|_| "oneocr".into());
+    const SCAN_RATE_SECONDS: f64 = 0.5;
     ocr_coordinator::save_ocr_config(
         app,
-        &json!({"ocr1":"oneocr","ocr2":"oneocr","twoPassOCR":false,"disableNativeOcr":false,"sendToClipboard":false,"manualOcrHotkey":"","wholeWindowOcrHotkey":"","areaSelectOcrHotkey":"","addAreaOcrHotkey":"","globalPauseHotkey":""}),
+        &json!({"ocr1":engine,"ocr2":engine,"twoPassOCR":true,"scanRate":SCAN_RATE_SECONDS,"text_appears_instantly":false,"base_scale":1.0,"disableNativeOcr":false,"sendToClipboard":false,"manualOcrHotkey":"","wholeWindowOcrHotkey":"","areaSelectOcrHotkey":"","addAreaOcrHotkey":"","globalPauseHotkey":""}),
     )?;
     let (mut socket, _) =
         tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{}", bus_info["port"]))
@@ -822,9 +1040,6 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
                 continue;
             }
             let data = match request["topic"].as_str() {
-                Some("ocr.native.context") => {
-                    json!({"available":true,"scene":scene,"target_id":hwnd,"capture_kind":"window","process_path":scene})
-                }
                 Some("ocr.native.result") => {
                     let _ = result_tx.send(request["data"].clone()).await;
                     json!({"status":"accepted"})
@@ -836,30 +1051,39 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
     });
     let outcome = async {
         if std::env::var("GSM_SMOKE_SUITE").as_deref() == Ok("ocr-hotkeys") {
-            ocr_coordinator::save_ocr_config(app, &json!({"areaSelectOcrHotkey":"F15", "gamepadHotkeysEnabled":false}))?;
+            // Use a separate shortcut from the user's live F15 binding. A smoke
+            // profile must not open a second selector in their running game.
+            ocr_coordinator::save_ocr_config(app, &json!({"areaSelectOcrHotkey":"F24", "gamepadHotkeysEnabled":false}))?;
             ocr_coordinator::start_ocr(app, OcrStartSource::User, OcrRunMode::Manual).await?;
             window.set_focus().map_err(|e| e.to_string())?;
             tokio::time::sleep(Duration::from_secs(2)).await;
             use windows::{core::w, Win32::{Foundation::{LPARAM, WPARAM}, UI::{Input::KeyboardAndMouse::*, WindowsAndMessaging::*}}};
+            let triggered_at = Instant::now();
             let input = [KEYBD_EVENT_FLAGS(0), KEYEVENTF_KEYUP].map(|flags| INPUT {
                 r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_F15, dwFlags: flags, ..Default::default() } },
+                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VK_F24, dwFlags: flags, ..Default::default() } },
             });
             if unsafe { SendInput(&input, std::mem::size_of::<INPUT>() as i32) } != 2 {
-                return Err("Could not inject F15 into the OCR fixture".into());
+                return Err("Could not inject F24 into the OCR fixture".into());
             }
             let deadline = Instant::now() + Duration::from_secs(5);
             loop {
-                if let Ok(picker) = unsafe { FindWindowW(w!("GsmNativeOcrSelection"), None) } {
+                // Several GSM instances may own a selector. Search all matching
+                // windows so a live instance cannot hide this fixture's result.
+                let mut after = None;
+                while let Ok(picker) = unsafe { FindWindowExW(None, after, w!("GsmNativeOcrSelection"), None) } {
                     let mut owner = 0;
                     unsafe { GetWindowThreadProcessId(picker, Some(&mut owner)); }
                     if owner == std::process::id() {
                         unsafe { PostMessageW(Some(picker), WM_KEYDOWN, WPARAM(VK_ESCAPE.0 as usize), LPARAM(0)) }.map_err(|e| e.to_string())?;
-                        return Ok(json!({"hotkey":"F15","areaSelectorOpened":true,"controllerHotkeysEnabled":false}));
+                        let latency_ms = triggered_at.elapsed().as_millis();
+                        eprintln!("[smoke] Area selector opened after {latency_ms}ms");
+                        return Ok(json!({"hotkey":"F24","areaSelectorOpened":true,"latencyMs":latency_ms,"controllerHotkeysEnabled":false}));
                     }
+                    after = Some(picker);
                 }
                 if Instant::now() >= deadline {
-                    return Err("F15 did not open the native area selector for a visible capture target".into());
+                    return Err("F24 did not open the native area selector for a visible capture target".into());
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -881,6 +1105,15 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
                     "Native OCR returned unexpected text or scene: {payload}"
                 ));
             }
+            let captured_at = payload["capturedAt"].as_u64().ok_or("Missing OCR capture time")?;
+            let emitted_at = payload["emittedAt"].as_u64().ok_or("Missing OCR emission time")?;
+            let last_scan_ms = payload["metrics"]["total_ms"].as_f64().ok_or("Missing OCR scan duration")?;
+            let time_before_last_scan = emitted_at.saturating_sub(captured_at) as f64 - last_scan_ms;
+            if captured_at > emitted_at
+                || (mode == OcrRunMode::Auto && time_before_last_scan < SCAN_RATE_SECONDS * 1000. / 2.)
+            {
+                return Err(format!("Native OCR did not preserve the first capture time: {payload}"));
+            }
             results.push(json!({"mode":mode.as_str(),"text":text}));
             ocr_coordinator::stop_ocr_sync(app, "smoke", None);
         }
@@ -901,6 +1134,9 @@ async fn run_ocr_flow_smoke(_app: &AppHandle, _bus_info: &Value) -> Result<Value
 }
 
 async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> {
+    if suite == "memory" {
+        return memory::run(app).await;
+    }
     if !matches!(
         suite,
         "runtime"
@@ -1097,7 +1333,44 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             return Err("Onboarding dictionary status failed".into());
         }
     }
+    if suite == "texthook" {
+        let profile = crate::desktop_services::paths_for(app).active;
+        tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+            let file = profile.join("config.json");
+            let write = |config: Value| std::fs::write(&file, config.to_string()).map_err(|e| e.to_string());
+            let mut config = json!({"current_profile":"Game", "configs":{
+                "Game":{"text_processing":{"processor_order":["language_filter"],"language_filter":true},
+                        "general":{"target_language":"ja"}},
+                "Other":{"text_processing":{"processor_order":["language_filter"],"language_filter":true},
+                         "general":{"target_language":"en"}}
+            }});
+            let mut finder = gsm_text_preview::HookFinder::new(profile);
+            let snapshot = json!({"hooks":[{"id":"game","samples":["日本語\nEnglish"]}]});
+            let blocks = ["日本語".to_owned(), "English".to_owned()];
+            for (name, expected) in [("Game", "日本語"), ("Other", "English")] {
+                config["current_profile"] = json!(name);
+                write(config.clone())?;
+                let ranked = finder.rank(&snapshot, &blocks, || false)?;
+                if ranked[0]["tier"] != "exact" || ranked[0]["output"] != expected {
+                    return Err(format!("Hook Finder used the wrong profile: {ranked}"));
+                }
+            }
+            Ok(())
+        }).await.map_err(|e| e.to_string())??;
+    }
     if suite == "workspace" {
+        let paths = crate::desktop_services::paths_for(app);
+        std::fs::write(
+            paths.active.join("config.json"),
+            // Keep an OBS scene outside this fixture from switching the active
+            // profile between saving its language and checking the preview.
+            json!({"current_profile":"Preview","switch_to_default_if_not_found":false,"configs":{
+                "Default":{"general":{"target_language":"ja"}},
+                "Preview":{"general":{"target_language":"ja"}}
+            },"experimental":{"tokenization_sudachi_dictionary":"core"}})
+            .to_string(),
+        )
+        .map_err(|error| error.to_string())?;
         let entry = json!({"game":"Native smoke", "text":"食べる"});
         service_call(app, "textprocess.exclusions.add", &[entry.clone()]).await?;
         let listed = service_call(app, "textprocess.exclusions.list", &[]).await?;
@@ -1127,6 +1400,44 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             || bridge_check["hasFind"].as_bool() != Some(true)
         {
             return Err(format!("Hub preload bridge check failed: {bridge_check}"));
+        }
+        if suite == "workspace" {
+            let saved = evaluate_raw(app, &hub,
+                "window.ipcRenderer.invoke('settings.onboarding.language', 'ko')").await?;
+            if saved != json!({"success":true,"language":"ko"}) {
+                return Err(format!("Learning language save failed: {saved}"));
+            }
+            let preview = evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke('textprocess.preview', {
+                text: 'MENU\r\nSpeaker: 「한국어 HP 10！」 Next\r\n日本語',
+                config: { language_filter: true, language_filter_config: { mode: 'trim' } }
+            })"#).await?;
+            if preview != json!({"success":true,"result":"「한국어"}) {
+                return Err(format!("Text Processing preview without Python failed: {preview}"));
+            }
+            let poll = "window.ipcRenderer.invoke('settings.onboarding.sudachi', {action:'status'})";
+            let status = evaluate_raw(app, &hub, poll).await?;
+            if status["state"] != "setup_required" || status["dictionary"] != "core" {
+                return Err(format!("Unexpected fresh Sudachi status: {status}"));
+            }
+            if let Some(dictionary) = std::env::var_os("GSM_TEST_SUDACHI_DICTIONARY") {
+                let release = status["release"].as_str().ok_or("Missing Sudachi release")?;
+                let dir = crate::desktop_services::paths_for(app).active
+                    .join("sudachi").join(format!("v{release}-small"));
+                std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+                std::fs::copy(dictionary, dir.join("system_small.dic")).map_err(|e| e.to_string())?;
+                let started = evaluate_raw(app, &hub,
+                    "window.ipcRenderer.invoke('settings.onboarding.sudachi', {action:'install',dictionary:'small'})").await?;
+                if started["state"] != "installing" { return Err(format!("Install failed: {started}")); }
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                loop {
+                    let status = evaluate_raw(app, &hub, poll).await?;
+                    if status["state"] == "ready" && status["dictionary"] == "small" { break; }
+                    if status["state"] != "installing" || tokio::time::Instant::now() >= deadline {
+                        return Err(format!("Sudachi installation did not become ready: {status}"));
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            }
         }
         if suite == "windows" {
             smoke_close_to_tray(app, &hub).await?;
@@ -1180,6 +1491,18 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         )
         .map_err(|e| e.to_string())?;
 
+        let host = app.state::<crate::overlay_host::OverlayHost>();
+        host.prepare(app).await?;
+        let prepared = wait_window_ready(app, OVERLAY_MAIN_LABEL, Duration::from_secs(25)).await?;
+        if prepared.is_visible().unwrap_or(true) || host.status()["isRunning"] != false {
+            return Err("Preparing the overlay activated it".into());
+        }
+        host.handle_send(app, OVERLAY_MAIN_LABEL, "show", &[]).await;
+        host.handle_send(app, OVERLAY_MAIN_LABEL, "gamepad-request-focus", &[]).await;
+        host.handle_send(app, OVERLAY_MAIN_LABEL, "set-ignore-mouse-events", &[json!(false)]).await;
+        if prepared.is_visible().unwrap_or(true) { return Err("Disabled overlay accepted a stale show request".into()); }
+        let inactive_capture = host.handle_invoke(app, OVERLAY_MAIN_LABEL, "overlay-native-command", &[json!({"action":"start"})]).await;
+        if !matches!(inactive_capture, Some(Err(_))) { return Err("Prepared overlay accepted capture before activation".into()); }
         let started = crate::desktop_services::invoke(app, "gsm-hub", "runOverlay", &[])
             .await
             .ok_or("runOverlay not handled")??;
@@ -1193,6 +1516,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             return Err(format!("Unexpected overlay status: {status}"));
         }
         let main_win = wait_window_ready(app, OVERLAY_MAIN_LABEL, Duration::from_secs(25)).await?;
+        wait_overlay_dictionary(app).await?;
         let initialized = evaluate_raw(
             app,
             &main_win,
@@ -1380,6 +1704,10 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             &json!({"type":"capture_status","available":true,"window_state":"active"}).to_string(),
         )
         .await;
+        evaluate_raw(app, &main_win, r#"(() => {
+            window.__gsmNativePointerSamples = 0;
+            require('electron').ipcRenderer.on('text-hover-pointer', () => window.__gsmNativePointerSamples++);
+        })()"#).await?;
         for state in [
             "obscured",
             "active",
@@ -1388,6 +1716,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             "closed",
             "active",
         ] {
+            let previous_samples = evaluate_raw(app, &main_win, "window.__gsmNativePointerSamples").await?;
             app.state::<crate::overlay_host::OverlayHost>()
                 .handle_ws2_text(
                     app,
@@ -1409,7 +1738,34 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             if !matched {
                 return Err(format!("Overlay visibility did not follow {state}"));
             }
+            #[cfg(windows)]
+            if crate::windows_input::forwarding_interval(&main_win).is_some() != expected {
+                return Err(format!("Overlay pointer forwarding did not follow game state {state}"));
+            }
+            #[cfg(windows)]
+            if expected {
+                evaluate_raw(app, &main_win, &format!(r#"(async()=>{{
+                    for(let i=0;i<40;i++) {{
+                        if(window.__gsmNativePointerSamples > {previous_samples}) return true;
+                        await new Promise(r=>setTimeout(r,25));
+                    }}
+                    throw Error('No real native hover samples after returning to {state}');
+                }})()"#)).await?;
+            }
         }
+
+        #[cfg(windows)]
+        smoke_overlay_clickthrough(app, &main_win).await?;
+
+        host.apply_setting_updates(app, serde_json::from_value(json!({
+            "manualMode":true, "manualModeInactiveBehavior":"hide-overlay",
+            "manual_mode_desktop_background":"off", "gamepadEnabled":true,
+            "gamepadControllerEnabled":false, "gamepadKeyboardEnabled":false,
+            "gamepadAutoConfirmSelection":false, "gamepadFocusOverlayOnEntry":false,
+            "scan_on_overlay_activation":false,
+        })).unwrap(), true);
+        evaluate_raw(app, &main_win, include_str!("../smoke/gamepad_activation.js")).await?;
+        eprintln!("[smoke] Controller navigation revealed manual overlay without a manual hotkey, exited, and reentered");
 
         let stopped =
             crate::desktop_services::invoke(app, "gsm-hub", "setOverlayEnabled", &[json!(false)])
@@ -1419,6 +1775,10 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             return Err(format!(
                 "setOverlayEnabled(false) did not stop overlay: {stopped}"
             ));
+        }
+        #[cfg(windows)]
+        if crate::windows_input::forwarding_interval(&main_win).is_some() {
+            return Err("Disabled overlay still polls the mouse".into());
         }
         if app.tray_by_id(crate::overlay_tray::ID).is_some() {
             return Err("Overlay tray survived stop".into());
@@ -1431,10 +1791,81 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         }
     }
 
-    for (_, w) in app.webview_windows() {
-        let _ = w.destroy();
-    }
     Ok(json!({ "suite": suite }))
+}
+
+#[cfg(windows)]
+async fn smoke_overlay_clickthrough(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_TRANSPARENT};
+    let ignores_cursor = || -> Result<bool, String> {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        Ok(unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } & WS_EX_TRANSPARENT.0 as isize != 0)
+    };
+    let host = app.state::<crate::overlay_host::OverlayHost>();
+    host.apply_setting_updates(app, serde_json::from_value(json!({
+        "manualMode":false, "pinned":false, "textHoverClickThrough":true,
+        "focusOverlayOnYomitanLookup":false,
+    })).unwrap(), true);
+    evaluate_raw(app, window, r#"(async()=>{for(let i=0;i<100;i++){
+        if(!manualMode && textHoverClickThrough) return true;
+        await new Promise(r=>setTimeout(r,20));
+    } throw Error('Clickthrough settings were not delivered');})()"#).await?;
+    evaluate_raw(app, window, include_str!("../smoke/clickthrough.js")).await?;
+    host.handle_send(app, OVERLAY_MAIN_LABEL, "yomitan-event", &[json!(true)]).await;
+    // Held-button routing is covered by text_hover tests. The user's real
+    // buttons are not held here; WebView may emit genuine enter/leave events
+    // when its native ownership changes, so do not fake an OS drag.
+    for (target, buttons, expected_ignore) in [
+        ("text", 0, true), ("popup", 0, false), ("text", 0, true),
+    ] {
+        evaluate_raw(app, window, &format!("window.__gsmClickthrough.point({}, {buttons})", json!(target))).await?;
+        let mut matched = false;
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            if ignores_cursor()? == expected_ignore { matched = true; break; }
+        }
+        if !matched { return Err(format!("Native clickthrough failed over {target} with buttons={buttons}")); }
+        if crate::windows_input::forwarding_interval(window).is_none() {
+            return Err("Pointer feed stopped while the overlay was interactive".into());
+        }
+    }
+    host.apply_setting_updates(app, serde_json::from_value(json!({"textHoverClickThrough":false})).unwrap(), true);
+    evaluate_raw(app, window, r#"(async()=>{for(let i=0;i<100;i++){
+        if(!textHoverClickThrough) return window.__gsmClickthrough.point('text');
+        await new Promise(r=>setTimeout(r,20));
+    } throw Error('Clickthrough preference was not delivered');})()"#).await?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    if ignores_cursor()? {
+        return Err("Disabling clickthrough did not restore text interaction".into());
+    }
+    // The VN guide fixture selected the route starting with 家に帰る. Keep the
+    // pointer stationary over text and let detection alone change its recipient.
+    let menu = json!({"type":"word_coordinates","is_final":true,"line_id":"pointer-menu","data":[
+        {"text":"家に帰る","bounding_rect":{"x1":0.4,"y1":0.40,"x3":0.6,"y3":0.44}},
+        {"text":"公園に行く","bounding_rect":{"x1":0.4,"y1":0.54,"x3":0.6,"y3":0.58}}
+    ]});
+    for (frame, expected_ignore) in [(menu, true), (json!({"type":"overlay_clear"}), false)] {
+        host.handle_send(app, OVERLAY_MAIN_LABEL, "text-received", &[frame]).await;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while ignores_cursor()? != expected_ignore {
+            if Instant::now() >= deadline {
+                return Err(format!("VN Guide choice did not set native click-through to {expected_ignore}"));
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+    evaluate_raw(app, window, "window.__gsmClickthrough.cleanup()").await?;
+    host.handle_send(app, OVERLAY_MAIN_LABEL, "yomitan-event", &[json!(false)]).await;
+    // Let visibility messages complete before checking the actual native timer.
+    for visible in [false, true, false, true] {
+        if visible { window.show() } else { window.hide() }.map_err(|e| e.to_string())?;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if crate::windows_input::forwarding_interval(window).is_some() != visible {
+            return Err(format!("Pointer timer did not follow visible={visible}"));
+        }
+    }
+    eprintln!("[smoke] Clickthrough: popup hit testing, preference, native forwarding, hide/show timer lifecycle passed");
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1512,6 +1943,33 @@ async fn smoke_vn_guide(app: &AppHandle, settings_win: &WebviewWindow) -> Result
     {
         return Err(format!("Unexpected imported guide state: {picked}"));
     }
+    // Window titles and OBS scene names are different identities. Both the
+    // backend event and its renderer echo must preserve a manual guide preview.
+    for (action, index) in [("toggle", 0), ("next", 1)] {
+        evaluate_raw(app, settings_win, &format!(
+            "require('electron').ipcRenderer.invoke('vn-guide-command',{{action:'{action}'}})"
+        )).await?;
+        for title in ["Test game window", "Test game window - Power Save Mode"] {
+            host.handle_ws2_text(app, &json!({
+                "type":"window_state", "data":"active", "game":title
+            }).to_string()).await;
+            host.handle_send(app, crate::overlay_host::OVERLAY_MAIN_LABEL,
+                "window-state-changed", &[json!({"state":"active", "game":title})]).await;
+            host.handle_ws2_text(app, &json!({"type":"capture_status",
+                "scene_name":"Guide game", "available":true, "window_state":"active"
+            }).to_string()).await;
+            let state = evaluate_raw(app, settings_win,
+                "require('electron').ipcRenderer.invoke('vn-guide-state')").await?;
+            if state["visible"] != true || state["index"] != index {
+                return Err(format!("Guide {action} preview was cancelled by a window-title update: {state}"));
+            }
+        }
+        evaluate_raw(app, settings_win, r#"(async()=>{
+            const ipc=require('electron').ipcRenderer;
+            await ipc.invoke('vn-guide-command',{action:'jump',value:0});
+            return ipc.invoke('vn-guide-command',{action:'hide'});
+        })()"#).await?;
+    }
     host.handle_ws2_text(app, &json!({"type":"word_coordinates","is_final":true,"line_id":"guide-choice","presence_id":"guide-choice","data":[
         {"text":"公園に行く","bounding_rect":{"x1":0.4,"y1":0.40,"x3":0.6,"y3":0.44}},
         {"text":"家に帰る","bounding_rect":{"x1":0.4,"y1":0.48,"x3":0.6,"y3":0.52}}
@@ -1538,6 +1996,33 @@ async fn smoke_vn_guide(app: &AppHandle, settings_win: &WebviewWindow) -> Result
     if hud_text != true {
         return Err("Detected guide choice did not reach its HUD".into());
     }
+    // Exercise the migrated native window policy through the real settings UI.
+    for style in ["text", "card"] {
+        evaluate_raw(app, settings_win, &format!(r#"(async()=>{{
+            const select=document.getElementById('vnGuideDisplayStyle');
+            select.value='{style}';select.dispatchEvent(new Event('change',{{bubbles:true}}));
+            for(let i=0;i<100;i++){{
+                const state=await require('electron').ipcRenderer.invoke('vn-guide-state');
+                if(state.displayStyle==='{style}')return true;
+                await new Promise(r=>setTimeout(r,50));
+            }}throw Error('Guide appearance setting did not apply');
+        }})()"#)).await?;
+        #[cfg(windows)]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetWindowLongPtrW, GWL_EXSTYLE, WS_EX_LAYERED, WS_EX_TRANSPARENT,
+            };
+            let hwnd = hud.hwnd().map_err(|e| e.to_string())?;
+            let ex_style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+            let passthrough = ex_style & WS_EX_TRANSPARENT.0 as isize != 0;
+            if passthrough != (style == "text") {
+                return Err(format!("Guide {style} appearance has incorrect click-through behavior"));
+            }
+            if ex_style & WS_EX_LAYERED.0 as isize == 0 {
+                return Err(format!("Guide {style} appearance lost its transparent native surface"));
+            }
+        }
+    }
     host.handle_ws2_text(app, &json!({"type":"word_coordinates","is_final":true,"line_id":"guide-dialogue","presence_id":"guide-dialogue","data":[
         {"text":"公園に着いた。","bounding_rect":{"x1":0.2,"y1":0.8,"x3":0.5,"y3":0.84}}
     ]}).to_string()).await;
@@ -1549,6 +2034,14 @@ async fn smoke_vn_guide(app: &AppHandle, settings_win: &WebviewWindow) -> Result
     .await?;
     if advanced["index"] != 1 {
         return Err(format!("Guide did not advance after choice: {advanced}"));
+    }
+    // No state queries or fresh game frames: maintenance itself must expire the HUD.
+    let deadline = Instant::now() + Duration::from_secs(7);
+    while hud.is_visible().unwrap_or(false) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if hud.is_visible().unwrap_or(false) {
+        return Err("Guide confirmation did not expire without incoming game text".into());
     }
     // Reveal the next instruction after its confirmation, then exercise actual HUD buttons.
     evaluate_raw(

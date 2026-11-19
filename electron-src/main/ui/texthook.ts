@@ -210,7 +210,10 @@ function emitStatus(): void {
 }
 
 function emitLog(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
-    emitToRenderer('texthook.log', { message, level, ts: Date.now() });
+    const tagged = /^\[(?:py|python|rust|electron|renderer|frida|system)(?::[a-zA-Z0-9._/-]+)?\](\s+|$)/i.test(message)
+        ? message
+        : `[electron:texthook] ${message}`;
+    emitToRenderer('texthook.log', { message: tagged, level, ts: Date.now() });
 }
 
 function emitHooks(): void {

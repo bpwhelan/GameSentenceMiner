@@ -1,0 +1,274 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "anki-earliest": {
+      "iterations_per_run": 12,
+      "verified_result": {
+        "earliest_date": 1777737600.0
+      },
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 3.443333334871568,
+            "cpu_ms": 3.90625,
+            "uss_mib": 90.02734375,
+            "first_request_ms": 268.1725000147708
+          },
+          {
+            "wall_ms": 3.471674999066939,
+            "cpu_ms": 3.90625,
+            "uss_mib": 89.765625,
+            "first_request_ms": 264.3308999831788
+          },
+          {
+            "wall_ms": 3.77979166660225,
+            "cpu_ms": 3.90625,
+            "uss_mib": 89.83203125,
+            "first_request_ms": 259.9902000220027
+          },
+          {
+            "wall_ms": 3.376749999006279,
+            "cpu_ms": 2.6041666666666665,
+            "uss_mib": 90.59765625,
+            "first_request_ms": 261.6816000081599
+          },
+          {
+            "wall_ms": 3.8191916658737077,
+            "cpu_ms": 3.90625,
+            "uss_mib": 90.04296875,
+            "first_request_ms": 263.3250000071712
+          }
+        ],
+        "median": {
+          "wall_ms": 3.472,
+          "cpu_ms": 3.906,
+          "uss_mib": 90.027,
+          "first_request_ms": 263.325
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 7.381250000131938,
+            "cpu_ms": 7.8125,
+            "uss_mib": 45.58984375,
+            "first_request_ms": 22.718399995937943
+          },
+          {
+            "wall_ms": 7.455066666201067,
+            "cpu_ms": 9.114583333333334,
+            "uss_mib": 46.28515625,
+            "first_request_ms": 21.088699984829873
+          },
+          {
+            "wall_ms": 7.3154249985236675,
+            "cpu_ms": 7.8125,
+            "uss_mib": 45.7421875,
+            "first_request_ms": 20.686900010332465
+          },
+          {
+            "wall_ms": 7.094050000887364,
+            "cpu_ms": 7.8125,
+            "uss_mib": 45.7734375,
+            "first_request_ms": 20.4315000155475
+          },
+          {
+            "wall_ms": 7.466524999472313,
+            "cpu_ms": 7.8125,
+            "uss_mib": 45.84765625,
+            "first_request_ms": 22.73199998307973
+          }
+        ],
+        "median": {
+          "wall_ms": 7.381,
+          "cpu_ms": 7.812,
+          "uss_mib": 45.773,
+          "first_request_ms": 21.089
+        }
+      }
+    },
+    "anki-note-kanji": {
+      "iterations_per_run": 12,
+      "verified_result": {
+        "anki_kanji_count": 2,
+        "coverage_percent": 0.0,
+        "gsm_kanji_count": 0,
+        "missing_kanji": []
+      },
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 16.98540000021846,
+            "cpu_ms": 18.229166666666668,
+            "uss_mib": 90.2734375,
+            "first_request_ms": 291.4570999855641
+          },
+          {
+            "wall_ms": 16.16390833320717,
+            "cpu_ms": 15.625,
+            "uss_mib": 90.11328125,
+            "first_request_ms": 268.8890999997966
+          },
+          {
+            "wall_ms": 15.8203416649485,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 89.53125,
+            "first_request_ms": 267.28229998843744
+          },
+          {
+            "wall_ms": 17.678033332534444,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 89.91015625,
+            "first_request_ms": 292.21069999039173
+          },
+          {
+            "wall_ms": 17.122924999663763,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 90.08203125,
+            "first_request_ms": 284.5892999903299
+          }
+        ],
+        "median": {
+          "wall_ms": 16.985,
+          "cpu_ms": 16.927,
+          "uss_mib": 90.082,
+          "first_request_ms": 284.589
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 15.480549998756032,
+            "cpu_ms": 14.322916666666666,
+            "uss_mib": 45.8515625,
+            "first_request_ms": 31.06330000446178
+          },
+          {
+            "wall_ms": 13.901233333551014,
+            "cpu_ms": 14.322916666666666,
+            "uss_mib": 45.75390625,
+            "first_request_ms": 27.999000012641773
+          },
+          {
+            "wall_ms": 14.015583333578737,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 45.39453125,
+            "first_request_ms": 29.936200007796288
+          },
+          {
+            "wall_ms": 14.04312500138379,
+            "cpu_ms": 14.322916666666666,
+            "uss_mib": 45.5078125,
+            "first_request_ms": 29.70330000971444
+          },
+          {
+            "wall_ms": 15.24375000008149,
+            "cpu_ms": 15.625,
+            "uss_mib": 45.85546875,
+            "first_request_ms": 29.75379998679273
+          }
+        ],
+        "median": {
+          "wall_ms": 14.043,
+          "cpu_ms": 14.323,
+          "uss_mib": 45.754,
+          "first_request_ms": 29.754
+        }
+      }
+    },
+    "anki-retention": {
+      "iterations_per_run": 12,
+      "verified_result": {
+        "nsfw_avg_time": 1.75,
+        "nsfw_retention": 80.0,
+        "nsfw_reviews": 20480,
+        "sfw_avg_time": 1.75,
+        "sfw_retention": 80.0,
+        "sfw_reviews": 20480
+      },
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 16.750416665066343,
+            "cpu_ms": 13.020833333333334,
+            "uss_mib": 89.95703125,
+            "first_request_ms": 262.78069999534637
+          },
+          {
+            "wall_ms": 15.63726666548367,
+            "cpu_ms": 15.625,
+            "uss_mib": 90.1796875,
+            "first_request_ms": 266.9513000000734
+          },
+          {
+            "wall_ms": 16.655624999354284,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 90.328125,
+            "first_request_ms": 277.83459998317994
+          },
+          {
+            "wall_ms": 17.541416666063014,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 90.51171875,
+            "first_request_ms": 269.0498000010848
+          },
+          {
+            "wall_ms": 15.928324998336999,
+            "cpu_ms": 14.322916666666666,
+            "uss_mib": 90.38671875,
+            "first_request_ms": 262.49010002356954
+          }
+        ],
+        "median": {
+          "wall_ms": 16.656,
+          "cpu_ms": 15.625,
+          "uss_mib": 90.328,
+          "first_request_ms": 266.951
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 25.721908333556105,
+            "cpu_ms": 26.041666666666668,
+            "uss_mib": 45.90234375,
+            "first_request_ms": 44.887500000186265
+          },
+          {
+            "wall_ms": 24.054774999967776,
+            "cpu_ms": 23.4375,
+            "uss_mib": 45.69921875,
+            "first_request_ms": 38.023000000976026
+          },
+          {
+            "wall_ms": 27.762666667210095,
+            "cpu_ms": 29.947916666666668,
+            "uss_mib": 45.59765625,
+            "first_request_ms": 41.302099998574704
+          },
+          {
+            "wall_ms": 24.38370000163559,
+            "cpu_ms": 26.041666666666668,
+            "uss_mib": 45.78515625,
+            "first_request_ms": 37.323900003684685
+          },
+          {
+            "wall_ms": 28.398350000012822,
+            "cpu_ms": 28.645833333333332,
+            "uss_mib": 45.81640625,
+            "first_request_ms": 39.355100016109645
+          }
+        ],
+        "median": {
+          "wall_ms": 25.722,
+          "cpu_ms": 26.042,
+          "uss_mib": 45.785,
+          "first_request_ms": 39.355
+        }
+      }
+    }
+  },
+  "desktop_sha256": "ea5378cd5454d0d487d235d4811f7207602a1508a294f1b8a485fd54c1b265ca",
+  "description": "Direct SQLite report queries before retaining compact results across identical requests."
+}

@@ -4,6 +4,14 @@ import os
 from enum import Enum
 
 
+def backend_manages(flag: str) -> bool:
+    if os.environ.get(flag) != "1" or os.environ.get("GSM_CLIENT_ID") != "backend":
+        return False
+    from GameSentenceMiner.util.communication.bus_client import owns_backend_connection
+
+    return owns_backend_connection()
+
+
 class NativeMode(str, Enum):
     """Rollout mode shared by native components.
 

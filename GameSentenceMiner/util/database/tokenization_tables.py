@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from typing import List, Optional
 
@@ -594,6 +595,15 @@ def recompute_word_first_seen_metadata(
     only_missing: bool = False,
 ) -> int:
     """Populate or repair word first-seen metadata from surviving occurrences."""
+    from GameSentenceMiner.native import history
+
+    if history.manages_word_index(db) and (
+        word_ids is None
+        or (len(word_ids) <= 250_000 and all(type(i) is int and -(2**63) <= i < 2**63 for i in word_ids))
+    ):
+        return db.run_external_write(
+            lambda: history.request("repairWordFirstSeen", ids=word_ids, only_missing=only_missing)
+        )
     if not db.table_exists("words") or not db.table_exists("word_occurrences"):
         return 0
 
@@ -694,6 +704,18 @@ def _schedule_first_seen_backfill(db: SQLiteDB) -> None:
         except Exception as exc:
             logger.warning(f"Failed to backfill word first-seen metadata: {exc}")
 
+    # Schema setup runs before the mining backend starts its desktop transport.
+    # Queue the repair on the authenticated welcome without occupying a worker
+    # or delaying startup. Other database owners keep the local schedule.
+    if os.environ.get("GSM_NATIVE_WORD_INDEX") == "1" and os.environ.get("GSM_CLIENT_ID") == "backend":
+        from multiprocessing import parent_process
+
+        from GameSentenceMiner.util.communication import bus_client
+        from GameSentenceMiner.util.database.db import gsm_db
+
+        if db is gsm_db and parent_process() is None and bus_client.is_bus_available():
+            bus_client.get_bus().on_first_connection(lambda: submit_background_work(_run))
+            return
     submit_background_work(_run)
 
 

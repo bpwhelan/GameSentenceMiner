@@ -1,0 +1,273 @@
+{
+  "source": "codex/rust-ocr@1bee362c native/gsm-core/tests/fixtures/processing.json (processing cases)",
+  "old_case_count": 204,
+  "cases": [
+    {"text": "話者「台詞\n続き」","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "ええ日本語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_repeated_chars": true,"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false},"expected": "あ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\ndefghij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_repeated_lines_v2": false},"expected": "\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "A¥‾〜ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eijk"},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": " e   ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_non_japanese": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "あいあい"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "abcdefghijk"},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_newlines": true,"remove_repeated_lines_v2": false},"expected": "a"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello  world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_numbers": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "<></>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "{ }本文{/}{:}{}{/}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "\r\n\r\n\u000b\f\u001c\u001d\u001e  "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\t 1 ９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "é ́ ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_english": true,"remove_repeated_lines_v2": false},"expected": "\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "本文a"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_curly_braces": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "Text\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"remove_angle_brackets": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "台詞\n続き"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "あ」「い"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"extract_bracketed_text": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "い\nあ\nい"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "i\nj\nk"},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world９！ "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "é é ㍑ ﬃ ＡＢＣ１２３"},
+    {"text": "","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "話者「台詞\n続き」","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "話者「台詞\n続き」"},
+    {"text": "123456789「発話」","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "123456789「発話」"},
+    {"text": "話者「発話」後","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "話者「発話」後"},
+    {"text": "「あ」「い」","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "「あ」「い」"},
+    {"text": "<b>Text</b>\r\n次の行","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "<b>Text</b>\r\n次の行"},
+    {"text": "{color red}本文{/color}{a:tag}{x}{/x}","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "{color red}本文{/color}{a:tag}{x}{/x}"},
+    {"text": "ええ日日日本本本語語語","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "ええ日日日本本本語語語"},
+    {"text": "あ\nい\nあ\nい\n","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "あ\nい\nあ\nい\n"},
+    {"text": "A①𠮷🙂¥‾〜～ｶﾀｶﾅ日本語123","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "A1𠮷🙂¥ ̅〜~カタカナ日本語123"},
+    {"text": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k ","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "a\rb\nc\r\nd\u000be\ff\u001cg\u001dh\u001eij k "},
+    {"text": "\u0000\u0001\tHello 1 world９！ ","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "\u0000\u0001\tHello 1 world9! "},
+    {"text": "é é ㍑ ﬃ ＡＢＣ１２３","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "é é リットル ffi ABC123"},
+    {"text": "","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "\n","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "\n"},
+    {"text": "a\n\n","config": {"remove_control_chars": false,"unicode_normalize": true,"remove_repeated_lines_v2": false},"expected": "a\n\n"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": -3,"from_end": true},"remove_repeated_lines_v2": false},"expected": "四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": -3,"from_end": false},"remove_repeated_lines_v2": false},"expected": "一"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": -1,"from_end": true},"remove_repeated_lines_v2": false},"expected": "二\n三\n四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": -1,"from_end": false},"remove_repeated_lines_v2": false},"expected": "一\n二\n三"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 0,"from_end": true},"remove_repeated_lines_v2": false},"expected": "一\n二\n三\n四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 0,"from_end": false},"remove_repeated_lines_v2": false},"expected": ""},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 1,"from_end": true},"remove_repeated_lines_v2": false},"expected": "四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 1,"from_end": false},"remove_repeated_lines_v2": false},"expected": "一"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 2,"from_end": true},"remove_repeated_lines_v2": false},"expected": "三\n四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 2,"from_end": false},"remove_repeated_lines_v2": false},"expected": "一\n二"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"remove_repeated_lines_v2": false},"expected": "二\n三\n四"},
+    {"text": "一\r\n二\n三\n四\n","config": {"remove_control_chars": false,"extract_lines": true,"extract_lines_config": {"max_lines": 3,"from_end": false},"remove_repeated_lines_v2": false},"expected": "一\n二\n三"},
+    {"text": "item-42","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(\\w+)-(\\d+)","replace": "$2:$1","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "42:item"},
+    {"text": "日本 42","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(?P<word>\\w+)","replace": "[\\g<word>]","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "[日本] [42]"},
+    {"text": "a1b22","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(\\d+)","replace": "[\\1]","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "a[1]b[22]"},
+    {"text": "cat category scat","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "cat","replace": "dog","case_sensitive": false,"whole_word": true}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "dog category scat"},
+    {"text": "ok","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "[","replace": "bad","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "ok"},
+    {"text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(a)","replace": "\\g<9>","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "a"},
+    {"text": "<i>expeliarmsus</i>","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "<.*>","replace": "","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "expeliarmsus"},
+    {"text": "ある。ない。","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(?<=ある)。","replace": "！","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "ある！ない。"},
+    {"text": "ああ","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(あ)\\1","replace": "$1","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "あ"},
+    {"text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "plain","find": "a","replace": "\\n\\t\\\\$1","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "\\n\\t\\\\$1"},
+    {"text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "regex","find": "(a)","replace": "\\0\\101\\g<0>$$1","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "\u0000Aa$a"},
+    {"text": "HELLO hello","config": {"string_replacement": {"enabled": true,"rules": [{"enabled": true,"mode": "plain","find": "hello","replace": "hi","case_sensitive": false,"whole_word": false}]},"remove_control_chars": false,"remove_repeated_lines_v2": false},"expected": "hi hi"},
+    {"name": "Japanese filter mode blocks","text": "MENU\r\nSpeaker: 「今日はHPが10回復した！」 Next\r\n123次の台詞。 SAVE","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "Speaker: 「今日はHPが10回復した！」 Next\r\n次の台詞。"},
+    {"name": "Japanese filter mode trim","text": "MENU\r\nSpeaker: 「今日はHPが10回復した！」 Next\r\n123次の台詞。 SAVE","config": {"language_filter": true,"language_filter_config": {"mode": "trim"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "「今日はHPが10回復した！」\r\n次の台詞。"},
+    {"name": "Japanese filter mode strict","text": "MENU\r\nSpeaker: 「今日はHPが10回復した！」 Next\r\n123次の台詞。 SAVE","config": {"language_filter": true,"language_filter_config": {"mode": "strict"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "今日はが回復した次の台詞"},
+    {"name": "Japanese filter mode unknown","text": "MENU\r\nSpeaker: 「今日はHPが10回復した！」 Next\r\n123次の台詞。 SAVE","config": {"language_filter": true,"language_filter_config": {"mode": "unknown"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "MENU\r\nSpeaker: 「今日はHPが10回復した！」 Next\r\n123次の台詞。 SAVE"},
+    {"name": "halfwidth kana, inherited marks and supplementary ideographs","text": "MENU ｽｰﾊﾟｰ 時々 が 𠮷野家 🙂","config": {"language_filter": true,"language_filter_config": {"mode": "strict"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "ｽｰﾊﾟｰ時々が𠮷野家"},
+    {"name": "decomposed Latin and locale alias","text": "日本語 Café! 123","config": {"language_filter": true,"language_filter_config": {"mode": "strict"},"remove_repeated_lines_v2": false},"target_language": " FR_ca ","expected": "Café"},
+    {"name": "Japanese punctuation before foreign suffix","text": "Name:「日本語！」[Next]","config": {"language_filter": true,"language_filter_config": {"mode": "trim"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": "「日本語！」"},
+    {"name": "unknown profile language","text": "abc\r\n日本語","config": {"language_filter": true,"language_filter_config": {"mode": "strict"},"remove_repeated_lines_v2": false},"target_language": "zz-TEST","expected": "abc\r\n日本語"},
+    {"name": "punctuation alone","text": "!?！？123\n 🙂","config": {"language_filter": true,"language_filter_config": {"mode": "strict"},"remove_repeated_lines_v2": false},"target_language": "ja","expected": ""},
+    {"name": "insert missing language filter before newline removal","text": "MENU\n日本語","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false,"processor_order": ["remove_newlines"],"remove_newlines": true},"target_language": "ja","expected": "日本語"},
+    {"name": "respect explicit order after newline removal","text": "MENU\n日本語","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false,"processor_order": ["remove_newlines","language_filter"],"remove_newlines": true},"target_language": "ja","expected": "MENU日本語"},
+    {"name": "legacy repeat switch uses current default","text": "台詞台詞","config": {"remove_repeated_lines": false},"target_language": "ja","expected": "台詞"},
+    {"name": "versioned repeat switch wins","text": "台詞台詞","config": {"remove_repeated_lines": true,"remove_repeated_lines_v2": false},"target_language": "ja","expected": "台詞台詞"},
+    {"name": "default removal of DEL preserves joiner and non-ASCII controls","text": "A\u0000👩‍🚀\r\nB","config": {},"target_language": "ja","expected": "A👩‍🚀\r\nB"},
+    {"name": "negative final line count","text": "一\r\n二 三\n","config": {"extract_lines": true,"extract_lines_config": {"max_lines": -1}},"target_language": "ja","expected": "二\n三"},
+    {"name": "zero final line count","text": "一\r\n二 三\n","config": {"extract_lines": true,"extract_lines_config": {"max_lines": 0}},"target_language": "ja","expected": "一\n二\n三"},
+    {"name": "empty input","text": "","config": {},"target_language": "ja","expected": ""},
+    {"name": "adjacent empty regex matches","text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"find": "a*","replace": "X","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "XX"},
+    {"name": "nonempty regex match after zero-width alternative","text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"find": "(?=a)|a","replace": "X","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "XX"},
+    {"name": "dollar before final linefeed","text": "日本語\n","config": {"string_replacement": {"enabled": true,"rules": [{"find": "語$","replace": "話","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "日本話\n"},
+    {"name": "strict end anchor","text": "日本語\n","config": {"string_replacement": {"enabled": true,"rules": [{"find": "語\\Z","replace": "話","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "日本語\n"},
+    {"name": "literal dollar and brackets in a replacement rule","text": "$5 [5]","config": {"string_replacement": {"enabled": true,"rules": [{"find": "$5","replace": "$1","mode": "plain","case_sensitive": true}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "$1 [5]"},
+    {"name": "named groups and JS numeric replacements","text": "日本語","config": {"string_replacement": {"enabled": true,"rules": [{"find": "(?<=日)(?P<word>本)(語)","replace": "$2\\g<word>","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "日語本"},
+    {"name": "whole word with combining marks and other numbers","text": "á a² a A","config": {"string_replacement": {"enabled": true,"rules": [{"find": "a","replace": "X","mode": "plain","whole_word": true}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "X́ a² X X"},
+    {"name": "Python Unicode space includes unit separators","text": "A\u001cB C","config": {"string_replacement": {"enabled": true,"rules": [{"find": "\\s+","replace": " ","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "A B C"},
+    {"name": "escaped dollar in regex character class","text": "$7","config": {"string_replacement": {"enabled": true,"rules": [{"find": "[$]\\d","replace": "!","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "!"},
+    {"name": "inline multiline anchors","text": "x\nx","config": {"string_replacement": {"enabled": true,"rules": [{"find": "(?m)^x$","replace": "!","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "!\n!"},
+    {"name": "regex escaped group delimiter","text": "x(x)","config": {"string_replacement": {"enabled": true,"rules": [{"find": "\\((x)\\)","replace": "\\\\$1","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "x\\$1"},
+    {"name": "expired group reference keeps matching input","text": "a","config": {"string_replacement": {"enabled": true,"rules": [{"find": "(a)","replace": "\\9","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "a"},
+    {"name": "whole word Unicode class","text": "a_ a² a あa","config": {"string_replacement": {"enabled": true,"rules": [{"find": "\\ba\\b","replace": "X","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "a_ a² X あa"},
+    {"name": "conditional capture and optional group","text": "a1 2","config": {"string_replacement": {"enabled": true,"rules": [{"find": "(a)?(?(1)1|2)","replace": "\\1!","mode": "regex"}]},"processor_order": ["string_replacement"]},"target_language": "ja","expected": "a! !"},
+    {"name": "profile script zh-TW","text": "123 🙂\r\n你好! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "zh-TW","expected": "你好!"},
+    {"name": "profile script ko","text": "123 🙂\r\n안녕하세요! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ko","expected": "안녕하세요!"},
+    {"name": "profile script uk","text": "123 🙂\r\nПривіт! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "uk","expected": "Привіт!"},
+    {"name": "profile script el","text": "123 🙂\r\nΕλληνικά! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "el","expected": "Ελληνικά!"},
+    {"name": "profile script ar","text": "123 🙂\r\nمرحبا! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ar","expected": "مرحبا!"},
+    {"name": "profile script he","text": "123 🙂\r\nשלום! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "he","expected": "שלום!"},
+    {"name": "profile script th","text": "123 🙂\r\nสวัสดี! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "th","expected": "สวัสดี!"},
+    {"name": "profile script hi","text": "123 🙂\r\nनमस्ते! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "hi","expected": "नमस्ते!"},
+    {"name": "profile script bn","text": "123 🙂\r\nবাংলা! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "bn","expected": "বাংলা!"},
+    {"name": "profile script am","text": "123 🙂\r\nሰላም! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "am","expected": "ሰላም!"},
+    {"name": "profile script hy","text": "123 🙂\r\nբարեւ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "hy","expected": "բարեւ!"},
+    {"name": "profile script ka","text": "123 🙂\r\nქართული! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ka","expected": "ქართული!"},
+    {"name": "profile script gu","text": "123 🙂\r\nગુજરાતી! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "gu","expected": "ગુજરાતી!"},
+    {"name": "profile script pa","text": "123 🙂\r\nਪੰਜਾਬੀ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "pa","expected": "ਪੰਜਾਬੀ!"},
+    {"name": "profile script kn","text": "123 🙂\r\nಕನ್ನಡ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "kn","expected": "ಕನ್ನಡ!"},
+    {"name": "profile script km","text": "123 🙂\r\nខ្មែរ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "km","expected": "ខ្មែរ!"},
+    {"name": "profile script lo","text": "123 🙂\r\nລາວ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "lo","expected": "ລາວ!"},
+    {"name": "profile script ml","text": "123 🙂\r\nമലയാളം! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ml","expected": "മലയാളം!"},
+    {"name": "profile script my","text": "123 🙂\r\nမြန်မာ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "my","expected": "မြန်မာ!"},
+    {"name": "profile script or","text": "123 🙂\r\nଓଡ଼ିଆ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "or","expected": "ଓଡ଼ିଆ!"},
+    {"name": "profile script si","text": "123 🙂\r\nසිංහල! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "si","expected": "සිංහල!"},
+    {"name": "profile script ta","text": "123 🙂\r\nதமிழ்! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "ta","expected": "தமிழ்!"},
+    {"name": "profile script te","text": "123 🙂\r\nతెలుగు! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "te","expected": "తెలుగు!"},
+    {"name": "profile script bo","text": "123 🙂\r\nབོད! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "bo","expected": "བོད!"},
+    {"name": "profile script mni","text": "123 🙂\r\nꯃꯤ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "mni","expected": "ꯃꯤ!"},
+    {"name": "profile script sat","text": "123 🙂\r\nᱥᱟᱱᱛᱟᱲᱤ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "sat","expected": "ᱥᱟᱱᱛᱟᱲᱤ!"},
+    {"name": "profile script syl","text": "123 🙂\r\nꠍꠤꠟꠐꠤ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "syl","expected": "ꠍꠤꠟꠐꠤ!"},
+    {"name": "profile script mn","text": "123 🙂\r\nᠮᠣᠩᠭᠣᠯ! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "mn","expected": "ᠮᠣᠩᠭᠣᠯ!"},
+    {"name": "profile script sr","text": "123 🙂\r\nЗдраво Zdravo! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "sr","expected": "Здраво Zdravo!"},
+    {"name": "profile script en-US","text": "123 🙂\r\nHello! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "en-US","expected": "Hello!"},
+    {"name": "profile script fr","text": "123 🙂\r\nÉcoute le café! ?!","config": {"language_filter": true,"language_filter_config": {"mode": "blocks"},"remove_repeated_lines_v2": false},"target_language": "fr","expected": "Écoute le café!"},
+    {"name": "Korean trim drops inline Latin words and numbers","text": "MENU\r\nSpeaker: 「한국어 HP 10！」 Next\r\n日本語","config": {"language_filter": true,"language_filter_config": {"mode": "trim"},"remove_repeated_lines_v2": false},"target_language": "ko","expected": "「한국어"}
+  ]
+}

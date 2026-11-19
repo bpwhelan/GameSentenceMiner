@@ -28,21 +28,35 @@ impl Agent {
         }
     }
 }
+/// Called on a blocking worker, only when a new Agent/Wine session needs Frida.
 pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let name = if cfg!(windows) {
-        "gsm-agent-host.exe"
+    let name = "agent-runtime.json";
+    let shared = &app.state::<crate::settings::Settings>().paths.shared;
+    let runtime = gsm_packages::agent_runtime::AgentRuntime::new(shared);
+    let executable = if crate::LOCAL_BUILD {
+        let desktop = std::env::current_exe().map_err(|e| e.to_string())?;
+        #[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
+        let helper = crate::dev_launch::helper_path(&desktop, name)?;
+        #[cfg(not(all(windows, any(debug_assertions, feature = "local-build"))))]
+        let helper = desktop.with_file_name(name);
+        let manifest = gsm_packages::agent_runtime::Manifest::read(&helper)?;
+        let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
+        let filename = manifest.archive.url.rsplit('/').next().ok_or("Missing runtime archive name")?;
+        runtime.ensure_from_archive(&manifest, &root.join("native/gsm-agent/target/runtime").join(filename))?
     } else {
-        "gsm-agent-host"
-    };
-    let executable = if cfg!(debug_assertions) {
-        std::env::current_exe()
-            .map_err(|e| e.to_string())?
-            .with_file_name(name)
-    } else {
-        app.state::<crate::desktop_state::DesktopState>()
-            .app_root
-            .join("native/gsm-agent")
-            .join(name)
+        let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
+        let manifest = gsm_packages::agent_runtime::Manifest::read(&root.join("native/agent-runtime.json"))?;
+        let progress = std::sync::atomic::AtomicU64::new(u64::MAX);
+        runtime.ensure(&manifest, &|bytes, total| {
+            let percent = total.filter(|n| *n > 0).map(|n| bytes.saturating_mul(100) / n).unwrap_or(0).min(100);
+            let step = percent / 10;
+            if progress.swap(step, std::sync::atomic::Ordering::Relaxed) != step {
+                crate::texthook_coordinator::on_agent_event(app, "texthook.log", json!({
+                    "level":"info", "message":format!("[rust:agent] Downloading Agent / Frida runtime… {percent}%"),
+                    "ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()
+                }), false);
+            }
+        })?
     };
     Ok(executable)
 }
@@ -54,13 +68,14 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
     if action == "showUi" {
         return show_ui(app, false).await.map(|_| json!({"success":true}));
     }
-    let executable = helper_path(app)?;
     if action == "start" {
         args["root"] = json!(app.state::<crate::desktop_state::DesktopState>().app_root);
+        args["sharedDir"] = json!(app.state::<crate::settings::Settings>().paths.shared);
     }
+    let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {let _attachment=attachment; match action.as_str() {
         "state" => Ok(controller.state()),
-        "start" => controller.start(executable, args),
+        "start" => controller.start_with(args, || helper_path(&app)),
         "stop" => controller.stop(),
         "stopForUpdate" => controller.stop_for_update(
             args["baseDir"]

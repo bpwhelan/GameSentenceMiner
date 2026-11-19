@@ -12,6 +12,7 @@ function setup(t) {
   const { window } = dom;
   Object.defineProperty(window, 'innerWidth', { value: 1280 });
   Object.defineProperty(window, 'innerHeight', { value: 800 });
+  Object.defineProperties(window.screen, { width: { value: 1280 }, height: { value: 800 } });
   window.HTMLElement.prototype.getBoundingClientRect = () => new window.DOMRect();
   const html = readRenderer();
   const offsetFunction = html.includes('  function updateOverlayTextOffsets(')
@@ -21,9 +22,6 @@ function setup(t) {
   const fixture = rendererFixtureSource(html, fs.readFileSync(path.join(overlayRoot, 'block_detection.js'), 'utf8'));
   window.eval(fixture.replace('    window.renderFixture =', `
     const ipcRenderer = { on(channel, handler) { window.applySettings = settings => handler(null, settings); } };
-    const textHover = { refresh() {} };
-    let lastFuriganaRenderSignature = null;
-    const completeGamepadOverlayTextRender = () => {};
     ${offsetFunction}
     ${settingsHandler}
     window.renderFixture =`));
@@ -111,4 +109,36 @@ test('fresh OCR uses the new offsets once and repeated settings do not accumulat
   assert.deepEqual(position(window.document.querySelector('.text-box')), shifted);
   window.applySettings({ offsetX: 1.5, offsetY: -2 });
   assert.deepEqual(position(window.document.querySelector('.text-box')), shifted);
+});
+
+test('Magpie moves existing lookup targets and OCR markers without another scan', t => {
+  const window = setup(t);
+  window.renderFixture(payload, { recycled: true });
+  window.renderFixture({ data: [line('背景', 0.2, 0.3, 0.1, 0.04)] }, { supplemental: true });
+  const elements = [...window.document.querySelectorAll('.text-box, .line-box, .recycled-indicator')];
+  const box = elements[0];
+  const textNode = box.firstChild;
+  const range = window.document.createRange();
+  range.selectNodeContents(textNode);
+  const original = elements.map(position);
+  const magpie = {
+    sourceWindowLeftEdgePosition: 64, sourceWindowTopEdgePosition: 200,
+    sourceWindowRightEdgePosition: 704, sourceWindowBottomEdgePosition: 600,
+    magpieWindowLeftEdgePosition: 0, magpieWindowTopEdgePosition: 0,
+    magpieWindowRightEdgePosition: 1280, magpieWindowBottomEdgePosition: 800,
+  };
+
+  window.applyFixtureMagpieInfo(magpie);
+  assertMoved(box, original[0], 0, -10);
+  assert.equal(parseFloat(box.style.height), 8);
+  const firstIndicator = elements.findIndex(node => node.classList.contains('line-box'));
+  assertMoved(elements[firstIndicator], original[firstIndicator], 0, -10);
+  const scaled = elements.map(position);
+  window.applyFixtureMagpieInfo({ ...magpie, magpieWindowLeftEdgePosition: 128, magpieWindowRightEdgePosition: 1408 });
+  elements.forEach((node, index) => assertMoved(node, scaled[index], 10, 0));
+  window.applyFixtureMagpieInfo(null);
+  elements.forEach((node, index) => assertMoved(node, original[index], 0, 0));
+  assert.deepEqual([...window.document.querySelectorAll('.text-box, .line-box, .recycled-indicator')], elements);
+  assert.equal(box.firstChild, textNode);
+  assert.equal(range.toString(), '日');
 });

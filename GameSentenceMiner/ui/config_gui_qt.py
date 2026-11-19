@@ -45,6 +45,7 @@ from PyQt6.QtWidgets import (
 )
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.obs import desktop_session
 
 # Import Window State Manager
 from GameSentenceMiner.ui import window_state_manager, WindowId
@@ -148,6 +149,7 @@ from GameSentenceMiner.util.config.configuration import (
     ProcessPausing,
 )
 from GameSentenceMiner.util.communication.electron_ipc import request_python_app_restart
+from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
 from GameSentenceMiner.util.database.db import AIModelsTable
 from GameSentenceMiner.util.platform.gamepad_hotkey import GAMEPAD_BUTTON_OPTIONS
 from GameSentenceMiner.tokenizer import normalize_sudachi_dictionary, normalize_tokenization_backend
@@ -158,6 +160,19 @@ from GameSentenceMiner.util.downloader.download_tools import (
 on_save = []
 cloud_sync_service = None
 DEFAULT_AUTO_ACCEPT_TIMER_SECONDS = Anki().auto_accept_timer
+
+
+def _request_anki(url, action, **params):
+    payload = {"action": action, "version": 6, "params": params}
+    headers = {"Content-Type": "application/json"}
+    response = requests.post(url, json=payload, headers=headers, timeout=8)
+    response.raise_for_status()
+    data = response.json()
+    if not isinstance(data, dict) or "error" not in data or "result" not in data:
+        raise RuntimeError(f"Unexpected AnkiConnect response: {data}")
+    if data["error"]:
+        raise RuntimeError(data["error"])
+    return data["result"]
 
 
 def get_cloud_sync_service():
@@ -209,6 +224,7 @@ class ConfigWindow(QWidget):
     _selector_finished_signal = pyqtSignal()
     _open_area_selector_signal = pyqtSignal()
     _gsm_cloud_sync_finished_signal = pyqtSignal(dict)
+    _settings_lookup_finished = pyqtSignal(object, object, object)
     _AUTO_SAVE_DEBOUNCE_MS = 900
     _RUNTIME_RELOAD_DEBOUNCE_MS = 1200
     _BACKUP_MIN_INTERVAL_SECONDS = 120
@@ -225,6 +241,10 @@ class ConfigWindow(QWidget):
         self._suppress_anki_field_refresh = False
         self._anki_available_fields = []
         self._last_anki_note_type_refresh = None
+        self._anki_note_types = {}
+        self._obs_scene_names = []
+        self._pending_settings_lookups = set()
+        self._settings_lookup_finished.connect(self._on_settings_lookup_finished, Qt.ConnectionType.QueuedConnection)
         self._autosave_suspended = True
         self._is_saving = False
         self._last_backup_timestamp = 0.0
@@ -569,6 +589,34 @@ class ConfigWindow(QWidget):
             self.first_launch = False
         self._has_been_shown = True
         super().showEvent(event)
+        self._load_anki_note_types()
+        self.refresh_obs_scenes()
+        if not self.latest_version_label.text():
+            self._start_settings_lookup("latest version", get_latest_version, self.latest_version_label.setText)
+
+    def _start_settings_lookup(self, key, fetch, apply):
+        if key in self._pending_settings_lookups:
+            return
+        self._pending_settings_lookups.add(key)
+
+        def run():
+            try:
+                result = fetch()
+            except Exception as exc:
+                logger.debug(f"Settings lookup failed: {type(exc).__name__}")
+                result = None
+            self._settings_lookup_finished.emit(key, apply, result)
+
+        try:
+            submit_background_work(run, timeout=0)
+        except RuntimeError as exc:
+            self._pending_settings_lookups.discard(key)
+            logger.debug(f"Could not queue settings lookup: {exc}")
+
+    def _on_settings_lookup_finished(self, key, apply, result):
+        self._pending_settings_lookups.discard(key)
+        if result is not None:
+            apply(result)
 
     def _save_window_geometry(self):
         """
@@ -586,6 +634,8 @@ class ConfigWindow(QWidget):
             self.load_settings_to_ui()
         finally:
             self._autosave_suspended = previous_state
+        if self.isVisible():
+            self._load_anki_note_types()
 
     def _on_autosave_trigger(self):
         self.request_auto_save()
@@ -1301,8 +1351,19 @@ class ConfigWindow(QWidget):
             return
 
         self._flush_pending_auto_save(target_profile_name=previous_profile_name)
-        self.master_config.current_profile = new_profile_name
-        self.master_config.save()
+        if desktop_session.enabled():
+            if not getattr(self, "_suppress_profile_change_hooks", False):
+                try:
+                    selected = desktop_session.select_profile(new_profile_name)
+                except Exception as exc:
+                    logger.error(f"Could not switch mining profile: {exc}")
+                    self.reload_settings(force_refresh=True, suppress_profile_change_hooks=True)
+                    return
+                new_profile_name = selected["profile"]
+            self.master_config.current_profile = new_profile_name
+        else:
+            self.master_config.current_profile = new_profile_name
+            self.master_config.save()
         if not getattr(self, "_suppress_profile_change_hooks", False):
             for func in list(self._profile_change_hooks):
                 try:
@@ -1473,6 +1534,8 @@ class ConfigWindow(QWidget):
 
     def _auto_refresh_obs_scenes(self):
         """Auto-refresh OBS scenes with adaptive timing."""
+        if not self.isVisible():
+            return
         self.obs_scene_refresh_count += 1
 
         # Refresh the scenes
@@ -1782,11 +1845,8 @@ class ConfigWindow(QWidget):
         self.ai_prompt_preset_combo.addItem("Use existing canned / custom prompt settings", "")
         from GameSentenceMiner.ai.prompts.presets import PROMPT_PRESETS
 
-        for key, (label, description) in PROMPT_PRESETS.items():
+        for key, (label, _) in PROMPT_PRESETS.items():
             self.ai_prompt_preset_combo.addItem(label, key)
-            self.ai_prompt_preset_combo.setItemData(
-                self.ai_prompt_preset_combo.count() - 1, description, Qt.ItemDataRole.ToolTipRole
-            )
 
         # GSM Cloud
         self.gsm_cloud_status_label = QLabel("Not authenticated")
@@ -2638,7 +2698,16 @@ class ConfigWindow(QWidget):
         return sub_tab_widget
 
     def _wrap_tab_in_scroll_area(self, widget):
+        for combo in widget.findChildren(QComboBox):
+            combo.setToolTip("")
         for form in widget.findChildren(QFormLayout):
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.ItemRole.FieldRole)
+                field = item.widget() if item else None
+                if field is not None and (isinstance(field, QComboBox) or field.findChild(QComboBox) is not None):
+                    label = form.labelForField(field)
+                    if label:
+                        label.setToolTip("")
             form.setHorizontalSpacing(14)
             form.setVerticalSpacing(9)
             form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -2950,17 +3019,38 @@ class ConfigWindow(QWidget):
             self.process_pausing_enabled_check.setChecked(bool(enabled))
 
     def _anki_invoke(self, action, **params):
-        url = (self.anki_url_edit.text() or get_config().anki.url).strip()
-        payload = {"action": action, "version": 6, "params": params}
-        headers = {"Content-Type": "application/json"}
-        response = requests.post(url, json=payload, headers=headers, timeout=8)
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict) or "error" not in data or "result" not in data:
-            raise RuntimeError(f"Unexpected AnkiConnect response: {data}")
-        if data["error"]:
-            raise RuntimeError(data["error"])
-        return data["result"]
+        return _request_anki(self._anki_connect_url(), action, **params)
+
+    def _anki_connect_url(self):
+        return (self.anki_url_edit.text() or get_config().anki.url).strip()
+
+    def _load_anki_note_types(self):
+        url = self._anki_connect_url()
+        if not url:
+            return
+        previous_models = self._anki_note_types.get(url)
+
+        def apply(models):
+            if self._anki_note_types.get(url) is not previous_models:
+                return
+            if not isinstance(models, list) or any(not isinstance(model, str) for model in models):
+                return
+            self._anki_note_types[url] = models
+            if self._anki_connect_url() == url:
+                self._populate_anki_note_types(models)
+
+        self._start_settings_lookup(("Anki note types", url), lambda: _request_anki(url, "modelNames"), apply)
+
+    def _populate_anki_note_types(self, models, *, preserve_selection=True, select_fallback=False):
+        for combo in (self.anki_note_type_combo, self.req_note_type_combo):
+            selected = combo.currentText() if preserve_selection else ""
+            if select_fallback and selected not in models:
+                selected = models[0] if models else ""
+            with QSignalBlocker(combo), QSignalBlocker(combo.lineEdit()):
+                combo.clear()
+                combo.addItems(models)
+                combo.setCurrentIndex(combo.findText(selected))
+                combo.setEditText(selected)
 
     def _set_available_anki_fields(self, fields, preserve_selection=True):
         if not fields:
@@ -3001,31 +3091,11 @@ class ConfigWindow(QWidget):
 
     def _refresh_anki_model_list(self, preserve_selection=True):
         models = self._anki_invoke("modelNames")
-        if not isinstance(models, list):
+        if not isinstance(models, list) or any(not isinstance(model, str) for model in models):
             models = []
-        current = self.anki_note_type_combo.currentText()
-        self.anki_note_type_combo.blockSignals(True)
-        self.anki_note_type_combo.clear()
-        self.anki_note_type_combo.addItems(models)
-        selected = current if preserve_selection and current in models else (models[0] if models else "")
-        if selected:
-            self.anki_note_type_combo.setCurrentText(selected)
-        self.anki_note_type_combo.blockSignals(False)
-
-        # Do the same for req_note_type_combo
-        if hasattr(self, "req_note_type_combo"):
-            current_req = self.req_note_type_combo.currentText()
-            self.req_note_type_combo.blockSignals(True)
-            self.req_note_type_combo.clear()
-            self.req_note_type_combo.addItems(models)
-            selected_req = (
-                current_req if preserve_selection and current_req in models else (models[0] if models else "")
-            )
-            if selected_req:
-                self.req_note_type_combo.setCurrentText(selected_req)
-            self.req_note_type_combo.blockSignals(False)
-
-        return selected
+        self._anki_note_types[self._anki_connect_url()] = models
+        self._populate_anki_note_types(models, preserve_selection=preserve_selection, select_fallback=True)
+        return self.anki_note_type_combo.currentText()
 
     def _refresh_anki_fields_for_model(self, model_name, preserve_selection=True):
         if not model_name:
@@ -3267,10 +3337,8 @@ class ConfigWindow(QWidget):
         self._suppress_anki_field_refresh = True
         self._last_anki_note_type_refresh = None
         self.anki_note_type_combo.setCurrentText(s.anki.note_type)
-        try:
-            self._refresh_anki_model_list(preserve_selection=True)
-        except Exception as e:
-            logger.debug(f"Failed to load Anki note types: {e}")
+        self.req_note_type_combo.setCurrentText(s.anki.note_type)
+        self._populate_anki_note_types(self._anki_note_types.get(self._anki_connect_url(), []))
         self._set_available_anki_fields(s.anki.available_fields, preserve_selection=False)
         self.sentence_field_edit.setCurrentText(s.anki.sentence_field)
         self.sentence_audio_field_edit.setCurrentText(s.anki.sentence_audio_field)
@@ -3673,7 +3741,7 @@ class ConfigWindow(QWidget):
             getattr(s.advanced, "mute_game_on_background_delay_seconds", 5)
         )
         self.current_version_label.setText(get_current_version())
-        self.latest_version_label.setText(get_latest_version())
+        self._populate_obs_scene_lists(self.master_config.discord.blacklisted_scenes)
 
         # Profiles
         self.profile_combo.blockSignals(True)
@@ -3913,8 +3981,10 @@ class ConfigWindow(QWidget):
             i18n.get("prompt", "Enter new profile name:"),
         )
         if ok and name:
-            self.master_config.configs[name] = self.master_config.get_default_config()
+            self.master_config.configs[name] = copy.deepcopy(self.master_config.get_default_config())
             self.master_config.configs[name].name = name
+            if desktop_session.enabled():
+                self.master_config.save()
             self._create_button_bar()
             self._connect_signals()
             self._suppress_relate_scene_prompt = True
@@ -3935,6 +4005,8 @@ class ConfigWindow(QWidget):
         if ok and name and source_profile in self.master_config.configs:
             self.master_config.configs[name] = copy.deepcopy(self.master_config.configs[source_profile])
             self.master_config.configs[name].name = name
+            if desktop_session.enabled():
+                self.master_config.save()
             self._create_button_bar()
             self._connect_signals()
             self._suppress_relate_scene_prompt = True
@@ -3998,33 +4070,27 @@ class ConfigWindow(QWidget):
             self.delete_profile_button.setHidden(True)
 
     def refresh_obs_scenes(self, force_reload=False):
-        try:
-            scenes = obs.get_obs_scenes()
-            if not scenes:
-                logger.debug("OBS scenes not available yet; skipping refresh.")
-                return
-            scene_names = self._normalize_scene_selection(
-                scene.get("sceneName") for scene in scenes if isinstance(scene, dict)
-            )
-            profile_scenes_to_select = self._get_profile_scene_selection()
-            discord_scenes_to_select = self._normalize_scene_selection(
-                getattr(self.master_config.discord, "blacklisted_scenes", [])
-            )
+        self._start_settings_lookup("OBS scenes", obs.get_obs_scenes, self._on_obs_scenes_loaded)
 
-            previous_suspend = self._autosave_suspended
-            self._autosave_suspended = True
-            try:
-                with QSignalBlocker(self.obs_scene_list), QSignalBlocker(self.discord_blacklisted_scenes_list):
-                    self._populate_scene_list_widget(self.obs_scene_list, scene_names, profile_scenes_to_select)
-                    self._populate_scene_list_widget(
-                        self.discord_blacklisted_scenes_list,
-                        scene_names,
-                        discord_scenes_to_select,
-                    )
-            finally:
-                self._autosave_suspended = previous_suspend
-        except Exception as e:
-            logger.error(f"Failed to refresh OBS scenes: {e}")
+    def _on_obs_scenes_loaded(self, scenes):
+        if not scenes:
+            return
+        self._obs_scene_names = self._normalize_scene_selection(
+            scene.get("sceneName") for scene in scenes if isinstance(scene, dict)
+        )
+        discord_blacklisted = [item.text() for item in self.discord_blacklisted_scenes_list.selectedItems()]
+        self._populate_obs_scene_lists(discord_blacklisted)
+
+    def _populate_obs_scene_lists(self, discord_blacklisted):
+        with QSignalBlocker(self.obs_scene_list), QSignalBlocker(self.discord_blacklisted_scenes_list):
+            self._populate_scene_list_widget(
+                self.obs_scene_list, self._obs_scene_names, self._get_profile_scene_selection()
+            )
+            self._populate_scene_list_widget(
+                self.discord_blacklisted_scenes_list,
+                self._normalize_scene_selection([*self._obs_scene_names, *discord_blacklisted]),
+                discord_blacklisted,
+            )
 
     # --- Other UI Loaders ---
     def _load_ffmpeg_presets(self):

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from difflib import SequenceMatcher
 from typing import TypeVar
 
@@ -55,6 +55,32 @@ def _matching_block_stats_python(reference: str, candidate: str, min_block_size:
 def sequence_ratio(reference: str, candidate: str) -> float:
     """Match SequenceMatcher(None, a, b, autojunk=False).ratio(), including ties."""
     return _dispatch("sequence_ratio", _sequence_ratio_python, reference, candidate)
+
+
+def select_card_line(
+    rows: Iterable[tuple[_Result, str, str, str]],
+    sentence: tuple[str, str, str],
+    context: tuple[str, list[tuple[int, int]], bool],
+    prefer_recent: bool,
+    minimum_score: float,
+    reference: Callable[[], _Result | None],
+) -> _Result | None:
+    """Keep the original live or saved GameLine, including its media and timing."""
+    mode = get_native_mode("text")
+    rank = getattr(ocr._extension, "rank_card_lines", None)
+    if mode is NativeMode.PYTHON or rank is None:
+        return reference()
+    try:
+        result = rank(rows, sentence, context, prefer_recent, minimum_score)
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        # Older objects and lone Python surrogates retain their reference path.
+        return reference()
+    if mode is NativeMode.SHADOW:
+        expected = reference()
+        if result is not expected:
+            logger.warning("Native Anki line selection differs from the Python reference")
+        return expected
+    return result
 
 
 def _sequence_ratio_python(reference: str, candidate: str) -> float:

@@ -16,6 +16,9 @@ function rendererFixtureSource(html, blockSource) {
         data.data, undefined, isSupplemental ? null : recentBlockHistory,
         { resultKey: data.line_id == null ? null : String(data.line_id), latestText: data.latest_text || null }
       );`;
+  const magpieSource = html.includes('  function applyMagpieInfo(')
+    ? between(html, '  function applyMagpieInfo(', '  function clampNumber(')
+    : '';
   return `(() => {
     document.head.innerHTML = '';
     const style = document.createElement('style');
@@ -31,26 +34,33 @@ function rendererFixtureSource(html, blockSource) {
       ${fs.readFileSync(path.join(overlayRoot, 'magpie.js'), 'utf8')}
       window.GSMMagpie = module.exports;
     })();
-    const display = null;
-    const magpieController = { mapPercent: (x, y) => window.GSMMagpie.mapPercentToMagpie(x, y, currentMagpieInfo, display) };
+    let display = null;
+    const console = { log() {} };
+    const magpieController = window.GSMMagpie.createMagpieRendererController({ logger: console });
     const mainBox = document.createElement('div');
     let offsetX = 0, offsetY = 0, lastOverlayTextRenderSignature = null;
     let isMagpieActive = false, currentMagpieInfo = null;
     let showTextIndicators = true, fadeTextIndicators = false;
-    const console = { log() {} };
+    let pinned = false, lastFuriganaRenderSignature = null;
+    const textHover = { refresh() {} };
     const prepareGamepadForOverlayTextRender = () => null;
+    const completeGamepadOverlayTextRender = () => {};
     const clearTextBoxes = () => document.querySelectorAll('.text-box, .text-block-container, .line-box, .big-interactive-area, .block-separator, .recycled-indicator').forEach(node => node.remove());
     ${between(html, '  function mapPercentToMagpie(', '  // Track multiple Yomitan popups')}
     ${between(html, '  function isOverlayLineVertical(', '  function prepareGamepadForOverlayTextRender(')}
     ${between(html, '  function applyTextBoxLayout(', '  function getFuriganaAnnotationsForLine(')}
     ${between(html, '  function isTextInMainBox(', '  function setMouseEventHandlers(')}
     ${between(html, '  function applyIndicatorBoxStyles(', '  function updateTextIndicators(')}
+    ${magpieSource}
+    window.applyFixtureMagpieInfo = typeof applyMagpieInfo === 'function' ? applyMagpieInfo : null;
     window.renderFixture = (data, options = {}) => {
       offsetX = options.offsetX || 0;
       offsetY = options.offsetY || 0;
       isMagpieActive = !!options.magpie;
       currentMagpieInfo = options.magpie || null;
-      const pinned = !!options.pinned;
+      display = options.display || null;
+      magpieController.applyInfo(currentMagpieInfo);
+      pinned = !!options.pinned;
       const mainBoxBounds = options.mainBoxBounds || { left: 0, top: 0, right: 0, bottom: 0 };
       const isSupplemental = !!options.supplemental;
       const stalePresenceAction = null;

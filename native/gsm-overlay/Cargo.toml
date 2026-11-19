@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+gsm-downloads = { path = "../gsm-downloads" }
 anyhow = "1"
 base64 = "0.22"
 tempfile = "3"
@@ -21,7 +22,6 @@ sha2 = "0.10"
 uuid = { version = "1", features = ["v4"] }
 unicode-normalization = "0.1"
 fancy-regex = "0.17"
-configparser = "3"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 

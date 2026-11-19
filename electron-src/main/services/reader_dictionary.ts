@@ -138,7 +138,7 @@ async function prepare(): Promise<{ reader: string; extension: Extension; page: 
     shared[SHARED_DICTIONARY] = { reader, extensionId: extension.id, engineWindow: old?.extensionId === extension.id ? old.engineWindow : undefined };
     if (!page || page.isDestroyed() || !page.webContents.getURL().startsWith(`chrome-extension://${extension.id}/`)) {
       page?.destroy();
-      page = new BrowserWindow({ show: false, skipTaskbar: true, width: 1, height: 1, webPreferences: { session: readerSession, nodeIntegration: false, contextIsolation: true, sandbox: true } });
+      page = new BrowserWindow({ show: false, skipTaskbar: true, width: 1, height: 1, webPreferences: { session: readerSession, nodeIntegration: false, contextIsolation: true, sandbox: true, backgroundThrottling: false } });
       await page.loadURL(`chrome-extension://${extension.id}/${reader === 'yomitan' ? 'templates-display.html' : 'settings.html'}`);
     }
     if (reader === 'hachidori') {
@@ -157,9 +157,8 @@ export async function lookupReaderDictionary(value: unknown): Promise<ReaderDict
   const script = reader === 'yomitan' ? `(async () => {
     const {API} = await import('./js/comm/api.js');
     const {WebExtension} = await import('./js/extension/web-extension.js');
-    const api = new API(new WebExtension());
-    const options = await api.optionsGetFull();
-    return api.termsFind(${argument}, {}, {index: options.profileCurrent});
+    const api = globalThis.__gsmReaderDictionaryApi ??= new API(new WebExtension());
+    return api.termsFind(${argument}, {}, {current: true});
   })()` : `chrome.runtime.sendMessage({target:'hoshidicts-offscreen',type:'hd_lookup',text:${argument}})`;
   for (let attempt = 0; ; attempt++) {
     const result = await host.webContents.executeJavaScript(script);

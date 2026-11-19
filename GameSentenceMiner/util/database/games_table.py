@@ -368,7 +368,11 @@ class GamesTable(SQLiteDBTable):
 
         Returns a summary dict with keys ``created`` and ``linked``.
         """
+        from GameSentenceMiner.native import history
         from GameSentenceMiner.util.database.db import GameLinesTable
+
+        if cls._db is GameLinesTable._db and history.managed(cls._db):
+            return cls._db.run_external_write(lambda: history.request("linkGameLines"))
 
         created = 0
         linked = 0

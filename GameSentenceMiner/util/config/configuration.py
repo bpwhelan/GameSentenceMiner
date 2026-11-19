@@ -549,7 +549,8 @@ def get_latest_version():
     try:
         import requests
 
-        response = requests.get(f"https://pypi.org/pypi/{PACKAGE_NAME}/json")
+        response = requests.get(f"https://pypi.org/pypi/{PACKAGE_NAME}/json", timeout=(3, 5))
+        response.raise_for_status()
         latest_version = response.json()["info"]["version"]
         return latest_version
     except Exception as e:
@@ -1618,6 +1619,7 @@ class OverlayEngine(str, Enum):
     MEIKIOCR = "meikiocr"
     SCREENAI = "screenai"
     VITAOCR = "vitaocr"
+    MIDA_VOCR = "mida_vocr"
     VOCR_LENS = "vocr_lens"
 
 
@@ -1633,7 +1635,7 @@ class OverlayManualBackgroundMode(str, Enum):
 class Overlay:
     websocket_port: int = 0
     engine: str = OverlayEngine.LENS.value
-    engine_v2: str = OverlayEngine.ONEOCR.value  # New v2 config - defaults everyone to ONEOCR
+    engine_v2: str = OverlayEngine.ONEOCR.value if is_windows() else OverlayEngine.MEIKIOCR.value
     monitor_to_capture: int = 0
     monitor_to_capture_id: str = ""
     monitor_to_capture_bounds: Dict[str, int] = field(default_factory=dict)
@@ -2311,10 +2313,7 @@ class Config:
                 logger.info(f"Config name '{name}' updated to match its key in the configs dictionary.")
 
     def save(self):
-        if self.current_profile in self.configs:
-            self.configs[self.current_profile].overlay = self.overlay
-        with open(get_config_path(), "w", encoding="utf-8") as file:
-            json.dump(self.to_dict(), file, indent=4)
+        save_full_config(self)
         return self
 
     def get_config(self) -> ProfileConfig:
@@ -2747,6 +2746,9 @@ def get_overlay_config():
 def reload_config():
     global config_instance
     config_instance = load_config()
+    from GameSentenceMiner.native import anki_monitor
+
+    anki_monitor.wake()
 
 
 def get_stats_config():
@@ -2763,8 +2765,16 @@ def get_master_config():
 def save_full_config(config):
     if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
         config.configs[config.current_profile].overlay = config.overlay
-    with open(get_config_path(), "w", encoding="utf-8") as file:
-        json.dump(config.to_dict(), file, indent=4)
+    from GameSentenceMiner.util.config import desktop_profile
+
+    if desktop_profile.enabled():
+        desktop_profile.write_settings(get_config_path(), config.to_dict())
+    else:
+        with open(get_config_path(), "w", encoding="utf-8") as file:
+            json.dump(config.to_dict(), file, indent=4)
+    from GameSentenceMiner.native import anki_monitor
+
+    anki_monitor.wake()
 
 
 def save_current_config(config):
@@ -2824,6 +2834,7 @@ class GsmAppState:
         self.previous_audio = None
         self.previous_audio_path = None
         self.previous_screenshot = None
+        self.previous_text_feed_replay = None
         self.previous_replay = None
         self.previous_trimmed_video_path = None
         self.current_replay = None

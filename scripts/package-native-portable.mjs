@@ -5,8 +5,9 @@ import {fileURLToPath} from 'node:url';
 import archiver from 'archiver';
 
 export async function packagePortable(source,filename) {
-  await fs.access(path.join(source,'GameSentenceMiner.exe'));
-  await fs.access(path.join(source,'app/package.json'));
+  for (const relative of ['GameSentenceMiner.exe', 'app/dist/renderer/index.html', 'app/pyproject.toml', 'app/native/agent-runtime.json']) {
+    await fs.access(path.join(source,relative));
+  }
   await fs.mkdir(path.dirname(filename),{recursive:true});
   await new Promise((resolve,reject)=>{
     const stream=createWriteStream(filename),zip=archiver('zip',{zlib:{level:6}});

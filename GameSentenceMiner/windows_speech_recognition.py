@@ -21,7 +21,6 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import uuid
 import zipfile
 from collections.abc import Callable
@@ -439,47 +438,15 @@ def _download_direct_live_captions_archive(
     url: str,
     progress_callback: Callable[[int, int | None], None] | None,
 ) -> None:
-    partial_path = archive_path.with_suffix(archive_path.suffix + ".part")
-    logger.info("Downloading Windows speech recognition bundle from %s", url)
-    request = urllib.request.Request(
-        url,
-        headers={
-            "Accept": "application/zip, application/octet-stream",
-            "User-Agent": "GameSentenceMiner Windows Speech PoC",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=120) as response, partial_path.open("wb") as output:
-            raw_total = response.headers.get("Content-Length")
-            try:
-                total = int(raw_total) if raw_total else None
-            except (TypeError, ValueError):
-                total = None
-            if total is not None and total > DIRECT_LIVE_CAPTIONS_MAX_ARCHIVE_BYTES:
-                raise ValueError("The Windows speech bundle is larger than the configured safety limit.")
+    from GameSentenceMiner.native.downloads import download_file
 
-            downloaded = 0
-            _report_download_progress(progress_callback, downloaded, total)
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                downloaded += len(chunk)
-                if downloaded > DIRECT_LIVE_CAPTIONS_MAX_ARCHIVE_BYTES:
-                    raise ValueError("The Windows speech bundle is larger than the configured safety limit.")
-                output.write(chunk)
-                _report_download_progress(progress_callback, downloaded, total)
-            if total is not None and downloaded != total:
-                raise OSError(f"Windows speech bundle download was truncated ({downloaded} of {total} bytes).")
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(partial_path, archive_path)
-    except Exception:
-        try:
-            partial_path.unlink(missing_ok=True)
-        except OSError:
-            logger.debug("Could not remove partial Windows speech bundle download", exc_info=True)
-        raise
+    logger.info("Downloading Windows speech recognition bundle from %s", url)
+    download_file(
+        url,
+        archive_path,
+        limit=DIRECT_LIVE_CAPTIONS_MAX_ARCHIVE_BYTES,
+        progress=lambda done, total: _report_download_progress(progress_callback, done, total),
+    )
 
 
 def _extract_direct_live_captions_archive(archive_path: Path, cache_dir: Path) -> Path:
@@ -516,10 +483,23 @@ def _extract_direct_live_captions_archive(archive_path: Path, cache_dir: Path) -
                 raise ValueError("The Windows speech bundle is missing its runtime or model packages.")
 
             target = cache_dir / DIRECT_LIVE_CAPTIONS_ROOT_NAME
-            if target.exists():
-                quarantine = cache_dir / f".{target.name}.invalid-{uuid.uuid4().hex}"
-                os.replace(target, quarantine)
-            os.replace(extracted_root, target)
+            for attempt in range(6):
+                try:
+                    if target.exists():
+                        if _is_complete_direct_live_captions_root(target):
+                            break
+                        quarantine = cache_dir / f".{target.name}.invalid-{uuid.uuid4().hex}"
+                        os.replace(target, quarantine)
+                    os.replace(extracted_root, target)
+                    break
+                except OSError as error:
+                    if _is_complete_direct_live_captions_root(target):
+                        break
+                    # A Windows file scanner may temporarily hold an extracted DLL.
+                    # Retry publishing the verified files without extracting again.
+                    if getattr(error, "winerror", None) not in (5, 32, 33) or attempt == 5:
+                        raise
+                    time.sleep(0.04 * 2**attempt)
             return target
         finally:
             shutil.rmtree(staging, ignore_errors=True)
@@ -540,6 +520,21 @@ def ensure_direct_live_captions_bundle(
             return existing
 
         cache_root.mkdir(parents=True, exist_ok=True)
+        # An explicitly selected offline bundle can be extracted in place.
+        # Keep the caller's archive, including when it is inside the cache.
+        if url.lower().startswith("file:"):
+            from urllib.parse import urlsplit
+            from urllib.request import url2pathname
+
+            source = urlsplit(url)
+            if source.netloc.lower() not in ("", "localhost"):
+                raise ValueError("A local speech bundle must use a local file path.")
+            selected_archive = Path(url2pathname(source.path))
+            size = selected_archive.stat().st_size
+            if size > DIRECT_LIVE_CAPTIONS_MAX_ARCHIVE_BYTES:
+                raise ValueError("The Windows speech bundle is larger than the configured safety limit.")
+            _report_download_progress(progress_callback, size, size)
+            return _extract_direct_live_captions_archive(selected_archive, cache_root)
         archive_path = cache_root / DIRECT_LIVE_CAPTIONS_ARCHIVE_NAME
         if archive_path.exists():
             try:

@@ -1,9 +1,9 @@
 import {spawn} from 'node:child_process';
 import {nativeExecutable, root} from './native-paths.mjs';
 
-// build-native-dev.mjs already launches from a hashed copy, so Cargo can rebuild
-// while GSM runs. Its launch record is also what in-app restarts relaunch; never
-// rewrite or delete it here.
+// The launch record selects an immutable build, so Cargo can rebuild while GSM
+// runs. On Windows that build bootstraps the stable tray-identity launch copy.
+// In-app restarts use the same record; never rewrite or delete it here.
 const args = process.argv.slice(2);
 const separator = args.indexOf('--');
 const forwarded = separator === -1 ? args : args.slice(separator + 1);

@@ -203,7 +203,11 @@ pub fn install(app: &AppHandle, window: &WebviewWindow, workers: bool) -> Result
                 Ok(())
             };
             if let Err(error) = install() {
-                eprintln!("[jiten] Could not install shared browser broker: {error}");
+                crate::desktop_log::stderr_only(
+                    "jiten",
+                    "WARNING",
+                    format!("Could not install shared browser broker: {error}"),
+                );
             }
         })
         .map_err(|e| e.to_string())

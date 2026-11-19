@@ -591,6 +591,7 @@
   // Child popups that wait for it are in a popup, which holds the claim already.
   function syncHostAttention() {
     gsmBridge?.scheduleRefresh(); // GSM hook
+    const options = gsmScanOptions(); // GSM hook
     const wanted = Boolean(rootLevel.popup && !rootLevel.popup.hidden) || selectionDragActive
       || hostAttentionHold > 0 || pendingCandidateLookup?.candidate?.exactSelection === true
       || (activationPressed && options.lookupMode !== "hover" && activationButton() !== null);
@@ -1258,6 +1259,7 @@
       if (docs) return docs;
     }
     const hit = document.elementFromPoint(clientX, clientY);
+    if (!gsmPageScanAllowed(hit)) return null; // GSM hook
     const field = scannableField(hit);
     if (field) return resolveFieldCandidate(field, clientX, clientY);
     // The page's own glyph comes first, a Netflix menu over a line included,
@@ -1496,6 +1498,7 @@
   // (keybinds read in the active profile, 8.1 rule 4). It is never moved to a
   // word start (8.3).
   function resolveSelectedLookupCandidate(selection = window.getSelection(), profile = undefined) {
+    if (selection?.rangeCount && !gsmPageScanAllowed(selectionBoundaryElement(selection.getRangeAt(0).commonAncestorContainer))) return null; // GSM hook
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
     const styleCache = new Map();
@@ -1529,6 +1532,7 @@
   // Yomitan's Scan text at selection: an ordinary scan from the selection's
   // first text. The live selection, not the scanned word, keeps it retained.
   function resolveSelectionScanCandidate(selection = window.getSelection()) {
+    if (selection?.rangeCount && !gsmPageScanAllowed(selectionBoundaryElement(selection.getRangeAt(0).commonAncestorContainer))) return null; // GSM hook
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return null;
     const query = selection.toString();
     // A keybind scan reads in the active profile (8.1 rule 4).
@@ -1580,6 +1584,7 @@
     window.removeEventListener("scroll", onScroll, true);
     window.removeEventListener("blur", onWindowBlur);
     window.removeEventListener("pagehide", onPageHide);
+    if (document.documentElement.dataset.gsmReaderScope === "feed") window.removeEventListener("gsm-reader-feed-closed", dismissPopups); // GSM hook
     window.removeEventListener("pageshow", onPageShow);
     window.removeEventListener("resize", refreshPageZoom);
     dockObserver?.disconnect();
@@ -2979,6 +2984,7 @@
   }
 
   function show(candidate, level = rootLevel) {
+    gsmBridge?.captureRootAnchor(level, candidate); // GSM hook
     level.activeCandidate = candidate;
     level.activeSignature = candidateSignature(candidate);
     // A Netflix or YouTube subtitle line is pinned as the popup opens, so
@@ -3179,6 +3185,7 @@
   // stay, as retainSelectedLookup() keeps them on every pointer path, and so
   // does a docked result with nothing open from it.
   function scheduleCursorExitHide() {
+    if (gsmBridge?.navigationActive) return; // GSM hook
     if (!options.hidePopupOnCursorExit || cursorExitTimer !== null || activeSelectionCandidate
         || !rootLevel.popup || rootLevel.popup.hidden || (dock && levels.length === 1)) return;
     cursorExitTimer = window.setTimeout(() => {
@@ -3205,6 +3212,8 @@
   // option on, every mode prunes after its delay, as Yomitan's popup.js
   // _onFrameMouseOver does.
   function scheduleDescendantPrune(level) {
+    if (gsmBridge?.navigationActive) return; // GSM hook
+    const options = gsmScanOptions(); // GSM hook
     clearDescendantTimer();
     const depth = level.depth + 1;
     const cursorExit = options.hidePopupOnCursorExit;
@@ -4034,13 +4043,18 @@
     });
   }
 
+  function gsmScanOptions() { return globalThis.GsmHachidoriIntegration.homeScanOptions(options, lastPointer?.target); } // GSM hook
+  function gsmPageScanAllowed(target) { return globalThis.GsmHachidoriIntegration.pageScanAllowed(document.documentElement.dataset.gsmReaderScope, target); } // GSM hook
   function activationAllowed() {
+    const options = gsmScanOptions(); // GSM hook
+    if (!gsmPageScanAllowed(lastPointer?.target)) return false; // GSM hook
     return options.lookupMode === "hover" || activationPressed;
   }
 
   // Words in a popup's definitions follow lookupMode unless Reading →
   // Activation → Child popups asks for the key or a click instead.
   function definitionKeyGated() {
+    const options = gsmScanOptions(); // GSM hook
     return options.definitionLookupMode === "activation"
       || (options.definitionLookupMode === "inherit" && options.lookupMode !== "hover");
   }
@@ -4060,6 +4074,7 @@
   // lookup that needs no key waits: a held key or button, a click, a link or
   // a selection is deliberate. Definitions follow the page unless set.
   function hoverScanDelay(level) {
+    const options = gsmScanOptions(); // GSM hook
     if (level === null) return options.lookupMode === "hover" ? options.scanDelayMs : 0;
     return definitionKeyGated() ? 0 : options.definitionScanDelayMs ?? options.scanDelayMs;
   }
@@ -4097,6 +4112,7 @@
   // waits for: page lookups outside Hover mode, or child popups set to hold it.
   // Otherwise a press keeps its ordinary meaning.
   function activationButton() {
+    const options = gsmScanOptions(); // GSM hook
     if (options.lookupMode === "hover" && !definitionKeyGated()) return null;
     return ACTIVATION_BUTTONS.get(options.activationKey) ?? null;
   }
@@ -4104,10 +4120,12 @@
   // Yomitan's default: once shown, the popup outlives the activation key and
   // the pointer's wanderings; only an explicit dismissal or a new lookup ends it.
   function schedulePointerHide() {
+    const options = gsmScanOptions(); // GSM hook
     if (options.lookupMode !== "activationSticky") scheduleHide();
   }
 
   function updateModifierState(event) {
+    const options = gsmScanOptions(); // GSM hook
     const property = MODIFIER_PROPERTIES.get(options.activationKey);
     if (property) activationPressed = event[property] === true;
     // Every mouse event reports the held buttons, so a release the page never
@@ -4125,6 +4143,7 @@
   // Pressing the activation input while the pointer is stationary reveals the
   // word under it without asking the reader to jiggle the mouse.
   function scanActivatedPointer() {
+    const options = gsmScanOptions(); // GSM hook
     const popupLevel = activePointerLevel(lastPointer);
     const keyGated = popupLevel ? definitionKeyGated() : options.lookupMode !== "hover";
     if (keyGated && lastPointer && !hasProtectedNote() && !focusBlocksScan(popupLevel)
@@ -4138,6 +4157,7 @@
   // Releasing it closes an `activation` popup after the hide delay;
   // `activationSticky` keeps the popup.
   function releaseActivation() {
+    const options = gsmScanOptions(); // GSM hook
     if (options.lookupMode !== "activation" || activationPressed || selectionIsUnchanged()) return;
     cancelCandidateScan();
     scheduleHide();
@@ -4467,6 +4487,7 @@
   // listener can turn click-through back on. A popup link's press is the
   // link's, so its middle click keeps opening it.
   function startButtonScan(event) {
+    const options = gsmScanOptions(); // GSM hook
     const { clientX, clientY } = event;
     const inPopup = isOurNode(event.target) || pointInsidePopup(clientX, clientY);
     // Hover mode's page lookups wait for nothing; only child popups can.
@@ -4477,6 +4498,7 @@
     const level = inPopup ? activePointerLevel(lastPointer) : null;
     // Child popups set to Click wait for no button.
     if (level && (popupLinkAt(lastPointer.target, level) || !definitionKeyGated())) return false;
+    if (!inPopup && !gsmPageScanAllowed(event.target)) return false; // GSM hook
     const { claimed, cancelRelease, candidate } = scanPressClaim(event, inPopup, level);
     if (claimed) event.preventDefault();
     scanPress = { button: event.button, cancelRelease, cancelClick: Boolean(candidate) };
@@ -4861,6 +4883,7 @@
 
   function onKeyDown(event) {
     if (gsmBridge?.navigationActive) return; // GSM hook
+    const options = gsmScanOptions(); // GSM hook
     if (disposed || runKeybinds(event) || event.repeat) {
       return;
     }
@@ -4888,6 +4911,7 @@
 
   function onKeyUp(event) {
     if (gsmBridge?.navigationActive) return; // GSM hook
+    const options = gsmScanOptions(); // GSM hook
     if (disposed) return;
     updateModifierState(event);
     if (!MODIFIER_PROPERTIES.has(options.activationKey)
@@ -4917,6 +4941,7 @@
 
   function onWindowBlur() {
     if (gsmBridge?.navigationActive) return; // GSM hook
+    const options = gsmScanOptions(); // GSM hook
     stopPopupResize();
     if (!disposed && overlayMode) {
       // An overlay host moves focus between itself and the game while the
@@ -5355,6 +5380,7 @@
     window.addEventListener("scroll", onScroll, observe);
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("pagehide", onPageHide);
+    if (document.documentElement.dataset.gsmReaderScope === "feed") window.addEventListener("gsm-reader-feed-closed", dismissPopups); // GSM hook
     window.addEventListener("pageshow", onPageShow);
     window.addEventListener("resize", refreshPageZoom);
     refreshPageZoom();
@@ -5366,9 +5392,10 @@
     ready: () => globalThis.HDReaderReady,
     readOptions: async () => (await chrome.storage.local.get("options")).options ?? null,
     resolveCandidate, resolveCandidateAt, candidateSignature, sameAnchorNode, lookupCandidate, hide, sendRequest,
+    anchorConnected, anchorRectFor,
     cancelHover({ preserveLookup = false } = {}) {
       if (preserveLookup) clearScanTimer(); else cancelCandidateScan();
-      clearHideTimer(); clearTransferTimer(); clearDescendantTimer();
+      cancelScanDwell(); clearHideTimer(); clearTransferTimer(); clearDescendantTimer(); clearCursorExitTimer();
     },
     command: (action, argument) => runKeybindAction({ action, argument }, { preventDefault() {}, stopPropagation() {} }),
   });

@@ -25,14 +25,11 @@ def filter_config(mode="blocks", **overrides):
         ("strict", "今日はが回復した次の台詞"),
     ],
 )
-def test_filter_strengths_in_processing_and_preview(mode, expected):
+def test_filter_strengths_in_processing(mode, expected):
     source = "MENU\nSpeaker: 「今日はHPが10回復した！」 Next\n123\n次の台詞。\nSAVE"
     config = filter_config(mode)
 
     assert text_processing.apply_text_processing(source, config, target_language="ja") == expected
-    assert text_processing.preview_text_processing_request(
-        {"text": source, "config": config.to_dict(), "target_language": "ja"}
-    ) == {"result": expected}
 
 
 @pytest.mark.parametrize("mode", ["blocks", "trim", "strict"])
@@ -111,16 +108,13 @@ def test_disabled_filter_does_not_change_text():
     )
 
 
-def test_live_processing_and_preview_follow_the_active_profile_language(monkeypatch):
+def test_live_processing_follows_the_active_profile_language(monkeypatch):
     profile = SimpleNamespace(general=SimpleNamespace(target_language="ko"))
     monkeypatch.setattr(text_processing, "get_config", lambda: profile)
     config = filter_config()
     source = "日本語\n한국어"
 
     assert text_processing.apply_text_processing(source, config) == "한국어"
-    assert text_processing.preview_text_processing_request({"text": source, "config": config.to_dict()}) == {
-        "result": "한국어"
-    }
     profile.general.target_language = "ja"
     assert text_processing.apply_text_processing(source, config) == "日本語"
 

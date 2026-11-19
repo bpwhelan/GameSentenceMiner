@@ -1,5 +1,6 @@
 //! Pin the native ABI and verify the official devkit before extraction. No
-//! runtime downloads, Node bindings or system-wide SDK installation are needed.
+//! Node bindings or system-wide SDK installation are needed. This builds the
+//! separately downloadable runtime; the desktop does not link or bundle Frida.
 use sha2::{Digest, Sha256};
 use std::{env, fs, path::PathBuf, process::Command};
 fn run(mut command: Command) {

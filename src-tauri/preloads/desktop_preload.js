@@ -1,6 +1,17 @@
 (() => {
-  const local = /^http:\/\/gsm(?:-yomitan|-hachidori|-jiten)?\.localhost$/.test(location.origin) || /^gsm(?:-yomitan|-hachidori|-jiten)?:$/.test(location.protocol) || (location.hostname === 'localhost' && location.port === '5173');
+  // The desktop shares its extension profile with the overlay. Mark the DOM
+  // so native content scripts in isolated worlds see this window's scope.
+  const dictionaryPage = /^gsm-(?:yomitan|hachidori|jiten)(?:\.localhost)?$/.test(location.hostname)
+    || /^gsm-(?:yomitan|hachidori|jiten):$/.test(location.protocol);
+  const restrictToFeed = __GSM_RESTRICT_TO_FEED__ && !dictionaryPage && location.protocol !== 'chrome-extension:';
+  if (restrictToFeed) {
+    const markScope = () => { document.documentElement.dataset.gsmReaderScope = window === window.top ? 'feed' : 'disabled'; };
+    if (document.documentElement) markScope();
+    else document.addEventListener('DOMContentLoaded', markScope, { once: true });
+  }
+  const local = /^http:\/\/gsm(?:-yomitan|-hachidori|-jiten)?\.localhost$/.test(location.origin) || /^gsm(?:-yomitan|-hachidori|-jiten)?:$/.test(location.protocol) || location.origin === __GSM_DEV_ORIGIN__;
   if (!local) {
+    if (restrictToFeed) return;
     // External reading pages receive a gesture-only lookup bridge, never the
     // extension's storage/network APIs or desktop IPC. Keep the nonce private.
     const lookup = window.__TAURI_INTERNALS__?.invoke.bind(window.__TAURI_INTERNALS__);
@@ -24,7 +35,6 @@
   if (window.ipcRenderer) return;
   const token = __GSM_WINDOW_TOKEN__;
   const nativeInvoke = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
-  const dictionaryPage = /gsm-(?:yomitan|hachidori|jiten)/.test(location.hostname + location.protocol);
   const invoke = (command, args) => {
     if (dictionaryPage && !['dictionary_call', 'evaluation_result', 'renderer_log', 'desktop_clipboard', 'window_input'].includes(command)) return Promise.reject(Error('Dictionary pages cannot control the desktop.'));
     return nativeInvoke(command, { ...args, token });

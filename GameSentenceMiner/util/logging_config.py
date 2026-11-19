@@ -40,7 +40,6 @@ class LoggerManager:
         "DATABASE": ["db.py", "database"],
         "STATS": ["web/", "flask", "daily_rollup", "stats"],
         "UI": ["ui/", "config_gui_qt.py"],
-        "PLUGIN": ["plugins.py", "user_plugins"],
         "SCHEDULED": ["cron/", "run_crons.py"],
     }
 
@@ -107,17 +106,28 @@ class LoggerManager:
         except Exception:  # noqa: BLE001 - logging must survive malformed diagnostic records.
             return "MAIN".ljust(10)
 
+    def _origin_name(self, logger_name: str | None) -> str:
+        """Return a short technical Python origin label (e.g. 'backend', 'ocr', 'overlay')."""
+        normalized = (logger_name or "backend").strip().lower()
+        if normalized in ("", "gamesentenceminer"):
+            return "backend"
+        if normalized == "misc_ocr_utils":
+            return "ocr"
+        return normalized
+
     def _add_console_handler(self, logger_name: str = "gamesentenceminer", level: str = "INFO"):
         """Add a console handler with appropriate formatting and color."""
+        origin_name = self._origin_name(logger_name)
 
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)
             record["extra"]["component_tag"] = component_tag
+            record["extra"]["origin_name"] = origin_name
             return True
 
         handler_id = _logger.add(
             sys.stdout,
-            format="{time:YYYY-MM-DD HH:mm:ss} | {extra[component_tag]} | {level: <10} | {message}",
+            format="[py:{extra[origin_name]}] {time:YYYY-MM-DD HH:mm:ss} | {extra[component_tag]} | {level: <10} | {message}",
             level=level,
             colorize=True,
             backtrace=False,
@@ -129,6 +139,7 @@ class LoggerManager:
 
     def _add_file_handler(self, logger_name: str = "gamesentenceminer", level: str = "DEBUG"):
         """Add a rotating file handler for the specified logger."""
+        origin_name = self._origin_name(logger_name)
         log_dir = self._get_log_directory()
         log_file = get_component_log_path(log_dir, logger_name)
         process_sink = SharedRotatingLog(log_file)
@@ -143,13 +154,14 @@ class LoggerManager:
         def format_with_component(record):
             component_tag = self._detect_component_tag(record)
             record["extra"]["component_tag"] = component_tag
+            record["extra"]["origin_name"] = origin_name
             # Skip DISPLAY level from file logs
             return record["level"].name != "DISPLAY"
 
         # Main log file with rotation
         handler_id = _logger.add(
             write_to_component,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | PID {process.id} | {extra[component_tag]}{name}:{function}:{line} | {message}",
+            format="[py:{extra[origin_name]}] {time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | PID {process.id} | {extra[component_tag]}{name}:{function}:{line} | {message}",
             level=level,
             colorize=False,
             backtrace=True,

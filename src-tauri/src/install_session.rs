@@ -34,14 +34,22 @@ impl InstallSessions {
                                 gsm_settings::preferences::Preferences::new(&paths.active)
                                     .patch(&json!({"hasCompletedSetup":true}))
                             {
-                                eprintln!("Could not save completed setup: {error}");
+                                crate::desktop_log::warn(
+                                    &app,
+                                    "install-session",
+                                    format!("Could not save completed setup: {error}"),
+                                );
                             }
                         }
                         if let Err(error) = gsm_settings::write_atomic(
                             &paths.active.join("logs/install-session.log"),
                             &snapshot,
                         ) {
-                            eprintln!("Could not save installation diagnostics: {error}");
+                            crate::desktop_log::warn(
+                                &app,
+                                "install-session",
+                                format!("Could not save installation diagnostics: {error}"),
+                            );
                         }
                     }
                     let encoded = json!({"channel":channel,"payload":snapshot}).to_string();
@@ -113,9 +121,11 @@ pub fn observe(app: &tauri::AppHandle, event: &str, message: &Value) {
         return;
     };
     if event == "process.log" && message["id"] == "backend" && message["runId"] == run {
+        let raw = message["message"].as_str().unwrap_or("");
+        let tagged = crate::desktop_log::ensure_origin("py:backend", raw);
         state.model.append(
             &lease,
-            &json!({"source":"python","stream":message["stream"],"message":message["message"]}),
+            &json!({"source":"py:backend","stream":message["stream"],"message":tagged}),
         );
         state.notify();
     }

@@ -49,11 +49,14 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
     let action = params["action"].as_str().unwrap_or("").to_owned();
     let attachment = if action=="start" {Some(app.state::<crate::hook_updates::HookUpdates>().get(app).lease()?)}else{None};
     let serial = if action == "start" || action == "stop" { generation.fetch_add(1, Ordering::SeqCst) + 1 } else { generation.load(Ordering::SeqCst) };
-    let executable = crate::agent::helper_path(app)?;
+    let app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let _attachment = attachment;
         let mut args = params["params"].clone();
         if action == "start" && !args["wineLaunch"].is_null() {
+            args["sharedDir"] = json!(app.state::<crate::settings::Settings>().paths.shared);
+            let executable = crate::agent::helper_path(&app)?;
+            if generation.load(Ordering::SeqCst) != serial { return Err("Text hook operation cancelled".into()); }
             args["attachPid"] = json!(gsm_agent::wine_bridge::resolve(&executable, &args, || generation.load(Ordering::SeqCst) != serial)?);
         }
         let _transition = transition.lock().unwrap();

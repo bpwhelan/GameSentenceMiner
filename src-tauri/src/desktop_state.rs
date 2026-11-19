@@ -298,10 +298,12 @@ pub fn find_hub_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
 }
 
 pub fn focus_window(window: &WebviewWindow) -> Result<(), String> {
+    crate::memory::restore(window);
     if window.is_minimized().unwrap_or(false) {
         window.unminimize().map_err(|e| e.to_string())?;
     }
     window.show().map_err(|e| e.to_string())?;
+    crate::memory::sync_visibility(window);
     #[cfg(windows)]
     {
         crate::window_platform::apply(window, "focus", &Value::Null)?;

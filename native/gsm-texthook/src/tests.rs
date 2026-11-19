@@ -33,7 +33,7 @@ fn texts(events: Vec<Event>) -> Vec<Value> {
 fn selected(engine: &str, delay: u64) -> Session {
     let mut s = session(engine, delay);
     s.feed(&line(engine, "43", "candidate"), 0);
-    assert!(s.select("43", 0));
+    assert!(s.select("43", None));
     s.drain();
     s
 }
@@ -79,6 +79,93 @@ fn cumulative_fragments_keep_original_capture_time_and_flush_only_once() {
     s.flush();
     assert!(texts(s.drain()).is_empty());
 }
+
+#[test]
+fn discovery_samples_include_unselected_hooks_and_pending_typewriter_output() {
+    let mut s = selected("luna", 100);
+    s.feed(&line("luna", "44", "ふ"), 10);
+    s.feed(&line("luna", "44", "ふたつめ"), 50);
+    let snapshot = s.discovery_snapshot();
+    assert_eq!(snapshot["selectedHookId"], "43");
+    assert_eq!(snapshot["hooks"][1]["samples"], json!(["ふたつめ"]));
+    assert!(texts(s.drain()).is_empty());
+    s.tick(150);
+    assert!(texts(s.drain()).is_empty());
+}
+
+#[test]
+fn only_new_hook_text_notifies_the_discovery_worker() {
+    let mut s = session("luna", 100);
+
+    s.feed(&line("luna", "44", "二番目のフック"), 110);
+    s.feed(&line("luna", "45", "もう一つのフック"), 120);
+    assert!(!s
+        .drain()
+        .iter()
+        .any(|event| matches!(event, Event::SamplesChanged)));
+    s.tick(220);
+    let events = s.drain();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, Event::SamplesChanged))
+            .count(),
+        1
+    );
+    assert!(texts(events).is_empty());
+
+    s.feed(&line("luna", "44", "二番目のフック"), 230);
+    s.tick(330);
+    assert!(!s
+        .drain()
+        .iter()
+        .any(|event| matches!(event, Event::SamplesChanged)));
+
+    assert!(s.select("44", None));
+    s.feed(&line("luna", "45", "選択後の新しいテキスト"), 340);
+    s.tick(440);
+    assert!(!s
+        .drain()
+        .iter()
+        .any(|event| matches!(event, Event::SamplesChanged)));
+    assert_eq!(s.hooks()["hooks"][1]["preview"], "選択後の新しいテキスト");
+}
+
+#[test]
+fn reselecting_the_same_hook_keeps_in_flight_text_with_its_original_selection() {
+    let mut s = selected("luna", 100);
+    s.feed(&line("luna", "43", "original"), 10);
+    assert!(s.select("43", Some(json!({"remove_numbers":false}))));
+    let original = texts(s.drain()).pop().unwrap();
+
+    s.feed(&line("luna", "43", "new text 123"), 30);
+    s.tick(130);
+    let next = texts(s.drain()).pop().unwrap();
+    assert!(original["selectionRevision"].is_u64());
+    assert_ne!(original["selectionRevision"], next["selectionRevision"]);
+    assert!(original["processorOverrides"].is_null());
+    assert_eq!(next["processorOverrides"]["remove_numbers"], false);
+}
+
+#[test]
+fn ranked_selection_preserves_pending_output_and_uses_its_own_filters() {
+    let mut s = selected("luna", 100);
+    s.feed(&line("luna", "43", "original"), 10);
+    s.feed(&line("luna", "44", "sample"), 20);
+    assert!(s.select("44", Some(json!({"remove_numbers":false}))));
+    assert!(texts(s.drain())[0]["processorOverrides"].is_null());
+
+    s.feed(&line("luna", "44", "line 123"), 30);
+    s.tick(130);
+    assert_eq!(
+        texts(s.drain())[0]["processorOverrides"],
+        json!({"remove_numbers":false})
+    );
+    assert!(s.select("43", None));
+    s.feed(&line("luna", "43", "back to the original hook"), 150);
+    s.tick(250);
+    assert!(texts(s.drain())[0]["processorOverrides"].is_null());
+}
 #[test]
 fn redraws_are_suppressed_without_losing_changed_or_reselected_text() {
     for engine in ["luna", "textractor"] {
@@ -90,7 +177,7 @@ fn redraws_are_suppressed_without_losing_changed_or_reselected_text() {
         s.feed(&line(engine, "43", "字幕"), 60000);
         s.feed(&line(engine, "43", "次"), 60001);
         s.feed(&line(engine, "43", "字幕"), 60002);
-        assert!(s.select("43", 60003));
+        assert!(s.select("43", None));
         s.feed(&line(engine, "43", "字幕"), 60004);
         assert_eq!(
             texts(s.drain())
@@ -122,11 +209,16 @@ fn rejects_huge_split_lines_and_backlogs_then_recovers() {
 fn profile_matches_context_and_legacy_name_and_console_is_not_a_hook() {
     for name in ["TextOutW", "TextOutW (921:0)"] {
         let mut s = Session::new(
-            json!({"engine":"luna","autoSelectHookId":"99","autoSelectHookFunction":name,"flushDelayMs":0}),
+            json!({"engine":"luna","autoSelectHookId":"99","autoSelectHookFunction":name,
+                "autoSelectProcessorOverrides":{"remove_numbers":false},"flushDelayMs":0}),
         );
         s.feed(&line("luna", "43", "dialogue"), 10);
         assert_eq!(s.status()["selectedHookId"], "43");
-        assert_eq!(texts(s.drain()).len(), 1);
+        let events = s.drain();
+        assert!(matches!(events.first(), Some(Event::AutoSelected)));
+        let output = texts(events);
+        assert_eq!(output.len(), 1);
+        assert_eq!(output[0]["processorOverrides"]["remove_numbers"], false);
     }
     let mut s = session("textractor", 0);
     s.feed(&line("textractor", "43", "candidate"), 10);
@@ -146,7 +238,7 @@ fn changing_hook_flushes_old_pending_payload_before_new_selection() {
     let mut s = selected("luna", 100);
     s.feed(&line("luna", "43", "old"), 10);
     s.feed(&line("luna", "44", "candidate"), 20);
-    assert!(s.select("44", 30));
+    assert!(s.select("44", None));
     s.feed(&line("luna", "44", "new"), 40);
     s.flush();
     let output = texts(s.drain());

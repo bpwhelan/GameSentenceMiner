@@ -1,0 +1,35 @@
+{
+  "fixture": "6 dictionaries, 96 senses each, real engines and extension messaging",
+  "results": [
+    {
+      "reader": "yomitan",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 3.3999998569488525,
+        "p95Ms": 14.5
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 0.9000000953674316,
+        "p95Ms": 1.6000001430511475
+      },
+      "found": 104,
+      "invalidation": "passed"
+    },
+    {
+      "reader": "hachidori",
+      "firstPass": {
+        "count": 9,
+        "medianMs": 2.9600000381469727,
+        "p95Ms": 3.869999885559082
+      },
+      "repeated": {
+        "count": 108,
+        "medianMs": 2.184999942779541,
+        "p95Ms": 3.8400001525878906
+      },
+      "found": 104,
+      "invalidation": "passed"
+    }
+  ]
+}

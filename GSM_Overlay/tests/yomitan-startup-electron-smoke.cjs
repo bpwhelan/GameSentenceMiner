@@ -15,7 +15,7 @@ app.setPath('userData', path.join(root, 'profile'));
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch('disable-background-networking');
 app.on('window-all-closed', () => {});
-const timeout = setTimeout(() => { console.error('Yomitan startup smoke timed out'); app.exit(1); }, 45000);
+const timeout = setTimeout(() => { console.error('Yomitan startup smoke timed out'); app.exit(1); }, phase === 'idle' ? 105000 : 45000);
 
 app.whenReady().then(async () => {
   const overlaySession = session.fromPath(path.join(root, 'overlay-profile'));
@@ -37,7 +37,7 @@ app.whenReady().then(async () => {
   }`, context);
   const page = path.join(root, 'GSM_Overlay', 'index.html');
   fs.mkdirSync(path.dirname(page), { recursive: true });
-  const hoverBootstrap = ['hover', 'auto-hide', 'mining'].includes(phase) ? `<script>
+  const hoverBootstrap = ['hover', 'auto-hide', 'controller', 'mining'].includes(phase) ? `<script>
     const {createTextHoverController} = require(${JSON.stringify(path.join(overlay, 'text_hover.js'))});
     window.hoverFixture = createTextHoverController({window, document,
       isClickThroughEnabled: () => window.textClickThrough !== false,
@@ -57,7 +57,7 @@ app.whenReady().then(async () => {
     ${between(renderer, '  // Listen for mining success signal', '  let unHoverTimer')}
   </script>` : '';
   // Like index.html, install hover routing before Yomitan's document_idle script.
-  fs.writeFileSync(page, '<!doctype html><meta charset="utf-8"><div id="word" class="text-box interactive" style="font:32px sans-serif;margin:80px">食べる</div>' + hoverBootstrap + miningBootstrap);
+  fs.writeFileSync(page, '<!doctype html><html data-gsm-preload-dictionary-popup><meta charset="utf-8"><div id="word" class="text-box interactive" style="font:32px sans-serif;margin:80px">食べる</div>' + hoverBootstrap + miningBootstrap);
   const extension = await context.startYomitan();
   assert.ok(extension);
   if (phase === 'seed') {
@@ -96,6 +96,20 @@ app.whenReady().then(async () => {
     console.log('PASS: seeded a saved Yomitan dictionary and mouse-scan settings');
     app.exit(0);
     return;
+  }
+  if (phase === 'idle') {
+    // With no content pages open, observe the worker without waking it. Two
+    // idle periods also catch a heartbeat that fires only once at startup.
+    const scope = `chrome-extension://${extension.id}/`;
+    const worker = await overlaySession.serviceWorkers.startWorkerForScope(scope);
+    const initialVersion = worker.versionId;
+    let stopped = false;
+    overlaySession.serviceWorkers.on('running-status-changed', ({ versionId, runningStatus }) => {
+      if (versionId === initialVersion && runningStatus === 'stopped') stopped = true;
+    });
+    await new Promise(resolve => setTimeout(resolve, 65000));
+    assert.ok(!stopped && !worker.isDestroyed(),
+      'Yomitan worker stayed hot without a reader window');
   }
   const win = new BrowserWindow({ show: false, webPreferences: {
     session: overlaySession, nodeIntegration: true, contextIsolation: false, backgroundThrottling: false, webSecurity: false,
@@ -140,8 +154,21 @@ app.whenReady().then(async () => {
     throw lastError;
   })()`);
   console.log('Yomitan frontend ready:', version);
-  const entries = await win.webContents.executeJavaScript("gsmYomitanBridge.termEntries('食べる')");
-  assert.ok(entries.dictionaryEntries.length > 0, 'the saved dictionary must remain available');
+  if (phase === 'idle') {
+    const deadline = Date.now() + 10000;
+    let popup;
+    while (Date.now() < deadline && !popup) {
+      popup = win.webContents.mainFrame.frames.find(frame => frame.url.endsWith('/popup.html'));
+      if (!popup) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.ok(popup, 'the popup frame loaded before the first hover');
+    assert.equal(await win.webContents.executeJavaScript("getComputedStyle(document.querySelector('iframe.yomitan-popup')).visibility"),
+      'hidden', 'preloading must not show a popup');
+  }
+  if (phase !== 'idle') {
+    const entries = await win.webContents.executeJavaScript("gsmYomitanBridge.termEntries('食べる')");
+    assert.ok(entries.dictionaryEntries.length > 0, 'the saved dictionary must remain available');
+  }
   await win.webContents.executeJavaScript(`window.popupShown = false;
     window.addEventListener('yomitan-popup-shown', () => { window.popupShown = true; });`);
   const point = await win.webContents.executeJavaScript(`(() => {
@@ -152,6 +179,7 @@ app.whenReady().then(async () => {
     win.setIgnoreMouseEvents(true, { forward: true });
     ipcMain.on('fixture-hover-ignore', (_event, ignore) => win.setIgnoreMouseEvents(ignore, { forward: true }));
   }
+  const hoverStart = performance.now();
   win.webContents.sendInputEvent({type: 'mouseMove', ...point});
   await win.webContents.executeJavaScript(`(async () => {
     for (let i = 0; i < 100; i++) {
@@ -170,6 +198,69 @@ app.whenReady().then(async () => {
     return false;
   })()`);
   assert.equal(definition, true, 'the popup must render the actual dictionary definition');
+  if (phase === 'idle') {
+    const elapsed = Math.round(performance.now() - hoverStart);
+    assert.ok(elapsed < 3000, `First hover after idle took ${elapsed} ms`);
+    console.log(`PASS: first hover rendered a saved definition in ${elapsed} ms after 65 seconds idle`);
+    win.destroy(); clearTimeout(timeout); app.exit(0); return;
+  }
+  if (phase === 'controller') {
+    for (const name of ['dictionary_navigation.js', 'gamepad.js']) {
+      await win.webContents.executeJavaScript(fs.readFileSync(path.join(overlay, name), 'utf8') + '\nvoid 0;');
+    }
+    await win.webContents.executeJavaScript(`(async () => {
+      const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+      const wait = async (check, label) => {
+        for (let i = 0; i < 100; i++) { if (check()) return; await delay(25); }
+        throw new Error(label);
+      };
+      await gsmYomitanBridge.closePopups();
+      const block = document.createElement('div');
+      block.className = 'text-block-container';
+      block.style.cssText = 'margin:80px;font:32px sans-serif';
+      for (const glyph of '食べる食べる') {
+        const box = document.createElement('span');
+        box.className = 'text-box'; box.dataset.lineIndex = '0';
+        box.style.display = 'inline-block'; box.textContent = glyph; block.appendChild(box);
+      }
+      document.querySelector('#word').replaceWith(block);
+      window.GsmJitenHighlight = { getNavigationTokens: () => [
+        { lineIndex: 0, text: '食べる食べる', start: 0, end: 3, states: ['new'] },
+        { lineIndex: 0, text: '食べる食べる', start: 3, end: 6, states: ['new'] },
+      ] };
+      const handler = new GamepadHandler({ connectToServer: false, controllerEnabled: false,
+        keyboardEnabled: false, focusOverlayOnEntry: false, initialPosition: 'first-new' });
+      handler.requestTokenizationForBlock = () => {};
+      handler.activateNavigation();
+      await wait(() => handler.dictionaryPopupVisible, 'Auto-lookup did not open on controller activation');
+      let hidden = 0;
+      const onHidden = () => hidden++;
+      window.addEventListener('yomitan-popup-hidden', onHidden);
+      // Native forwarding continues at the physical mouse position while the
+      // controller selects text elsewhere. An empty hover must not close it.
+      for (const direction of [0, 1, -1, 1, -1]) {
+        if (direction && !handler.navigateJitenWord(direction)) throw new Error('Jiten jump failed');
+        for (let i = 0; i < 5; i++) {
+          hoverFixture.forward({ x: 700 + i, y: 500, buttons: 0 });
+          await delay(30);
+        }
+        if (!handler.isActive || !handler.dictionaryPopupVisible || hidden !== 0) {
+          throw new Error('A forwarded mouse scan dismissed the controller auto-lookup');
+        }
+      }
+      window.removeEventListener('yomitan-popup-hidden', onHidden);
+      handler.deactivateNavigation();
+      await wait(() => !handler.dictionaryPopupVisible, 'Controller exit did not close the popup');
+      handler.destroy();
+      await delay(50);
+      window.popupShown = false;
+      const r = block.firstElementChild.getBoundingClientRect();
+      hoverFixture.forward({ x: r.x + r.width / 2, y: r.y + r.height / 2, buttons: 0 });
+      await wait(() => window.popupShown, 'Mouse lookup did not resume after controller navigation');
+    })()`);
+    console.log('PASS: controller activation and repeated Jiten jumps retain auto-lookups; mouse scanning resumes on exit');
+    win.destroy(); clearTimeout(timeout); app.exit(0); return;
+  }
   if (phase === 'mining') {
     const buttonPoint = await popup.executeJavaScript(`(async () => {
       for (let i = 0; i < 100; i++) {

@@ -4,13 +4,12 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Iterable
 
+from GameSentenceMiner.native.downloads import download_file
 from GameSentenceMiner.util.config.configuration import logger
-
 
 SCREEN_AI_RESOURCE_ROOT = Path.home() / ".config" / "screen_ai"
 
@@ -78,7 +77,7 @@ def _download_via_cipd(target_root: Path) -> bool:
 
     logger.info(f"Downloading CIPD client for {cipd_platform}...")
     try:
-        urllib.request.urlretrieve(cipd_url, cipd_path)
+        download_file(cipd_url, cipd_path)
     except Exception as e:
         raise RuntimeError(f"Failed to download CIPD client: {e}") from e
 
@@ -125,15 +124,7 @@ def _has_any_library(root: Path, library_names: Iterable[str]) -> bool:
 
 
 def _download_archive(url: str, archive_path: Path) -> None:
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "GameSentenceMiner-ScreenAI-Downloader"},
-    )
-    with (
-        urllib.request.urlopen(request, timeout=120) as response,
-        archive_path.open("wb") as output,
-    ):
-        shutil.copyfileobj(response, output)
+    download_file(url, archive_path)
 
 
 def _extract_archive(archive_path: Path, destination: Path) -> int:

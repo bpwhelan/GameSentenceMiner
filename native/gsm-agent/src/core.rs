@@ -442,9 +442,14 @@ impl Core {
         self.emit("texthook.hooks", self.hooks());
     }
     pub fn log(&mut self, message: &str, level: &str) {
+        let tagged = if message.starts_with("[rust:") || message.starts_with("[frida:") {
+            message.to_owned()
+        } else {
+            format!("[rust:gsm-agent] {message}")
+        };
         self.emit(
             "texthook.log",
-            json!({"message":message,"level":level,"ts":now()}),
+            json!({"message":tagged,"level":level,"ts":now()}),
         );
     }
     pub fn drain(&mut self) -> Vec<Event> {
@@ -741,7 +746,7 @@ impl Core {
                     }
                 }
                 self.log(
-                    &format!("[Agent] {text}"),
+                    &format!("[frida:agent] {text}"),
                     match message["level"].as_str() {
                         Some("error") => "error",
                         Some("warning") => "warn",

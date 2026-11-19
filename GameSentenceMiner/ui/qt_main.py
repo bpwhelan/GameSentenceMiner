@@ -86,6 +86,7 @@ class DialogManager(QObject):
         super().__init__()
         self._anki_setup_prompts_seen = set()
         self._anki_setup_prompt = None
+        self.desktop_windows = {}
         self._execute_on_gui_thread.connect(self._execute_callable)
 
     def offer_anki_setup(self, issue):
@@ -513,7 +514,7 @@ def send_image_to_clipboard(png_data: bytes) -> None:
         logger.error("DialogManager not available for image clipboard operation")
 
 
-def get_qt_app():
+def get_qt_app(*, track_sessions=True):
     """
     Get or create the global QApplication instance.
     """
@@ -554,9 +555,10 @@ def get_qt_app():
     if _dialog_manager is None:
         _dialog_manager = DialogManager()
         gsm_state.dialog_manager = _dialog_manager
-        from GameSentenceMiner.ui.session_review_qt import SessionReviewController
+        if track_sessions:
+            from GameSentenceMiner.ui.session_review_qt import SessionReviewController
 
-        _dialog_manager.session_review_controller = SessionReviewController(_dialog_manager)
+            _dialog_manager.session_review_controller = SessionReviewController(_dialog_manager)
 
     return _qt_app
 

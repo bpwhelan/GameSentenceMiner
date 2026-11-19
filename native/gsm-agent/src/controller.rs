@@ -199,7 +199,7 @@ impl Controller {
             stop_legacy(&info)?;
             (self.emit)(
                 "texthook.log",
-                json!({"level":"info","message":"The previous Agent host was stopped for the native migration. Start Agent again to use the Rust runtime.","ts":crate::core::now()}),
+                json!({"level":"info","message":"[rust:gsm-agent] The previous Agent host was stopped for the native migration. Start Agent again to use the Rust runtime.","ts":crate::core::now()}),
                 true,
             );
             return Ok(false);
@@ -224,6 +224,11 @@ impl Controller {
         Ok(state["status"]["running"] == true)
     }
     pub fn start(&self, executable: PathBuf, options: Value) -> Result<Value, String> {
+        self.start_with(options, || Ok(executable))
+    }
+    /// Resolve/download only for a new session, inside its cancellation lifetime.
+    /// Stop or shutdown during a first-use download must never attach afterwards.
+    pub fn start_with(&self, options: Value, executable: impl FnOnce() -> Result<PathBuf, String>) -> Result<Value, String> {
         let _serial = self.start_lock.lock().unwrap();
         self.stop()?;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -233,6 +238,10 @@ impl Controller {
             .ok_or("Missing Agent data directory")?;
         let detached = options["detached"] == true;
         stop_saved(base)?;
+        let executable = executable()?;
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return Err("Agent startup cancelled".into());
+        }
         use base64::Engine;
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(serde_json::to_vec(&options).map_err(|e| e.to_string())?);

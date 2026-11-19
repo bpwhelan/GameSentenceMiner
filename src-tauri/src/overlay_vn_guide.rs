@@ -62,6 +62,21 @@ fn has_number_prefix_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^\d{1,2}[.)、]").expect("valid has_num prefix regex"))
 }
 
+fn choice_number_token(text: &str) -> Option<i32> {
+    let digits = text.trim();
+    if !(1..=2).contains(&digits.chars().take(3).count())
+        || !digits
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('０'..='９').contains(&c))
+    {
+        return None;
+    }
+    nfkc_compat(digits)
+        .parse()
+        .ok()
+        .filter(|number| *number > 0)
+}
+
 fn save_control_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
@@ -550,7 +565,7 @@ pub fn validate_guide(data: &Value) -> Result<GuideManifest, String> {
             .chars()
             .take(300)
             .collect();
-        let reviewed = r.get("reviewed").and_then(Value::as_bool).unwrap_or(true);
+        let reviewed = r.get("reviewed").and_then(Value::as_bool).unwrap_or(false);
         routes.push(GuideRouteMeta {
             id: id.to_string(),
             title: route_title,
@@ -1177,11 +1192,12 @@ impl GuideStore {
         })
     }
 
-    pub async fn check_for_updates(
+    fn prepare_update_check(
         &mut self,
         loaded: &LoadedGuide,
         force: bool,
-    ) -> Result<(GuideManifest, String), String> {
+        generation: u64,
+    ) -> GuideUpdateCheck {
         let guide_url = format!("{}guide.json", loaded.source.base_url);
         let route_url = format!(
             "{}route_{}.json",
@@ -1189,34 +1205,43 @@ impl GuideStore {
             percent_encode_segment(&loaded.route.id)
         );
         let now = now_ms();
-        if !force {
-            let recent_g = self
-                .fetched_at_ms
-                .get(&guide_url)
-                .is_some_and(|t| now.saturating_sub(*t) < UPDATE_INTERVAL_MS);
-            let recent_r = self
-                .fetched_at_ms
-                .get(&route_url)
-                .is_some_and(|t| now.saturating_sub(*t) < UPDATE_INTERVAL_MS);
-            if recent_g && recent_r {
-                return Ok((loaded.guide.clone(), loaded.fingerprint.clone()));
-            }
+        let recent_g = self
+            .fetched_at_ms
+            .get(&guide_url)
+            .is_some_and(|t| now.saturating_sub(*t) < UPDATE_INTERVAL_MS);
+        let recent_r = self
+            .fetched_at_ms
+            .get(&route_url)
+            .is_some_and(|t| now.saturating_sub(*t) < UPDATE_INTERVAL_MS);
+        let cached = !force && recent_g && recent_r;
+        if !cached {
+            // A check does not replace the playable cache. Reopening that cache
+            // must still check the source, even shortly after its first download.
+            self.fetched_at_ms.remove(&guide_url);
+            self.fetched_at_ms.remove(&route_url);
         }
-        self.fetched_at_ms.remove(&guide_url);
-        self.fetched_at_ms.remove(&route_url);
-        let guide_json = fetch_guide_json(&self.http, &guide_url).await?;
-        let route_json = fetch_guide_json(&self.http, &route_url).await?;
-        let guide = validate_guide(&guide_json)?;
-        let steps = validate_route(&route_json)?;
-        Ok((guide, fingerprint_steps(&steps)))
+        GuideUpdateCheck {
+            generation,
+            http: self.http.clone(),
+            guide_url,
+            route_url,
+            cached: cached.then(|| (loaded.guide.clone(), loaded.fingerprint.clone())),
+        }
     }
 
-    pub fn save_progress(&mut self, key: &str, index: usize, fingerprint: &str) {
+    pub fn save_progress(
+        &mut self,
+        key: &str,
+        index: usize,
+        fingerprint: &str,
+    ) -> Result<(), String> {
         self.progress.insert(
             key.to_string(),
             json!({ "index": index, "fingerprint": fingerprint }),
         );
-        let _ = write_atomic(&self.progress_file, &Value::Object(self.progress.clone()));
+        write_atomic(&self.progress_file, &Value::Object(self.progress.clone())).map_err(|_| {
+            "Could not save guide progress. Check that the GSM data folder is writable.".to_string()
+        })
     }
 
     pub async fn list_catalogue(
@@ -1518,7 +1543,28 @@ struct PreparedLine {
     is_vertical: bool,
     choice_number: Option<i32>,
     has_number_prefix: bool,
+    unpunctuated_choice: Option<(i32, String)>,
     isolated: bool,
+}
+
+impl PreparedLine {
+    fn numbered_choice(&self) -> Option<(i32, &str)> {
+        self.choice_number
+            .map(|number| (number, self.normalized.as_str()))
+            .or_else(|| {
+                self.unpunctuated_choice
+                    .as_ref()
+                    .map(|(number, body)| (*number, body.as_str()))
+            })
+    }
+
+    fn matches_option(&self, options: &[String]) -> bool {
+        contains_option(options, &self.normalized)
+            || self
+                .unpunctuated_choice
+                .as_ref()
+                .is_some_and(|(_, body)| options.contains(body))
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1653,6 +1699,7 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
         rect_norm: RectBox,
         vertical: bool,
         metric: AxisMetric,
+        unpunctuated_label: Option<(i32, usize)>,
     }
     let mut runs: Vec<RawRun> = Vec::with_capacity(data.len());
 
@@ -1703,7 +1750,10 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
             }
         }
 
-        let explicit_vert = line_val.get("isVertical").and_then(Value::as_bool);
+        let explicit_vert = line_val
+            .get("isVertical")
+            .and_then(Value::as_bool)
+            .or_else(|| line_val.get("is_vertical").and_then(Value::as_bool));
         let infer_vert = |wbs: &[(RectBox, &str)]| -> bool {
             if let Some(v) = explicit_vert {
                 return v;
@@ -1777,6 +1827,7 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
                 rect_norm: line_box_norm,
                 vertical,
                 metric,
+                unpunctuated_label: None,
             });
             continue;
         }
@@ -1842,10 +1893,21 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
             cur.spacing = spacing;
             if let Some(last_run) = split_runs.last_mut() {
                 let prev = word_metrics[*last_run.last().unwrap()];
+                let gap = cur.inline_start - prev.inline_end;
+                // A narrow number or period may have a larger gap before the
+                // choice than its own glyph width can account for.
+                let follows_label = || {
+                    let prefix = text[word_offsets[last_run[0]]..word_offsets[w_i]].trim();
+                    let digits = prefix
+                        .strip_suffix(['.', ')', '．', '）', '、'])
+                        .unwrap_or(prefix);
+                    choice_number_token(digits).is_some()
+                };
                 if shares_row(&prev, &cur)
                     && compatible_inline_font(&prev, &cur)
                     && cur.inline_start >= prev.inline_start - cur.advance * 0.5
-                    && cur.inline_start - prev.inline_end <= inline_gap_limit(&prev, &cur)
+                    && (gap <= inline_gap_limit(&prev, &cur)
+                        || (gap <= cur.advance * 1.5 && follows_label()))
                 {
                     last_run.push(w_i);
                     continue;
@@ -1884,11 +1946,25 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
             let metric = with_axes(
                 ub, vertical, ref_font, ref_adv, spacing, punct_only, glyphs, true,
             );
+            // OCR can drop the period after a menu number. Look for a separate
+            // digit token with a visible gap before the option text.
+            let unpunctuated_label = run_indices.get(1).and_then(|&second| {
+                let first = run_indices[0];
+                let gap = word_metrics[second].inline_start - word_metrics[first].inline_end;
+                if gap < word_metrics[second].advance * 0.5 {
+                    return None;
+                }
+                Some((
+                    choice_number_token(word_boxes[first].1)?,
+                    word_offsets[second] - start,
+                ))
+            });
             runs.push(RawRun {
                 text: sub_text.to_string(),
                 rect_norm,
                 vertical,
                 metric,
+                unpunctuated_label,
             });
         }
     }
@@ -2043,7 +2119,8 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
         }
     }
 
-    kept.into_iter()
+    let mut lines: Vec<_> = kept
+        .into_iter()
         .enumerate()
         .map(|(idx, r)| {
             let source = nfkc_compat(&r.text);
@@ -2053,6 +2130,11 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
                 .and_then(|c| c.get(1))
                 .and_then(|m| m.as_str().parse::<i32>().ok());
             let has_number_prefix = has_number_prefix_re().is_match(trimmed);
+            let unpunctuated_choice = r
+                .unpunctuated_label
+                .filter(|_| !has_number_prefix)
+                .map(|(number, body_start)| (number, normalize_choice(&r.text[body_start..])))
+                .filter(|(_, body)| !body.is_empty() && !is_save_control_text(body));
             PreparedLine {
                 normalized: normalize_choice(&r.text),
                 text: r.text,
@@ -2064,10 +2146,41 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
                 is_vertical: r.vertical,
                 choice_number,
                 has_number_prefix,
+                unpunctuated_choice,
                 isolated: isolated_flags[idx],
             }
         })
-        .collect()
+        .collect();
+
+    // Confirm the detached digits against consecutive numbers on nearby menu rows.
+    let confirmed: Vec<_> = lines
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let (number, body) = line.unpunctuated_choice.as_ref()?;
+            lines
+                .iter()
+                .any(|peer| {
+                    peer.numbered_choice()
+                        .is_some_and(|(peer_number, peer_body)| {
+                            body != peer_body
+                                && !peer_body.is_empty()
+                                && !is_save_control_text(peer_body)
+                                && consecutive_choices(line, *number, peer, peer_number)
+                                && compact_choice_geometry(line, peer)
+                        })
+                })
+                .then_some(index)
+        })
+        .collect();
+    for index in confirmed {
+        let line = &mut lines[index];
+        let (number, body) = line.unpunctuated_choice.take().unwrap();
+        line.choice_number = Some(number);
+        line.has_number_prefix = true;
+        line.normalized = body;
+    }
+    lines
 }
 
 fn choice_similarity(observed: &str, target: &str) -> f64 {
@@ -2112,6 +2225,25 @@ fn contains_option(options: &[String], text: &str) -> bool {
     options.iter().any(|opt| choice_similarity(text, opt) > 0.0)
 }
 
+fn consecutive_choices(
+    first: &PreparedLine,
+    first_number: i32,
+    second: &PreparedLine,
+    second_number: i32,
+) -> bool {
+    let delta = second_number - first_number;
+    delta.abs() == 1 && (second.y1 - first.y1) * f64::from(delta) > 0.0
+}
+
+fn compact_choice_geometry(m: &PreparedLine, l: &PreparedLine) -> bool {
+    let height = l.height.max(m.height);
+    let gap = (l.y1 - m.y3).max(m.y1 - l.y3);
+    (l.center - m.center).abs().min((l.x1 - m.x1).abs()) < 0.035
+        && (l.height.min(m.height) / height) > 0.65
+        && gap >= -height * 0.2
+        && gap <= height * 7.0
+}
+
 fn is_compact_choice_peer(m: &PreparedLine, l: &PreparedLine) -> bool {
     if l.normalized.is_empty()
         || l.normalized == m.normalized
@@ -2123,16 +2255,11 @@ fn is_compact_choice_peer(m: &PreparedLine, l: &PreparedLine) -> bool {
         let (Some(mn), Some(ln)) = (m.choice_number, l.choice_number) else {
             return false;
         };
-        if (ln - mn).abs() != 1 || (l.y1 - m.y1) * (ln - mn) as f64 <= 0.0 {
+        if !consecutive_choices(m, mn, l, ln) {
             return false;
         }
     }
-    let height = l.height.max(m.height);
-    let gap = (l.y1 - m.y3).max(m.y1 - l.y3);
-    (l.center - m.center).abs().min((l.x1 - m.x1).abs()) < 0.035
-        && (l.height.min(m.height) / height) > 0.65
-        && gap >= -height * 0.2
-        && gap <= height * 7.0
+    compact_choice_geometry(m, l)
 }
 
 #[derive(Clone, Debug)]
@@ -2691,9 +2818,7 @@ impl GuideTracker {
         if let Some(blocked) = self.blocked_options.as_ref() {
             if is_final
                 && !lines.is_empty()
-                && !lines
-                    .iter()
-                    .any(|l| contains_option(blocked, &l.normalized))
+                && !lines.iter().any(|line| line.matches_option(blocked))
             {
                 self.blocked_options = None;
             } else {
@@ -2840,7 +2965,7 @@ impl GuideTracker {
                 let susp = self.suspended_options.clone();
                 self.reset_detection(false);
                 if let Some(opts) = susp {
-                    if lines.iter().any(|l| contains_option(&opts, &l.normalized)) {
+                    if lines.iter().any(|line| line.matches_option(&opts)) {
                         self.suspended_options = Some(opts);
                     }
                 }
@@ -2858,11 +2983,7 @@ impl GuideTracker {
             self.reset_detection(false);
             return;
         }
-        if lines.is_empty()
-            || lines
-                .iter()
-                .any(|l| contains_option(&armed.options, &l.normalized))
-        {
+        if lines.is_empty() || lines.iter().any(|line| line.matches_option(&armed.options)) {
             return;
         }
         if armed.presence_id.is_some() && armed.presence_id.as_deref() == msg_presence_id {
@@ -2906,6 +3027,45 @@ impl GuideTracker {
 
 // ---------- VN-Guide Controller & HUD Geometry ----------
 
+// Network checks run outside the controller lock so text observation, hotkeys,
+// source changes and timed notices remain responsive while a source is offline.
+pub struct GuideUpdateCheck {
+    generation: u64,
+    http: reqwest::Client,
+    guide_url: String,
+    route_url: String,
+    cached: Option<(GuideManifest, String)>,
+}
+
+pub struct GuideUpdateResult {
+    generation: u64,
+    result: Result<(GuideManifest, String), String>,
+}
+
+impl GuideUpdateCheck {
+    pub async fn run(self) -> GuideUpdateResult {
+        let result = if let Some(cached) = self.cached {
+            Ok(cached)
+        } else {
+            async {
+                let (guide_json, route_json) = tokio::try_join!(
+                    fetch_guide_json(&self.http, &self.guide_url),
+                    fetch_guide_json(&self.http, &self.route_url)
+                )?;
+                Ok((
+                    validate_guide(&guide_json)?,
+                    fingerprint_steps(&validate_route(&route_json)?),
+                ))
+            }
+            .await
+        };
+        GuideUpdateResult {
+            generation: self.generation,
+            result,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct LastActivity {
     text: String,
@@ -2921,6 +3081,7 @@ pub struct VnGuideController {
     mode: String,
     display_style: String,
     auto_advance: bool,
+    click_through_on_choice: bool,
     next_hotkey: String,
     source_url: String,
     source_key: String,
@@ -2929,7 +3090,7 @@ pub struct VnGuideController {
     loading: bool,
     error: String,
     available: bool,
-    game: Option<String>,
+    scene: Option<String>,
     dismissed: bool,
     dismissed_at_choice: bool,
     peek: bool,
@@ -2958,6 +3119,7 @@ impl VnGuideController {
             mode: "auto".into(),
             display_style: "card".into(),
             auto_advance: true,
+            click_through_on_choice: true,
             next_hotkey: String::new(),
             source_url: String::new(),
             source_key: String::new(),
@@ -2966,7 +3128,7 @@ impl VnGuideController {
             loading: false,
             error: String::new(),
             available: false,
-            game: None,
+            scene: None,
             dismissed: false,
             dismissed_at_choice: false,
             peek: false,
@@ -2999,14 +3161,18 @@ impl VnGuideController {
     }
 
     fn enter_step(&mut self) {
+        self.clear_logged_choice();
+        self.dismissed = false;
+        self.dismissed_at_choice = false;
         let has_saves = self
             .tracker
             .as_ref()
             .is_some_and(|t| !t.save_instructions().is_empty());
-        self.save_notice_until = if has_saves {
-            Some(now_ms() + 8000)
-        } else {
+        self.save_notice_until = if has_saves && !self.available {
+            // Start the brief notice only when there is a capture to show it on.
             None
+        } else {
+            Some(if has_saves { now_ms() + 8000 } else { 0 })
         };
     }
 
@@ -3014,19 +3180,28 @@ impl VnGuideController {
         if let Some(step) = previous_step {
             if step.kind == "choice" {
                 self.logged_choice = Some(step.text.clone());
-                self.logged_until = now_ms() + 3000;
+                self.logged_until = now_ms() + 4000;
+                self.save_notice_until = Some(0);
+                self.peek_lines = 0;
             }
         }
     }
 
     pub fn persist_progress(&mut self) {
         if let (Some(loaded), Some(tracker)) = (&self.loaded, &self.tracker) {
-            self.store
-                .save_progress(&loaded.key, tracker.index, &loaded.fingerprint);
+            if let Err(error) =
+                self.store
+                    .save_progress(&loaded.key, tracker.index, &loaded.fingerprint)
+            {
+                self.error = error;
+            }
         }
     }
 
     fn next_route(&self) -> Option<GuideRouteMeta> {
+        if !self.tracker.as_ref().is_some_and(GuideTracker::complete) {
+            return None;
+        }
         let loaded = self.loaded.as_ref()?;
         let pos = loaded
             .guide
@@ -3038,10 +3213,9 @@ impl VnGuideController {
 
     pub fn snapshot(&self) -> Value {
         let now = now_ms();
-        let choice_logged = self
-            .logged_choice
-            .as_ref()
-            .filter(|_| now < self.logged_until);
+        // Keep expired confirmations in auto/hotkey mode: Next must reveal the
+        // pending instruction, and a lingering preview must not expose it early.
+        let choice_logged = self.logged_choice.as_ref();
         let save_instructions = self
             .tracker
             .as_ref()
@@ -3052,20 +3226,23 @@ impl VnGuideController {
             .tracker
             .as_ref()
             .is_some_and(GuideTracker::remembered_choice);
-        let save_notice = !save_instructions.is_empty()
+        let save_notice = choice_logged.is_none()
+            && self.mode == "auto"
+            && !save_instructions.is_empty()
             && !detected
             && !remembered
             && !self.peek
             && self.save_notice_until.is_some_and(|u| now < u);
-        let showing = choice_logged.is_some()
-            || self.mode == "always"
-            || self.peek
-            || save_notice
-            || self.tracker.as_ref().is_some_and(|t| {
-                t.detected
-                    || t.current()
-                        .is_some_and(|s| s.kind == "save" || s.kind == "load")
-            });
+        let automatic = self.mode == "always"
+            || self.mode == "auto"
+                && self.tracker.as_ref().is_some_and(|t| {
+                    t.detected || t.current().is_none_or(|s| s.kind != "choice") || save_notice
+                });
+        let showing = if choice_logged.is_some() {
+            self.mode == "always" || (self.mode == "auto" || self.peek) && now < self.logged_until
+        } else {
+            self.peek || automatic
+        };
         let visible =
             self.available && self.enabled && self.tracker.is_some() && !self.dismissed && showing;
 
@@ -3115,7 +3292,8 @@ impl VnGuideController {
             "kind": cur.map(|c| c.kind.as_str()).unwrap_or(""),
             "text": cur.map(|c| c.text.as_str()).unwrap_or(""),
             "complete": self.tracker.as_ref().is_some_and(GuideTracker::complete),
-            "detected": detected,
+            "detected": detected && !remembered,
+            "choiceClickThrough": detected && !remembered && self.available && !self.loading && self.click_through_on_choice,
             "rememberedChoice": remembered,
             "tentative": self.tracker.as_ref().is_some_and(|t| t.tentative),
             "recoveredFrom": self.tracker.as_ref().and_then(|t| t.recovered_from),
@@ -3128,6 +3306,7 @@ impl VnGuideController {
         let next_mode = settings
             .get("vnGuideMode")
             .and_then(Value::as_str)
+            .filter(|mode| matches!(*mode, "auto" | "always" | "hotkey"))
             .unwrap_or("auto")
             .to_string();
         if next_mode != self.mode {
@@ -3148,10 +3327,13 @@ impl VnGuideController {
         self.display_style = settings
             .get("vnGuideDisplayStyle")
             .and_then(Value::as_str)
+            .filter(|style| matches!(*style, "card" | "text"))
             .unwrap_or("card")
             .to_string();
         self.auto_advance =
             settings.get("vnGuideAutoAdvance").and_then(Value::as_bool) != Some(false);
+        self.click_through_on_choice =
+            settings.get("vnGuideClickThroughOnChoice").and_then(Value::as_bool) != Some(false);
         self.next_hotkey = settings
             .get("vnGuideNextHotkey")
             .and_then(Value::as_str)
@@ -3168,6 +3350,7 @@ impl VnGuideController {
 
         self.source_key = key;
         self.epoch += 1;
+        self.next_update_check_at = 0;
         let gen = self.epoch;
         self.checking_updates = false;
         if !refresh {
@@ -3215,39 +3398,47 @@ impl VnGuideController {
     }
 
     pub async fn check_for_updates(&mut self, force: bool) -> Value {
-        if self.loading || !self.enabled {
-            return self.snapshot();
+        if let Some(check) = self.begin_update_check(force) {
+            self.finish_update_check(check.run().await);
         }
-        let Some(loaded) = self.loaded.clone() else {
-            return self.snapshot();
-        };
-        let gen = self.epoch;
+        self.snapshot()
+    }
+
+    pub fn begin_update_check(&mut self, force: bool) -> Option<GuideUpdateCheck> {
+        if self.loading || !self.enabled || self.checking_updates {
+            return None;
+        }
+        let loaded = self.loaded.as_ref()?;
         self.checking_updates = true;
         self.update_error.clear();
         self.next_update_check_at = now_ms() + UPDATE_INTERVAL_MS;
-        match self.store.check_for_updates(&loaded, force).await {
+        Some(self.store.prepare_update_check(loaded, force, self.epoch))
+    }
+
+    pub fn finish_update_check(&mut self, update: GuideUpdateResult) -> bool {
+        if self.epoch != update.generation {
+            return false;
+        }
+        let Some(loaded) = self.loaded.as_ref() else {
+            return false;
+        };
+        match update.result {
             Ok((latest_guide, latest_fp)) => {
-                if self.epoch == gen {
-                    self.update_available =
-                        latest_fp != loaded.fingerprint || latest_guide != loaded.guide;
-                    self.last_checked_at = Some(now_ms());
-                }
+                self.update_available =
+                    latest_fp != loaded.fingerprint || latest_guide != loaded.guide;
+                self.last_checked_at = Some(now_ms());
             }
             Err(e) => {
-                if self.epoch == gen {
-                    self.update_error = if e.is_empty() {
-                        "Could not check VN-Guide for updates.".into()
-                    } else {
-                        e
-                    };
-                }
+                self.update_error = if e.is_empty() {
+                    "Could not check VN-Guide for updates.".into()
+                } else {
+                    e
+                };
             }
         }
-        if self.epoch == gen {
-            self.checking_updates = false;
-            self.next_update_check_at = now_ms() + UPDATE_INTERVAL_MS;
-        }
-        self.snapshot()
+        self.checking_updates = false;
+        self.next_update_check_at = now_ms() + UPDATE_INTERVAL_MS;
+        true
     }
 
     pub async fn continue_route(&mut self) -> (Value, Option<String>) {
@@ -3258,6 +3449,7 @@ impl VnGuideController {
             return (self.snapshot(), None);
         }
         self.epoch += 1;
+        self.next_update_check_at = 0;
         let gen = self.epoch;
         self.loading = true;
         self.checking_updates = false;
@@ -3300,13 +3492,15 @@ impl VnGuideController {
         (self.snapshot(), switched_route)
     }
 
-    pub fn set_available(&mut self, value: bool, current_game: Option<&str>) -> bool {
+    /// Only capture-status scene names identify a guide session. Window titles
+    /// can differ from the scene or change while the same game is still running.
+    pub fn set_available(&mut self, value: bool, current_scene: Option<&str>) -> bool {
         let next = value;
-        let changed_game = current_game
-            .zip(self.game.as_deref())
+        let changed_scene = current_scene
+            .zip(self.scene.as_deref())
             .is_some_and(|(cur, prev)| cur != prev);
-        if let Some(g) = current_game {
-            self.game = Some(g.to_string());
+        if let Some(scene) = current_scene {
+            self.scene = Some(scene.to_string());
         }
         let now = now_ms();
         if !next && self.available {
@@ -3328,7 +3522,7 @@ impl VnGuideController {
                 }
             }
         }
-        if changed_game {
+        if changed_scene {
             if let Some(t) = self.tracker.as_mut() {
                 t.reset_detection(false);
             }
@@ -3354,12 +3548,11 @@ impl VnGuideController {
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let dirty =
-            next != prev_avail || changed_game || show_next_step || vis != self.last_visible;
+            next != prev_avail || changed_scene || show_next_step || vis != self.last_visible;
         self.last_visible = vis;
         dirty
     }
 
-    #[allow(dead_code)]
     pub fn needs_periodic_update_check(&self) -> bool {
         self.enabled
             && !self.loading
@@ -3373,8 +3566,9 @@ impl VnGuideController {
             return false;
         }
         if message.get("type").and_then(Value::as_str) == Some("window_state") {
-            let game = message.get("game").and_then(Value::as_str);
-            return self.set_available(self.available, game);
+            // The host handles availability; `game` here is a window title,
+            // not the OBS scene used to select and reset the guide.
+            return false;
         }
         if !self.available {
             return false;
@@ -3594,7 +3788,13 @@ impl VnGuideController {
             "next" | "back" | "jump" => {
                 if let Some(t) = self.tracker.as_mut() {
                     if action == "jump" {
-                        let idx = value.and_then(Value::as_u64).unwrap_or(0) as usize;
+                        let Some(idx) = value
+                            .and_then(Value::as_u64)
+                            .and_then(|i| usize::try_from(i).ok())
+                        else {
+                            self.error = "Choose a step within this route.".into();
+                            return (self.snapshot(), None);
+                        };
                         if let Err(e) = t.jump(idx) {
                             self.error = e;
                             return (self.snapshot(), None);
@@ -3605,6 +3805,7 @@ impl VnGuideController {
                         t.back();
                     }
                 }
+                self.error.clear();
                 self.enter_step();
                 if action != "jump" {
                     self.reveal_step();
@@ -3669,6 +3870,10 @@ pub fn normalize_custom_page_url(raw: &str) -> Option<String> {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "overlay_vn_guide_tests.rs"]
+mod controller_tests;
 
 #[cfg(test)]
 mod tests {
@@ -3867,6 +4072,111 @@ mod tests {
         tracker.observe(&dialogue_frame, 1500, true);
         assert_eq!(tracker.index, 1);
         assert!(tracker.tentative);
+    }
+
+    #[test]
+    fn detects_numbered_muv_luv_menu_when_ocr_drops_the_periods() {
+        // MeikiOCR sees separated digits at the start of all three rows.
+        let row = |text, y1, y3, words: &[(&str, f64, f64)]| {
+            json!({
+                "text": text,
+                "is_vertical": false,
+                "bounding_rect": {"x1": words[0].1, "y1": y1, "x3": words.last().unwrap().2, "y3": y3},
+                "words": words.iter().map(|(text, x1, x3)| json!({
+                    "text": text, "bounding_rect": {"x1": x1, "y1": y1, "x3": x3, "y3": y3}
+                })).collect::<Vec<_>>()
+            })
+        };
+        let rows = [
+            row(
+                "1ぬいぐるみ",
+                0.608,
+                0.626,
+                &[
+                    ("1", 0.489, 0.495),
+                    ("ぬ", 0.502, 0.512),
+                    ("い", 0.512, 0.522),
+                    ("ぐ", 0.522, 0.530),
+                    ("る", 0.530, 0.539),
+                    ("み", 0.540, 0.549),
+                ],
+            ),
+            row(
+                "2本",
+                0.630,
+                0.647,
+                &[("2", 0.506, 0.514), ("本", 0.521, 0.531)],
+            ),
+            row(
+                "3ゲーム",
+                0.651,
+                0.668,
+                &[
+                    ("3", 0.497, 0.503),
+                    ("ゲ", 0.511, 0.520),
+                    ("ー", 0.521, 0.530),
+                    ("ム", 0.530, 0.540),
+                ],
+            ),
+        ];
+        let frame = |data: &[Value], presence| {
+            json!({"type":"word_coordinates", "native_layout":true, "is_final":true,
+                "presence_id":presence, "data":data})
+        };
+        let steps = validate_route(&json!([{"simpleJp":"ゲーム"}, {"simpleJp":"続ける"}])).unwrap();
+        let mut tracker = GuideTracker::new(steps, 0);
+        tracker.observe(&frame(&rows[2..], "single"), 500, true);
+        assert!(!tracker.detected);
+        tracker.observe(&frame(&rows, "menu"), 1000, true);
+        assert!(tracker.detected);
+        assert!(tracker.armed.as_ref().unwrap().stable);
+        assert_eq!(tracker.index, 0);
+
+        // A later scan can miss the other options while the menu is still on screen.
+        tracker.observe(&frame(&rows[2..], "partial"), 2500, true);
+        assert_eq!(tracker.index, 0);
+        tracker.observe(
+            &frame(
+                &[row("次の会話", 0.8, 0.83, &[("次の会話", 0.2, 0.4)])],
+                "dialogue",
+            ),
+            3000,
+            true,
+        );
+        assert_eq!(tracker.index, 1);
+
+        let mixed = [
+            row(
+                "2. 本",
+                0.630,
+                0.647,
+                &[("2.", 0.506, 0.514), ("本", 0.521, 0.531)],
+            ),
+            rows[2].clone(),
+        ];
+        let mixed = prepare_choice_lines(&mixed);
+        assert!(
+            find_choice(&mixed, "ゲーム", false, true).is_some_and(|matched| matched.exact),
+            "{mixed:?}"
+        );
+
+        let counts = [
+            row(
+                "2冊を買う",
+                0.630,
+                0.647,
+                &[("2", 0.506, 0.514), ("冊を買う", 0.515, 0.552)],
+            ),
+            row(
+                "3ゲーム",
+                0.651,
+                0.668,
+                &[("3", 0.506, 0.514), ("ゲーム", 0.515, 0.546)],
+            ),
+        ];
+        let counts = prepare_choice_lines(&counts);
+        assert!(find_choice(&counts, "ゲーム", false, true).is_none());
+        assert!(find_choice(&counts, "3ゲーム", false, true).unwrap().exact);
     }
 
     #[test]

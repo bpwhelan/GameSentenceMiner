@@ -8,7 +8,7 @@ type MiningRequest = {action:'loadText'|'latestText'|'exclusions'|'stopSpeech'|'
     | {action:'addExclusion'|'removeExclusion';game:string;text:string}
     | {action:'loadSpeech';scene:unknown} | {action:'saveSpeech'|'startSpeech';scene:unknown;settings:unknown};
 type SessionRequest = {action:'snapshot'} | {action:'retry';sessionId:string;attempt:number};
-type Request = {command:'hook_profiles';request:ProfilesRequest} | {command:'hook_updates';request:UpdatesRequest} | {command:'mining_workspace';request:MiningRequest} | {command:'installation_session';request:SessionRequest} | {command:'python_environment';request:{action:'info'|'packages'|'cleanCache'}};
+type Request = {command:'overlay_lifecycle';request:{action:'status'|'openSettings'}|{action:'setEnabled';enabled:boolean}} | {command:'dictionary_service';request:{action:'openSettings'}|{action:'lookup';text:string}} | {command:'hook_profiles';request:ProfilesRequest} | {command:'hook_updates';request:UpdatesRequest} | {command:'mining_workspace';request:MiningRequest} | {command:'installation_session';request:SessionRequest} | {command:'python_environment';request:{action:'info'|'packages'|'cleanCache'}};
 function identity(value:unknown):ProfileIdentity {
     if(typeof value==='string')return {exeName:value};
     const data=(value??{}) as Partial<ProfileIdentity>;
@@ -16,6 +16,11 @@ function identity(value:unknown):ProfileIdentity {
 }
 export function nativeRequest(channel:string,args:unknown[]):Request|null {
     switch(channel){
+        case 'getOverlayStatus':return {command:'overlay_lifecycle',request:{action:'status'}};
+        case 'setOverlayEnabled':return {command:'overlay_lifecycle',request:{action:'setEnabled',enabled:args[0] as boolean}};
+        case 'settings.openOverlaySettings':return {command:'overlay_lifecycle',request:{action:'openSettings'}};
+        case 'reader.lookup':return {command:'dictionary_service',request:{action:'lookup',text:args[0] as string}};
+        case 'dictionary.openSettings':return {command:'dictionary_service',request:{action:'openSettings'}};
         case 'python.getPythonInfo':return {command:'python_environment',request:{action:'info'}};
         case 'python.getInstalledPackages':return {command:'python_environment',request:{action:'packages'}};
         case 'python.cleanCache':return {command:'python_environment',request:{action:'cleanCache'}};

@@ -1,0 +1,384 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "per_game_query_trial": {
+    "description": "Earlier Rust query grouped by note and counted distinct cards in SQLite. Same fixture and five paired rounds.",
+    "desktop_sha256": "93218de0aa76c0d73cef975fbc54946bd76dcd4e46563ad337fea50d93b05b79",
+    "iterations_per_run": 12,
+    "rust": {
+      "samples": [
+        {
+          "wall_ms": 36.01830833213171,
+          "cpu_ms": 36.458333333333336,
+          "uss_mib": 45.765625,
+          "first_request_ms": 48.44569999841042
+        },
+        {
+          "wall_ms": 36.91487499842575,
+          "cpu_ms": 36.458333333333336,
+          "uss_mib": 45.8203125,
+          "first_request_ms": 50.270300009287894
+        },
+        {
+          "wall_ms": 36.787024999891095,
+          "cpu_ms": 36.458333333333336,
+          "uss_mib": 45.62890625,
+          "first_request_ms": 49.87489999621175
+        },
+        {
+          "wall_ms": 35.914708331498936,
+          "cpu_ms": 35.15625,
+          "uss_mib": 45.52734375,
+          "first_request_ms": 48.07849999633618
+        },
+        {
+          "wall_ms": 35.90220833333054,
+          "cpu_ms": 36.458333333333336,
+          "uss_mib": 45.6015625,
+          "first_request_ms": 50.22979999193922
+        }
+      ],
+      "median": {
+        "wall_ms": 36.018,
+        "cpu_ms": 36.458,
+        "uss_mib": 45.629,
+        "first_request_ms": 49.875
+      }
+    }
+  },
+  "cases": {
+    "maturity-small": {
+      "iterations_per_run": 60,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 1.6172016665223055,
+            "cpu_ms": 1.3020833333333333,
+            "uss_mib": 43.265625,
+            "first_request_ms": 4.651199997169897
+          },
+          {
+            "wall_ms": 1.5447899999950703,
+            "cpu_ms": 1.5625,
+            "uss_mib": 43.265625,
+            "first_request_ms": 5.040999996708706
+          },
+          {
+            "wall_ms": 1.5767300001850042,
+            "cpu_ms": 1.5625,
+            "uss_mib": 42.69921875,
+            "first_request_ms": 5.544399988139048
+          },
+          {
+            "wall_ms": 1.5315583334692444,
+            "cpu_ms": 1.5625,
+            "uss_mib": 43.11328125,
+            "first_request_ms": 5.035100009990856
+          },
+          {
+            "wall_ms": 1.5142266667680815,
+            "cpu_ms": 1.5625,
+            "uss_mib": 43.1953125,
+            "first_request_ms": 5.027799983508885
+          }
+        ],
+        "median": {
+          "wall_ms": 1.545,
+          "cpu_ms": 1.562,
+          "uss_mib": 43.195,
+          "first_request_ms": 5.035
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 2.6791516667193114,
+            "cpu_ms": 2.8645833333333335,
+            "uss_mib": 43.6328125,
+            "first_request_ms": 19.111800007522106
+          },
+          {
+            "wall_ms": 2.7700716668429473,
+            "cpu_ms": 3.125,
+            "uss_mib": 43.5625,
+            "first_request_ms": 17.2076000017114
+          },
+          {
+            "wall_ms": 2.6734233334233672,
+            "cpu_ms": 3.125,
+            "uss_mib": 43.4453125,
+            "first_request_ms": 18.531599984271452
+          },
+          {
+            "wall_ms": 2.6158066665326865,
+            "cpu_ms": 2.6041666666666665,
+            "uss_mib": 43.81640625,
+            "first_request_ms": 17.79260000330396
+          },
+          {
+            "wall_ms": 2.6838683334062807,
+            "cpu_ms": 2.6041666666666665,
+            "uss_mib": 43.32421875,
+            "first_request_ms": 15.962200006470084
+          }
+        ],
+        "median": {
+          "wall_ms": 2.679,
+          "cpu_ms": 2.865,
+          "uss_mib": 43.562,
+          "first_request_ms": 17.793
+        }
+      }
+    },
+    "maturity": {
+      "iterations_per_run": 8,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 107.69573750076233,
+            "cpu_ms": 103.515625,
+            "uss_mib": 50.3515625,
+            "first_request_ms": 116.33079999592155
+          },
+          {
+            "wall_ms": 113.83382500207517,
+            "cpu_ms": 109.375,
+            "uss_mib": 50.48046875,
+            "first_request_ms": 118.15650001517497
+          },
+          {
+            "wall_ms": 109.55547500270768,
+            "cpu_ms": 109.375,
+            "uss_mib": 50.14453125,
+            "first_request_ms": 122.97729999409057
+          },
+          {
+            "wall_ms": 109.15397499775281,
+            "cpu_ms": 107.421875,
+            "uss_mib": 50.09765625,
+            "first_request_ms": 112.35439998563379
+          },
+          {
+            "wall_ms": 109.99436250131112,
+            "cpu_ms": 109.375,
+            "uss_mib": 50.30078125,
+            "first_request_ms": 113.9479000121355
+          }
+        ],
+        "median": {
+          "wall_ms": 109.555,
+          "cpu_ms": 109.375,
+          "uss_mib": 50.301,
+          "first_request_ms": 116.331
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 76.85836249947897,
+            "cpu_ms": 74.21875,
+            "uss_mib": 45.64453125,
+            "first_request_ms": 90.48469999106601
+          },
+          {
+            "wall_ms": 78.91511249908945,
+            "cpu_ms": 80.078125,
+            "uss_mib": 45.4140625,
+            "first_request_ms": 105.37669999757782
+          },
+          {
+            "wall_ms": 77.7955249977822,
+            "cpu_ms": 76.171875,
+            "uss_mib": 45.81640625,
+            "first_request_ms": 88.63280000514351
+          },
+          {
+            "wall_ms": 75.77513749856735,
+            "cpu_ms": 76.171875,
+            "uss_mib": 45.72265625,
+            "first_request_ms": 89.25049999379553
+          },
+          {
+            "wall_ms": 76.14343750174157,
+            "cpu_ms": 74.21875,
+            "uss_mib": 45.64453125,
+            "first_request_ms": 92.07559999777004
+          }
+        ],
+        "median": {
+          "wall_ms": 76.858,
+          "cpu_ms": 76.172,
+          "uss_mib": 45.645,
+          "first_request_ms": 90.485
+        }
+      }
+    },
+    "reading-impact": {
+      "iterations_per_run": 8,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 131.2757000014244,
+            "cpu_ms": 130.859375,
+            "uss_mib": 89.48046875,
+            "first_request_ms": 374.06230001943186
+          },
+          {
+            "wall_ms": 130.27688749934896,
+            "cpu_ms": 128.90625,
+            "uss_mib": 89.36328125,
+            "first_request_ms": 375.559100008104
+          },
+          {
+            "wall_ms": 131.0350624989951,
+            "cpu_ms": 130.859375,
+            "uss_mib": 89.73046875,
+            "first_request_ms": 359.91429997375235
+          },
+          {
+            "wall_ms": 128.36856249850825,
+            "cpu_ms": 123.046875,
+            "uss_mib": 90.01953125,
+            "first_request_ms": 372.9047999950126
+          },
+          {
+            "wall_ms": 127.91517499863403,
+            "cpu_ms": 126.953125,
+            "uss_mib": 89.91796875,
+            "first_request_ms": 372.747800021898
+          }
+        ],
+        "median": {
+          "wall_ms": 130.277,
+          "cpu_ms": 128.906,
+          "uss_mib": 89.73,
+          "first_request_ms": 372.905
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 99.93603749899194,
+            "cpu_ms": 99.609375,
+            "uss_mib": 46.02734375,
+            "first_request_ms": 123.08729998767376
+          },
+          {
+            "wall_ms": 102.20576249776059,
+            "cpu_ms": 101.5625,
+            "uss_mib": 45.76171875,
+            "first_request_ms": 117.404600023292
+          },
+          {
+            "wall_ms": 103.97212500174646,
+            "cpu_ms": 101.5625,
+            "uss_mib": 46.36328125,
+            "first_request_ms": 118.94559999927878
+          },
+          {
+            "wall_ms": 101.66059999755817,
+            "cpu_ms": 99.609375,
+            "uss_mib": 46.19921875,
+            "first_request_ms": 117.75949998991564
+          },
+          {
+            "wall_ms": 101.41346250020433,
+            "cpu_ms": 99.609375,
+            "uss_mib": 46.00390625,
+            "first_request_ms": 116.41479999525473
+          }
+        ],
+        "median": {
+          "wall_ms": 101.661,
+          "cpu_ms": 99.609,
+          "uss_mib": 46.027,
+          "first_request_ms": 117.759
+        }
+      }
+    },
+    "anki-game-stats": {
+      "iterations_per_run": 12,
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 16.178116665590398,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 89.60546875,
+            "first_request_ms": 268.10180000029504
+          },
+          {
+            "wall_ms": 16.017450000314664,
+            "cpu_ms": 15.625,
+            "uss_mib": 89.796875,
+            "first_request_ms": 261.2567000032868
+          },
+          {
+            "wall_ms": 17.592325001411762,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 89.42578125,
+            "first_request_ms": 264.4332000054419
+          },
+          {
+            "wall_ms": 16.224200000579003,
+            "cpu_ms": 15.625,
+            "uss_mib": 89.86328125,
+            "first_request_ms": 254.56919998396188
+          },
+          {
+            "wall_ms": 16.433041668885078,
+            "cpu_ms": 16.927083333333332,
+            "uss_mib": 89.58984375,
+            "first_request_ms": 258.09339998522773
+          }
+        ],
+        "median": {
+          "wall_ms": 16.224,
+          "cpu_ms": 16.927,
+          "uss_mib": 89.605,
+          "first_request_ms": 261.257
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 25.602274998770252,
+            "cpu_ms": 26.041666666666668,
+            "uss_mib": 45.16796875,
+            "first_request_ms": 38.42689999146387
+          },
+          {
+            "wall_ms": 24.812858333461918,
+            "cpu_ms": 24.739583333333332,
+            "uss_mib": 45.65625,
+            "first_request_ms": 37.40179998567328
+          },
+          {
+            "wall_ms": 24.287533335154876,
+            "cpu_ms": 23.4375,
+            "uss_mib": 44.9296875,
+            "first_request_ms": 36.68869999819435
+          },
+          {
+            "wall_ms": 24.36251666707297,
+            "cpu_ms": 24.739583333333332,
+            "uss_mib": 45.56640625,
+            "first_request_ms": 35.78269999707118
+          },
+          {
+            "wall_ms": 25.979133334961563,
+            "cpu_ms": 24.739583333333332,
+            "uss_mib": 45.328125,
+            "first_request_ms": 38.8892000191845
+          }
+        ],
+        "median": {
+          "wall_ms": 24.813,
+          "cpu_ms": 24.74,
+          "uss_mib": 45.328,
+          "first_request_ms": 37.402
+        }
+      }
+    }
+  },
+  "desktop_sha256": "f3683a94ba8d0c36353a4f6426dd9855ff00917fd9ddad4031531f857379d77a"
+}

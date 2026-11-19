@@ -92,6 +92,19 @@ Responses preserve native Hachidori data instead of attempting to convert it to 
 
 ## Updating and validating
 
+Repeated term queries reuse a bounded cache of native JSON inside the serialized
+engine turn. It holds at most 128 results or 8 MiB of keys/results, and a changed
+engine generation discards it. The cache runs after `ensureLoaded`, retains no
+failed calls, and leaves personal-dictionary filtering, tags, furigana and response
+validation in the native pipeline. The generator owns these engine hooks as well
+as the content hooks; do not edit the generated engine directly.
+
+`node scripts/benchmark-dictionaries.mjs <report.json>` measures both real bundled
+engines in disposable Electron profiles with six fixture dictionaries. It records
+first and repeated lookup latency, including extension messaging, and checks cache
+invalidation. It also times real mouse hovers until the first and last expected
+definitions appear in the popup DOM, including Yomitan's split and collapsed views.
+
 Edit GSM source modules, then regenerate:
 
 ```powershell

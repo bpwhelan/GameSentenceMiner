@@ -77,3 +77,12 @@ describe('direct Tauri feature boundary',()=>{
         expect(listen.mock.calls[0][0]).toBe('hook-updates');
     });
 });
+
+it('uses typed commands for overlay activation and independent dictionary lookup', async () => {
+    const invoke = vi.fn().mockResolvedValue({isRunning:true});
+    vi.stubGlobal('window', {gsmEnv:{shell:'tauri'}, __GSM_INVOKE__:invoke});
+    await invokeNative('setOverlayEnabled', [true]);
+    expect(invoke).toHaveBeenLastCalledWith('overlay_lifecycle', {request:{action:'setEnabled',enabled:true}});
+    await invokeNative('reader.lookup', ['食べる']);
+    expect(invoke).toHaveBeenLastCalledWith('dictionary_service', {request:{action:'lookup',text:'食べる'}});
+});

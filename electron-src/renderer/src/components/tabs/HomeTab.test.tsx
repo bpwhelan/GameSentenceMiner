@@ -396,9 +396,31 @@ describe("HomeTab", () => {
     await advanceTimers(3000);
     const reopened = await openAddGameDialog(container);
     expect(container.querySelector<HTMLInputElement>("#home-scene-name-override")?.value).toBe("My Capture");
-    await act(async () => reopened.click());
+    await act(async () => {
+      reopened.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      reopened.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+      reopened.click();
+    });
     expect(container.querySelector("#home-new-capture")).toBeNull();
     expect(document.activeElement).toBe(toggle);
+  });
+
+  it("keeps Add Game open when a drag crosses the backdrop boundary", async () => {
+    await act(async () => { root.render(<HomeTab active />); await flushAsyncWork(); });
+    const dialog = await openAddGameDialog(container);
+    const search = dialog.querySelector<HTMLInputElement>("#home-window-search")!;
+    await act(async () => setElementValue(search, "Original", "input"));
+
+    for (const [start, end] of [[search, dialog], [dialog, search]]) {
+      await act(async () => {
+        start.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        end.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+        // The browser can dispatch the click to the press and release targets' common ancestor.
+        dialog.click();
+      });
+      expect(container.querySelector("#home-new-capture")).toBe(dialog);
+      expect(search.value).toBe("Original");
+    }
   });
 
   it("switches games from the library and returns from add-game setup to that game's tools", async () => {

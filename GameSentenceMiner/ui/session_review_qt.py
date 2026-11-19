@@ -756,4 +756,11 @@ def open_session_review():
     from GameSentenceMiner.ui.qt_main import get_dialog_manager
 
     manager = get_dialog_manager()
-    manager._execute_on_gui_thread.emit(manager.session_review_controller.show)
+
+    def show():
+        controller = getattr(manager, "session_review_controller", None)
+        if controller is None:
+            controller = manager.session_review_controller = SessionReviewController(manager)
+        controller.show()
+
+    manager._execute_on_gui_thread.emit(show)

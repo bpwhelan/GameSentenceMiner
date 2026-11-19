@@ -235,15 +235,15 @@ export class UpdateManager {
     }
 
     public async updateAvailableTargets(
-        _shouldRestart: boolean = true,
+        shouldRestart: boolean = true,
         forceDev: boolean = false
     ): Promise<UpdateStatusSnapshot> {
-        // Only act on the Electron app update. The backend is synced on startup
-        // when a version change is detected, so we don't update it here.
         const status = await this.checkForAvailableUpdates(forceDev);
 
         if (status.app.updateAvailable) {
             await this.downloadAppUpdate(forceDev, status.app);
+        } else if (status.backend.updateAvailable) {
+            await this.updateGSM(shouldRestart);
         }
 
         return await this.getUpdateStatus();

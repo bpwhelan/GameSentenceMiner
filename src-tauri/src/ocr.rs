@@ -222,28 +222,10 @@ fn validate(config: &Value) -> Result<(), String> {
         return Err("Invalid OCR configuration".into());
     }
     for key in ["ocr1", "ocr2"] {
-        if !matches!(
-            config["settings"][key].as_str(),
-            Some(
-                "oneocr"
-                    | "screenai"
-                    | "meikiocr"
-                    | "vitaocr"
-                    | "vocr_detector"
-                    | "vocr_lens"
-                    | "glens"
-                    | "lens"
-                    | "alivetext"
-                    | "bing"
-                    | "meiki_text_detector"
-                    | "mlkitocr"
-                    | "azure"
-                    | "gvision"
-                    | "ocrspace"
-                    | "gemini"
-                    | "local_llm_ocr"
-            )
-        ) {
+        if !config["settings"][key]
+            .as_str()
+            .is_some_and(|name| crate::ocr_coordinator::NATIVE_ENGINES.contains(&name))
+        {
             return Err(format!("Engine {key} has no native implementation"));
         }
     }
@@ -295,13 +277,13 @@ pub fn capture_preview(config: Value, request: Value) -> Result<Value, String> {
 fn run(app: tauri::AppHandle, shared: Shared) {
     let (lock, wake) = &*shared;
     let mut engines: Option<(PathBuf, Engines)> = None;
+    let mut last_inference = Instant::now();
     let mut capture = Capture::default();
     let mut obs_capture = gsm_capture::obs::Capture::default();
     let mut gate = Stability::default();
     let mut previous = Vec::<String>::new();
     let mut generation = 0;
     let mut deadline = Instant::now();
-    let origin = Instant::now();
     let mut last_error = String::new();
     let mut settled_frame = None;
     let mut pending_frame: Option<(ocr::Prepared, Recognition, u128, (u32, u32))> = None;
@@ -338,7 +320,13 @@ fn run(app: tauri::AppHandle, shared: Shared) {
         if !leased || (!pick && (!available || (!automatic && s.pending.is_none()))) {
             capture.clear();
             obs_capture.clear();
-            drop(wake.wait(s).unwrap());
+            // A paused/manual session must not retain full-resolution frame
+            // history, or keep its private ONNX models alive indefinitely.
+            gate = Stability::default();
+            settled_frame = None;
+            pending_frame = None;
+            if last_inference.elapsed() >= Duration::from_secs(60) { engines = None; }
+            drop(wake.wait_timeout(s, Duration::from_secs(5)).unwrap());
             continue;
         }
         if generation != s.generation {
@@ -439,16 +427,15 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                 return Ok(None);
             };
             let engine = engines.as_mut().unwrap();
-            engine.1.configure(&config);
             let frame_hash = image_hash(&prepared.image);
-            if automatic && settled_frame == Some(frame_hash) {
+            if automatic && pending_frame.is_none() && settled_frame == Some(frame_hash) {
                 unchanged_frames += 1;
                 return Ok(None);
             }
             let language = settings["language"].as_str().unwrap_or("ja");
             let two = automatic && flag(settings, "twoPassOCR", true);
             let first = settings["ocr1"].as_str().unwrap_or("screenai");
-            let main = settings["ocr2"].as_str().unwrap_or("screenai");
+            let main = settings["ocr2"].as_str().unwrap_or("glens");
             let selected = if matches!(action.as_str(), "menu_ocr" | "area_select_ocr")
                 && matches!(
                     settings["menuAreaOcrEngine"].as_str(),
@@ -458,6 +445,14 @@ fn run(app: tauri::AppHandle, shared: Shared) {
             } else {
                 main
             };
+            // A temporary menu/clipboard action must not evict the configured
+            // automatic passes and force a reload on the next frame.
+            let configured_first = if config["mode"] == "auto" && flag(settings, "twoPassOCR", true) {
+                first
+            } else {
+                main
+            };
+            engine.1.retain_for(&[configured_first, main, selected]);
             let ocr_start = Instant::now();
             let scale = if two {
                 number(settings, "base_scale", 0.75).clamp(0.25, 1.)
@@ -504,14 +499,16 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                 // A detector's boxes can stay identical while dialogue changes.
                 // Its stability identity must include pixels, not just geometry.
                 let mut stability = recognized.clone();
-                if matches!(first, "vocr_detector" | "meiki_text_detector")
+                if matches!(first, "vocr_detector" | "meiki_text_detector" | "mida_detector")
                     && !stability.detections.is_empty()
                 {
                     stability.text =
                         fingerprint(&prepared.image, &stability.detections).to_string();
                 }
                 let empty = stability.text.trim().is_empty() && stability.detections.is_empty();
-                let ready = gate.observe(&stability, origin.elapsed().as_secs_f64(), settings);
+                let ready = gate.observe(&stability, start, captured_at, settings);
+                // Keep the candidate's onset even when a later image supplies the OCR text.
+                captured_at = gate.first_seen_at().unwrap_or(captured_at);
                 if empty && pending_frame.is_some() {
                     // Retain only one candidate frame so a fast-disappearing
                     // subtitle can still finish its second pass.
@@ -537,37 +534,11 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                 }
             }
             if two && (first != selected || scale < 1.) {
-                let mut crop = None;
-                if flag(settings, "optimize_second_scan", true) {
-                    let boxes: Vec<_> = recognized
-                        .lines
-                        .iter()
-                        .map(|l| l.bounds)
-                        .chain(recognized.detections.iter().copied())
-                        .collect();
-                    if !boxes.is_empty() {
-                        let x = (boxes.iter().map(|b| b[0]).fold(f64::INFINITY, f64::min) - 20.)
-                            .max(0.) as u32;
-                        let y = (boxes.iter().map(|b| b[1]).fold(f64::INFINITY, f64::min) - 20.)
-                            .max(0.) as u32;
-                        let r = (boxes.iter().map(|b| b[2]).fold(0., f64::max) + 20.)
-                            .ceil()
-                            .min(prepared.image.width() as f64)
-                            as u32;
-                        let b = (boxes.iter().map(|b| b[3]).fold(0., f64::max) + 20.)
-                            .ceil()
-                            .min(prepared.image.height() as f64)
-                            as u32;
-                        if r > x && b > y {
-                            crop = Some((
-                                image::imageops::crop_imm(&prepared.image, x, y, r - x, b - y)
-                                    .to_image(),
-                                x,
-                                y,
-                            ));
-                        }
-                    }
-                }
+                let crop = if flag(settings, "optimize_second_scan", true) {
+                    ocr::second_pass_crop(&prepared.image, &recognized)
+                } else {
+                    None
+                };
                 inference_calls += 1;
                 recognized = engine
                     .1
@@ -586,17 +557,12 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                     }
                 }
             }
-            // Explicit scans include small menu/ruby text, matching Python's
-            // ignore_furigana_filter behavior for manual capture actions.
-            let mut output_settings = settings.clone();
-            if !automatic {
-                output_settings["furigana_filter_sensitivity"] = json!(0);
-            }
             let all_text_filtered = ocr::finish(
                 &mut recognized,
                 &prepared,
-                &output_settings,
+                settings,
                 &config["replacements"],
+                automatic,
             )?;
             let empty = recognized.text.trim().is_empty();
             if automatic {
@@ -622,6 +588,7 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                 json!({"engine":selected,"size":dimensions,"capturedAt":captured_at,"capture_ms":capture_ms,"first_pass_ms":first_ms,"ocr_ms":ocr_start.elapsed().as_secs_f64()*1000.,"total_ms":start.elapsed().as_secs_f64()*1000.}),
             )))
         })();
+        last_inference = Instant::now();
         // No catch-up bursts when inference takes longer than the scan interval.
         deadline = Instant::now() + period;
         let mut s = lock.lock().unwrap();

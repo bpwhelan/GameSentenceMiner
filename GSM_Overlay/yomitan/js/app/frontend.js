@@ -191,6 +191,9 @@ export class Frontend {
         }
 
         this._textScanner.prepare();
+        if (document.documentElement.dataset.gsmReaderScope === 'feed') {
+            window.addEventListener('gsm-reader-feed-closed', this._onClosePopups.bind(this));
+        }
 
         window.addEventListener('resize', this._onResize.bind(this), false);
         addFullscreenChangeEventListener(this._updatePopup.bind(this));

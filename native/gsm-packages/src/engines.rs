@@ -176,10 +176,22 @@ impl Engines {
         json!({"installed":self.installed(),"version":self.local().map(|v|v["version"].clone()),"remoteVersion":null,"updateAvailable":false})
     }
     pub fn remote(&self) -> Result<Value> {
-        catalog(crate::fetch_json(&format!(
-            "{}/texthook_manifest_v2.json",
-            self.base_url
-        ))?)
+        let origin = format!("{}/texthook_manifest_v2.json", self.base_url);
+        match crate::fetch_json(&origin).and_then(catalog) {
+            Ok(value) => Ok(value),
+            Err(error) => {
+                let mut last = error;
+                // This mutable index remains authoritative on its existing
+                // origin. Validate the mirror before accepting it as a backup.
+                for url in crate::downloads::sources(&origin, None).into_iter().filter(|url| url != &origin) {
+                    match crate::fetch_json(&url).and_then(catalog) {
+                        Ok(value) => return Ok(value),
+                        Err(error) => last = error,
+                    }
+                }
+                Err(last)
+            }
+        }
     }
     pub fn status(&self) -> Value {
         let mut status = self.local_status();

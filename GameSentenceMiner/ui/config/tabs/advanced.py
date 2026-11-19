@@ -11,6 +11,14 @@ if TYPE_CHECKING:
     from GameSentenceMiner.ui.config_gui_qt import ConfigWindow
 
 
+def open_sync_dialog(window: ConfigWindow):
+    from GameSentenceMiner.ui.sync_settings_dialog import SyncSettingsDialog
+
+    window._flush_pending_auto_save()
+    if window.save_settings(show_indicator=False, immediate_reload=True):
+        SyncSettingsDialog(window).exec()
+
+
 def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
     widget = QWidget()
     layout = QFormLayout(widget)
@@ -19,14 +27,7 @@ def build_advanced_tab(window: ConfigWindow, i18n: dict) -> QWidget:
 
     sync_button = QPushButton("Encrypted device sync…")
 
-    def open_sync():
-        from GameSentenceMiner.ui.sync_settings_dialog import SyncSettingsDialog
-
-        window._flush_pending_auto_save()
-        if window.save_settings(show_indicator=False, immediate_reload=True):
-            SyncSettingsDialog(window).exec()
-
-    sync_button.clicked.connect(open_sync)
+    sync_button.clicked.connect(lambda: open_sync_dialog(window))
     layout.addRow("Device sync", sync_button)
 
     note_label = QLabel(tabs_i18n.get("advanced", {}).get("player_note", "..."))

@@ -4,6 +4,8 @@ use std::{collections::BTreeMap, sync::LazyLock};
 
 const RAW_LIMIT: usize = 14_096;
 const HOOK_LIMIT: usize = 1024;
+const SAMPLE_HISTORY: usize = 5;
+const SAMPLE_LENGTH: usize = 2000;
 static LUNA: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^\[#([0-9a-fA-F]+)\|([^\]]+)\] (.*)$").unwrap());
 static CREATED: LazyLock<Regex> = LazyLock::new(|| {
@@ -29,8 +31,9 @@ static SHOWING: LazyLock<Regex> = LazyLock::new(|| {
 pub enum Event {
     Text(Value),
     Hooks(Value),
+    AutoSelected,
+    SamplesChanged,
     Log(String),
-    Command(String),
     Architecture(String),
 }
 #[derive(Default)]
@@ -41,6 +44,39 @@ struct Hook {
     pending: String,
     due: Option<u64>,
 }
+
+fn remember_sample(samples: &mut Vec<String>, text: String) -> bool {
+    if text.trim().is_empty() || samples.last() == Some(&text) {
+        return false;
+    }
+    samples.retain(|sample| sample != &text);
+    samples.push(text);
+    if samples.len() > SAMPLE_HISTORY {
+        samples.remove(0);
+    }
+    true
+}
+
+fn append_sample_fragment(pending: &mut String, text: &str, limit: usize) -> bool {
+    let tail = pending.rfind('\n').map_or(0, |index| index + 1);
+    let previous = &pending[tail..];
+    if previous.starts_with(text) {
+        return false;
+    }
+    if text.starts_with(previous) {
+        pending.truncate(tail);
+    } else {
+        let fragment = truncate(text, limit.saturating_sub(length(pending) + 1));
+        if fragment.is_empty() {
+            return false;
+        }
+        pending.push('\n');
+        pending.push_str(&fragment);
+        return true;
+    }
+    pending.push_str(&truncate(text, limit.saturating_sub(length(pending))));
+    true
+}
 /// All time values are supplied by the actor; tests never need timers or a game.
 pub struct Session {
     pub options: Value,
@@ -50,11 +86,14 @@ pub struct Session {
     continuation: Option<(String, String, bool)>,
     hooks: BTreeMap<String, Hook>,
     selected: Option<String>,
+    selection_revision: u64,
+    processor_overrides: Value,
     last_text: Option<String>,
     pending: Vec<Value>,
     due: Option<u64>,
     events: Vec<Event>,
     dirty: bool,
+    samples_changed: bool,
 }
 pub fn truncate(text: &str, units: usize) -> String {
     let mut count = 0;
@@ -115,11 +154,14 @@ impl Session {
             continuation: None,
             hooks: BTreeMap::new(),
             selected: None,
+            selection_revision: 0,
+            processor_overrides: Value::Null,
             last_text: None,
             pending: vec![],
             due: None,
             events: vec![],
             dirty: false,
+            samples_changed: false,
         }
     }
     fn limit(&self) -> usize {
@@ -137,15 +179,35 @@ impl Session {
     pub fn status(&self) -> Value {
         json!({"running":true,"engine":self.options["engine"],"pid":self.options["pid"],"arch":self.options["arch"],
             "exeName":self.options["exeName"],"source":self.options["source"],"selectedHookId":self.selected,
+            "sceneId":self.options["sceneId"],"processorOverrides":self.processor_overrides,
             "hookCount":self.hooks.len(),"flushDelayMs":self.delay(),"copyToClipboard":self.options["copyToClipboard"]==true})
     }
     pub fn hooks(&self) -> Value {
         json!({"selectedHookId":self.selected,"hooks":self.hooks.iter().map(|(id,h)|json!({"id":id,"function":h.name,"preview":h.preview,"samples":h.samples})).collect::<Vec<_>>()})
     }
+    pub fn discovery_snapshot(&self) -> Value {
+        // Bound sample memory while letting every hook participate in large sessions.
+        let limit =
+            SAMPLE_LENGTH.min(6 * 1024 * 1024 / (self.hooks.len().max(1) * SAMPLE_HISTORY * 6));
+        let hooks: Vec<_> = self
+            .hooks
+            .iter()
+            .map(|(id, hook)| {
+                let mut samples = hook.samples.clone();
+                remember_sample(&mut samples, truncate(&hook.pending, SAMPLE_LENGTH));
+                let samples: Vec<_> = samples.iter().map(|text| truncate(text, limit)).collect();
+                json!({"id":id,"samples":samples})
+            })
+            .collect();
+        json!({"hooks":hooks,"sceneId":self.options["sceneId"],"selectedHookId":self.selected,"processorOverrides":self.processor_overrides})
+    }
     pub fn drain(&mut self) -> Vec<Event> {
         if self.dirty {
             self.events.push(Event::Hooks(self.hooks()));
             self.dirty = false;
+        }
+        if std::mem::take(&mut self.samples_changed) && self.selected.is_none() {
+            self.events.push(Event::SamplesChanged);
         }
         std::mem::take(&mut self.events)
     }
@@ -277,12 +339,7 @@ impl Session {
             h.name = name.into();
         }
         if !text.is_empty() {
-            let remaining = limit.saturating_sub(length(&h.pending));
-            if remaining > 0 {
-                if !h.pending.is_empty() {
-                    h.pending.push('\n');
-                }
-                h.pending.push_str(&truncate(&text, remaining));
+            if append_sample_fragment(&mut h.pending, &text, limit) {
                 h.due = Some(now + delay);
             }
         } else {
@@ -296,7 +353,11 @@ impl Session {
             if (id_match && (saved.is_empty() || matches(saved, &h.name)))
                 || (!saved.is_empty() && matches(saved, &h.name))
             {
-                self.select(id, now);
+                self.select(
+                    id,
+                    self.options.get("autoSelectProcessorOverrides").cloned(),
+                );
+                self.events.push(Event::AutoSelected);
             }
         }
         if self.selected.as_deref() == Some(id) {
@@ -331,16 +392,38 @@ impl Session {
         }
         self.tick(now);
     }
-    pub fn select(&mut self, id: &str, _now: u64) -> bool {
+    pub fn select(&mut self, id: &str, overrides: Option<Value>) -> bool {
         if !self.hooks.contains_key(id) {
             return false;
         }
         self.flush_text();
+        if self.selected.as_deref() != Some(id) || overrides.is_some() {
+            self.processor_overrides = overrides.filter(Value::is_object).unwrap_or(Value::Null);
+        }
+        // The engine stays in show-all mode. GSM routes only this hook to text intake.
         self.selected = Some(id.into());
+        self.selection_revision += 1;
         self.last_text = None;
         self.dirty = true;
-        self.events.push(Event::Command(format!("select {id}\n")));
         true
+    }
+    pub(crate) fn selected_profile(&self) -> Option<Value> {
+        let id = self.selected.as_ref()?;
+        let hook = self.hooks.get(id)?;
+        Some(json!({
+            "selectionRevision": self.selection_revision,
+            "profile": {
+                "exeName": self.options["exeName"],
+                "sceneId": self.options["sceneId"],
+                "engine": self.options["engine"],
+                "hookId": id,
+                "hookFunction": hook.name,
+                "processorOverrides": self.processor_overrides,
+                "manualHookCode": self.options["manualHookCode"],
+                "flushDelayMs": self.delay(),
+                "copyToClipboard": self.options["copyToClipboard"] == true,
+            },
+        }))
     }
     pub fn manual(&self, code: &str) -> Result<String, String> {
         let code = code.trim();
@@ -376,6 +459,14 @@ impl Session {
         if let Some(text) = sanitize(&text, self.limit()) {
             payload["text"] = json!(text);
             payload["capturedAt"] = captured;
+            payload["selectionRevision"] = json!(self.selection_revision);
+            if self
+                .processor_overrides
+                .as_object()
+                .is_some_and(|overrides| !overrides.is_empty())
+            {
+                payload["processorOverrides"] = self.processor_overrides.clone();
+            }
             self.events.push(Event::Text(payload));
         }
     }
@@ -387,19 +478,15 @@ impl Session {
             if h.due.is_some_and(|due| due <= now) {
                 let text = std::mem::take(&mut h.pending);
                 h.due = None;
-                h.preview = truncate(&text, 80);
+                let mut preview = truncate(&text, 80);
                 if length(&text) > 80 {
-                    h.preview.push('…');
+                    preview.push('…');
                 }
-                let sample = truncate(&text, 2000);
-                if !sample.trim().is_empty() {
-                    h.samples.retain(|s| *s != sample);
-                    h.samples.push(sample);
-                    if h.samples.len() > 5 {
-                        h.samples.remove(0);
-                    }
-                }
-                self.dirty = true;
+                let sample_changed =
+                    remember_sample(&mut h.samples, truncate(&text, SAMPLE_LENGTH));
+                self.samples_changed |= sample_changed;
+                self.dirty |= sample_changed || preview != h.preview;
+                h.preview = preview;
             }
         }
     }

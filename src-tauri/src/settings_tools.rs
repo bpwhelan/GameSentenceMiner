@@ -841,7 +841,11 @@ async fn handle_download_and_install_tool(
             );
             let scripts_mgr = Scripts::new(&paths.active);
             if let Err(err) = scripts_mgr.ensure(false) {
-                eprintln!("[settings_tools] Agent script library sync warning: {err}");
+                crate::desktop_log::warn(
+                    &app_handle,
+                    "settings",
+                    format!("Agent script library sync warning: {err}"),
+                );
             }
             let default_scripts_dir = scripts_mgr.directory();
             let exe_str = exe.to_string_lossy().into_owned();
