@@ -4,9 +4,9 @@
   const text = (node, value) => { if (node.textContent !== value) node.textContent = value; };
 
   const FEEDBACK_PRIORITY = { info: 0, success: 1, warning: 2, error: 3 };
-  // Why a Netflix or YouTube note has no sentence audio or GIF, by the reason
-  // the reader, the page or the worker reported. Tab capture and the line
-  // audio report these the same way on both sites.
+  // Why a Netflix, YouTube or Crunchyroll note has no sentence audio or GIF, by
+  // the reason the reader, the page or the worker reported. Tab capture and the
+  // line audio report these the same way on every site.
   const RECORDING_UNAVAILABLE = {
     grant: "Chrome has not let Hachidori record this tab yet. Click Hachidori's toolbar button once on this tab, or add notes with the “Add the current popup entry to Anki” shortcut from chrome://extensions/shortcuts; later notes in this tab will record the line.",
     "no-gif": "no GIF could be made of the line.",
@@ -39,6 +39,19 @@
     linked: "this browser is linked to another Hachidori, so YouTube lines are not recorded.",
     ...RECORDING_UNAVAILABLE,
   };
+  // Crunchyroll's subtitles come from a user script, such as the Script
+  // Store's Jimaku Player (crunchyroll-content.js).
+  const CRUNCHYROLL_UNAVAILABLE = {
+    "no-timeline": "no subtitle timing was found for this episode. Load its Japanese subtitles with Jimaku Player from the Script Store; a Crunchyroll page that was open before Crunchyroll mining went on needs a reload.",
+    failed: "the subtitle file for this episode could not be read.",
+    "no-match": "the hovered subtitle matched no line in the episode's subtitle file.",
+    ambiguous: "the hovered subtitle matched more than one line in the episode's subtitle file.",
+    silent: "the recording was silent, so no audio was attached. If the video is not muted, Crunchyroll may be blocking capture of protected playback; turning off Chrome's “Use graphics acceleration when available” can help.",
+    player: "Crunchyroll's video was not found, so the line could not be replayed.",
+    replay: "Crunchyroll did not finish replaying the line.",
+    linked: "this browser is linked to another Hachidori, so Crunchyroll lines are not recorded.",
+    ...RECORDING_UNAVAILABLE,
+  };
   // The sites whose subtitle lines a note can record: the mining request's
   // field, the controller option that records a line, the flag a linked
   // browser's worker adds to a preflight, and the warnings' label and reasons.
@@ -48,6 +61,8 @@
       reasons: NETFLIX_UNAVAILABLE },
     { field: "youtube", recorder: "recordYouTubeLine", linked: "youtubeLinked", label: "YouTube mining",
       reasons: YOUTUBE_UNAVAILABLE },
+    { field: "crunchyroll", recorder: "recordCrunchyrollLine", linked: "crunchyrollLinked", label: "Crunchyroll mining",
+      reasons: CRUNCHYROLL_UNAVAILABLE },
   ];
   const siteReason = (site, reason) => Object.hasOwn(site.reasons, reason) ? site.reasons[reason] : reason;
   const heldMedia = media => media && typeof media.filename === "string" && media.filename
@@ -303,9 +318,15 @@
     // (netflix-content.js). Its options { audio, gif } name the media wanted;
     // `conceal` is passed on for the tab capture a GIF needs.
     recordNetflixLine = async () => { throw new Error("this page cannot replay Netflix lines."); },
-    // Experimental YouTube mining: the same for a YouTube caption's cue, which
+    // YouTube mining: the same for a YouTube caption's cue, which
     // the same reader records (netflix-content.js).
     recordYouTubeLine = async () => { throw new Error("this page cannot replay YouTube lines."); },
+    // Experimental Crunchyroll mining: the same for a Crunchyroll subtitle's cue.
+    recordCrunchyrollLine = async () => { throw new Error("this page cannot replay Crunchyroll lines."); },
+    // Experimental Netflix mining: takes a Netflix subtitle note's screenshot
+    // through `capture(crop)` with what Netflix draws over its video hidden,
+    // `crop` being where the video's picture is (netflix-content.js).
+    videoScreenshot = capture => capture(null),
     // Opens Settings → Anki for the profile the popup's controls act in, or
     // null where the page cannot open Settings.
     openSettings = null,
@@ -516,9 +537,12 @@
       if (record.decision?.screenshot !== true) return request;
       if (owns()) setStatus(record, "Taking the screenshot…");
       try {
-        // A note from a YouTube caption asks for the video's frame (YouTube mining).
-        const taken = await conceal(() => send("hd_anki_screenshot", { templateId: record.templateId,
-          ...(request.youtube ? { videoFrame: true } : {}) }));
+        // A note from a YouTube caption asks for the video's frame (YouTube
+        // mining), and one from a Netflix subtitle for the video's picture
+        // alone, or Netflix's preview where it comes out black (Netflix mining).
+        const capture = crop => conceal(() => send("hd_anki_screenshot", { templateId: record.templateId,
+          ...(request.youtube ? { videoFrame: true } : {}), ...(crop ? { crop } : {}) }));
+        const taken = await (request.netflix ? videoScreenshot(capture) : capture(null));
         if (typeof taken?.filename !== "string" || !taken.filename) throw new Error("no screenshot was taken");
         record.screenshot = { token: taken.token, filename: taken.filename };
         return { ...request, screenshot: record.screenshot };
@@ -527,8 +551,8 @@
         return { ...request, captureUnavailable: [...(request.captureUnavailable ?? []), "screenshot"] };
       }
     }
-    const recorders = { recordNetflixLine, recordYouTubeLine };
-    // Experimental Netflix and YouTube mining: the hovered subtitle line's
+    const recorders = { recordNetflixLine, recordYouTubeLine, recordCrunchyrollLine };
+    // Netflix and YouTube mining: the hovered subtitle line's
     // audio and, when a {gif} field needs it, a looping GIF. The page records
     // the line, with the reader concealed while it captures the tab. Like the
     // screenshot, media that cannot be recorded is a warning on an otherwise
@@ -551,7 +575,7 @@
       record.gif = null;
       // A linked browser records nothing. Its host never sees the cue, so its
       // preflight cannot say which media the fields map; the reader warns for
-      // any linked Netflix or YouTube note, and {gif} keeps its screenshot.
+      // any linked video-site note, and {gif} keeps its screenshot.
       const linked = VIDEO_SITES.find(entry => record.decision?.[entry.linked] === true);
       if (linked !== undefined) {
         record.videoWarning = `${linked.label}: ${linked.reasons.linked}`;

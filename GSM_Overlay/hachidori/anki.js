@@ -31,6 +31,11 @@ export const ankiClozeRefusal = (refused = "Anki refused the note") => `${refuse
   + "a Cloze note type needs one in its cloze field, and no other field or note type may have one. "
   + "Check the field mapping in Anki Settings.";
 
+// AnkiConnect refuses to change a note that Anki's Browser or an Edit window
+// shows, even a saved one, before it writes anything (#698).
+const EDITOR_CONFLICT = /close the affected editor before this api write/iu;
+export const isAnkiEditorConflict = error => EDITOR_CONFLICT.test(error?.message ?? "");
+
 // AnkiConnect's own error strings name the cause but not what to do about it.
 // Each translation keeps the original text so it can still be searched for,
 // except the API key's, which restates it, and the cloze refusal's, whose raw
@@ -50,6 +55,8 @@ const ANKI_CONNECT_EXPLANATIONS = [
   [CLOZE_REFUSAL, () => ankiClozeRefusal(), false],
   [/^note was not found: (.+)$/iu,
     ([, id]) => `Anki no longer has note ${id}. It was deleted or moved to another collection; refresh and retry.`],
+  [EDITOR_CONFLICT, () => "Anki did not change the note because its Browser or an Edit window has it open. "
+    + "Close that window, or select another card in the Browser, then try again."],
   [/unsupported action|unknown action/iu,
     () => "The installed AnkiConnect add-on is too old for this request. Update AnkiConnect in Anki."],
 ];

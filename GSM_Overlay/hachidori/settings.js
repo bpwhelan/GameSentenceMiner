@@ -31,6 +31,8 @@ import { setStatusOutput, showErrorCopy } from "./settings-dom.js";
 import { HOST_CAPABILITIES, MINING_CAPABILITIES, OVERLAY_MODE } from "./overlay-mode.js";
 import { createRecommendedInstallClient } from "./recommended-install-client.js";
 import { createCustomButtonSettings } from "./custom-button-settings.js";
+import { createUserScriptSettings } from "./user-script-settings.js";
+import { createScriptStore } from "./script-store.js";
 import { createDictionaryNameDrafts } from "./dictionary-name-drafts.js";
 import { createDictionaryGroupController } from "./dictionary-groups.js";
 import { CUSTOM_DICTIONARY_SOURCE_KEY } from "./custom-dictionary.js";
@@ -84,6 +86,7 @@ const OPTION_SECTIONS = {
   // Backup & restore → Automatic backups → Days kept.
   backup: "Backup & restore",
   advanced: "Advanced",
+  "user-scripts": "User scripts",
   // A language's own settings (docs/languages.md 7.5).
   languages: "Languages",
   // Dictionaries → Personal dictionary owns its lookup switches.
@@ -94,7 +97,7 @@ const {
   POPUP_THEME_GROUPS, POPUP_RENDERER_IDS, POPUP_THEME_VARIANTS, popupRenderer, DESIGN_OPTION_KEYS, DEFINITION_BLUR_DIRECTIONS,
   DEFINITION_BLUR_REVEALS,
   DEFINITION_BLUR_FREQUENCY_ORDERS, EXPERIMENTAL_FEATURES, WORD_HIGHLIGHT_STYLES, definitionBlurFrequencyDictionary,
-  activationLabel, clampOption, frequencyModeOrder, hasCapability, normaliseCustomButtons, normaliseKanjiSelection,
+  activationLabel, clampOption, frequencyModeOrder, hasCapability, normaliseCustomButtons, normaliseKanjiSelection, normaliseUserScripts,
   normaliseOptions, JAPANESE_PROFILE_ID, OPTION_REQUIREMENTS, languageDescriptor, optionRequirementMet,
   hasProfiles, projectOptions, profileDescriptor, LANGUAGE_SELECTION_KEY, normaliseLanguageSelection, activeProfileId,
   languagesEnabled, profiles: recordProfiles,
@@ -105,6 +108,8 @@ const STATUS_POLL_MS = 1000;
 const STATUS_RETRY_MS = 5000;
 
 const NUMBER_FIELDS = [
+  { key: "videoAudioBitrate", id: "opt-video-audio-bitrate" },
+  { key: "videoImageQuality", id: "opt-video-image-quality" },
   { key: "scanLength", id: "opt-scan-length" },
   { key: "maxResults", id: "opt-max-results" },
   { key: "scanDelayMs", id: "opt-scan-delay" },
@@ -197,6 +202,8 @@ let backupLifecyclePort = null;
 let backupLifecycleReconnectTimer = null;
 const backupLifecycleTokens = new Set();
 let customButtonController; // NOSONAR: shared with the other Settings modules
+let userScriptController; // NOSONAR: shared with the other Settings modules
+let scriptStoreController; // NOSONAR: shared with the other Settings modules
 let experimentalController;
 // Experimental switches apply in the order they were clicked: turning Multiple
 // languages off first settles the page's edits, and a click meanwhile waits.
@@ -228,6 +235,7 @@ const SECTION_STATUSES = {
   "options-status": { section: "lookup", label: "Reading" },
   "lookup-counts-reset-status": { section: "lookup", label: "Lookup history" },
   "search-history-status": { section: "advanced", label: "Search history" },
+  "known-words-status": { section: "word-highlighting", label: "Known words" },
   "dict-group-error": { section: "dictionary-groups", label: "Groups" },
   "backup-status": { section: "backup", label: "Backup" },
   "sharing-status": { section: "sharing", label: "Sharing" },
@@ -246,11 +254,12 @@ function configureFirefoxUi() {
   element("browser-shortcuts-help").textContent = "Firefox runs these on any page. Popup actions need an open popup."
     + " Change them in Firefox's add-on shortcuts.";
   element("browser-shortcuts-open").textContent = "Change in Firefox";
+  element("custom-javascript-permission").textContent = "Firefox asks before Hachidori can run user scripts. Allow them before using this.";
+  // The notice shows only until Firefox grants them.
   const renderUserScripts = async () => {
     const granted = await chrome.permissions.contains({ permissions: ["userScripts"] }).catch(() => false);
+    element("user-script-permission").hidden = granted;
     element("custom-javascript-allow-row").hidden = granted;
-    element("custom-javascript-permission").textContent = granted ? "Firefox lets Hachidori run user scripts."
-      : "Firefox asks before Hachidori can run user scripts. Allow them before using this.";
   };
   // Firefox prompts only for a request made while it handles the click.
   element("custom-javascript-allow").addEventListener("click", () => {
@@ -261,16 +270,50 @@ function configureFirefoxUi() {
   void renderUserScripts();
 }
 
+// Chrome runs a script's JavaScript once Allow User Scripts is on (Developer
+// mode before Chrome 138); until then the API's methods throw, as
+// custom-javascript.js finds when it registers. The notice shows only while
+// they do, checked again whenever the page comes back from Chrome's own pages,
+// such as Hachidori's details page, which its button opens: extensions may
+// open Chrome's pages but not turn the switch on.
+function configureChromeUserScripts() {
+  element("custom-javascript-allow").textContent = "Open Hachidori's details";
+  element("custom-javascript-allow-row").hidden = false;
+  element("custom-javascript-allow").addEventListener("click", () => {
+    void chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+  });
+  const render = async () => {
+    let allowed;
+    try {
+      await chrome.userScripts.getScripts({ ids: [] });
+      allowed = true;
+    } catch {
+      allowed = false;
+    }
+    element("user-script-permission").hidden = allowed;
+  };
+  window.addEventListener("focus", () => { void render(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) void render(); });
+  void render();
+}
+
 function configureBrowserUi() {
+  // A host without a user-script world has no Advanced → User scripts.
   if (!HOST_CAPABILITIES.customJavaScript) {
-    const customJavascript = element("custom-javascript");
-    customJavascript.dataset.settingsUnavailable = "true";
-    customJavascript.hidden = true;
+    const section = element("user-scripts");
+    section.dataset.settingsUnavailable = "true";
+    section.hidden = true;
+    document.querySelector('.section-tabs a[href="#user-scripts"]').hidden = true;
+    element("settings-section").querySelector('option[value="user-scripts"]').hidden = true;
+    element("custom-javascript-moved").hidden = true;
   }
   // The search page opens from the browser's shortcuts and toolbar menu,
   // which an overlay host does not have.
   if (!HOST_CAPABILITIES.browserShortcuts) element("search-page-settings").hidden = true;
   if (isFirefox(chrome)) configureFirefoxUi();
+  // An overlay runs them in the page's own world, which needs no switch.
+  else if (HOST_CAPABILITIES.pageWorldUserScripts) element("user-script-permission").hidden = true;
+  else if (HOST_CAPABILITIES.customJavaScript) configureChromeUserScripts();
 }
 
 function sectionHasPendingWork(id) {
@@ -550,6 +593,9 @@ function discardProfileDrafts() {
   discardPendingOptions();
   element("opt-anki-template-name").value = "";
   customButtonController?.reset();
+  element("known-words-input").value = "";
+  element("known-words-add").disabled = true;
+  setSectionStatus("known-words-status", "");
 }
 
 // Shows the edited profile everywhere this page shows one.
@@ -581,7 +627,7 @@ function readStoredRecords(keys) {
 }
 
 // Settings shows chooses the edited profile (section 5.3). Pending option
-// edits are saved first, for the profile they were made for; the three
+// edits are saved first, for the profile they were made for; the
 // editors with explicit saves are saved or discarded by the user first.
 // Resolves with the message to show when the page stays where it is; `action`
 // names what the user is doing, for that message.
@@ -591,6 +637,7 @@ async function chooseEditedProfile(id, action = "choosing another language") {
     customDictionaryDirty() && "the personal dictionary",
     ankiController?.dirty() && "the Template name",
     customButtonController?.dirty() && "the custom button",
+    element("known-words-input").value.trim() && "the pasted known words",
   ].filter(Boolean);
   if (drafts.length > 0) {
     return `Save or discard your changes to ${listOf(drafts)} before ${action}.`;
@@ -767,6 +814,24 @@ function showSettingsSection(focus = false) {
     });
     customButtonController.render();
   }
+  // Your scripts and the Script Store below them save the one list of
+  // packages, so a save from either redraws both.
+  const readScripts = () => options.userScripts;
+  const saveScripts = (scripts) => {
+    options.userScripts = normaliseUserScripts(scripts);
+    writeOptions();
+    userScriptController?.render();
+    scriptStoreController?.render();
+  };
+  if (activeSection === "user-scripts") {
+    userScriptController ??= createUserScriptSettings({ document, readScripts, saveScripts,
+      readUpdates: () => scriptStoreController?.updates() ?? new Map(),
+      applyUpdate: script => scriptStoreController?.updateScript(script.id) });
+    scriptStoreController ??= createScriptStore({ document, fetch: (...args) => window.fetch(...args), readScripts, saveScripts,
+      onCatalogue: () => userScriptController.render() });
+    userScriptController.render();
+    scriptStoreController.render();
+  }
   if (activeSection === "custom-dictionary" && !customEditorLoaded) void loadCustomDictionarySource();
   if (window.location.hash === "#settings-content") element("settings-content").focus();
   else if (focus) element(activeSection).querySelector("h1").focus();
@@ -827,7 +892,6 @@ function updateAnkiSettings() {
   if (activeSection !== "anki" || optionsRevision < 0) return;
   ankiController ??= createAnkiTemplateSettingsController({ document, readAnki: () => options.anki,
     capabilities: MINING_CAPABILITIES,
-    readExperimental: () => options.experimental,
     // The edited profile's language decides which markers, note-type
     // families and field-name suggestions Anki offers (docs/languages.md 12).
     readProfile: () => editedProfile,
@@ -881,7 +945,7 @@ async function downloadDebugInfo() {
     const report = await collectDebugInfo({ chrome, window, send,
       targets: { worker: WORKER_TARGET, sharing: SHARING_TARGET, anki: ANKI_TARGET }, context: {
         overlayMode: OVERLAY_MODE, hostCapabilities: HOST_CAPABILITIES, miningCapabilities: MINING_CAPABILITIES,
-        linkedTo: sharingLinkedAddress, activeSection, lastEngineStatus, effectiveOptions: options,
+        linkedTo: sharingLinkedAddress, activeSection, editedProfile, languageSelection, lastEngineStatus, effectiveOptions: options,
         busy: { importing, installingRecommended, updating, removing, committing, customLoading, customSaving,
           backingUp, pendingDictionaryCommits, savingOptions: savingOptions !== null },
         statuses: Object.fromEntries(Object.keys(SECTION_STATUSES).map(id => [id, element(id).textContent])),
@@ -1026,7 +1090,7 @@ function updateBackupSettings() {
       if (importing || installingRecommended || updating || removing || committing || customLoading || customSaving || pendingDictionaryCommits > 0) {
         throw new Error("Wait for the current dictionary operation to finish, then try again.");
       }
-      if (customDictionaryDirty() || customButtonController?.dirty() || ankiController?.dirty()
+      if (customDictionaryDirty() || customButtonController?.dirty() || userScriptController?.dirty() || ankiController?.dirty()
           || savingOptions !== null || optionsEditRevision !== null
           || Object.keys(pendingOptions).length > 0 || savingSchedule !== null || pendingSchedule !== null
           || nameDrafts.hasPendingChanges()) {
@@ -1326,7 +1390,8 @@ function attachHandlers() {
   window.addEventListener("beforeunload", (event) => {
     if (!importing && !backingUp && pendingDictionaryCommits === 0 && savingOptions === null && optionsEditRevision === null
         && Object.keys(pendingOptions).length === 0 && savingSchedule === null && pendingSchedule === null
-        && !nameDrafts.hasPendingChanges() && !customButtonController?.dirty() && !ankiController?.dirty()) {
+        && !nameDrafts.hasPendingChanges() && !customButtonController?.dirty() && !userScriptController?.dirty()
+        && !ankiController?.dirty()) {
       return;
     }
     // Leaving can revoke an import's blob URL or discard a queued settings draft.
@@ -1462,7 +1527,7 @@ export {
   renderEngineStatus, renderExperimentalSettings, renderLanguageCapabilities, renderLowMemoryMode, renderPackSettings,
   savedOptions, scheduleStatusPoll, send, storedOptionsRecord,
   setSectionStatus, setStatus, sharingLinkedAddress, syncNavigationStatus, TARGET, themeStore, UPDATE_TARGET,
-  updateAnkiSettings, updateAudioSettings, updateDesignPreview, updateKeybindSettings,
+  scriptStoreController, updateAnkiSettings, updateAudioSettings, updateDesignPreview, updateKeybindSettings, userScriptController,
   WORD_HIGHLIGHT_SWITCHES, WORKER_TARGET
 };
 

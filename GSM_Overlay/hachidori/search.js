@@ -5,8 +5,8 @@
 // docks its popup over the results area. The page follows the popup theme as
 // Settings does, and the popup is the reader's own, with its theme, Anki,
 // pronunciation, tabs and child popups. This page is search-frame.html, the
-// sandboxed frame search.html holds under its header so that Custom JavaScript
-// runs here too (#644); search-bridge.js lends it the extension APIs.
+// sandboxed frame search.html holds under its header so that user scripts
+// run here too (#644); search-bridge.js lends it the extension APIs.
 //
 // It keeps each line it searches in its history (docs/search-history.md). Up
 // and Down in the box walk back and forward through it as a shell's do; in the
@@ -615,16 +615,18 @@ bridge.onHistory((change) => {
 });
 
 
-// Design → Custom JavaScript, the user script web pages run (custom-javascript.js),
-// once the reader is ready, as a user script runs at document_idle after the
-// content scripts. search.html hands it over only where the worker registered
-// it, which Chrome's Allow User Scripts or Firefox's permission allows. The
-// frame's sandbox allows eval for this alone; inline script stays blocked.
-function runCustomJavaScript(code) {
+// Advanced → User scripts, the JavaScript web pages run (custom-javascript.js),
+// once the reader is ready, as user scripts run at document_idle after the
+// content scripts: each package's source in list order, so one that throws
+// does not stop the next. search.html hands them over only where the worker
+// registered them, which Chrome's Allow User Scripts or Firefox's permission
+// allows. The frame's sandbox allows eval for this alone; inline script stays
+// blocked.
+function runUserScript(code) {
   try {
-    (0, eval)(code); // NOSONAR: the user's own Custom JavaScript, as their user script; see above.
+    (0, eval)(code); // NOSONAR: the user's own user script, as web pages run it; see above.
   } catch (error) {
-    console.error("hachidori: Custom JavaScript failed on the search page:", error);
+    console.error("hachidori: a user script failed on the search page:", error);
   }
 }
 
@@ -670,7 +672,7 @@ try {
     pressed = false;
     if (!clickMoved && cursorWord.textContent === "") sayCursorWord();
   });
-  if (connection.customJavaScript) runCustomJavaScript(connection.customJavaScript);
+  for (const code of connection.userScripts) runUserScript(code);
   status.textContent = "Type or paste a word above, then press Enter.";
   submit.disabled = false;
   // The Clipboard monitor starts.

@@ -3,7 +3,7 @@
 const SCRIPT_ID = "hachidori-google-docs";
 let application = Promise.resolve();
 
-// The one script Settings → Advanced → Experimental features → Google Docs
+// The one script Settings → Reading → Scanning → Look up words in Google Docs
 // registers: google-docs-flag.js in the page's main world before Docs' bundle
 // runs, on every Docs frame. Chrome accepts `world`.
 export const GOOGLE_DOCS_SCRIPT = Object.freeze({

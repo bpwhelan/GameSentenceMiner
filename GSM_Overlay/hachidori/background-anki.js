@@ -2,9 +2,11 @@
 // index's role.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { extensionApi as chrome } from "./browser-api.js";
+import { encodeBase64 } from "./base64.js";
 import { describeErrorOrJson } from "./error-text.js";
 import { captureNetflixPreview } from "./netflix-preview.js";
 import { captureYouTubeFrame } from "./youtube-frame.js";
+import { cropOf } from "./background-video.js";
 import { YOUTUBE_PAGE_URL } from "./background-youtube.js";
 import { LINKED_ANKI_CAPABILITY, LINKED_ANKI_UNSUPPORTED } from "./sharing-protocol.js";
 import { MINING_CAPABILITIES } from "./overlay-mode.js";
@@ -200,27 +202,84 @@ async function captureYouTubeFrameInDocument(tab, sender) {
   return dataUrl;
 }
 
-// Where {screenshot} comes from in a top-frame reading page: Netflix's preview
-// with Netflix preview screenshots on, YouTube's video frame for a note from a
-// caption (`videoFrame`) with YouTube mining on, otherwise (null) the viewport.
-function screenshotSource(tab, sender, options, readerPage, videoFrame) {
+// Where {screenshot} comes from in a top-frame reading page. On a watch page
+// with Netflix mining on, a picture cropped to the video (a note from a
+// subtitle) is the viewport's, with Netflix's preview in place of one that
+// comes out black ("netflix-video"), and any other is the preview. YouTube's
+// video frame for a note from a caption (`videoFrame`) with YouTube mining on,
+// otherwise (null) the viewport.
+function screenshotSource(tab, sender, options, readerPage, videoFrame, crop) {
   if (readerPage || (sender.frameId ?? 0) !== 0) return null;
-  if (options.experimental.netflixPreviewScreenshots === true
-      && /^https:\/\/www\.netflix\.com\/watch\/\d+(?:[?#]|$)/u.test(tab.url)) return "netflix-preview";
-  return videoFrame && options.experimental.youtubeMining === true && YOUTUBE_PAGE_URL.test(tab.url) ? "youtube-frame" : null;
+  if (options.experimental.netflixMining === true
+      && /^https:\/\/www\.netflix\.com\/watch\/\d+(?:[?#]|$)/u.test(tab.url)) {
+    return crop === null ? "netflix-preview" : "netflix-video";
+  }
+  return videoFrame && options.youtubeMining === true && YOUTUBE_PAGE_URL.test(tab.url) ? "youtube-frame" : null;
 }
 
 // One picture from `source`: a YouTube player that shows no frame leaves the
 // viewport's picture to be taken.
-async function captureFrom(tab, sender, source) {
+async function captureFrom(tab, sender, source, avif) {
+  if (avif) return chrome.tabs.captureVisibleTab(tab.windowId, { format: "png" });
   if (source === "netflix-preview") return captureNetflixPreviewInDocument(tab, sender);
   const frame = source === "youtube-frame" ? await captureYouTubeFrameInDocument(tab, sender) : null;
   return frame ?? chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg" });
 }
 
+// The brightest a picture's pixels can be in every channel and it still counts
+// as black: video that Chrome leaves out of a capture, as it can protected
+// video. JPEG can bring black back a little above zero; 16 is video's own
+// black level.
+const BLACK_LEVEL = 16;
+
+function isBlack(pixels) {
+  for (let index = 0; index < pixels.length; index += 4) {
+    if (pixels[index] > BLACK_LEVEL || pixels[index + 1] > BLACK_LEVEL || pixels[index + 2] > BLACK_LEVEL) return false;
+  }
+  return true;
+}
+
+// The part of a viewport picture that `crop` names, in fractions of the
+// viewport (netflix-content.js), which the capture holds at the screen's pixel
+// ratio: a Netflix subtitle note's screenshot keeps only the video's picture.
+// With `unlessBlack`, a black picture is null instead.
+async function croppedJpeg(dataUrl, crop, unlessBlack = false) {
+  const image = await createImageBitmap(await (await fetch(dataUrl)).blob());
+  try {
+    const left = Math.round(crop.left * image.width);
+    const top = Math.round(crop.top * image.height);
+    const width = Math.max(1, Math.round((crop.left + crop.width) * image.width) - left);
+    const height = Math.max(1, Math.round((crop.top + crop.height) * image.height) - top);
+    // A picture that fills the viewport, as a 16:9 title does full screen on a
+    // 16:9 display, is the capture as it was taken, not encoded again.
+    const whole = width === image.width && height === image.height;
+    if (whole && !unlessBlack) return dataUrl;
+    const canvas = new OffscreenCanvas(width, height);
+    const context = canvas.getContext("2d");
+    context.drawImage(image, left, top, width, height, 0, 0, width, height);
+    if (unlessBlack && isBlack(context.getImageData(0, 0, width, height).data)) return null;
+    if (whole) return dataUrl;
+    const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.92 });
+    return `data:image/jpeg;base64,${encodeBase64(new Uint8Array(await jpeg.arrayBuffer()))}`;
+  } finally {
+    image.close();
+  }
+}
+
+async function finishScreenshot(captured, tab, sender, source, crop, avif) {
+  if (avif) {
+    const reply = await sendAnkiRequest("hachidori-anki-render", { type: "hd_anki_encode_screenshot", dataUrl: captured });
+    return reply.dataUrl;
+  }
+  if (crop === null || (source !== null && source !== "netflix-video")) return captured;
+  const picture = await croppedJpeg(captured, crop, source === "netflix-video");
+  return picture ?? captureNetflixPreviewInDocument(tab, sender);
+}
+
 // captureVisibleTab takes the window's active tab. Both the active page and its
 // document owner are checked around every attempt, including a rate-limit retry.
-async function captureSenderViewport(sender, options, videoFrame = false) {
+// A `crop` keeps that part of the viewport's picture.
+async function captureSenderViewport(sender, options, videoFrame = false, crop = null) {
   const readerPage = readerPageSender(sender);
   if (typeof sender.tab?.id !== "number" && !readerPage) {
     throw new Error("Only a reading tab can be captured.");
@@ -228,10 +287,12 @@ async function captureSenderViewport(sender, options, videoFrame = false) {
   if (!sender.documentId) throw new Error("The reading document identity is unavailable.");
   for (let attempt = 1; ; attempt += 1) {
     const tab = await screenshotOwnedTab(sender, readerPage);
-    const source = screenshotSource(tab, sender, options, readerPage, videoFrame);
+    const source = screenshotSource(tab, sender, options, readerPage, videoFrame, crop);
+    // Linked browsers send JPEG to hosts that may still require it.
+    const avif = options.experimental.avifScreenshots === true && source === null && crop === null && !sharingLinked;
     let captured;
     try {
-      captured = await captureFrom(tab, sender, source);
+      captured = await captureFrom(tab, sender, source, avif);
     } catch (error) {
       // A preview is not the viewport capture Chrome rate-limits.
       if (source === "netflix-preview" || attempt >= 2
@@ -245,7 +306,7 @@ async function captureSenderViewport(sender, options, videoFrame = false) {
     if (afterCapture.windowId !== tab.windowId) {
       throw new Error("The reading tab moved to another window during the screenshot.");
     }
-    return captured;
+    return finishScreenshot(captured, tab, sender, source, crop, avif);
   }
 }
 
@@ -307,10 +368,11 @@ async function linkedPreflight(message, request) {
   }
   if (reply.ok !== true) return { state: "error", canAdd: false, error: reply.error || `${single.type} failed` };
   const entry = Object.fromEntries(Object.entries(reply).filter(([key]) => !["type", "requestId", "ok"].includes(key)));
-  // Netflix and YouTube media stay with the reading browser's own Anki
-  // connection, so a linked request from either is told it gets none.
-  if (request?.netflix !== null && typeof request?.netflix === "object") return { ...entry, netflixLinked: true };
-  return request?.youtube !== null && typeof request?.youtube === "object" ? { ...entry, youtubeLinked: true } : entry;
+  // Netflix, YouTube and Crunchyroll media stay with the reading browser's own
+  // Anki connection, so a linked request from any of them is told it gets none.
+  const site = ["netflix", "youtube", "crunchyroll"]
+    .find(field => request?.[field] !== null && typeof request?.[field] === "object");
+  return site === undefined ? entry : { ...entry, [`${site}Linked`]: true };
 }
 
 async function linkedPreflightBatch(message) {
@@ -402,8 +464,8 @@ function answerAnkiRequest(message, sender, linkedClient = false) {
     // Only the screenshot needs to know which page asked, and it is given the
     // capture rather than the sender, so nothing else can capture a tab.
     if (message.type === "hd_anki_screenshot") {
-      return service.screenshot(options => captureSenderViewport(sender, options, message.videoFrame === true),
-        message.templateId);
+      return service.screenshot(options => captureSenderViewport(sender, options, message.videoFrame === true,
+        cropOf(message.crop)), message.templateId);
     }
     if (linkedClient && message.type === "hd_anki_status") {
       const status = singleProfileStatus(message, await service.status(message.templateId));
