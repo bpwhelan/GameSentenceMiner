@@ -26,6 +26,16 @@ if (portablePreview) {
   config.identifier = 'com.beangate.gamesentenceminer.preview';
   if (process.platform === 'darwin') config.bundle.macOS = {signingIdentity: '-'};
 }
+const macOrt = process.platform === 'darwin' && process.arch === 'x64' && environment.GSM_MACOS_ORT_DIR;
+if (macOrt) {
+  const library = path.join(macOrt, 'libonnxruntime.1.24.2.dylib');
+  config.bundle.macOS ??= {};
+  config.bundle.macOS.frameworks = [library];
+  config.bundle.resources = {
+    [path.join(macOrt, 'LICENSE')]: 'onnxruntime/LICENSE',
+    [path.join(macOrt, 'ThirdPartyNotices.txt')]: 'onnxruntime/ThirdPartyNotices.txt',
+  };
+}
 const cli=['node_modules/@tauri-apps/cli/tauri.js','build','--ci','--config','src-tauri/tauri.bundle.conf.json','--config',JSON.stringify(config)];
 if (portablePreview) {
   cli.push('--features', 'portable-preview');
