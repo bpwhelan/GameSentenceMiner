@@ -233,3 +233,17 @@ def test_explicit_pause_is_excluded_from_live_and_saved_reading_time(text_pipeli
         assert stats.calculate_actual_reading_time(timestamps, texts) == 20.0
     finally:
         reopened.close()
+
+
+def test_desktop_projection_delivers_to_reader_without_receipt_logging_or_clipboard_copy(text_pipeline, monkeypatch):
+    from GameSentenceMiner.util import clipboard
+
+    # Build a record using the ordinary producer; the check below replays its desktop revision.
+    gametext._ingest_line_sync("a line", source="manual")
+    event = text_pipeline.outputs.events[0]
+    monkeypatch.setattr(gametext, "_log_info", lambda *_a, **_kw: pytest.fail("duplicate receipt log"))
+    monkeypatch.setattr(gametext, "_send_text_received_preview_event", lambda *_a: pytest.fail("duplicate preview"))
+    monkeypatch.setattr(clipboard, "copy", lambda *_a: pytest.fail("duplicate clipboard write"))
+    projected = TextDomainEvent(event.kind, replace(event.record, copy_to_clipboard=True))
+    gametext._project_text_domain_event(projected, desktop_outputs=True)
+    assert text_pipeline.outputs.events[-1] == projected

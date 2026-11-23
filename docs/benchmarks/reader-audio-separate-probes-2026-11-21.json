@@ -1,0 +1,105 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "calls_per_round": 2,
+  "worker_sha256": "2992164c868978edf1c59823f8387cc76644c90db4911b392054871095ec1269",
+  "ffmpeg_version": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "summary": {
+    "python": {
+      "ms": 295.0761,
+      "cpu_ms": 54.6875,
+      "resident_mib": 78.5,
+      "tree_cpu_ms": 320.3125,
+      "peak_tree_commit_mib": 82.0117
+    },
+    "rust": {
+      "ms": 377.9142,
+      "cpu_ms": 46.875,
+      "resident_mib": 19.4414,
+      "tree_cpu_ms": 429.6875,
+      "peak_tree_commit_mib": 38.375
+    }
+  },
+  "samples": {
+    "python": [
+      {
+        "ms": 291.66744998656213,
+        "cpu_ms": 70.3125,
+        "resident_mib": 78.5,
+        "tree_cpu_ms": 390.625,
+        "peak_tree_commit_mib": 82.01171875
+      },
+      {
+        "ms": 295.0760500098113,
+        "cpu_ms": 62.5,
+        "resident_mib": 78.5,
+        "tree_cpu_ms": 312.5,
+        "peak_tree_commit_mib": 82.01171875
+      },
+      {
+        "ms": 300.29290000675246,
+        "cpu_ms": 31.25,
+        "resident_mib": 78.5,
+        "tree_cpu_ms": 320.3125,
+        "peak_tree_commit_mib": 82.01171875
+      },
+      {
+        "ms": 296.4468499994837,
+        "cpu_ms": 54.6875,
+        "resident_mib": 78.5,
+        "tree_cpu_ms": 296.875,
+        "peak_tree_commit_mib": 82.01171875
+      },
+      {
+        "ms": 292.6103499776218,
+        "cpu_ms": 31.25,
+        "resident_mib": 79.5,
+        "tree_cpu_ms": 320.3125,
+        "peak_tree_commit_mib": 82.01171875
+      }
+    ],
+    "rust": [
+      {
+        "ms": 546.73035,
+        "cpu_ms": 54.6875,
+        "resident_mib": 19.44140625,
+        "tree_cpu_ms": 546.875,
+        "peak_tree_commit_mib": 37.89453125
+      },
+      {
+        "ms": 358.41715,
+        "cpu_ms": 54.6875,
+        "resident_mib": 19.44140625,
+        "tree_cpu_ms": 429.6875,
+        "peak_tree_commit_mib": 38.375
+      },
+      {
+        "ms": 362.053,
+        "cpu_ms": 46.875,
+        "resident_mib": 19.44140625,
+        "tree_cpu_ms": 414.0625,
+        "peak_tree_commit_mib": 38.375
+      },
+      {
+        "ms": 382.69554999999997,
+        "cpu_ms": 39.0625,
+        "resident_mib": 19.4453125,
+        "tree_cpu_ms": 507.8125,
+        "peak_tree_commit_mib": 38.4296875
+      },
+      {
+        "ms": 377.9142,
+        "cpu_ms": 31.25,
+        "resident_mib": 19.5,
+        "tree_cpu_ms": 375.0,
+        "peak_tree_commit_mib": 38.4296875
+      }
+    ]
+  },
+  "audio": {
+    "channels": 1,
+    "sample_rate": 44100,
+    "frames": 88201
+  },
+  "pcm_sha256": "29c779977d00b907e8377d4d47871199ce3837bba9fc9065fb491b9d7ee33c5d"
+}

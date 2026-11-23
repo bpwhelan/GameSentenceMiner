@@ -55,11 +55,11 @@ pub(super) fn game(conn: &Connection, game_id: &str) -> Result<Value> {
     Ok(grid(counts))
 }
 
-pub(super) fn is_kanji(ch: &char) -> bool {
+pub fn is_kanji(ch: &char) -> bool {
     matches!(*ch as u32, 0x3400..=0x4dbf | 0x4e00..=0x9fff | 0x20000..=0x2a6df)
 }
 
-fn increment(counts: &mut IndexMap<String, u64>, key: &str, n: u64) {
+pub(super) fn increment(counts: &mut IndexMap<String, u64>, key: &str, n: u64) {
     if let Some(existing) = counts.get_mut(key) {
         *existing += n;
     } else {
@@ -74,7 +74,20 @@ pub(super) fn dashboard(
     end: Option<NaiveDate>,
     day_start: f64,
     day_end: f64,
+    cleaner: &crate::sessions::ReportCleaner,
 ) -> Result<Value> {
+    Ok(grid(dashboard_counts(conn, today, start, end, day_start, day_end, cleaner)?))
+}
+
+pub(super) fn dashboard_counts(
+    conn: &Connection,
+    today: NaiveDate,
+    start: Option<NaiveDate>,
+    end: Option<NaiveDate>,
+    day_start: f64,
+    day_end: f64,
+    cleaner: &crate::sessions::ReportCleaner,
+) -> Result<IndexMap<String, u64>> {
     let mut counts = IndexMap::new();
     // Order days once. Expanding every JSON object into SQL rows makes
     // SQLite sort the entire year's character counts into a temporary table.
@@ -123,8 +136,15 @@ pub(super) fn dashboard(
             if row.get::<_, bool>(1)? {
                 increment(&mut live, text, row.get(5)?);
             } else {
-                for ch in text.chars().filter(is_kanji) {
-                    increment(&mut live, ch.encode_utf8(&mut buffer), 1);
+                let mut add_kanji = |text: &str| {
+                    for ch in text.chars().filter(is_kanji) {
+                        increment(&mut live, ch.encode_utf8(&mut buffer), 1);
+                    }
+                };
+                if cleaner.changes_kanji() {
+                    cleaner.visit(text, add_kanji)?;
+                } else {
+                    add_kanji(text);
                 }
             }
         }
@@ -133,7 +153,7 @@ pub(super) fn dashboard(
             increment(&mut counts, &ch, n);
         }
     }
-    Ok(grid(counts))
+    Ok(counts)
 }
 
 fn grid(mut counts: IndexMap<String, u64>) -> Value {

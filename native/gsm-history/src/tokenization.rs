@@ -50,6 +50,33 @@ fn word_occurrence_source(archived: bool) -> &'static str {
     }
 }
 
+impl crate::History {
+    pub fn visit_word_frequencies(
+        &self,
+        path: &std::path::Path,
+        mut visit: impl FnMut(Option<&str>, Option<&str>, i64) -> Result<()>,
+    ) -> Result<()> {
+        self.with_reader(path, |conn| {
+            let tx = conn.transaction()?;
+            let source = word_occurrence_source(has_archives(&tx));
+            let mut statement = tx.prepare(&format!(
+                "SELECT w.word, w.reading, SUM(wo.frequency) AS freq
+                 FROM words w JOIN ({source}) wo ON w.id=wo.word_id
+                 GROUP BY w.id HAVING freq>0 ORDER BY freq DESC"
+            ))?;
+            let mut rows = statement.query([])?;
+            while let Some(row) = rows.next()? {
+                visit(
+                    row.get_ref(0)?.as_str_or_null()?,
+                    row.get_ref(1)?.as_str_or_null()?,
+                    row.get(2)?,
+                )?;
+            }
+            Ok(())
+        })
+    }
+}
+
 fn kanji_occurrence_source(archived: bool) -> &'static str {
     if archived {
         "SELECT k.character, gl.game_id, CAST(gl.timestamp AS REAL) AS timestamp, 1 AS frequency \

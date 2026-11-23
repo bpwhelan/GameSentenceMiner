@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 import gzip
+import os
 import sqlite3
 import tempfile
 import threading
@@ -35,6 +35,61 @@ def test_get_all_lines_for_scene_can_limit_to_latest_rows(monkeypatch):
     assert GameLinesTable.get_all_lines_for_scene("Scene", limit=10_000) == []
     assert "ORDER BY timestamp DESC LIMIT ?" in calls[0][0]
     assert calls[0][1] == ("Scene", 10_000)
+
+
+def test_desktop_database_bootstrap_skips_only_the_prepared_profile(monkeypatch, tmp_path):
+    primary = tmp_path / "active" / "gsm.db"
+    primary.parent.mkdir()
+    monkeypatch.setenv("GSM_DESKTOP_DATABASE_READY", str(primary))
+    assert db_module._desktop_prepared_database(str(primary))
+    assert not db_module._desktop_prepared_database(str(tmp_path / "import" / "gsm.db"))
+    assert not db_module._desktop_prepared_database(str(primary.with_name("import.db")))
+    if os.name == "nt":
+        assert db_module._desktop_prepared_database("\\\\?\\" + str(primary))
+
+    monkeypatch.setattr(db_module, "db_path", str(primary))
+    monkeypatch.setattr(db_module, "_DATABASE_TABLE_CLASSES", [])
+    monkeypatch.setattr(db_module, "schedule_database_backup", lambda *a, **kw: pytest.fail("duplicate backup"))
+    monkeypatch.setattr(db_module, "check_and_run_migrations", lambda **kw: pytest.fail("duplicate job setup"))
+    bound = []
+    monkeypatch.setattr(db_module, "_initialize_vocabulary", lambda: bound.append(True))
+    db_module._initialize_database_runtime()
+    assert bound == [True]
+
+
+def test_prepared_vocabulary_only_binds_compatibility_models_on_backend_start(monkeypatch, tmp_path):
+    from GameSentenceMiner.native import history
+    from GameSentenceMiner.util.database import tokenization_tables
+
+    database = SQLiteDB(str(tmp_path / "gsm.db"))
+    calls = []
+    monkeypatch.setenv("GSM_DESKTOP_DATABASE_READY", database.db_path)
+    monkeypatch.setenv("GSM_DESKTOP_VOCABULARY_READY", "1")
+    monkeypatch.setattr(db_module, "_is_tokenization_enabled", lambda: True)
+    monkeypatch.setattr(tokenization_tables, "bind_vocabulary_models", lambda db, enabled: calls.append((db, enabled)))
+    monkeypatch.setattr(history, "configure_vocabulary_schema", lambda *args: pytest.fail("duplicate startup work"))
+    try:
+        sync_tokenization_schema_state(database, startup=True)
+        assert calls == [(database, True)]
+    finally:
+        database.close()
+
+
+def test_recycled_scene_reader_streams_text_and_preserves_load_order(monkeypatch):
+    conn = sqlite3.connect(":memory:")
+    try:
+        conn.execute("CREATE TABLE game_lines (game_name, timestamp, line_text)")
+        conn.executemany(
+            "INSERT INTO game_lines VALUES (?, ?, ?)",
+            [("G", 20, "two"), ("Other", 999, "foreign"), ("G", 10, "one"), ("G", 30, "three"), ("G", 30, "four")],
+        )
+        monkeypatch.setattr(GameLinesTable, "_db", conn)
+        assert list(GameLinesTable.iter_recycled_line_texts("G")) == ["two", "one", "three", "four"]
+        assert list(GameLinesTable.iter_recycled_line_texts("G", 3)) == ["two", "three", "four"]
+        assert list(GameLinesTable.iter_recycled_line_texts("G", 1)) == ["four"]
+        assert list(GameLinesTable.iter_recycled_line_texts("Missing")) == []
+    finally:
+        conn.close()
 
 
 def test_set_gemini_groq_models_persist_their_input():

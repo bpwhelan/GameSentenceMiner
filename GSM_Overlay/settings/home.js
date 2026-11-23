@@ -21,7 +21,7 @@
         field("manualMode", "Push to show", "Keep the overlay out of the way until you activate it."),
         field("manualModeType", "Activation", "", {
           when: () => checked("manualMode"),
-          optionLabels: { hold: "Hold to show", toggle: "Toggle to show" },
+          optionLabels: { hold: "Hold to show", hybrid: "Hybrid · keep open during lookups", toggle: "Toggle to show" },
         }),
         field(
           "showHotkey",
@@ -76,7 +76,7 @@
       actions: [["openDictionarySettings", "Yomitan Settings"]],
       links: [["reading-jiten", "Jiten settings →"]],
     },
-  ];
+  ].filter((section) => window.gsmEnv?.shell !== "tauri" || section.id !== "dictionary");
   const shortcuts = [];
   const searchTerms = new Map(
     sections.flatMap((section) => section.fields.map((config) => [config.id, `${config.label} ${config.help}`])),
@@ -240,7 +240,7 @@
     });
     document.getElementById("homeProfileName").textContent = overlayProfileState.currentGSMProfileName;
     const activation = checked("manualMode")
-      ? `${value("manualModeType") === "toggle" ? "Toggle" : "Hold"} to show · ${value("showHotkey") || "Set a shortcut"}`
+      ? `${document.getElementById("home-manualModeType").selectedOptions[0]?.textContent || "Hold to show"} · ${value("showHotkey") || "Set a shortcut"}`
       : "Overlay always available";
     document.getElementById("homeCurrentSetup").textContent = activation;
     const warning = document.getElementById("homeManualWarning");

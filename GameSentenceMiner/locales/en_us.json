@@ -119,10 +119,6 @@
             "tooltip": "Whether to open the Text Feed page when GSM starts. Disabled while GSM runs as administrator to avoid launching the browser with administrator privileges. Your preference is preserved for normal launches.",
             "disabled_admin": "Disabled while GSM runs as administrator."
           },
-          "texthooker_port": {
-            "label": "Legacy Text Feed Port:",
-            "tooltip": "Legacy compatibility port that serves a redirect page to the main GSM port. Set this to 55000 if you need temporary access to old localhost:55000 browser storage."
-          },
           "single_port": {
             "label": "GSM Unified Port:",
             "tooltip": "Primary port used for both GSM web pages and websocket endpoints. Changing this requires an app restart."
@@ -791,6 +787,10 @@
           }
         },
         "ai": {
+          "auto_generate_character_summary": {
+            "label": "Automatically generate character summaries",
+            "tooltip": "Use your AI provider to create a missing game character summary from character metadata. Saved and hand-written summaries are used even when this is off."
+          },
           "title": "AI / Translation",
           "enabled": {
             "label": "Add To Anki:",

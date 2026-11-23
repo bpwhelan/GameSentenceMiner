@@ -322,6 +322,13 @@ def get_window_client_physical_geometry(
     """Returns a window client area's screen position and size in physical pixels."""
     if not is_windows() or not user32 or not hwnd:
         return None
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        state = desktop_session.snapshot()
+        if hwnd == state.get("target_id"):
+            rect = (state.get("window_state") or {}).get("target_client_rect")
+            return (rect["left"], rect["top"], rect["width"], rect["height"]) if rect else None
 
     with per_monitor_v2_dpi_context():
         pt = POINT()
@@ -351,6 +358,13 @@ def get_window_rect_physical(hwnd: int) -> Optional[Tuple[int, int, int, int]]:
     """Returns a window rectangle in physical pixels."""
     if not is_windows() or not user32 or not hwnd:
         return None
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        state = desktop_session.snapshot()
+        if hwnd == state.get("target_id"):
+            rect = (state.get("window_state") or {}).get("target_window_rect")
+            return (rect["left"], rect["top"], rect["right"], rect["bottom"]) if rect else None
 
     rect = wintypes.RECT()
     with per_monitor_v2_dpi_context():

@@ -24,7 +24,7 @@ pub struct ReaderState {
     search_lock: AsyncMutex<()>,
 }
 
-async fn destroy_reader_window(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
+pub(crate) async fn destroy_reader_window(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
     let label = window.label().to_owned();
     window.destroy().map_err(|e| e.to_string())?;
     // Destruction is queued on the UI thread. Reusing the label before that

@@ -35,7 +35,23 @@ pub async fn overlay_lifecycle(
 #[serde(tag = "action", rename_all = "camelCase", deny_unknown_fields)]
 pub enum DictionaryRequest {
     OpenSettings,
-    Lookup { text: String },
+    OpenJitenSettings,
+    Settings,
+    Select {
+        reader: String,
+    },
+    BrowserSources,
+    BrowseProfile,
+    ImportBrowser {
+        directory: std::path::PathBuf,
+        id: String,
+    },
+    UseOriginal {
+        reader: String,
+    },
+    Lookup {
+        text: String,
+    },
 }
 
 #[tauri::command]
@@ -46,7 +62,61 @@ pub async fn dictionary_service(
 ) -> Result<Value, String> {
     authorize(&window, &token)?;
     let app = window.app_handle();
+    let manager = app.state::<crate::dictionary_host::DictionaryManager>();
     match request {
+        DictionaryRequest::Settings => Ok(json!({
+            "reader": crate::dictionary_host::reader_selection(&crate::dictionary_host::overlay_data_path(app)),
+            "browserImport": manager.browser_import_status(app),
+        })),
+        DictionaryRequest::Select { reader } => {
+            if !matches!(reader.as_str(), "yomitan" | "hachidori") {
+                return Err("Invalid dictionary reader".into());
+            }
+            app.state::<crate::overlay_host::OverlayHost>()
+                .apply_setting_updates(
+                    app,
+                    [("dictionaryReaderSelection".into(), json!(reader))]
+                        .into_iter()
+                        .collect(),
+                    false,
+                );
+            Ok(Value::Null)
+        }
+        DictionaryRequest::OpenJitenSettings => {
+            manager.open_jiten_options(app).await.map(|()| Value::Null)
+        }
+        DictionaryRequest::BrowserSources => {
+            let sources = tokio::task::spawn_blocking(crate::browser_dictionary::discover)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(json!(sources))
+        }
+        DictionaryRequest::BrowseProfile => {
+            let Some(folder) = rfd::AsyncFileDialog::new().pick_folder().await else {
+                return Ok(Value::Null);
+            };
+            let path = folder.path().to_owned();
+            let sources = tokio::task::spawn_blocking(move || {
+                crate::browser_dictionary::sources_in("", &path)
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+            Ok(json!(sources))
+        }
+        DictionaryRequest::ImportBrowser { directory, id } => {
+            #[cfg(windows)]
+            {
+                manager.import_browser_dictionary(app, directory, id).await
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = (directory, id);
+                Err("Browser profile import requires Windows WebView2".into())
+            }
+        }
+        DictionaryRequest::UseOriginal { reader } => {
+            manager.use_original_browser_dictionary(app, &reader).await
+        }
         DictionaryRequest::OpenSettings => app
             .state::<crate::dictionary_host::DictionaryManager>()
             .open_selected_extension_options(app)
@@ -57,6 +127,7 @@ pub async fn dictionary_service(
         }
     }
 }
+
 fn authorize(window: &tauri::WebviewWindow, token: &str) -> Result<(), String> {
     crate::authorize(window, token)?;
     if window

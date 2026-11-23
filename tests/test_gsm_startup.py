@@ -12,6 +12,37 @@ from GameSentenceMiner.util import text_log
 from GameSentenceMiner.util.log_paths import get_component_log_path
 
 
+def test_native_background_start_skips_legacy_anki_workers(monkeypatch):
+    from GameSentenceMiner.native import mining
+
+    app = gsm_module.GSMApplication.__new__(gsm_module.GSMApplication)
+    workers = []
+    monkeypatch.setattr(app, "_start_thread", lambda target, name: workers.append(name))
+    monkeypatch.setattr(mining, "native_mining_enabled", lambda: True)
+    monkeypatch.setattr(gsm_module, "_get_anki_module", lambda: pytest.fail("Loaded legacy Anki workers"))
+    monkeypatch.setattr(gsm_module, "_get_run_text_hooker_page", lambda: None)
+    monkeypatch.setattr(gsm_module, "is_gsm_cloud_preview_enabled", lambda: False)
+    monkeypatch.setattr(gsm_module.cloud_sync_service, "start_background_loop", lambda: None)
+    app.start_background_threads()
+    assert workers == ["texthooker-page"]
+
+
+@pytest.mark.parametrize("supervised", [True, False])
+def test_database_startup_waits_for_supervised_schema_owner(monkeypatch, supervised):
+    from GameSentenceMiner.util.communication import bus_client
+
+    calls = []
+    runtime = object()
+    monkeypatch.setenv("GSM_NATIVE_SCHEMA", "1")
+    monkeypatch.setenv("GSM_CLIENT_ID", "backend" if supervised else "ocr")
+    monkeypatch.setattr(bus_client, "is_bus_available", lambda: True)
+    client = SimpleNamespace(wait_connected=lambda timeout: calls.append("welcome") or True)
+    monkeypatch.setattr(bus_client, "start_bus", lambda runtime: calls.append(runtime) or client)
+    monkeypatch.setattr(gsm_module.db, "start_database_runtime", lambda: calls.append("database"))
+    gsm_module._start_database_runtime(runtime)
+    assert calls == ([runtime, "welcome", "database"] if supervised else ["database"])
+
+
 def test_open_pending_reviews_command_routes_to_qt(monkeypatch):
     from GameSentenceMiner.ui import session_review_qt
 
@@ -248,9 +279,7 @@ def test_run_only_builds_settings_when_requested(monkeypatch, open_config):
         def submit(self, coro):
             name = getattr(coro, "cr_code", SimpleNamespace(co_name="unknown")).co_name
             calls.append(f"submit:{self.name}:{name}")
-            if name == "fake_post_init_async":
-                asyncio.run(coro)
-            elif hasattr(coro, "close"):
+            if hasattr(coro, "close"):
                 coro.close()
             return _FakeFuture(name)
 
@@ -285,15 +314,11 @@ def test_run_only_builds_settings_when_requested(monkeypatch, open_config):
     async def fake_start_text_monitor_async():
         calls.append("fake_start_text_monitor_async")
 
-    async def fake_async_loop_stress_test_task():
-        calls.append("fake_async_loop_stress_test_task")
-
     async def fake_post_init_async():
         calls.append("fake_post_init_async")
 
     app.background_tasks_async = fake_background_tasks_async
     app.start_text_monitor_async = fake_start_text_monitor_async
-    app.async_loop_stress_test_task = fake_async_loop_stress_test_task
     app.post_init_async = fake_post_init_async
     app._announce_startup_ready = lambda: None
     app._start_thread = lambda _target, name: calls.append(f"thread:{name}")
@@ -302,6 +327,7 @@ def test_run_only_builds_settings_when_requested(monkeypatch, open_config):
         start=lambda: calls.append("tray-start"), setup_detached=lambda: calls.append("tray-setup")
     )
 
+    monkeypatch.setattr(gsm_module, "_start_database_runtime", lambda runtime: calls.append("database"))
     monkeypatch.setattr(gsm_module, "_get_qt_main_module", lambda: fake_qt_main)
     monkeypatch.setattr(
         gsm_module,
@@ -322,6 +348,7 @@ def test_run_only_builds_settings_when_requested(monkeypatch, open_config):
 
     app.run()
 
+    assert calls.index("runner-start:transport") < calls.index("database") < calls.index("initialize")
     assert calls.count("config-window") == int(open_config)
     if open_config:
         assert calls.index("qt-app") < calls.index("config-window")
@@ -753,20 +780,16 @@ def test_get_previous_lines_for_game_normalizes_and_filters_short_lines(monkeypa
     monkeypatch.setattr(gsm_module.obs, "get_current_game", lambda: "Game A")
     monkeypatch.setattr(
         gsm_module.db.GameLinesTable,
-        "get_all_lines_for_scene",
-        lambda _scene, limit=None: [
-            SimpleNamespace(line_text="Hello, World!"),
-            SimpleNamespace(line_text=" Hello  World "),
-            SimpleNamespace(line_text="「テ ス、ト」"),
-            SimpleNamespace(line_text="..."),
-        ],
+        "iter_recycled_line_texts",
+        lambda _scene, limit: iter(["Hello, World!", " Hello  World ", "「テ ス、ト」", "..."]),
     )
     monkeypatch.setattr(gsm_module.logger, "info", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(text_log.game_log, "previous_lines", set())
+    monkeypatch.setattr(gsm_module, "game_log", text_log.GameText())
 
     app.get_previous_lines_for_game()
 
-    assert text_log.game_log.previous_lines == {"HelloWorld"}
+    assert gsm_module.game_log.previous_line_count == 1
+    assert gsm_module.game_log.is_line_recycled("Hello, World")
 
 
 def test_get_previous_lines_for_game_clears_cache_when_disabled(monkeypatch):
@@ -780,15 +803,16 @@ def test_get_previous_lines_for_game_clears_cache_when_disabled(monkeypatch):
     )
     monkeypatch.setattr(
         gsm_module.db.GameLinesTable,
-        "get_all_lines_for_scene",
+        "iter_recycled_line_texts",
         lambda _scene, limit=None: (_ for _ in ()).throw(AssertionError("db lookup should not run when disabled")),
     )
     monkeypatch.setattr(gsm_module.logger, "info", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(text_log.game_log, "previous_lines", {"existing"})
+    monkeypatch.setattr(gsm_module, "game_log", text_log.GameText())
+    gsm_module.game_log.replace_previous_lines(["existing cached text"])
 
     app.get_previous_lines_for_game()
 
-    assert text_log.game_log.previous_lines == set()
+    assert gsm_module.game_log.previous_line_count == 0
 
 
 def test_async_runner_keeps_fire_and_forget_task_alive_through_gc():
@@ -855,3 +879,14 @@ def test_open_log_opens_the_current_process_log(monkeypatch, tmp_path):
     app.open_log()
 
     assert opened_paths == [str(expected_log)]
+
+
+def test_desktop_managed_scene_load_does_not_query_python(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_RECYCLED_LINES", "1")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("desktop-managed scene load called Python")
+
+    monkeypatch.setattr(gsm_module, "_is_overlay_previous_line_check_enabled", forbidden)
+    monkeypatch.setattr(gsm_module.db.GameLinesTable, "iter_recycled_line_texts", forbidden)
+    gsm_module.GSMApplication.__new__(gsm_module.GSMApplication).get_previous_lines_for_game()

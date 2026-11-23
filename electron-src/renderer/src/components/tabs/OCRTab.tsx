@@ -1199,6 +1199,8 @@ export function OCRTab({ active }: OcrTabProps) {
   };
   const [comparisonSubTab, setComparisonSubTab] = useState<ComparisonSubTabId>("primary");
   const [toolsSubTab, setToolsSubTab] = useState<ToolsSubTabId>("diagnostics");
+  const pythonPackagesAvailable = window.gsmEnv?.pythonBackend !== false;
+  const toolsTabs = pythonPackagesAvailable ? OCR_TOOLS_TABS : OCR_TOOLS_TABS.filter(tab => tab.id !== "packages");
   const [installDependency, setInstallDependency] = useState(
     DEPENDENCY_INSTALL_OPTIONS[0]?.value ?? ""
   );
@@ -2780,7 +2782,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         {config.mainOcr === "mida_vocr" && <small>{t("ocr.pipeline.midaHint")}</small>}
                         {platform !== "win32" && (config.mainOcr === "oneocr" || (config.twoPassOCR && config.stabilityOcr === "oneocr")) && (
                           <small>
-                            {t("ocr.pipeline.portableOneOcrHint", { path: "~/.config/oneocr/venv" })}{" "}
+                            {t("ocr.pipeline.portableOneOcrHint", { path: "~/.config/oneocr/models" })}{" "}
                             <a href="https://github.com/AuroraWright/oneocr_reimpl/tree/f3698522a341bcbe5e61394f61e8ab3ef11efbe6#getting-the-models"
                               onClick={(event) => {
                                 event.preventDefault();
@@ -3506,7 +3508,7 @@ export function OCRTab({ active }: OcrTabProps) {
                     role="tablist"
                     aria-label={t("ocr.debug.title")}
                   >
-                    {OCR_TOOLS_TABS.map((subTab, index) => (
+                    {toolsTabs.map((subTab, index) => (
                       <button
                         key={subTab.id}
                         type="button"
@@ -3519,7 +3521,7 @@ export function OCRTab({ active }: OcrTabProps) {
                         onKeyDown={(event) =>
                           navigateWorkspaceTabs(
                             event,
-                            OCR_TOOLS_TABS,
+                            toolsTabs,
                             index,
                             setToolsSubTab,
                             "ocr-tools-tab-"
@@ -3611,7 +3613,7 @@ export function OCRTab({ active }: OcrTabProps) {
                   id="ocr-tools-panel-packages"
                   role="tabpanel"
                   aria-labelledby="ocr-tools-tab-packages"
-                  hidden={toolsSubTab !== "packages"}
+                  hidden={!pythonPackagesAvailable || toolsSubTab !== "packages"}
                   className="form-group ocr-form-group ocr-details-body desk-tools-panel"
                 >
                   <div className="input-group wrap">

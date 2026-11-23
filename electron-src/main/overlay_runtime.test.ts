@@ -86,7 +86,7 @@ describe('in-process overlay runtime', () => {
         expect(requireMock).toHaveBeenCalledWith(entryPath);
         expect(startOverlayAppMock).toHaveBeenCalledTimes(1);
         expect(process.env.GSM_OVERLAY_IN_PROCESS).toBe('1');
-        expect(process.env.GSM_OVERLAY_DATA_PATH).toBe(path.join('C:/gsm-data', 'gsm_overlay'));
+        expect(process.env.GSM_OVERLAY_DATA_PATH).toBe(path.join('C:/gsm-data', process.platform === 'win32' ? 'Overlay' : 'gsm_overlay'));
         expect(runtime.isInProcessOverlayRunning()).toBe(true);
 
         expect(runtime.stopInProcessOverlay()).toBe(true);

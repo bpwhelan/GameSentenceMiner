@@ -24,6 +24,8 @@ from GameSentenceMiner.util.text_utils import is_kanji
 
 
 def ensure_archive_schema(db):
+    if db.fetchone("PRAGMA user_version")[0] >= 3:
+        return
     for sql in (
         """CREATE TABLE IF NOT EXISTS archived_game_days (
             game_id TEXT NOT NULL, date TEXT NOT NULL, game_name TEXT NOT NULL,

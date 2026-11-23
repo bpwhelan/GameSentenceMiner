@@ -90,6 +90,10 @@ impl WordIndex {
     }
 
     pub fn enqueue(&self, dictionary: &str, ids: Vec<String>) {
+        self.enqueue_at(dictionary, ids, None)
+    }
+
+    pub(crate) fn enqueue_at(&self, dictionary: &str, ids: Vec<String>, generation: Option<u64>) {
         // Queue the entire import in original order. Limit resident ID storage
         // independently of its line count and analyze in small transactions.
         let bytes = ids.iter().map(String::capacity).sum::<usize>()
@@ -103,7 +107,7 @@ impl WordIndex {
                 dictionary: dictionary.to_owned(),
                 ids,
                 reply: None,
-                generation: None,
+                generation,
                 _budget: Some(permit),
             };
             if self.sender.try_send(job).is_ok() {
@@ -120,6 +124,26 @@ impl WordIndex {
             .await
             .map_err(|_| "Word index stopped")?;
         wait.await.map_err(|_| "Word index stopped".into())
+    }
+
+    pub(crate) async fn prepare_archive_lines(
+        &self,
+        ids: Vec<String>,
+        generation: u64,
+    ) -> Result<(), String> {
+        let path = self.path.with_file_name("config.json");
+        let edition = tauri::async_runtime::spawn_blocking(move || {
+            gsm_settings::read_object(&path).map(|doc| dictionary_edition(&doc))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        if self.backfill(edition, ids, Some(generation)).await? != 0 {
+            return Err(
+                "Tokenization failed. No sentences were archived; retry after fixing tokenization."
+                    .into(),
+            );
+        }
+        Ok(())
     }
 
     async fn backfill(

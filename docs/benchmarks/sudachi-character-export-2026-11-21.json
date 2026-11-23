@@ -1,0 +1,37 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Link a Jiten deck to an existing scene with 100 sentences, a JPEG cover, and paginated VNDB or AniList characters from loopback providers. Check saved metadata, source portrait bytes, all sentence mappings, and response fields after each commit. Includes time until the optional per-game Sudachi CSV and metadata file are ready, observed by polling every millisecond.",
+  "medians": {
+    "Visual Novel": {
+      "python": {
+        "ms": 12.649,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 89.2969,
+        "dictionary_ready_ms": 15.1219
+      },
+      "rust": {
+        "ms": 3.9373,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.7109,
+        "dictionary_ready_ms": 8.5373
+      }
+    },
+    "Manga": {
+      "python": {
+        "ms": 23.7458,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 89.3242,
+        "dictionary_ready_ms": 26.7004
+      },
+      "rust": {
+        "ms": 3.993,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 32.6523,
+        "dictionary_ready_ms": 8.539
+      }
+    }
+  }
+}

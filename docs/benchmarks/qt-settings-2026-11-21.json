@@ -1,0 +1,40 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "settings": {
+      "samples": [
+        {
+          "focus_ms": 23.2718,
+          "open_ms": 2489.6295999999998,
+          "reopen_ms": 3539.0839
+        },
+        {
+          "focus_ms": 25.488799999999998,
+          "open_ms": 2726.9475,
+          "reopen_ms": 2544.8041
+        },
+        {
+          "focus_ms": 20.7312,
+          "open_ms": 2434.08,
+          "reopen_ms": 2544.7596
+        },
+        {
+          "focus_ms": 22.706899999999997,
+          "open_ms": 2672.2174,
+          "reopen_ms": 2540.8925
+        },
+        {
+          "focus_ms": 22.206400000000002,
+          "open_ms": 2334.1153,
+          "reopen_ms": 2269.325
+        }
+      ],
+      "median": {
+        "focus_ms": 22.71,
+        "open_ms": 2489.63,
+        "reopen_ms": 2544.76
+      }
+    }
+  }
+}

@@ -67,6 +67,7 @@ class BusClient:
         self.version = version
 
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread = None
         self._ws: Any | None = None
         self._runtime: AsyncTransportRuntime | None = None
         self._owns_runtime = False
@@ -172,6 +173,8 @@ class BusClient:
         loop = self._loop
         if not loop:
             raise RuntimeError("BusClient not started")
+        if self._loop_thread == threading.get_ident():
+            raise RuntimeError("Use request_async on the desktop transport thread")
         coro = self.request_async(dst, topic, data, timeout)
         fut: Future = asyncio.run_coroutine_threadsafe(coro, loop)
         return fut.result(None if timeout is None else timeout + 1.0)
@@ -193,6 +196,7 @@ class BusClient:
 
     async def _main(self) -> None:
         self._loop = asyncio.get_running_loop()
+        self._loop_thread = threading.get_ident()
         backoff = 1.0
         url = f"ws://{self.host}:{self.port}"
         while not self._stop:

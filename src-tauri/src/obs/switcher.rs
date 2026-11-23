@@ -7,6 +7,7 @@ pub(super) struct Switcher {
     foreground: Value,
     changed_at: Option<Instant>,
     evaluated_at: Option<Instant>,
+    rules_present: Option<(String, std::time::SystemTime, bool)>,
     manual_hold: String,
     resolved_context: String,
     expected: Option<(String, Instant)>,
@@ -289,18 +290,18 @@ impl Obs {
         };
         if changed {
             let fg_exe_for_auto = fg_exe.clone().unwrap_or_default();
-            let fg_title_for_auto = self
-                .0
-                .state
-                .lock()
-                .unwrap()
-                .switcher
-                .foreground["title"]
+            let fg_title_for_auto = self.0.state.lock().unwrap().switcher.foreground["title"]
                 .as_str()
                 .unwrap_or("")
                 .to_owned();
-            crate::auto_launcher::notify_foreground_changed(app, &fg_exe_for_auto, &fg_title_for_auto);
+            crate::auto_launcher::notify_foreground_changed(
+                app,
+                &fg_exe_for_auto,
+                &fg_title_for_auto,
+            );
             crate::game_privileges::handle_foreground(app, fg_pid, fg_exe.as_deref());
+            #[cfg(windows)]
+            if let Some(pid) = fg_pid { crate::obs::game_audio::focus(app,pid); }
             if let Some(window) = app.get_webview_window("obs-scene-conflict") {
                 let _ = window.destroy();
             }
@@ -311,8 +312,10 @@ impl Obs {
         if !cfg!(windows) {
             return Ok(());
         }
-        if let Some(snapshot) = process::foreground() {
-            self.foreground(app, snapshot);
+        if !self.0.session.has_window_hooks() {
+            if let Some(snapshot) = process::foreground() {
+                self.foreground(app, snapshot);
+            }
         }
         let (foreground, needs_collection) = {
             let mut state = self.0.state.lock().unwrap();
@@ -332,6 +335,36 @@ impl Obs {
             self.collection(app).await?;
         }
         let name = self.0.state.lock().unwrap().switcher.collection.clone();
+        let path = self.paths()?.desktop();
+        let modified = fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let cached = self
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .switcher
+            .rules_present
+            .as_ref()
+            .filter(|(collection, time, _)| collection == &name && Some(*time) == modified)
+            .map(|(_, _, present)| *present);
+        let present = match cached {
+            Some(present) => present,
+            None => {
+                let _guard = config::SETTINGS_LOCK.lock().unwrap();
+                let mut data = config::read_json(&path)?;
+                let present = collections(&mut data).iter().any(|c| {
+                    c["collectionName"] == name
+                        && c["legacySwitcherDisabled"] == true
+                        && c["rules"].as_array().is_some_and(|rules| !rules.is_empty())
+                });
+                self.0.state.lock().unwrap().switcher.rules_present =
+                    modified.map(|m| (name.clone(), m, present));
+                present
+            }
+        };
+        if !present {
+            return Ok(());
+        }
         let scenes = self.scenes(app).await?;
         let rules = {
             let _settings_lock = config::SETTINGS_LOCK.lock().unwrap();

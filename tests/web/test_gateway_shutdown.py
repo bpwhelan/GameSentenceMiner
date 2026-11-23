@@ -36,8 +36,6 @@ def gateway(monkeypatch):
     monkeypatch.setattr(texthooking_page.web.AppRunner, "cleanup", delayed_cleanup)
     monkeypatch.setattr(texthooking_page, "_run_waitress_server", lambda *_args, on_ready: on_ready())
     monkeypatch.setattr(texthooking_page, "_wait_for_tcp_port", lambda *_args: True)
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_server", None)
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_thread", None)
     monkeypatch.setattr(texthooking_page, "_waitress_servers", [])
     monkeypatch.setattr(texthooking_page, "_waitress_threads", [])
     monkeypatch.setattr(

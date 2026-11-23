@@ -27,6 +27,7 @@ export const SETTINGS_LOCATION_LABELS: Record<SettingsCatalogOwner, string> = {
 };
 
 export const SETTINGS_CATALOG_I18N_KEYS: Record<string, string> = {
+  "desktop-dictionary": "desktopDictionary",
   "desktop-notifications": "desktopNotifications",
   "desktop-appearance-startup": "desktopAppearance",
   "desktop-tabs-and-stats": "desktopTabs",
@@ -66,6 +67,14 @@ export const SETTINGS_CATALOG_I18N_KEYS: Record<string, string> = {
 };
 
 export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
+  {
+    id: "desktop-dictionary",
+    label: "Dictionary",
+    owner: "electron",
+    keywords: ["dictionary", "yomitan", "hachidori", "jiten", "browser import", "extension", "lookup reader"],
+    shortDescription: "Select a dictionary reader or import dictionaries and settings from a browser profile.",
+    openAction: OPEN_CURRENT_TAB,
+  },
   {
     id: "desktop-notifications",
     label: "Notifications & sounds",
@@ -740,8 +749,8 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
   },
   {
     id: "gsm-overlay-capture",
-    label: "Main GSM overlay capture",
-    owner: "python",
+    label: "Overlay capture",
+    owner: "overlay",
     keywords: [
       "overlay capture",
       "overlay websocket port",
@@ -766,12 +775,9 @@ export const SETTINGS_CATALOG: SettingsCatalogEntry[] = [
       "exclusive fullscreen",
       "recycled line indicator"
     ],
-    shortDescription: "Configure the Python-side overlay scan pipeline, capture regions, and OCR result merging.",
-    openAction: {
-      ...OPEN_GSM_SETTINGS,
-      rootTabKey: "overlay"
-    },
-    notes: "Related live controls also appear in Overlay Settings."
+    shortDescription: "Set the OCR engine, capture region, and how scan results are combined.",
+    openAction: OPEN_OVERLAY_SETTINGS,
+    notes: "Available in the Capture tab of Overlay Settings."
   },
   {
     id: "gsm-advanced-network",

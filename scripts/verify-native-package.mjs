@@ -7,9 +7,6 @@ import {auditNativePackage} from './native-package-policy.mjs';
 const root=path.resolve(process.argv[2]||'build/native-desktop/app');
 for(const relative of [
   'dist/renderer/index.html',
-  'assets/scripts/legacy_dictionary_export.py',
-  'assets/scripts/vendor/chromium-reader/ccl_chromium_reader/ccl_chromium_indexeddb.py',
-  'assets/scripts/vendor/simple-snappy/ccl_simplesnappy/ccl_simplesnappy.py',
   'GSM_Overlay/index.html',
   'GSM_Overlay/yomitan/manifest.json',
   'GSM_Overlay/hachidori/manifest.json',

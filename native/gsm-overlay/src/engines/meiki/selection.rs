@@ -2,7 +2,7 @@ use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 pub const REVISION: &str = "a9cffa4f60cbf72ddb87edf19c6f98a01cd042e6";
@@ -30,8 +30,18 @@ impl Detector {
             Self::Small => "8cdc5daa5c13a5f93adb40ee2e53ad1a3d2f7e372584c5c665b038adeb74ae6d",
             Self::Large => "40b6a016667745cae7d3055929ae3b8b1e7716aac795f5904cd3c2c7c3b8404b",
         };
+        // Earlier installs kept these same verified graphs in ocr_models.
+        let legacy = root.with_file_name("ocr_models");
+        let directory = if root.ends_with("ocr")
+            && !root.join(self.filename()).is_file()
+            && legacy.join(self.filename()).is_file()
+        {
+            &legacy
+        } else {
+            root
+        };
         crate::models::pinned_model(
-            root,
+            directory,
             "rtr46/meiki.text.detect.v0",
             REVISION,
             &self.filename(),
@@ -39,11 +49,13 @@ impl Detector {
         )
     }
     pub fn read(base: &Path) -> Result<Self> {
-        let bytes = match std::fs::read(base.join("ocr/meikiocr/selection.json")) {
-            Ok(bytes) => bytes,
+        let file = match std::fs::File::open(base.join("ocr/meikiocr/selection.json")) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::Large),
             Err(error) => return Err(error.into()),
         };
+        let mut bytes = Vec::new();
+        file.take(65537).read_to_end(&mut bytes)?;
         ensure!(
             bytes.len() <= 64 * 1024,
             "MeikiOCR model selection is too large"
@@ -54,7 +66,7 @@ impl Detector {
     }
     pub fn select(self, base: &Path) -> Result<()> {
         self.select_validated(base, || {
-            let path = self.ensure(&base.join("ocr_models"))?;
+            let path = self.ensure(&base.join("ocr"))?;
             crate::inference::Model::file(&path, 0)?;
             Ok(())
         })

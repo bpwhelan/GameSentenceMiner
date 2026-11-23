@@ -18,5 +18,4 @@ flate2 = "1"
 tar = "0.4"
 toml = "0.8"
 regex = "1"
-[dev-dependencies]
 tempfile = "3"

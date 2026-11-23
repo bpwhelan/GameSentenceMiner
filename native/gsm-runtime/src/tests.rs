@@ -211,6 +211,27 @@ async fn disconnect_fails_requests_and_reconnect_cannot_receive_stale_commands()
         .contains("not connected"));
 }
 #[tokio::test]
+async fn standalone_desktop_delivers_hook_text_without_a_backend_handshake() {
+    let (sent, mut frames) = mpsc::unbounded_channel();
+    let runtime = Runtime::start(json!({"nativeTextIntake":true}), move |event, frame| {
+        if event == "bus.message" && frame["topic"] == "text.intake.hook" {
+            sent.send(frame).unwrap();
+        }
+    }).unwrap();
+    for observation in ["agent-first", "agent-second"] {
+        runtime.submit_text(json!({"text":"字幕","observationId":observation})).unwrap().await.unwrap().unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(2), frames.recv()).await.unwrap().unwrap();
+        assert_eq!(frame["data"]["observationId"], observation);
+        runtime.call("bus.reply", json!({"corr":frame["id"],"dst":"main","topic":frame["topic"],
+            "ok":true,"data":{"observation_id":observation,"status":"accepted"}})).await.unwrap();
+        assert_eq!(runtime.call("text.count", json!({})).await.unwrap(), 0);
+        if observation == "agent-first" {
+            connect(&runtime, "backend").await.close(None).await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn text_retries_same_observation_after_backpressure_and_backend_reconnect() {
     let runtime = runtime();
     let observation = runtime
@@ -417,4 +438,37 @@ async fn startup_failure_does_not_enter_runtime_crash_loop() {
     let first = state(&runtime).await;
     tokio::time::sleep(Duration::from_millis(1200)).await;
     assert_eq!(state(&runtime).await, first);
+}
+
+#[test]
+fn desktop_hook_queue_delivers_the_next_observation_immediately_after_acknowledgement() {
+    let (tx, _) = mpsc::channel(8);
+    let (output, mut backend) = mpsc::channel(8);
+    let sent = Arc::new(Mutex::new(Vec::new()));
+    let messages = sent.clone();
+    let mut actor = Actor::new(
+        json!({}),
+        tx,
+        Arc::new(move |_, data| messages.lock().unwrap().push(data)),
+    );
+    actor
+        .clients
+        .insert("backend".into(), Client { epoch: 7, output });
+    let mut start = envelope("main", "text.intake", "request", json!({"action":"start"}));
+    start["src"] = json!("backend");
+    actor.route(start, 7);
+    for id in ["first", "second"] {
+        let (reply, _) = oneshot::channel();
+        actor.call("text.submit", json!({"observationId":id,"text":id}), reply);
+    }
+    let request = actor.observations["first"].request.clone().unwrap();
+    assert!(actor.observations["second"].request.is_none());
+    assert_eq!(actor.pending[&request].topic, "text.intake.hook");
+    actor.complete(
+        &request,
+        Ok(json!({"observation_id":"first","status":"accepted"})),
+    );
+    let next = actor.observations["second"].request.as_ref().unwrap();
+    assert_eq!(actor.pending[next].dst, "main");
+    assert!(backend.try_recv().is_err());
 }

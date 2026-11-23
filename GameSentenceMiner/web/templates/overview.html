@@ -400,8 +400,8 @@
                             <input type="date" id="editReleaseDate" class="form-input">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Character Summary (for AI Translation)</label>
-                            <textarea id="editCharacterSummary" class="form-textarea" rows="6" placeholder="Character list for translation context..."></textarea>
+                            {% set character_summary_rows = 6 %}
+                            {% include 'components/character-summary-editor.html' %}
                         </div>
                         <div class="form-group">
                             <label class="form-label">Links (one URL per line)</label>

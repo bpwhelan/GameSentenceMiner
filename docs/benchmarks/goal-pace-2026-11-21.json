@@ -1,0 +1,109 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python_version": "3.13.2",
+  "rust_version": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "logical_cpus": 16,
+  "historical_lines": 50000,
+  "live_lines": 20,
+  "rollup_days": 365,
+  "goal_history_days": 365,
+  "anki_notes": 400,
+  "rounds": 5,
+  "initialization": {
+    "python": {
+      "schema": {
+        "ms": 67.2662,
+        "cpu_ms": 62.5,
+        "resident_mib": 74.7578
+      },
+      "vocabulary-schema": {
+        "ms": 3.7798,
+        "cpu_ms": 0.0,
+        "resident_mib": 74.8789
+      }
+    },
+    "rust": {
+      "schema": {
+        "ms": 19.0261,
+        "cpu_ms": 15.625,
+        "resident_mib": 8.6602
+      },
+      "vocabulary-schema": {
+        "ms": 6.6927,
+        "cpu_ms": 15.625,
+        "resident_mib": 8.6602
+      }
+    }
+  },
+  "workloads": {
+    "/api/goals/reading-pace": {
+      "iterations_per_round": 40,
+      "python": {
+        "ms": 1.4267,
+        "cpu_ms": 1.5625,
+        "resident_mib": 75.3828
+      },
+      "rust": {
+        "ms": 0.1442,
+        "cpu_ms": 0.0,
+        "resident_mib": 8.6602
+      },
+      "samples": {
+        "python": [
+          {
+            "ms": 1.3836,
+            "cpu_ms": 1.5625,
+            "resident_mib": 75.3008
+          },
+          {
+            "ms": 1.3922,
+            "cpu_ms": 1.5625,
+            "resident_mib": 75.3789
+          },
+          {
+            "ms": 1.4296,
+            "cpu_ms": 1.1719,
+            "resident_mib": 75.3828
+          },
+          {
+            "ms": 1.4267,
+            "cpu_ms": 1.5625,
+            "resident_mib": 75.4375
+          },
+          {
+            "ms": 1.4722,
+            "cpu_ms": 1.5625,
+            "resident_mib": 75.5312
+          }
+        ],
+        "rust": [
+          {
+            "ms": 0.1442,
+            "cpu_ms": 0.0,
+            "resident_mib": 8.6602
+          },
+          {
+            "ms": 0.1404,
+            "cpu_ms": 0.0,
+            "resident_mib": 8.6602
+          },
+          {
+            "ms": 0.1546,
+            "cpu_ms": 0.0,
+            "resident_mib": 8.6602
+          },
+          {
+            "ms": 0.143,
+            "cpu_ms": 0.0,
+            "resident_mib": 8.6602
+          },
+          {
+            "ms": 0.1584,
+            "cpu_ms": 0.0,
+            "resident_mib": 8.6602
+          }
+        ]
+      }
+    }
+  }
+}

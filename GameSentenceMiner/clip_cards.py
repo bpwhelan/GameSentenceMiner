@@ -23,7 +23,9 @@ def match_new_card(card):
         sentence = remove_html_and_cloze_tags(card.get_field(config.anki.sentence_field) or "")
         if not sentence:
             return None
-        scan_line = getattr(gsm_state, "last_overlay_scan_line", None)
+        from GameSentenceMiner.native.intake import overlay_scan
+
+        scan_line = overlay_scan()
         if scan_line is not None and lines_match(scan_line.text, sentence):
             return None
         live_lines = get_all_lines()

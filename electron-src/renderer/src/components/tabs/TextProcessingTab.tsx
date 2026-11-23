@@ -6,7 +6,7 @@ import { WorkspaceIcon } from "../Workspace";
 import { SentenceExclusions } from "./SentenceExclusions";
 import "./TextProcessingTab.css";
 
-interface TextReplacementRule {
+export interface TextReplacementRule {
   enabled: boolean;
   mode: string;
   find: string;
@@ -159,6 +159,9 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
   const [previewOutput, setPreviewOutput] = useState("");
   const [followingLatestText, setFollowingLatestText] = useState(true);
   const configRef = useRef(config);
+  const editing = useRef<{name:string; before:TextProcessingConfig} | null>(null);
+  const writes = useRef(Promise.resolve());
+  const reloadAfterSave = useRef(false);
   const pendingSave = useRef<TextProcessingConfig | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRequest = useRef(0);
@@ -176,9 +179,13 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     setLoadFailed(false);
     let cancelled = false;
     const initialConfig = configRef.current;
-    invokeIpc<Partial<TextProcessingConfig> | null>("textprocess.load").then((cfg) => {
+    const scoped = window.gsmEnv?.shell === "tauri";
+    const read = scoped ? invokeIpc<{name:string;config:Partial<TextProcessingConfig>}>("textprocess.loadProfile")
+      : invokeIpc<Partial<TextProcessingConfig> | null>("textprocess.load").then(cfg=>({name:"",config:cfg}));
+    read.then(({name,config:cfg}) => {
       if (cancelled || pendingSave.current || configRef.current !== initialConfig) return;
       const next = normalizeConfig(cfg);
+      editing.current = scoped ? {name,before:next} : null;
       configRef.current = next;
       setConfig(next);
       setLoaded(true);
@@ -187,6 +194,14 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     });
     return () => { cancelled = true; };
   }, [active, loadAttempt]);
+
+  useEffect(() => {
+    if (!active || window.gsmEnv?.shell !== "tauri") return;
+    return onIpc("settings.mining.changed", () => {
+      if (pendingSave.current) reloadAfterSave.current=true;
+      else setLoadAttempt(n=>n+1);
+    });
+  },[active]);
 
   useEffect(() => {
     if (!active) return;
@@ -215,12 +230,25 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     setConfig(next);
   }, []);
 
+  const commit = useCallback((next:TextProcessingConfig) => {
+    const scope=editing.current;
+    type Result={success:boolean; error?:string};
+    if (!scope) return invokeIpc<Result>("textprocess.save",next);
+    const write = writes.current.then(async ()=>{
+      const result=await invokeIpc<Result>("textprocess.saveProfile",{name:scope.name,before:scope.before,after:next});
+      if(result.success) scope.before=next;
+      return result;
+    });
+    writes.current=write.then(()=>{},()=>{});
+    return write;
+  },[]);
   const saveConfig = useCallback(async (next: TextProcessingConfig) => {
     try {
-      const result = await invokeIpc<{ success: boolean; error?: string }>("textprocess.save", next);
+      const result = await commit(next);
       if (pendingSave.current !== next) return;
       if (result.success) {
         pendingSave.current = null;
+          if(reloadAfterSave.current) {reloadAfterSave.current=false;setLoadAttempt(n=>n+1);}
       } else {
         showNotice(result.error || t("textProcessing.saveFailed"), "error");
       }
@@ -229,7 +257,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
         showNotice(t("textProcessing.saveFailed"), "error");
       }
     }
-  }, [showNotice, t]);
+  }, [commit, showNotice, t]);
 
   useEffect(() => {
     const next = pendingSave.current;
@@ -246,7 +274,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
     const flushPendingSave = () => {
       if (pendingSave.current) {
         // Dispatch the last edit before the renderer leaves; there is no UI for an error here.
-        void invokeIpc("textprocess.save", pendingSave.current).catch(() => {});
+        void commit(pendingSave.current).catch(() => {});
       }
     };
     window.addEventListener("beforeunload", flushPendingSave);
@@ -256,7 +284,7 @@ export function TextProcessingTab({ active }: TextProcessingTabProps) {
       pendingSave.current = null;
       if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
-  }, []);
+  }, [commit]);
 
   const moveProcessor = useCallback((fromIndex: number, toIndex: number) => {
     updateConfig((prev) => {
@@ -593,7 +621,7 @@ interface StringReplacementConfigProps {
   onChange: (rules: TextReplacementRule[]) => void;
 }
 
-function StringReplacementConfig({ rules, onChange }: StringReplacementConfigProps) {
+export function StringReplacementConfig({ rules, onChange }: StringReplacementConfigProps) {
   const t = useTranslation();
 
   const addRule = () => {

@@ -288,6 +288,7 @@ impl Python {
             return Ok(self.project.to_string_lossy().into());
         }
         for metadata in [
+            self.project.join("assets/qt/qt-host.json"),
             self.project.join("prerelease.json"),
             self.project.join("assets/prerelease.json"),
             self.project.join("electron-src/assets/prerelease.json"),
@@ -315,7 +316,11 @@ impl Python {
             } else {
                 metadata.parent().unwrap().into()
             };
-            let wheel = assets.join("python").join(name);
+            let wheel = if metadata.ends_with("qt-host.json") {
+                assets.join(name)
+            } else {
+                assets.join("python").join(name)
+            };
             if !crate::hash(&wheel)?.eq_ignore_ascii_case(digest) {
                 return Err("Bundled prerelease backend wheel failed its integrity check".into());
             }
@@ -356,6 +361,10 @@ impl Python {
             digest.update(fs::read(self.project.join(name)).map_err(|e| e.to_string())?);
         }
         let mut extras = normalized_extras(extras);
+        let qt_manifest = self.project.join("assets/qt/qt-host.json");
+        if qt_manifest.is_file() {
+            digest.update(fs::read(qt_manifest).map_err(|e| e.to_string())?);
+        }
         extras.sort();
         digest.update(b"\0extras\0");
         digest.update(serde_json::to_vec(&extras).unwrap());
@@ -904,11 +913,12 @@ impl Python {
             .as_ref()
             .zip(bundled.as_ref())
             .is_some_and(|(installed, bundled)| compatible_version(installed, bundled));
-        let replace = installed.is_none()
+        let mut replace = installed.is_none()
             || (args["isPreRelease"] != true && bundled.is_some() && !compatible);
         let selection = self.extras(&args["extras"]);
         let extras = &selection["selectedExtras"];
         let changed = self.sync_state(&venv_for(python)?, extras)?["changed"] == true;
+        replace |= changed && self.project.join("assets/qt/qt-host.json").is_file();
         if replace || changed {
             if args["readOnlyEnvironment"] == true {
                 return Err(

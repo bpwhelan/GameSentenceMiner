@@ -126,9 +126,8 @@
 	let miningClickSuppression: { view: Window; until: number } | undefined;
 	const pendingMiningUpdates = new Map<string, boolean>();
 	let miningDrag: {
-		anchor: string; end: string; initial: Set<string>; checked: boolean;
+		anchor: string; previousAnchor: string; end: string; initial: Set<string>; checked: boolean;
 		view: Window; document: Document; pointerId: number; x: number; y: number; frame: number;
-		startX: number; startY: number; moved: boolean; mining: boolean;
 	} | undefined;
 
 	function miningOrder() {
@@ -148,17 +147,24 @@
 		if (!order.includes(id)) return;
 		if (miningDrag) finishMiningSelection(false);
 		const view = (event.currentTarget as HTMLElement)?.ownerDocument.defaultView || window;
-		const mining = event.shiftKey;
 		const anchor = event.shiftKey && order.includes(miningAnchor) ? miningAnchor : id;
-		miningDrag = { anchor, end: id, initial: new Set(miningSelectedIds), checked, view,
-			document: view.document, pointerId: event.pointerId, x: event.clientX, y: event.clientY, frame: 0,
-			startX: event.clientX, startY: event.clientY, moved: false, mining };
-		if (mining) {
-			view.getSelection()?.removeAllRanges();
-			if (!event.shiftKey) miningAnchor = id;
-			miningVersion += 1;
-			miningSelectedIds = selectMiningRange(miningDrag.initial, order, anchor, id, checked);
-		}
+		miningDrag = {
+			anchor,
+			previousAnchor: miningAnchor,
+			end: id,
+			initial: new Set(miningSelectedIds),
+			checked,
+			view,
+			document: view.document,
+			pointerId: event.pointerId,
+			x: event.clientX,
+			y: event.clientY,
+			frame: 0,
+		};
+		view.getSelection()?.removeAllRanges();
+		if (!event.shiftKey) miningAnchor = id;
+		miningVersion += 1;
+		miningSelectedIds = selectMiningRange(miningDrag.initial, order, anchor, id, checked);
 		view.addEventListener('pointermove', moveMiningSelection);
 		view.addEventListener('pointerup', endMiningSelection);
 		view.addEventListener('pointercancel', cancelMiningSelection);
@@ -172,7 +178,7 @@
 	}
 
 	function updateMiningTarget() {
-		if (!miningDrag?.mining) return;
+		if (!miningDrag) return;
 		const id = miningTargetId();
 		if (id && id !== miningDrag.end && miningOrder().includes(id)) {
 			miningDrag.end = id;
@@ -182,7 +188,7 @@
 
 	function scrollMiningSelection() {
 		const drag = miningDrag;
-		if (!drag?.mining) return;
+		if (!drag) return;
 		drag.frame = 0;
 		const vertical = $displayVertical$ && drag.view === window;
 		const position = vertical ? drag.x : drag.y;
@@ -208,15 +214,6 @@
 		if (!drag || event.pointerId !== drag.pointerId) return;
 		drag.x = event.clientX;
 		drag.y = event.clientY;
-		if (Math.hypot(drag.x - drag.startX, drag.y - drag.startY) >= 6) drag.moved = true;
-		if (!drag.mining) {
-			const id = miningTargetId();
-			// Leave the browser's native text selection alone until another row is crossed.
-			if (!drag.moved || !id || id === drag.anchor || !miningOrder().includes(id)) return;
-			miningDrag!.mining = true;
-			miningAnchor = drag.anchor;
-			miningVersion += 1;
-		}
 		event.preventDefault();
 		drag.view.getSelection()?.removeAllRanges();
 		updateMiningTarget();
@@ -232,16 +229,16 @@
 		drag.view.removeEventListener('blur', cancelMiningSelection);
 		drag.view.cancelAnimationFrame(drag.frame);
 		miningDrag = undefined;
-		if (drag.mining) {
-			if (commit) queueMiningSelection(miningSelectionChanges(drag.initial, miningSelectedIds));
-			else miningSelectedIds = drag.initial;
+		if (commit) {
+			queueMiningSelection(miningSelectionChanges(drag.initial, miningSelectedIds));
+		} else {
+			miningSelectedIds = drag.initial;
+			miningAnchor = drag.previousAnchor;
 		}
 	}
 	function endMiningSelection(event: PointerEvent) {
 		if (event.pointerId !== miningDrag?.pointerId) return;
-		if (miningDrag.mining || miningDrag.moved) {
-			miningClickSuppression = { view: miningDrag.view, until: event.timeStamp + 100 };
-		}
+		miningClickSuppression = { view: miningDrag.view, until: event.timeStamp + 100 };
 		finishMiningSelection();
 	}
 	function cancelMiningSelection() { finishMiningSelection(false); }
@@ -249,9 +246,11 @@
 	function clickMiningRow({ detail }: CustomEvent<MiningClickDetail>) {
 		const { id, event } = detail;
 		const view = (event.currentTarget as HTMLElement)?.ownerDocument.defaultView || window;
-		if (event.detail > 2 || (miningClickSuppression?.view === view && event.timeStamp <= miningClickSuppression.until)) return;
-		if (event.detail < 2 && !view.getSelection()?.isCollapsed) return;
-		// Two native clicks restore the original checked state before double-click editing starts.
+		if (miningClickSuppression?.view === view && event.timeStamp <= miningClickSuppression.until) {
+			miningClickSuppression = undefined;
+			return;
+		}
+		miningClickSuppression = undefined;
 		toggleMiningSelection(new CustomEvent('miningToggle', {
 			detail: { id, checked: !miningSelectedIds.has(id), shiftKey: event.shiftKey },
 		}));
@@ -291,8 +290,9 @@
 			const data = await response.json();
 			if (version === miningVersion && !miningDrag && !pendingMiningUpdates.size && Array.isArray(data.selected_ids)) miningSelectedIds = new Set(data.selected_ids);
 		} catch (error) {
+			const fallback = miningDrag?.initial ?? miningSelectedIds;
 			for (const update of updates) {
-				if (!pendingMiningUpdates.has(update.id)) pendingMiningUpdates.set(update.id, miningSelectedIds.has(update.id));
+				if (!pendingMiningUpdates.has(update.id)) pendingMiningUpdates.set(update.id, fallback.has(update.id));
 			}
 			if (resetVersion === miningResetVersion) miningError = 'Could not save mining selection.';
 		} finally {
@@ -1790,7 +1790,7 @@
 	class:py-16={!$displayVertical$}
 	class:py-8={$displayVertical$}
 	class:opacity-50={$notesOpen$}
-	class:selection-dragging={!!miningDrag?.mining}
+	class:selection-dragging={!!miningDrag}
 	class:flex-col-reverse={$reverseLineOrder$}
 	style:font-size={`${$fontSize$}px`}
 	style:font-family={$onlineFont$ !== OnlineFont.OFF ? $onlineFont$ : undefined}
@@ -1930,7 +1930,7 @@
 	class="flex flex-col flex-1 flex flex-col break-all px-4 w-full h-full overflow-auto"
 	class:flex-col-reverse={$reverseLineOrder$}
 	class:hidden={!pipWindow}
-	class:selection-dragging={!!miningDrag?.mining}
+	class:selection-dragging={!!miningDrag}
 	style:font-size={`${$fontSize$}px`}
 	style:font-family={$onlineFont$ !== OnlineFont.OFF ? $onlineFont$ : undefined}
 	bind:this={pipContainer}

@@ -341,6 +341,17 @@ class TestImportStatsBatchAPI:
 
 
 class TestImportMokuroAPI:
+    def test_failed_replacement_preserves_previous_volume(self, client, _in_memory_db):
+        _insert_entry(date="2025-01-01", characters_read=50, time_read_seconds=30, source="mokuro", label="Previous")
+        _in_memory_db.execute(
+            "CREATE TRIGGER reject_mokuro BEFORE INSERT ON third_party_stats WHEN NEW.date = '2025-12-19' "
+            "BEGIN SELECT RAISE(ABORT, 'failed daily row'); END",
+            commit=True,
+        )
+        response = _upload_mokuro(client, _reduced_mokuro_export(), clear_previous=True)
+        assert response.status_code == 500
+        assert [entry.label for entry in ThirdPartyStatsTable.get_all_by_source("mokuro")] == ["Previous"]
+
     def test_imports_reduced_realistic_mokuro_export_and_persists_daily_rows(self, client):
         response = _upload_mokuro(client, _reduced_mokuro_export())
 

@@ -7,7 +7,6 @@ upstream Python dependency here, and no native VOCR library is loaded.
 import copy
 import hashlib
 import json
-import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,23 +28,12 @@ def bundled_directory():
 
 
 def selected_directory(*, backend=None, directory=None):
-    backend = (backend or os.environ.get("GSM_VOCR_BACKEND", "auto")).lower()
-    if backend not in ("auto", "c", "onnx"):
-        raise ValueError("GSM_VOCR_BACKEND must be auto, c or onnx")
+    # The desktop always uses the pinned ONNX graphs. Only the standalone
+    # C benchmark and its installer request the original ABI explicitly.
     if backend == "c":
         return None
-    if backend == "auto":
-        from GameSentenceMiner.ocr.vita_ocr import get_install_directory
-        from GameSentenceMiner.ocr.vocr_native import UnsupportedCPUError, local_runtime_directory
-
-        try:
-            native = local_runtime_directory(directory if directory is not None else get_install_directory())
-        except UnsupportedCPUError:
-            # The bundled graphs are the portable fallback. Do not hide corrupt
-            # packages or invalid selections by catching other validation errors.
-            native = None
-        if native is not None:
-            return None
+    if backend not in (None, "auto", "onnx"):
+        raise ValueError("Unknown VOCR backend")
     assets = bundled_directory()
     if not (assets / "manifest.json").is_file():
         raise FileNotFoundError(f"VOCR bundled models are missing. {BUNDLE_HELP}")

@@ -1,6 +1,6 @@
 use crate::{
     novelty::{build_game_word_novelty, build_global_word_novelty},
-    sessions::{characters, reading_seconds},
+    sessions::{reading_seconds, ReportCleaner},
     stats::local_date,
     tokenization::table_exists,
     Result,
@@ -13,8 +13,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-const GAME_STATUS_VALUES: &[&str] = &["in_progress", "completed", "planned", "on_hold", "dropped"];
-const JITEN_DIFFICULTY_LABELS: &[&str] = &["Beginner", "Easy", "Average", "Hard", "Expert", "Insane"];
+mod library_list;
+
+pub(super) const GAME_STATUS_VALUES: &[&str] = &["in_progress", "completed", "planned", "on_hold", "dropped"];
+pub const JITEN_DIFFICULTY_LABELS: &[&str] = &["Beginner", "Easy", "Average", "Hard", "Expert", "Insane"];
 const CHART_COLORS: &[&str] = &[
     "#3498db", "#e74c3c", "#2ecc71", "#f1c40f", "#9b59b6", "#1abc9c", "#e67e22",
 ];
@@ -125,50 +127,12 @@ fn parse_json_array_values(raw: &str) -> Vec<Value> {
     }
 }
 
-fn count_cards_raw(note_ids: &str, screenshot_in_anki: &str, audio_in_anki: &str) -> i64 {
-    let trimmed = note_ids.trim();
-    if !trimmed.is_empty() && trimmed != "[]" && trimmed != "null" {
-        if let Ok(Value::Array(items)) = serde_json::from_str::<Value>(trimmed) {
-            let count = items
-                .iter()
-                .filter(|v| match v {
-                    Value::Null => false,
-                    Value::String(s) => !s.trim().is_empty(),
-                    _ => true,
-                })
-                .count();
-            if count > 0 {
-                return count as i64;
-            }
-        } else {
-            return 1;
-        }
-    }
-    if !screenshot_in_anki.trim().is_empty() || !audio_in_anki.trim().is_empty() {
-        1
-    } else {
-        0
-    }
+pub(super) fn count_cards_raw(note_ids: &str, screenshot_in_anki: &str, audio_in_anki: &str) -> Result<i64> {
+    let has_media = [screenshot_in_anki, audio_in_anki].iter().any(|s| !s.trim_matches(crate::rollup::python_space).is_empty());
+    Ok(crate::rollup::count_cards(note_ids, u8::from(has_media))? as i64)
 }
 
-fn load_reading_breaks(conn: &Connection, start: f64, end: f64) -> Vec<f64> {
-    if !table_exists(conn, "reading_breaks") {
-        return Vec::new();
-    }
-    let Ok(mut stmt) = conn.prepare(
-        "SELECT CAST(timestamp AS REAL) FROM reading_breaks \
-         WHERE CAST(timestamp AS REAL) >= ?1 AND CAST(timestamp AS REAL) <= ?2 \
-         ORDER BY CAST(timestamp AS REAL) ASC",
-    ) else {
-        return Vec::new();
-    };
-    let Ok(rows) = stmt.query_map(params![start, end], |r| r.get::<_, f64>(0)) else {
-        return Vec::new();
-    };
-    rows.filter_map(|r| r.ok()).collect()
-}
-
-fn calc_reading_time(samples: &[(f64, usize)], session_gap: f64, breaks: &[f64]) -> f64 {
+pub(super) fn calc_reading_time(samples: &[(f64, usize)], session_gap: f64, breaks: &[f64]) -> f64 {
     if samples.len() < 2 {
         return 0.0;
     }
@@ -176,11 +140,7 @@ fn calc_reading_time(samples: &[(f64, usize)], session_gap: f64, breaks: &[f64])
     let mut start_idx = 0usize;
     for i in 1..samples.len() {
         let gap = samples[i].0 - samples[i - 1].0;
-        let has_break = {
-            let pos = breaks.partition_point(|&b| b < samples[i - 1].0);
-            breaks.get(pos).is_some_and(|&b| b < samples[i].0)
-        };
-        if gap > session_gap || has_break {
+        if gap > session_gap {
             if i - start_idx >= 2 {
                 total += reading_seconds(
                     samples[start_idx..i]
@@ -203,7 +163,7 @@ fn calc_reading_time(samples: &[(f64, usize)], session_gap: f64, breaks: &[f64])
     total
 }
 
-fn local_day_range(date: NaiveDate) -> (f64, f64) {
+pub(super) fn local_day_range(date: NaiveDate) -> (f64, f64) {
     let start_naive = date.and_time(NaiveTime::from_hms_opt(0, 0, 0).unwrap());
     let end_naive = date.and_time(NaiveTime::from_hms_micro_opt(23, 59, 59, 999_999).unwrap());
     let s = Local
@@ -230,32 +190,56 @@ struct ArchivedLineEvent(
     serde::de::IgnoredAny,
 );
 
-struct LineSample {
-    ts: f64,
-    chars: usize,
-    cards: i64,
-    game_id: String,
-    game_name: String,
+pub(super) struct LineSample {
+    pub(super) ts: f64,
+    pub(super) chars: usize,
+    pub(super) cards: i64,
+    pub(super) game_id: String,
+    pub(super) game_name: String,
 }
 
-fn fetch_live_and_archived_lines(
+pub(super) fn lines_for_day(conn: &Connection, cleaner: &ReportCleaner, start: f64, end: f64) -> Result<Vec<LineSample>> {
+    fetch_live_and_archived_lines(conn, cleaner, timestamp_expression(conn)?, Some(start), Some(end), None)
+}
+
+// Migrated profiles have a timestamp index and REAL affinity. Imported files can
+// retain text timestamps. The index can determine whether any text or blob sorts
+// after the numeric values without scanning the history.
+pub(super) fn timestamp_expression(conn: &Connection) -> Result<&'static str> {
+    let version: i64 = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    if version >= 2 {
+        let has_text: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM game_lines WHERE timestamp >= '')",
+            [],
+            |r| r.get(0),
+        )?;
+        if !has_text {
+            return Ok("timestamp");
+        }
+    }
+    Ok("CAST(timestamp AS REAL)")
+}
+
+pub(super) fn fetch_live_and_archived_lines(
     conn: &Connection,
+    cleaner: &ReportCleaner,
+    timestamp: &str,
     start: Option<f64>,
     end: Option<f64>,
     game_id: Option<&str>,
 ) -> Result<Vec<LineSample>> {
-    let mut conds: Vec<&str> = Vec::new();
+    let mut conds: Vec<String> = Vec::new();
     let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
     if let Some(gid) = game_id {
-        conds.push("game_id = ?");
+        conds.push("game_id = ?".into());
         params_vec.push(gid.to_owned().into());
     }
     if let Some(s) = start {
-        conds.push("CAST(timestamp AS REAL) >= ?");
+        conds.push(format!("{timestamp} >= ?"));
         params_vec.push(s.into());
     }
     if let Some(e) = end {
-        conds.push("CAST(timestamp AS REAL) <= ?");
+        conds.push(format!("{timestamp} <= ?"));
         params_vec.push(e.into());
     }
     let where_sql = if conds.is_empty() {
@@ -266,7 +250,7 @@ fn fetch_live_and_archived_lines(
     let sql = format!(
         "SELECT CAST(timestamp AS REAL), line_text, game_id, game_name, note_ids, \
                 screenshot_in_anki, audio_in_anki \
-         FROM game_lines {where_sql} ORDER BY CAST(timestamp AS REAL) ASC"
+         FROM game_lines {where_sql} ORDER BY {timestamp} ASC"
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut rows = stmt.query(rusqlite::params_from_iter(params_vec.iter()))?;
@@ -274,13 +258,13 @@ fn fetch_live_and_archived_lines(
     while let Some(row) = rows.next()? {
         let ts = val_opt_f64(row.get_ref(0)?).unwrap_or(0.0);
         let text = val_str(row.get_ref(1)?);
-        let chars = characters(&text);
+        let chars = cleaner.count(&text)?;
         let gid = val_str(row.get_ref(2)?);
         let gname = val_str(row.get_ref(3)?);
         let note_ids = val_str(row.get_ref(4)?);
         let ss = val_str(row.get_ref(5)?);
         let au = val_str(row.get_ref(6)?);
-        let cards = count_cards_raw(&note_ids, &ss, &au);
+        let cards = count_cards_raw(&note_ids, &ss, &au)?;
         out.push(LineSample {
             ts,
             chars,
@@ -358,7 +342,7 @@ struct GameRecord {
     links: Vec<Value>,
     completed: bool,
     status: String,
-    character_count: i64,
+    character_count: Option<i64>,
     difficulty: Option<i64>,
     release_date: String,
     manual_overrides: Vec<Value>,
@@ -368,6 +352,31 @@ struct GameRecord {
 }
 
 impl GameRecord {
+    fn metadata(&self) -> Value {
+        json!({
+            "deck_id": self.deck_id,
+            "title_original": self.title_original,
+            "title_romaji": self.title_romaji,
+            "title_english": self.title_english,
+            "obs_scene_name": self.obs_scene_name,
+            "type": self.game_type,
+            "description": self.description,
+            "image": self.image,
+            "genres": self.genres,
+            "tags": self.tags,
+            "links": self.links,
+            "completed": self.completed,
+            "status": self.effective_status(),
+            "character_count": self.character_count.unwrap_or(0),
+            "difficulty": self.difficulty,
+            "release_date": self.release_date,
+            "manual_overrides": self.manual_overrides,
+            "character_summary": self.character_summary,
+            "vndb_id": self.vndb_id,
+            "anilist_id": self.anilist_id,
+        })
+    }
+
     fn effective_status(&self) -> &str {
         if GAME_STATUS_VALUES.contains(&self.status.as_str()) {
             self.status.as_str()
@@ -389,6 +398,18 @@ impl GameRecord {
             self.obs_scene_name.clone()
         }
     }
+}
+
+pub(super) fn session_metadata(conn: &Connection, id: &str) -> Result<Value> {
+    let Some(game) = load_games(conn, true, Some(id))?.pop() else {
+        return Ok(Value::Null);
+    };
+    let mut data = game.metadata();
+    data["game_id"] = json!(game.id);
+    data["difficulty_label"] = json!(game
+        .difficulty
+        .map(|n| JITEN_DIFFICULTY_LABELS[n.clamp(0, 5) as usize]));
+    Ok(data)
 }
 
 fn table_columns(conn: &Connection, table: &str) -> HashSet<String> {
@@ -489,7 +510,7 @@ fn load_games(conn: &Connection, include_images: bool, single_id: Option<&str>) 
             links: parse_json_array_values(&val_str(row.get_ref(11)?)),
             completed,
             status,
-            character_count: val_opt_i64(row.get_ref(14)?).unwrap_or(0),
+            character_count: val_opt_i64(row.get_ref(14)?),
             difficulty: val_opt_i64(row.get_ref(15)?),
             release_date: val_str(row.get_ref(16)?),
             manual_overrides: parse_json_array_values(&val_str(row.get_ref(17)?)),
@@ -558,7 +579,8 @@ fn load_linked_third_party(
 }
 
 impl GameStatsQuery {
-    pub fn run(&self, conn: &Connection) -> Result<Value> {
+    pub fn run(&self, conn: &Connection, cleaner: &ReportCleaner) -> Result<Value> {
+        let timestamp = timestamp_expression(conn)?;
         let mut games = load_games(conn, true, Some(&self.game_id))?;
         let Some(game) = games.pop() else {
             return Ok(json!({ "not_found": true }));
@@ -634,13 +656,13 @@ impl GameStatsQuery {
 
         let today_lines = if last_date == today_str {
             let (ts_start, ts_end) = local_day_range(self.today);
-            fetch_live_and_archived_lines(conn, Some(ts_start), Some(ts_end), Some(&self.game_id))?
+            fetch_live_and_archived_lines(conn, cleaner, timestamp, Some(ts_start), Some(ts_end), Some(&self.game_id))?
         } else {
             Vec::new()
         };
         let today_breaks = if !today_lines.is_empty() {
             let (ts_start, ts_end) = local_day_range(self.today);
-            load_reading_breaks(conn, ts_start, ts_end)
+            super::sessions::reading_breaks(conn, ts_start, ts_end)?
         } else {
             Vec::new()
         };
@@ -660,9 +682,9 @@ impl GameStatsQuery {
                 .query_map(params![self.game_id.as_str(), first_date.as_str(), rollup_end], |r| {
                     Ok((
                         val_str(r.get_ref(0)?),
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
+                        val_opt_i64(r.get_ref(1)?).unwrap_or(0),
+                        val_opt_i64(r.get_ref(2)?).unwrap_or(0),
+                        val_opt_i64(r.get_ref(3)?).unwrap_or(0),
                         val_opt_f64(r.get_ref(4)?).unwrap_or(0.0),
                     ))
                 })?
@@ -905,7 +927,7 @@ impl GameStatsQuery {
                                 &val_str(row.get_ref(1)?),
                                 &val_str(row.get_ref(2)?),
                                 &val_str(row.get_ref(3)?),
-                            );
+                            )?;
                             total_cards += c;
                             if let Ok(d) = local_date(ts) {
                                 *by_date.entry(d.format("%Y-%m-%d").to_string()).or_insert(0) += c;
@@ -940,8 +962,8 @@ impl GameStatsQuery {
         }
 
         // 3) Live fallback from all game_lines for this game
-        let all_lines = fetch_live_and_archived_lines(conn, None, None, Some(&self.game_id))?;
-        let all_breaks = load_reading_breaks(conn, 0.0, f64::MAX);
+        let all_lines = fetch_live_and_archived_lines(conn, cleaner, timestamp, None, None, Some(&self.game_id))?;
+        let all_breaks = super::sessions::reading_breaks(conn, 0.0, f64::MAX)?;
         let total_sentences = all_lines.len() as i64;
         let mut total_characters = 0i64;
         let mut total_cards = 0i64;
@@ -1127,31 +1149,11 @@ impl GameStatsQuery {
             0
         };
 
+        let mut game_metadata=game.metadata();
+        game_metadata["id"]=json!(game.id);
+        game_metadata["archived_line_count"]=json!(archived_lines);
         Ok(json!({
-            "game": {
-                "id": game.id,
-                "archived_line_count": archived_lines,
-                "deck_id": game.deck_id,
-                "title_original": game.title_original,
-                "title_romaji": game.title_romaji,
-                "title_english": game.title_english,
-                "obs_scene_name": game.obs_scene_name,
-                "type": game.game_type,
-                "description": game.description,
-                "image": game.image,
-                "genres": game.genres,
-                "tags": game.tags,
-                "links": game.links,
-                "completed": game.completed,
-                "status": game.effective_status(),
-                "character_count": game.character_count,
-                "difficulty": game.difficulty,
-                "release_date": game.release_date,
-                "manual_overrides": game.manual_overrides,
-                "character_summary": game.character_summary,
-                "vndb_id": game.vndb_id,
-                "anilist_id": game.anilist_id,
-            },
+            "game": game_metadata,
             "stats": {
                 "total_characters": total_characters,
                 "total_characters_formatted": format_large_number(total_characters as f64),
@@ -1321,7 +1323,8 @@ fn first_date_combined(conn: &Connection) -> Option<String> {
 }
 
 impl DashboardStatsQuery {
-    pub fn run(&self, conn: &Connection) -> Result<Value> {
+    pub fn run(&self, conn: &Connection, cleaner: &ReportCleaner) -> Result<Value> {
+        let timestamp = timestamp_expression(conn)?;
         let today_str = self.today.format("%Y-%m-%d").to_string();
         let yesterday_str = self
             .today
@@ -1411,13 +1414,13 @@ impl DashboardStatsQuery {
         // Load today's live lines + reading breaks
         let today_lines = if today_in_range {
             let (ts_s, ts_e) = local_day_range(self.today);
-            fetch_live_and_archived_lines(conn, Some(ts_s), Some(ts_e), None)?
+            fetch_live_and_archived_lines(conn, cleaner, timestamp, Some(ts_s), Some(ts_e), None)?
         } else {
             Vec::new()
         };
         let today_breaks = if !today_lines.is_empty() {
             let (ts_s, ts_e) = local_day_range(self.today);
-            load_reading_breaks(conn, ts_s, ts_e)
+            super::sessions::reading_breaks(conn, ts_s, ts_e)?
         } else {
             Vec::new()
         };
@@ -1629,7 +1632,9 @@ impl DashboardStatsQuery {
                     .insert(r.date.clone(), r.anki_cards_created);
             }
             if !use_gdr && !r.game_activity_data.is_empty() {
-                if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&r.game_activity_data)
+                // Legacy rollups preserve the original order of games. Two IDs can
+                // share a display title, in which case the last chart entry wins.
+                if let Ok(map) = serde_json::from_str::<IndexMap<String, Value>>(&r.game_activity_data)
                 {
                     for (gid, act) in map {
                         let fallback_title = act
@@ -1684,13 +1689,7 @@ impl DashboardStatsQuery {
             let mut session_starts = vec![0usize];
             for i in 1..today_lines.len() {
                 let gap = today_lines[i].ts - today_lines[i - 1].ts;
-                let has_break = {
-                    let pos = today_breaks.partition_point(|&b| b < today_lines[i - 1].ts);
-                    today_breaks
-                        .get(pos)
-                        .is_some_and(|&b| b < today_lines[i].ts)
-                };
-                if gap > self.session_gap || has_break {
+                if gap > self.session_gap {
                     session_starts.push(i);
                 }
             }
@@ -1840,7 +1839,7 @@ impl DashboardStatsQuery {
         // Fallback when daily_data is empty
         if daily_data.is_empty() {
             if let (Some(s), Some(e)) = (self.start_timestamp, self.end_timestamp) {
-                let fb_lines = fetch_live_and_archived_lines(conn, Some(s), Some(e), None)?;
+                let fb_lines = fetch_live_and_archived_lines(conn, cleaner, timestamp, Some(s), Some(e), None)?;
                 for l in &fb_lines {
                     let day_str = local_date(l.ts)
                         .map(|d| d.format("%Y-%m-%d").to_string())
@@ -2099,6 +2098,7 @@ impl DashboardStatsQuery {
         // Current game stats
         let current_game_stats = self.build_current_game_stats(
             conn,
+            timestamp,
             &today_lines,
             &today_breaks,
             &rollups,
@@ -2402,6 +2402,7 @@ impl DashboardStatsQuery {
     fn build_current_game_stats(
         &self,
         conn: &Connection,
+        timestamp: &str,
         today_lines: &[LineSample],
         today_breaks: &[f64],
         rollups: &[RollupRow],
@@ -2411,14 +2412,14 @@ impl DashboardStatsQuery {
         let latest: Option<(String, String, f64)> = if let Some(last) = today_lines.last() {
             Some((last.game_id.clone(), last.game_name.clone(), last.ts))
         } else {
-            let mut conds: Vec<&str> = Vec::new();
+            let mut conds: Vec<String> = Vec::new();
             let mut p: Vec<rusqlite::types::Value> = Vec::new();
             if let Some(s) = self.start_timestamp {
-                conds.push("CAST(timestamp AS REAL) >= ?");
+                conds.push(format!("{timestamp} >= ?"));
                 p.push(s.into());
             }
             if let Some(e) = self.end_timestamp {
-                conds.push("CAST(timestamp AS REAL) <= ?");
+                conds.push(format!("{timestamp} <= ?"));
                 p.push(e.into());
             }
             let where_sql = if conds.is_empty() {
@@ -2429,7 +2430,7 @@ impl DashboardStatsQuery {
             conn.query_row(
                 &format!(
                     "SELECT game_id, game_name, CAST(timestamp AS REAL) FROM game_lines \
-                     {where_sql} ORDER BY CAST(timestamp AS REAL) DESC LIMIT 1"
+                     {where_sql} ORDER BY {timestamp} DESC, rowid ASC LIMIT 1"
                 ),
                 rusqlite::params_from_iter(p.iter()),
                 |r| {
@@ -2560,8 +2561,9 @@ impl DashboardStatsQuery {
 
         let progress_pct = game_meta
             .as_ref()
-            .filter(|g| g.character_count > 0)
-            .map(|g| ((total_chars as f64 / g.character_count as f64) * 100.0).min(100.0))
+            .and_then(|g| g.character_count)
+            .filter(|&count| count > 0)
+            .map(|count| ((total_chars as f64 / count as f64) * 100.0).min(100.0))
             .unwrap_or(0.0);
 
         let mut obj = serde_json::Map::new();

@@ -3,11 +3,15 @@ pub mod anki_beacon;
 pub mod changelog;
 pub mod data_relocate;
 pub mod engines;
+pub mod ffmpeg;
 pub mod install_session;
+pub mod legacy_venv;
 pub mod log_archive;
 pub mod log_redaction;
+pub mod overlay_directory;
 pub mod python;
 pub mod scripts;
+pub mod speech;
 pub mod settings_backup;
 pub mod updates;
 pub use gsm_downloads as downloads;
@@ -80,11 +84,21 @@ pub fn extract_with_progress(
     expected: Option<&std::collections::HashSet<String>>,
     on_entry: &mut dyn FnMut(&str),
 ) -> Result<()> {
+    extract_with_entry_limit(archive, directory, expected, 100000, on_entry)
+}
+
+fn extract_with_entry_limit(
+    archive: &Path,
+    directory: &Path,
+    expected: Option<&std::collections::HashSet<String>>,
+    max_entries: usize,
+    on_entry: &mut dyn FnMut(&str),
+) -> Result<()> {
     let mut zip = zip::ZipArchive::new(File::open(archive).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     let mut seen = std::collections::HashSet::new();
     let mut expanded = 0u64;
-    if zip.len() > 100000 {
+    if zip.len() > max_entries {
         return Err("Too many archive entries".into());
     }
     for i in 0..zip.len() {

@@ -26,7 +26,10 @@ pub struct Keyboard {
 }
 impl Keyboard {
     pub fn new(settings: &Value) -> Self {
-        let bindings = ACTIONS
+        Self::with_actions(settings, &ACTIONS)
+    }
+    pub(crate) fn with_actions(settings: &Value, actions: &[(&str,&'static str)]) -> Self {
+        let bindings = actions
             .iter()
             .filter_map(|(name, action)| {
                 let raw = settings[*name].as_str()?;

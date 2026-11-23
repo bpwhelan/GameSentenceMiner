@@ -4,7 +4,6 @@
   "version": "2026.11.0",
   "description": "GameSentenceMiner",
   "desktopName": "com.beangate.gamesentenceminer.desktop",
-  "desktopRootFiles": ["pyproject.toml", "uv.lock", ".python-version", "LICENSE"],
   "scripts": {
     "start": "npm run build:tauri && node scripts/start-tauri.mjs",
     "start:optimized": "npm run build:tauri:optimized && node scripts/start-tauri.mjs",
@@ -38,7 +37,8 @@
     "stage:native": "node scripts/stage-native-desktop.mjs",
     "build:input-server": "cargo build --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target",
     "test:native": "node scripts/check-native-desktop.mjs",
-    "app:prepare": "npm run build:native && npm run build && npm run build:windows-helpers && npm run build:input-server && npm run stage:native",
+    "build:qt-host": "node scripts/build-qt-host.mjs",
+    "app:prepare": "npm run build && npm run build:windows-helpers && npm run build:input-server && npm run stage:native",
     "app:dist:signed": "npm run app:prepare && node scripts/build-native-desktop.mjs --signed && node scripts/collect-native-assets.mjs",
     "dev:prepare": "npm run sync:theme && npm run sync:legacy && npm run build:helpers",
     "build:helpers": "node scripts/build-native-helpers.mjs",

@@ -9,8 +9,10 @@ use std::{
 
 #[derive(PartialEq)]
 pub(super) enum Key {
+    Library(&'static str, bool),
     Earliest(String),
     Kanji(String, String, Option<i64>, Option<i64>),
+    Games(anki_games::Report),
     Retention(anki_games::Report),
 }
 
@@ -29,6 +31,7 @@ impl Key {
                 *start,
                 *end,
             )),
+            Request::AnkiGameStats(report) => Some(Self::Games(report.clone())),
             Request::AnkiContentRetention(report) => Some(Self::Retention(report.clone())),
             _ => None,
         }
@@ -53,7 +56,7 @@ impl Cache {
     pub(super) fn close(&self) -> Result<()> {
         self.0
             .lock()
-            .map_err(|_| "Anki report cache unavailable")?
+            .map_err(|_| "Report cache unavailable")?
             .take();
         Ok(())
     }
@@ -65,7 +68,7 @@ impl Cache {
         query: impl FnOnce() -> Result<Value>,
     ) -> Result<Value> {
         let snapshot = {
-            let mut state = self.0.lock().map_err(|_| "Anki report cache unavailable")?;
+            let mut state = self.0.lock().map_err(|_| "Report cache unavailable")?;
             if state.as_ref().is_none_or(|o| o.path != path) {
                 *state = Some(Observer {
                     path: path.to_owned(),
@@ -75,7 +78,7 @@ impl Cache {
                     results: Vec::new(),
                 });
             }
-            let observer = state.as_mut().ok_or("Missing Anki report observer")?;
+            let observer = state.as_mut().ok_or("Missing report observer")?;
             let version: i64 =
                 observer
                     .connection
@@ -92,12 +95,12 @@ impl Cache {
         };
         let value = query()?;
         if !value.is_null() {
-            let mut state = self.0.lock().map_err(|_| "Anki report cache unavailable")?;
+            let mut state = self.0.lock().map_err(|_| "Report cache unavailable")?;
             if let Some(observer) = state
                 .as_mut()
                 .filter(|o| Arc::ptr_eq(&o.snapshot, &snapshot))
             {
-                // Keep only the latest filter selection for each of the three reports.
+                // Keep only the latest filter selection for each of the reports.
                 observer
                     .results
                     .retain(|(old, _)| discriminant(old) != discriminant(&key));

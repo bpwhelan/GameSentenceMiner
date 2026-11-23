@@ -10,6 +10,10 @@ function parseArgs(argv) {
     if (!name.startsWith('--')) {
       throw new Error(`Unexpected argument: ${name}`);
     }
+    if (name === '--desktop-only') {
+      args['desktop-only'] = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) {
       throw new Error(`Missing value for ${name}`);
@@ -35,17 +39,16 @@ export function buildPreReleaseMetadata({ branch, commit, version, wheelPath, ge
   if (!branch || !commit || !version) {
     throw new Error('branch, commit, and version are required.');
   }
+  const metadata = { schemaVersion: 2, branch, commit, version, generatedAt: generatedAt ?? new Date().toISOString() };
+  if (!wheelPath) return metadata;
+
   const fileName = path.basename(wheelPath);
   if (!fs.existsSync(wheelPath) || !fileName.toLowerCase().endsWith('.whl')) {
     throw new Error(`Invalid wheel path: ${wheelPath}`);
   }
   const sha256 = crypto.createHash('sha256').update(fs.readFileSync(wheelPath)).digest('hex');
   return {
-    schemaVersion: 2,
-    branch,
-    commit,
-    version,
-    generatedAt: generatedAt ?? new Date().toISOString(),
+    ...metadata,
     backendWheel: {
       fileName,
       sha256,
@@ -58,14 +61,19 @@ function main() {
   const branch = args.branch || process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME;
   const commit = args.commit || process.env.GITHUB_SHA;
   const version = args.version;
-  const wheelDir = path.resolve(args['wheel-dir'] || 'electron-src/assets/python');
   const outputPath = path.resolve(args.out || 'electron-src/assets/prerelease.json');
-  const wheelPath = path.join(wheelDir, findOnlyWheel(wheelDir));
+  let wheelPath;
+  if (!args['desktop-only']) {
+    const wheelDir = path.resolve(args['wheel-dir'] || 'electron-src/assets/python');
+    const qtBuild = args['qt-build'];
+    const qtWheel = qtBuild && JSON.parse(fs.readFileSync(path.join(qtBuild, 'qt-host.json'), 'utf8')).backendWheel;
+    wheelPath = qtWheel ? path.join(qtBuild, qtWheel.sha256, qtWheel.fileName) : path.join(wheelDir, findOnlyWheel(wheelDir));
+  }
   const metadata = buildPreReleaseMetadata({ branch, commit, version, wheelPath });
 
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
   fs.writeFileSync(outputPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
-  console.log(`Wrote prerelease metadata for ${metadata.backendWheel.fileName} to ${outputPath}`);
+  console.log(`Wrote prerelease metadata to ${outputPath}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -1,0 +1,217 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "iterations": 40,
+  "workloads": {
+    "goal-edit-timed": {
+      "summary": {
+        "rust": {
+          "ms": 0.8409,
+          "cpu_ms": 0.7812,
+          "resident_mib": 7.0117
+        },
+        "python": {
+          "ms": 2.3835,
+          "cpu_ms": 1.9531,
+          "resident_mib": 68.6602
+        }
+      },
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.8631,
+            "cpu_ms": 1.1719,
+            "resident_mib": 6.9961
+          },
+          {
+            "ms": 0.8409,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.8982,
+            "cpu_ms": 0.7812,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.7861,
+            "cpu_ms": 0.7812,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.8132,
+            "cpu_ms": 0.7812,
+            "resident_mib": 7.0117
+          }
+        ],
+        "python": [
+          {
+            "ms": 2.3835,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.3711
+          },
+          {
+            "ms": 2.4214,
+            "cpu_ms": 2.3438,
+            "resident_mib": 68.4922
+          },
+          {
+            "ms": 2.4214,
+            "cpu_ms": 1.5625,
+            "resident_mib": 68.6602
+          },
+          {
+            "ms": 2.3347,
+            "cpu_ms": 2.3438,
+            "resident_mib": 68.6836
+          },
+          {
+            "ms": 2.2575,
+            "cpu_ms": 1.9531,
+            "resident_mib": 68.6875
+          }
+        ]
+      }
+    },
+    "goal-edit-settings": {
+      "summary": {
+        "rust": {
+          "ms": 0.5783,
+          "cpu_ms": 0.0,
+          "resident_mib": 7.0117
+        },
+        "python": {
+          "ms": 1.2439,
+          "cpu_ms": 1.1719,
+          "resident_mib": 68.7266
+        }
+      },
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.5783,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5585,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5729,
+            "cpu_ms": 0.3906,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.6268,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.6205,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          }
+        ],
+        "python": [
+          {
+            "ms": 1.2439,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.6875
+          },
+          {
+            "ms": 1.307,
+            "cpu_ms": 0.3906,
+            "resident_mib": 68.7266
+          },
+          {
+            "ms": 1.1517,
+            "cpu_ms": 0.7812,
+            "resident_mib": 68.7266
+          },
+          {
+            "ms": 1.2172,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.7305
+          },
+          {
+            "ms": 1.2446,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.7383
+          }
+        ]
+      }
+    },
+    "goal-edit-partial": {
+      "summary": {
+        "rust": {
+          "ms": 0.5127,
+          "cpu_ms": 0.0,
+          "resident_mib": 7.0117
+        },
+        "python": {
+          "ms": 1.2174,
+          "cpu_ms": 0.7812,
+          "resident_mib": 68.7656
+        }
+      },
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.5111,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5534,
+            "cpu_ms": 0.3906,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5668,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5003,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          },
+          {
+            "ms": 0.5127,
+            "cpu_ms": 0.0,
+            "resident_mib": 7.0117
+          }
+        ],
+        "python": [
+          {
+            "ms": 1.3701,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.7461
+          },
+          {
+            "ms": 1.2174,
+            "cpu_ms": 0.7812,
+            "resident_mib": 68.7656
+          },
+          {
+            "ms": 1.2072,
+            "cpu_ms": 1.1719,
+            "resident_mib": 68.7656
+          },
+          {
+            "ms": 1.1569,
+            "cpu_ms": 0.7812,
+            "resident_mib": 68.7656
+          },
+          {
+            "ms": 1.2712,
+            "cpu_ms": 0.7812,
+            "resident_mib": 68.7695
+          }
+        ]
+      }
+    }
+  }
+}

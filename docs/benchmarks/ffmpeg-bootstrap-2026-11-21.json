@@ -1,0 +1,54 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "medians": {
+    "x64_install": {
+      "python": {
+        "ms": 1727.054,
+        "cpu_ms": 1625.0,
+        "resident_mib": 61.223
+      },
+      "rust": {
+        "ms": 1317.697,
+        "cpu_ms": 1250.0,
+        "resident_mib": 8.746
+      }
+    },
+    "x64_adopt": {
+      "python": {
+        "ms": 37.295,
+        "cpu_ms": 15.625,
+        "resident_mib": 61.449
+      },
+      "rust": {
+        "ms": 168.73,
+        "cpu_ms": 156.25,
+        "resident_mib": 8.746
+      }
+    },
+    "x64_reopen": {
+      "python": {
+        "ms": 37.215,
+        "cpu_ms": 6.25,
+        "resident_mib": 61.449
+      },
+      "rust": {
+        "ms": 0.991,
+        "cpu_ms": 0.781,
+        "resident_mib": 8.746
+      }
+    },
+    "arm64_install": {
+      "python": {
+        "ms": 850.101,
+        "cpu_ms": 781.25,
+        "resident_mib": 63.906
+      },
+      "rust": {
+        "ms": 471.515,
+        "cpu_ms": 453.125,
+        "resident_mib": 8.949
+      }
+    }
+  }
+}

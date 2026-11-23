@@ -65,7 +65,7 @@
   const platform = { ipcRenderer, clipboard, contextBridge: { exposeInMainWorld: (key, value) => { window[key] = value; } } };
   window.ipcRenderer = ipcRenderer; window.clipboard = clipboard;
   window.require = name => { if (name === 'electron' || name === '#gsm/desktop') return platform; throw Error(`Unsupported renderer module: ${name}`); };
-  window.gsmEnv = { platform: __GSM_PLATFORM__, shell: 'tauri' };
+  window.gsmEnv = { platform: __GSM_PLATFORM__, shell: 'tauri', pythonBackend: __GSM_PYTHON_BACKEND__ };
   if (dictionaryPage) Object.defineProperty(navigator, 'clipboard', {configurable:true, value:{readText:clipboard.readText, writeText:clipboard.writeText}});
   window.addEventListener('keydown',event=>{
     if(!['f','g','f3','escape','f12'].includes(event.key.toLowerCase()))return;

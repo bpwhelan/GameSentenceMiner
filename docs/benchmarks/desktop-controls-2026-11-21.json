@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 200,
+  "method": "Sequential persistent loopback HTTP requests, alternating implementations. Release Rust Tauri smoke with native services versus isolated Waitress serving production Flask routes with the disconnected mining status supplied in memory. Pause already false. Memory covers the entire measured server process, excludes children, and is not per-route memory.",
+  "medians": {
+    "/get_status": {
+      "python": {
+        "ms": 0.6489,
+        "server_cpu_ms": 0.625,
+        "server_resident_mib": 83.3672
+      },
+      "rust": {
+        "ms": 0.2837,
+        "server_cpu_ms": 0.2344,
+        "server_resident_mib": 29.9141
+      }
+    },
+    "/set_text_intake_paused": {
+      "python": {
+        "ms": 0.589,
+        "server_cpu_ms": 0.4688,
+        "server_resident_mib": 83.3984
+      },
+      "rust": {
+        "ms": 0.2622,
+        "server_cpu_ms": 0.1562,
+        "server_resident_mib": 29.9492
+      }
+    },
+    "/api/onboarding/language": {
+      "python": {
+        "ms": 0.59,
+        "server_cpu_ms": 0.4688,
+        "server_resident_mib": 83.3984
+      },
+      "rust": {
+        "ms": 0.2384,
+        "server_cpu_ms": 0.0781,
+        "server_resident_mib": 30.5195
+      }
+    }
+  }
+}

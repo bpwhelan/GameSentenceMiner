@@ -6,6 +6,26 @@ from GameSentenceMiner.native import history
 from GameSentenceMiner.util.communication import bus_client
 
 
+def test_startup_schema_uses_the_authenticated_writer(monkeypatch):
+    calls = []
+    db = SimpleNamespace(db_path=":memory:", read_only=False, run_external_write=lambda work: work())
+    client = SimpleNamespace(connected=False)
+    monkeypatch.setenv("GSM_NATIVE_SCHEMA", "1")
+    monkeypatch.setattr(history, "managed", lambda db: True)
+    monkeypatch.setattr(bus_client, "get_bus", lambda: client)
+    monkeypatch.setattr(history, "request", lambda operation, **fields: calls.append((operation, fields)))
+    assert not history.migrate_schema(db, "ja")
+    assert not history.configure_vocabulary_schema(db, False)
+    assert calls == []
+    client.connected = True
+    assert history.migrate_schema(db, "ja")
+    assert history.configure_vocabulary_schema(db, False) == "desktop"
+    assert calls == [
+        ("migrateSchema", {"language": "ja", "timeout": None}),
+        ("configureVocabulary", {"enabled": False, "timeout": None}),
+    ]
+
+
 def test_large_mined_fields_fall_back_before_any_write():
     writes = []
     db = SimpleNamespace(run_external_write=lambda action: writes.append(action))

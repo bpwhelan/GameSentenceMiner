@@ -78,18 +78,21 @@ impl SudachiSetup {
         if self.0.lock().unwrap().running {
             return Ok(installing);
         }
-        let Some(url) = crate::input_server::url(app) else {
-            return Ok(json!({"state":"error","error":"Native input service is unavailable."}));
-        };
+        let handle = app.clone();
         let path = crate::desktop_services::paths_for(app)
             .active
             .join("config.json");
-        let configured = tokio::task::spawn_blocking(move || {
+        let (url, configured) = tokio::task::spawn_blocking(move || {
             let doc = gsm_settings::read_object(&path)?;
-            Ok::<_, String>(crate::word_index::dictionary_edition(&doc).to_owned())
+            let url = crate::input_server::wait_ready(&handle, Duration::from_secs(5))
+                .map(|(_, url)| url);
+            Ok::<_, String>((url, crate::word_index::dictionary_edition(&doc).to_owned()))
         })
         .await
         .map_err(|e| e.to_string())??;
+        let Some(url) = url else {
+            return Ok(json!({"state":"error","error":"Native input service is unavailable."}));
+        };
         let last_error = {
             let mut state = self.0.lock().unwrap();
             if state.running {

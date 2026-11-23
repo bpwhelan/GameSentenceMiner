@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 10,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Both archive directories contain the same 16 portable ZIPs with 64 KiB embedded covers. Checks compare every catalog field and exact download bytes. Retention writes include SQLite persistence.",
+  "medians": {
+    "/api/database/archive-files": {
+      "python": {
+        "ms": 20.7971,
+        "server_cpu_ms": 20.3125,
+        "server_resident_mib": 84.3242
+      },
+      "rust": {
+        "ms": 7.9348,
+        "server_cpu_ms": 7.8125,
+        "server_resident_mib": 30.3242
+      }
+    },
+    "/api/database/archive-files/8b47a8799bcfc192e64946e1b5083f242e8272ad59fd666b0f55b0bb2c52385e/download": {
+      "python": {
+        "ms": 1.472,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 84.3945
+      },
+      "rust": {
+        "ms": 0.7497,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 30.5352
+      }
+    },
+    "PUT /api/database/maintenance": {
+      "python": {
+        "ms": 0.5856,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 85.9375
+      },
+      "rust": {
+        "ms": 0.234,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 30.6016
+      }
+    }
+  }
+}

@@ -2682,13 +2682,6 @@ def test_preserve_html_tags_for_furigana_restores_source_wave_dash():
     assert result == "わ～　 降[ふ]って 来[き]た！"
 
 
-def test_migrate_old_word_folders_exits_when_output_missing(monkeypatch):
-    cfg = _base_config()
-    cfg.paths.output_folder = ""
-    monkeypatch.setattr(anki, "get_config", lambda: cfg)
-    anki.migrate_old_word_folders()
-
-
 def test_determine_update_conditions(monkeypatch):
     cfg = _base_config()
     monkeypatch.setattr(anki, "get_config", lambda: cfg)

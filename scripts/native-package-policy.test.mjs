@@ -7,8 +7,11 @@ import { auditNativePackage, includeSource, pruneDependencies, stageChangelog } 
 
 test('includeSource excludes Node runtime, JS backend, build caches, sourcemaps, tests, and unrequested platform binaries', () => {
   assert.equal(includeSource('dist/renderer/index.html'), true);
-  assert.equal(includeSource('assets/scripts/legacy_dictionary_export.py'), true);
-  assert.equal(includeSource('GameSentenceMiner/gsm.py'), true);
+  assert.equal(includeSource('assets/scripts/legacy_dictionary_export.py'), false);
+  assert.equal(includeSource('GameSentenceMiner/gsm.py'), false);
+  for (const name of ['pyproject.toml', 'uv.lock', '.python-version', 'assets/qt/qt-host.json', 'assets/qt/backend.whl', 'electron-src/assets/qt/qt-host.json']) {
+    assert.equal(includeSource(name), false, name);
+  }
   assert.equal(includeSource('GameSentenceMiner/assets/vocr/small-faithful.onnx'), false);
   assert.equal(includeSource('GameSentenceMiner/assets/vocr/manifest.json'), true);
   assert.equal(includeSource('assets/gsm_cute.ico'), false);
@@ -53,7 +56,7 @@ test('pruneDependencies removes any lingering Node or JS runtime directories and
     await fs.mkdir(path.join(temp, 'dist/renderer'), { recursive: true });
     await fs.writeFile(path.join(temp, 'dist/renderer/index.html'), '<html></html>');
     await fs.mkdir(path.join(temp, 'assets/scripts'), { recursive: true });
-    await fs.writeFile(path.join(temp, 'assets/scripts/legacy_dictionary_export.py'), 'print("ok")');
+    await fs.writeFile(path.join(temp, 'assets/scripts/fixture.json'), '{}');
     await fs.mkdir(path.join(temp, 'runtime'), { recursive: true });
     await fs.writeFile(path.join(temp, 'runtime/node.exe'), 'binary');
     await fs.mkdir(path.join(temp, 'node_modules/ws'), { recursive: true });

@@ -7,26 +7,29 @@ use std::time::Instant;
 
 /// Retain compiled user expressions for this batch only. A very large saved
 /// rule list can still run without pinning all its compiled automata in memory.
-pub(super) struct Rules<'a> {
-    rules: &'a [Value],
-    cached: Vec<std::cell::OnceCell<Result<Option<Rule<'a>>, String>>>,
+pub(super) struct Rules {
+    cached: Vec<std::cell::OnceCell<Result<Option<Rule>, String>>>,
 }
 
-impl<'a> Rules<'a> {
-    pub fn new(config: &'a Value) -> Self {
+impl Rules {
+    pub fn new(config: &Value) -> Self {
         let rules = config["rules"]
             .as_array()
             .map(Vec::as_slice)
             .unwrap_or_default();
         Self {
-            rules,
             cached: (0..rules.len().min(16))
                 .map(|_| Default::default())
                 .collect(),
         }
     }
-    pub fn apply(&self, mut text: String, deadline: Instant) -> Result<String, String> {
-        for (i, value) in self.rules.iter().enumerate() {
+    pub fn apply(
+        &self,
+        config: &Value,
+        mut text: String,
+        deadline: Instant,
+    ) -> Result<String, String> {
+        for (i, value) in config["rules"].as_array().into_iter().flatten().enumerate() {
             check_deadline(deadline)?;
             let uncached;
             let rule = if let Some(slot) = self.cached.get(i) {
@@ -45,16 +48,16 @@ impl<'a> Rules<'a> {
     }
 }
 
-struct Rule<'a> {
+struct Rule {
     regex: Regex,
-    replacement: Replacement<'a>,
+    replacement: Replacement,
     pattern: String,
     insensitive: bool,
     nonempty: std::sync::OnceLock<Option<Regex>>,
 }
 
-impl<'a> Rule<'a> {
-    fn from_config(rule: &'a Value) -> Result<Option<Self>, String> {
+impl Rule {
+    fn from_config(rule: &Value) -> Result<Option<Self>, String> {
         let find = rule["find"].as_str().unwrap_or("");
         if find.is_empty()
             || rule
@@ -91,7 +94,7 @@ impl<'a> Rule<'a> {
 
     fn new(
         pattern: &str,
-        template: &'a str,
+        template: &str,
         literal: bool,
         insensitive: bool,
     ) -> Result<Option<Self>, String> {
@@ -101,7 +104,7 @@ impl<'a> Rule<'a> {
             return Ok(None);
         };
         let replacement = if literal {
-            Replacement::Literal(template)
+            Replacement::Literal(template.to_owned())
         } else {
             match parse_template(template, &regex) {
                 Ok(parts) => Replacement::Groups(parts),
@@ -163,7 +166,7 @@ pub(super) fn remove_curly_braces(mut text: String, deadline: Instant) -> Result
     if !text.contains('{') {
         return Ok(text);
     }
-    static RULES: LazyLock<[Rule<'static>; 3]> = LazyLock::new(|| {
+    static RULES: LazyLock<[Rule; 3]> = LazyLock::new(|| {
         [
             (r"\{(\w+)(.*?)\}(.*?)\{/\1\}", r"\3"),
             (r"\{([^}]?)[:/](.*?)\}", r"\1"),
@@ -248,8 +251,8 @@ fn python_pattern(pattern: &str) -> String {
     result
 }
 
-enum Replacement<'a> {
-    Literal(&'a str),
+enum Replacement {
+    Literal(String),
     Groups(Vec<Part>),
 }
 
@@ -258,7 +261,7 @@ enum Part {
     Group(usize),
 }
 
-impl Replacement<'_> {
+impl Replacement {
     fn expand(&self, captures: &Captures<'_>, output: &mut String) -> Result<(), &'static str> {
         match self {
             Self::Literal(value) => append(output, value),

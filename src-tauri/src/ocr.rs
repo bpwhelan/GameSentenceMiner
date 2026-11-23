@@ -17,9 +17,9 @@ use std::{
 #[cfg(all(test, windows))]
 mod benchmark;
 #[path = "ocr/inputs.rs"]
-mod inputs;
+pub(crate) mod inputs;
 #[path = "ocr/keyboard.rs"]
-mod keyboard;
+pub(crate) mod keyboard;
 
 #[derive(Clone, Copy, Default, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -437,10 +437,8 @@ fn run(app: tauri::AppHandle, shared: Shared) {
             let first = settings["ocr1"].as_str().unwrap_or("screenai");
             let main = settings["ocr2"].as_str().unwrap_or("glens");
             let selected = if matches!(action.as_str(), "menu_ocr" | "area_select_ocr")
-                && matches!(
-                    settings["menuAreaOcrEngine"].as_str(),
-                    Some("glens" | "bing")
-                ) {
+                && settings["menuAreaOcrEngine"].as_str().is_some_and(|engine|
+                    crate::ocr_coordinator::NATIVE_ENGINES.contains(&engine)) {
                 settings["menuAreaOcrEngine"].as_str().unwrap()
             } else {
                 main

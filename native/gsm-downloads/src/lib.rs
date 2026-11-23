@@ -114,6 +114,15 @@ fn valid_digest(digest: &str) -> bool {
             .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// Returns the catalog entry's location without reading or validating its contents.
+pub fn asset_cache_path(cache: &Path, id: &str) -> Option<PathBuf> {
+    Some(
+        cache
+            .join(&catalog().get(id)?.sha256)
+            .join(id.rsplit('/').next()?),
+    )
+}
+
 /// Checks local assets first so earlier installs and development builds keep
 /// working offline. Shared cache entries are immutable and process-locked.
 pub fn cached_asset(cache: &Path, id: &str, bundled: Option<&Path>) -> Option<PathBuf> {
@@ -124,7 +133,7 @@ pub fn cached_asset(cache: &Path, id: &str, bundled: Option<&Path>) -> Option<Pa
     }) {
         return Some(path.to_owned());
     }
-    let path = cache.join(&asset.sha256).join(id.rsplit('/').next()?);
+    let path = asset_cache_path(cache, id)?;
     (path
         .metadata()
         .is_ok_and(|m| m.is_file() && m.len() == asset.bytes)

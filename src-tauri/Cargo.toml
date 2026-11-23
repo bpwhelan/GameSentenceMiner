@@ -12,8 +12,12 @@ tauri-build = { version = "2", features = [] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dependencies]
-gsm-settings = { path = "../native/gsm-settings" }
+gsm-dictionary-transfer = { path = "../native/gsm-dictionary-transfer" }
+gsm-db = { path = "../native/gsm-db" }
+gsm-intake = { path = "../native/gsm-intake" }
+gsm-settings = { path = "../native/gsm-settings", features = ["profile-upgrade"] }
 gsm-history = { path = "../native/gsm-history" }
+gsm-mining = { path = "../native/gsm-mining" }
 gsm-packages = { path = "../native/gsm-packages" }
 gsm-runtime = { path = "../native/gsm-runtime" }
 gsm-agent = { path = "../native/gsm-agent", default-features = false }
@@ -33,7 +37,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-notification = "2"
-rodio = { version = "0.23", default-features = false, features = ["playback"] }
+rodio = { version = "0.23", default-features = false, features = ["playback", "hound"] }
 tauri-plugin-updater = "2"
 tauri-plugin-single-instance = "2"
 rfd = "0.15"
@@ -41,7 +45,7 @@ open = "5"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "ico"] }
 mime_guess = "2"
-tokio = { version = "1", features = ["sync", "time", "macros", "net", "rt-multi-thread", "fs", "io-util"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "net", "rt-multi-thread", "fs", "io-util", "process"] }
 xcap = { version = "0.9", features = ["wgc"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "v5", "serde"] }
@@ -56,13 +60,18 @@ zip = { version = "4", default-features = false, features = ["deflate"] }
 shell-words = "1"
 semver = "1"
 tempfile = "3"
+trash = "5"
 
 [target.'cfg(windows)'.dependencies]
+rand_core = { version = "0.6", features = ["getrandom"] }
+rsa = { version = "0.9", default-features = false, features = ["std"] }
 ico = "0.6"
 webview2-com = "0.39"
-windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications", "Graphics_Capture", "Graphics_DirectX_Direct3D11", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_DataExchange", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Accessibility", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
+windows = { version = "0.62", features = ["Foundation", "Data_Xml_Dom", "UI_Notifications", "Graphics_Capture", "Graphics_DirectX_Direct3D11", "Win32_System_WinRT_Direct3D11", "Win32_System_WinRT_Graphics_Capture", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_DataExchange", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_System_Memory", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_Media_Audio", "Win32_Foundation", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_HiDpi", "Win32_UI_Controls", "Win32_UI_Shell", "Win32_UI_Shell_PropertiesSystem", "Win32_UI_Accessibility", "Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+rustix = { version = "1", features = ["process", "param"] }
+ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
 # Enable PulseAudio and PipeWire's PulseAudio server alongside ALSA playback.
 cpal = { version = "0.18.2", features = ["pulseaudio"] }
 gtk = "0.18"
@@ -75,6 +84,7 @@ default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 # Run a release-profile executable against the source checkout and local helpers.
 local-build = []
+portable-preview = []
 
 [profile.release]
 codegen-units = 1
@@ -86,7 +96,7 @@ opt-level = 3
 [profile.release.package.gsm-desktop]
 opt-level = "z"
 
-# Keep the frequently edited shell unoptimized for fast incremental builds.
+# Keep the frequently edited shell unoptimized for fast dev builds.
 # Pixel/OCR loops remain optimized in their engine crates.
 [profile.dev.package.gsm-text-preview]
 opt-level = 3
@@ -97,6 +107,8 @@ opt-level = 3
 [profile.dev.package.gsm-overlay]
 opt-level = 3
 [profile.dev.package.gsm-capture]
+opt-level = 3
+[profile.dev.package.gsm-dictionary-transfer]
 opt-level = 3
 [profile.dev.package.fast_image_resize]
 opt-level = 3

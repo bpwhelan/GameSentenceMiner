@@ -8,7 +8,10 @@ type MiningRequest = {action:'loadText'|'latestText'|'exclusions'|'stopSpeech'|'
     | {action:'addExclusion'|'removeExclusion';game:string;text:string}
     | {action:'loadSpeech';scene:unknown} | {action:'saveSpeech'|'startSpeech';scene:unknown;settings:unknown};
 type SessionRequest = {action:'snapshot'} | {action:'retry';sessionId:string;attempt:number};
-type Request = {command:'overlay_lifecycle';request:{action:'status'|'openSettings'}|{action:'setEnabled';enabled:boolean}} | {command:'dictionary_service';request:{action:'openSettings'}|{action:'lookup';text:string}} | {command:'hook_profiles';request:ProfilesRequest} | {command:'hook_updates';request:UpdatesRequest} | {command:'mining_workspace';request:MiningRequest} | {command:'installation_session';request:SessionRequest} | {command:'python_environment';request:{action:'info'|'packages'|'cleanCache'}};
+type DictionaryRequest = {action:'openSettings'|'openJitenSettings'|'settings'|'browserSources'|'browseProfile'}
+    | {action:'lookup';text:string} | {action:'select'|'useOriginal';reader:string}
+    | {action:'importBrowser';directory:string;id:string};
+type Request = {command:'overlay_lifecycle';request:{action:'status'|'openSettings'}|{action:'setEnabled';enabled:boolean}} | {command:'dictionary_service';request:DictionaryRequest} | {command:'hook_profiles';request:ProfilesRequest} | {command:'hook_updates';request:UpdatesRequest} | {command:'mining_workspace';request:MiningRequest} | {command:'installation_session';request:SessionRequest} | {command:'python_environment';request:{action:'info'|'packages'|'cleanCache'}};
 function identity(value:unknown):ProfileIdentity {
     if(typeof value==='string')return {exeName:value};
     const data=(value??{}) as Partial<ProfileIdentity>;
@@ -21,6 +24,16 @@ export function nativeRequest(channel:string,args:unknown[]):Request|null {
         case 'settings.openOverlaySettings':return {command:'overlay_lifecycle',request:{action:'openSettings'}};
         case 'reader.lookup':return {command:'dictionary_service',request:{action:'lookup',text:args[0] as string}};
         case 'dictionary.openSettings':return {command:'dictionary_service',request:{action:'openSettings'}};
+        case 'dictionary.settings':return {command:'dictionary_service',request:{action:'settings'}};
+        case 'dictionary.openJitenSettings':return {command:'dictionary_service',request:{action:'openJitenSettings'}};
+        case 'dictionary.select':return {command:'dictionary_service',request:{action:'select',reader:args[0] as string}};
+        case 'dictionary.browserSources':return {command:'dictionary_service',request:{action:'browserSources'}};
+        case 'dictionary.browseProfile':return {command:'dictionary_service',request:{action:'browseProfile'}};
+        case 'dictionary.importBrowser':{
+            const source=args[0] as {directory:string;id:string};
+            return {command:'dictionary_service',request:{action:'importBrowser',directory:source.directory,id:source.id}};
+        }
+        case 'dictionary.useOriginal':return {command:'dictionary_service',request:{action:'useOriginal',reader:args[0] as string}};
         case 'python.getPythonInfo':return {command:'python_environment',request:{action:'info'}};
         case 'python.getInstalledPackages':return {command:'python_environment',request:{action:'packages'}};
         case 'python.cleanCache':return {command:'python_environment',request:{action:'cleanCache'}};

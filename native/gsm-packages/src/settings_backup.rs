@@ -1,6 +1,6 @@
 //! Full 13-category settings & database backup/restore archive engine.
 use crate::extract_with_progress;
-use gsm_settings::paths::{default_base_dir, owocr_config_path};
+use gsm_settings::paths::owocr_config_path;
 use gsm_settings::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -178,20 +178,7 @@ pub fn normalize_settings_backup_categories(
 }
 
 pub fn get_overlay_data_dir(base_dir: &Path, has_profile: bool) -> PathBuf {
-    let is_default_base = !has_profile
-        && default_base_dir()
-            .ok()
-            .is_some_and(|def| def == base_dir);
-    if is_default_base {
-        let root = std::env::var_os("APPDATA")
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| gsm_settings::paths::home_dir().map(|h| h.join(".config")))
-            .unwrap_or_else(|| base_dir.to_path_buf());
-        root.join("gsm_overlay")
-    } else {
-        base_dir.join("gsm_overlay")
-    }
+    crate::overlay_directory::resolve(base_dir, has_profile)
 }
 
 pub fn resolve_owocr_config_path(base_dir: &Path, has_profile: bool) -> Result<PathBuf> {

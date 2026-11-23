@@ -1,0 +1,69 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 10,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Both databases contain the same 64 additional games with 64 KiB covers and 3,200 sentences. The first sorted library read compares every field of all 64 games. Flask uses its production profile cache, and repeated calls verify the response or exact cover bytes.",
+  "medians": {
+    "/api/games-management?sort=title": {
+      "python": {
+        "ms": 9.4168,
+        "server_cpu_ms": 9.375,
+        "server_resident_mib": 88.6211
+      },
+      "rust": {
+        "ms": 1.0864,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.7227
+      }
+    },
+    "/api/orphaned-games": {
+      "python": {
+        "ms": 1.8326,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 88.6758
+      },
+      "rust": {
+        "ms": 0.9674,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.7578
+      }
+    },
+    "/api/games/bench-game-00/image": {
+      "python": {
+        "ms": 0.6572,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 88.7969
+      },
+      "rust": {
+        "ms": 0.3734,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.9141
+      }
+    },
+    "PUT /api/games/bench-game-00": {
+      "python": {
+        "ms": 1.622,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 87.7031
+      },
+      "rust": {
+        "ms": 0.9333,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.0859
+      }
+    },
+    "/api/games/bench-game-00/mark-complete": {
+      "python": {
+        "ms": 1.6378,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 87.7148
+      },
+      "rust": {
+        "ms": 0.3073,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.0859
+      }
+    }
+  }
+}

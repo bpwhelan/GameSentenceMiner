@@ -3,9 +3,50 @@
 //! Win32 owns this window and message loop. No webview, JavaScript, or HTML.
 use image::RgbaImage;
 
-#[cfg(not(windows))]
-pub fn select(_cancel: &dyn Fn() -> bool) -> Result<Option<RgbaImage>, String> {
-    Err("Native area selection is currently available on Windows".into())
+#[cfg(target_os = "linux")]
+pub fn select(cancel: &dyn Fn() -> bool) -> Result<Option<RgbaImage>, String> {
+    use ashpd::desktop::{screenshot::Screenshot, ResponseError};
+    if cancel() { return Ok(None); }
+    let response = tauri::async_runtime::block_on(async {
+        let request = Screenshot::request().interactive(true).modal(true).send();
+        tokio::pin!(request);
+        loop {
+            tokio::select! {
+                reply = &mut request => return reply.and_then(|request| request.response()).map(Some),
+                _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => if cancel() {return Ok(None)},
+            }
+        }
+    });
+    match response {
+        Ok(Some(image)) if !cancel() => {
+            let path = image.uri().to_file_path().map_err(|_| "Screenshot portal returned a non-file URI")?;
+            image::open(path).map(|i|Some(i.to_rgba8())).map_err(|e|e.to_string())
+        }
+        Ok(_) | Err(ashpd::Error::Response(ResponseError::Cancelled)) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn select(cancel: &dyn Fn() -> bool) -> Result<Option<RgbaImage>, String> {
+    if cancel() {return Ok(None)}
+    let directory = tempfile::tempdir().map_err(|e| e.to_string())?;
+    let path = directory.path().join("selection.png");
+    let mut child = std::process::Command::new("/usr/sbin/screencapture")
+        .args(["-i", "-s", "-x", "-t", "png"]).arg(&path).spawn().map_err(|e|e.to_string())?;
+    loop {
+        if cancel() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        if let Some(status) = child.try_wait().map_err(|e|e.to_string())? {
+            if !path.is_file() {return Ok(None)}
+            if !status.success() {return Err(format!("Screen capture failed ({status})"))}
+            return image::open(path).map(|i|Some(i.to_rgba8())).map_err(|e|e.to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 #[cfg(windows)]
 pub fn select(cancel: &dyn Fn() -> bool) -> Result<Option<RgbaImage>, String> {
@@ -372,12 +413,17 @@ mod win {
         std::fs::write(path, serde_json::to_vec_pretty(&result).unwrap()).unwrap();
         println!("SELECTORBENCH {result}");
     }
+    // These tests draw real topmost windows at the same screen coordinates.
+    #[cfg(test)]
+    static SELECTOR_TEST_WINDOW: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[cfg(test)]
     #[test]
     fn desktop_snapshot_is_fresh_opaque_and_does_not_start_sessions_or_leak_gdi() {
         use windows::Win32::System::Threading::{
             GetCurrentProcess, GetGuiResources, GR_GDIOBJECTS,
         };
+        let _window = SELECTOR_TEST_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
         let _dpi = DpiScope::new();
         for color in [[200u8, 100, 50, 255], [40, 180, 220, 255]] {
             let source = RgbaImage::from_pixel(200, 120, image::Rgba(color));
@@ -394,22 +440,31 @@ mod win {
                     }
                     return;
                 };
-                drop(warm); // warm OS bookkeeping
+                drop(warm);
+                // DwmFlush can return during the window's opening animation.
+                // Wait for the known test surface to be fully presented before
+                // sampling steady-state pixels and GDI resource counts.
+                let expected = image::Rgba([
+                    (color[0] as u32 * 45 / 100) as u8,
+                    (color[1] as u32 * 45 / 100) as u8,
+                    (color[2] as u32 * 45 / 100) as u8,
+                    255,
+                ]);
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                loop {
+                    let frame = gsm_capture::desktop_snapshot().unwrap();
+                    let pixel = *frame.image.get_pixel((110-frame.left) as u32, (120-frame.top) as u32);
+                    if pixel == expected { break; }
+                    assert!(std::time::Instant::now() < deadline, "Desktop surface stayed {pixel:?}, expected {expected:?}");
+                    std::thread::sleep(std::time::Duration::from_millis(16));
+                }
                 let resources = unsafe { GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS) };
                 for _ in 0..6 {
                     let snapshot = gsm_capture::desktop_snapshot().unwrap();
                     let pixel = snapshot
                         .image
                         .get_pixel((110 - snapshot.left) as u32, (120 - snapshot.top) as u32);
-                    assert_eq!(
-                        *pixel,
-                        image::Rgba([
-                            (color[0] as u32 * 45 / 100) as u8,
-                            (color[1] as u32 * 45 / 100) as u8,
-                            (color[2] as u32 * 45 / 100) as u8,
-                            255
-                        ])
-                    );
+                    assert_eq!(*pixel, expected);
                     assert_eq!(gsm_capture::statistics()[0], sessions);
                 }
                 assert_eq!(
@@ -428,6 +483,7 @@ mod win {
     fn native_window_paints_selects_cancels_and_reopens() {
         // Drive this test's own HWND message loop, not the user's mouse or any
         // external window. This exercises the real GDI surface and destruction.
+        let _window = SELECTOR_TEST_WINDOW.lock().unwrap_or_else(|e| e.into_inner());
         let _dpi = DpiScope::new();
         let source = RgbaImage::from_fn(200, 120, |x, y| image::Rgba([x as u8, y as u8, 42, 255]));
         for cancel in [true, false, true, false] {

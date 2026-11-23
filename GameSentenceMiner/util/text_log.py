@@ -1,12 +1,16 @@
 import threading
-import unicodedata
 import uuid
-from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from html.parser import HTMLParser
 from typing import Optional
 
+from GameSentenceMiner.native import intake as desktop_intake
+from GameSentenceMiner.native.recycled_lines import (
+    desktop_owns_recycled_lines,
+    new_recycled_lines,
+    normalize_text_for_comparison,
+)
 from GameSentenceMiner.native.text import select_card_line
 from GameSentenceMiner.util.config.configuration import get_config, gsm_state, logger
 from GameSentenceMiner.util.gsm_utils import remove_html_and_cloze_tags
@@ -100,14 +104,16 @@ class GameLine:
 class GameText:
     values: list[GameLine]
     values_dict: dict[str, GameLine]
-    previous_lines: set = field(default_factory=set)
     game_line_index: int = 0
 
     def __init__(self, max_lines: int = MAX_IN_MEMORY_GAME_LINES):
         self.values = []
         self.values_dict = {}
-        self.previous_lines = set()
-        self._previous_line_order = deque()
+        self._previous_lines = (
+            None
+            if desktop_owns_recycled_lines()
+            else new_recycled_lines(MAX_PREVIOUS_LINES, MIN_RECYCLED_LINE_CHARACTERS)
+        )
         self.game_line_index = 0
         self.max_lines = max(1, int(max_lines))
         self._lock = threading.RLock()
@@ -142,23 +148,21 @@ class GameText:
             id=line_id,  # Time-based UUID as an integer
             text=line_text,
             time=line_time or datetime.now(),
-            prev=self.values[-1] if self.values else None,
+            prev=None,
             next=None,
-            index=self.game_line_index,
             scene=gsm_state.current_game or "",
             source=source,
             source_padding=TextSource.padding_seconds(source),
         )
         with self._lock:
+            new_line.index = self.game_line_index
+            new_line.prev = self.values[-1] if self.values else None
             self.values_dict[line_id] = new_line
             self.game_line_index += 1
             if self.values:
                 self.values[-1].next = new_line
             self.values.append(new_line)
-            if new_line.prev and is_recycled_line_detection_enabled():
-                normalized_previous_line = normalize_text_for_comparison(new_line.prev.text)
-                if normalized_previous_line:
-                    self._remember_previous_line_locked(normalized_previous_line)
+            self._remember_preceding_line(new_line)
             self._prune_to_limit_locked()
         return new_line
         # self.remove_old_events(datetime.now() - timedelta(minutes=10))
@@ -225,10 +229,7 @@ class GameText:
             self.game_line_index += 1
             if previous is not None:
                 previous.next = line
-                if is_recycled_line_detection_enabled():
-                    normalized = normalize_text_for_comparison(previous.text)
-                    if normalized:
-                        self._remember_previous_line_locked(normalized)
+                self._remember_preceding_line(line)
             self._prune_to_limit_locked()
             return line
 
@@ -251,23 +252,36 @@ class GameText:
             return line
 
     def replace_previous_lines(self, lines) -> None:
-        """Replace the recycle cache while retaining only the newest bounded entries."""
+        """Publish the complete replacement only after the scene has been read successfully."""
+        if self._previous_lines is None:
+            return
         with self._lock:
-            self.previous_lines = set()
-            self._previous_line_order = deque()
+            history = new_recycled_lines(MAX_PREVIOUS_LINES, MIN_RECYCLED_LINE_CHARACTERS)
             for line in lines:
-                self._remember_previous_line_locked(str(line))
+                if line:
+                    history.add(str(line))
+            self._previous_lines = history
+
+    @property
+    def previous_line_count(self) -> int:
+        with self._lock:
+            return len(self._previous_lines) if self._previous_lines is not None else 0
+
+    def _remember_preceding_line(self, line: GameLine) -> None:
+        if (
+            self._previous_lines is not None
+            and line.prev
+            and line.prev.scene == line.scene
+            and is_recycled_line_detection_enabled()
+        ):
+            self._previous_lines.add(str(line.prev.text))
+
+    def is_line_recycled(self, text: str) -> bool:
+        with self._lock:
+            return self._previous_lines is not None and text is not None and str(text) in self._previous_lines
 
     def clear_previous_lines(self) -> None:
         self.replace_previous_lines(())
-
-    def _remember_previous_line_locked(self, line: str) -> None:
-        if len(line) < MIN_RECYCLED_LINE_CHARACTERS or line in self.previous_lines:
-            return
-        self.previous_lines.add(line)
-        self._previous_line_order.append(line)
-        while len(self._previous_line_order) > MAX_PREVIOUS_LINES:
-            self.previous_lines.discard(self._previous_line_order.popleft())
 
     def _prune_to_limit_locked(self) -> None:
         remove_count = len(self.values) - self.max_lines
@@ -300,24 +314,6 @@ def strip_whitespace_and_punctuation(text: str) -> str:
     return normalize_text_for_comparison(text)
 
 
-def normalize_text_for_comparison(text: str) -> str:
-    """
-    Remove all Unicode punctuation and whitespace characters from text.
-    """
-    if text is None:
-        return ""
-
-    normalized_characters = []
-    for character in str(text):
-        if character.isspace():
-            continue
-        if unicodedata.category(character).startswith("P"):
-            continue
-        normalized_characters.append(character)
-
-    return "".join(normalized_characters)
-
-
 def is_recycled_line_detection_enabled() -> bool:
     try:
         return bool(getattr(get_config().overlay, "check_previous_lines_for_recycled_indicator", True))
@@ -326,10 +322,7 @@ def is_recycled_line_detection_enabled() -> bool:
 
 
 def is_line_recycled(line_text: str) -> bool:
-    normalized_line = normalize_text_for_comparison(line_text)
-    if len(normalized_line) < MIN_RECYCLED_LINE_CHARACTERS:
-        return False
-    return normalized_line in game_log.previous_lines
+    return game_log.is_line_recycled(line_text)
 
 
 CONTAINMENT_MIN_RATIO = 0.3
@@ -734,10 +727,14 @@ def _freeze_authoritative_line(line: GameLine) -> None:
 
 
 def get_time_of_line(line):
+    if desktop_intake.native_reader():
+        return next((item.time for item in reversed(get_all_lines()) if item.text == line), initial_time)
     return game_log.get_time(line)
 
 
 def get_all_lines():
+    if desktop_intake.native_reader():
+        return desktop_intake.reader_lines()
     return list(game_log.snapshot())
 
 
@@ -759,4 +756,6 @@ def get_line_by_id(line_id: str) -> Optional[GameLine]:
     Returns:
         Optional[GameLine]: The GameLine object if found, otherwise None.
     """
+    if desktop_intake.native_reader():
+        return next(iter(desktop_intake.reader_lines("line", line_id)), None)
     return game_log.get_by_id(line_id)

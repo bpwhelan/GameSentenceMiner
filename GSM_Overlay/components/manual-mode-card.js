@@ -42,10 +42,10 @@
   }
 
   const MOUSE_HOLD_WARNING =
-    "⚠️ Avoid Push to Show Hold with Mouse4/Mouse5: Yomitan may not work correctly while either button is held. Use Toggle instead.";
+    "Yomitan may miss lookups while Mouse4 or Mouse5 is held. Use a keyboard shortcut for Hold or Hybrid, or use Toggle with a mouse button.";
 
   function getMouseHotkeyHoldWarning(hotkey, manualModeType) {
-    return isMouseHotkey(hotkey) && normalizeManualModeType(manualModeType) === "hold"
+    return isMouseHotkey(hotkey) && normalizeManualModeType(manualModeType) !== "toggle"
       ? MOUSE_HOLD_WARNING
       : "";
   }
@@ -193,7 +193,7 @@
   // --- Value normalizers ---
 
   function normalizeManualModeType(value) {
-    return value === "toggle" ? "toggle" : "hold";
+    return value === "hybrid" || value === "toggle" ? value : "hold";
   }
 
   function normalizeManualModeInactiveBehavior(value) {
@@ -216,7 +216,7 @@
     } else if (backend === "input_server" && runtimeState.backendReason === "electron-registration-failed") {
       statusText = "Backend: Input Server (Electron registration fallback)";
     }
-    if (backend === "electron" && type === "hold") {
+    if (backend === "electron" && type !== "toggle") {
       statusText += " | Hold detection is best-effort";
     }
 
@@ -231,7 +231,7 @@
           ? "Wayland uses the desktop shortcut portal. Modifier-only and mouse shortcuts are not supported by the portal."
           : "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
       }
-    } else if (backend === "electron" && type === "hold") {
+    } else if (backend === "electron" && type !== "toggle") {
       platformWarning =
         "Electron hold mode uses repeat/watchdog release detection because global shortcuts do not expose key-up.";
     }
@@ -383,6 +383,7 @@
       <span class="label-text">Push to Show Type</span>
       <select id="manualModeType">
         <option value="hold">Hold (press and hold to show)</option>
+        <option value="hybrid">Hybrid (hold to show, keep open until the last lookup closes)</option>
         <option value="toggle">Toggle (press once to show, press again to hide)</option>
       </select>
     </label>
@@ -413,6 +414,13 @@
         <input type="text" id="showHotkey" value="Shift + Space" title="${HOTKEY_INPUT_TITLE.replace(/"/g, "&quot;").replace(/\n/g, "&#10;")}" />
       </div>
     </label>
+    <label>
+      <span class="label-text">
+        Require Game Focus for All Push to Show Hotkeys
+        <span class="hotkey-info">When off, only modifier-only shortcuts like Shift or Ctrl+Alt require game focus.</span>
+      </span>
+      <input type="checkbox" id="requireGameFocusForPushToShow" checked />
+    </label>
   `;
 
   function renderInto(container, options = {}) {
@@ -435,6 +443,7 @@
     const focusOverlayLabel = get("manualModeDisableInteractionFocusOverlayLabel");
     const focusOverlayCheckbox = get("manualModeDisableInteractionFocusOverlay");
     const showHotkey = get("showHotkey");
+    const requireGameFocus = get("requireGameFocusForPushToShow");
     const statusEl = get("manualHotkeyBackendStatus");
     const platformWarn = get("manual-hotkey-platform-warning");
     const runtimeWarn = get("manual-hotkey-runtime-warning");
@@ -476,6 +485,7 @@
     if (manualModeType) manualModeType.value = normalizeManualModeType(initial.manualModeType);
     if (inactiveBehavior) inactiveBehavior.value = normalizeManualModeInactiveBehavior(initial.manualModeInactiveBehavior);
     if (focusOverlayCheckbox) focusOverlayCheckbox.checked = !!initial.manualModeDisableInteractionFocusOverlay;
+    requireGameFocus.checked = initial.requireGameFocusForPushToShow !== false;
     if (showHotkey && typeof initial.showHotkey === "string" && initial.showHotkey) {
       showHotkey.value = initial.showHotkey;
     }
@@ -507,6 +517,9 @@
         onChange("manualModeDisableInteractionFocusOverlay", focusOverlayCheckbox.checked)
       );
     }
+    requireGameFocus.addEventListener("change", () =>
+      onChange("requireGameFocusForPushToShow", requireGameFocus.checked)
+    );
     if (showHotkey) {
       attachHotkeyCapture(showHotkey, {
         showCtrlWarning: true,
@@ -532,6 +545,9 @@
         }
         if ("manualModeDisableInteractionFocusOverlay" in partial && focusOverlayCheckbox) {
           focusOverlayCheckbox.checked = !!partial.manualModeDisableInteractionFocusOverlay;
+        }
+        if ("requireGameFocusForPushToShow" in partial) {
+          requireGameFocus.checked = partial.requireGameFocusForPushToShow !== false;
         }
         if ("showHotkey" in partial && showHotkey && typeof partial.showHotkey === "string" && partial.showHotkey) {
           showHotkey.value = partial.showHotkey;

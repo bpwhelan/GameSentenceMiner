@@ -288,37 +288,41 @@ pub async fn close(pid: u32, executable: &Path) -> Result<(), String> {
 pub fn foreground() -> Option<Value> {
     #[cfg(windows)]
     {
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
-        };
-        unsafe {
-            let hwnd = GetForegroundWindow();
-            if hwnd.is_invalid() {
-                return None;
-            }
-            let mut pid = 0;
-            GetWindowThreadProcessId(hwnd, Some(&mut pid));
-            if pid == std::process::id() {
-                return None;
-            }
-            let mut title = vec![0u16; 32768];
-            let n = GetWindowTextW(hwnd, &mut title);
-            if n == 0 {
-                return None;
-            }
-            let path = image_path(pid);
-            let name = path
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .map(|s| s.to_string_lossy().into_owned());
-            return Some(
-                json!({"hwnd":(hwnd.0 as usize).to_string(),"pid":pid,"title":String::from_utf16_lossy(&title[..n as usize]),"executablePath":path,"executableName":name,"capturedAt":chrono::Utc::now().timestamp_millis(),"sequence":0}),
-            );
-        }
+        window_snapshot(unsafe { windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow() })
     }
     #[cfg(not(windows))]
     {
         None
+    }
+}
+
+#[cfg(windows)]
+pub(super) fn window_snapshot(hwnd: windows::Win32::Foundation::HWND) -> Option<Value> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId,
+    };
+    unsafe {
+        if hwnd.is_invalid() {
+            return None;
+        }
+        let mut pid = 0;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        if pid == std::process::id() {
+            return None;
+        }
+        let mut title = vec![0u16; GetWindowTextLengthW(hwnd).clamp(0, 32767) as usize + 1];
+        let n = GetWindowTextW(hwnd, &mut title);
+        if n == 0 {
+            return None;
+        }
+        let path = image_path(pid);
+        let name = path
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|s| s.to_string_lossy().into_owned());
+        return Some(
+            json!({"hwnd":(hwnd.0 as usize).to_string(),"pid":pid,"title":String::from_utf16_lossy(&title[..n as usize]),"executablePath":path,"executableName":name,"capturedAt":chrono::Utc::now().timestamp_millis(),"sequence":0}),
+        );
     }
 }
 pub fn restore(hwnd: &str) {

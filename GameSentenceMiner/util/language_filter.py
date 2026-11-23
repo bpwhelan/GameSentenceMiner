@@ -51,7 +51,6 @@ LANGUAGE_FILTER_MODES = ("blocks", "trim", "strict")
 
 @lru_cache(maxsize=256)
 def _target_characters(language: str):
-    language = language.strip().lower().replace("_", "-").split("-")[0]
     scripts = _LANGUAGE_SCRIPTS.get(language)
     if scripts is None:
         if language not in _KNOWN_LANGUAGES:
@@ -63,7 +62,10 @@ def _target_characters(language: str):
     return regex.compile(r"[[" + script_pattern + r"]&&[\p{L}\p{M}]]", regex.VERSION1)
 
 
-def _is_dialogue_punctuation(char: str, *, leading: bool = False) -> bool:
+def _is_trim_edge(char: str, *, leading: bool, keep_fullwidth: bool) -> bool:
+    # Japanese dialogue can contain full-width names and numbers at either edge.
+    if keep_fullwidth and ("Ａ" <= char <= "Ｚ" or "ａ" <= char <= "ｚ" or "０" <= char <= "９"):
+        return True
     categories = ("Ps", "Pi") if leading else ("Pe", "Pf", "Po", "Pd")
     return unicodedata.category(char) in categories or char in "\"'…‥―—～〜!?！？"
 
@@ -72,12 +74,14 @@ def filter_target_language(text: str, language: str, mode: str = "blocks") -> st
     """Filter newline-delimited blocks, their edges, or every nonmatching character."""
     if not text or mode not in LANGUAGE_FILTER_MODES:
         return text
+    language = language.strip().lower().replace("_", "-").split("-")[0]
     pattern = _target_characters(language)
     if pattern is None:
         return text
     if mode == "strict":
         return "".join(pattern.findall(text))
 
+    keep_fullwidth = language == "ja"
     kept = []
     for line in text.splitlines(keepends=True):
         block = line.rstrip(_LINE_ENDINGS)
@@ -90,10 +94,9 @@ def filter_target_language(text: str, language: str, mode: str = "blocks") -> st
             end = first.end()
             for match in pattern.finditer(block, pos=end):
                 end = match.end()
-            # Keep quotes and sentence punctuation immediately beside target text.
-            while start > 0 and _is_dialogue_punctuation(block[start - 1], leading=True):
+            while start > 0 and _is_trim_edge(block[start - 1], leading=True, keep_fullwidth=keep_fullwidth):
                 start -= 1
-            while end < len(block) and _is_dialogue_punctuation(block[end]):
+            while end < len(block) and _is_trim_edge(block[end], leading=False, keep_fullwidth=keep_fullwidth):
                 end += 1
             block = block[start:end]
         kept.append((block, ending))

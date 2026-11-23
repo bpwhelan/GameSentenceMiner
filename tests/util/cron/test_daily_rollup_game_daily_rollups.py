@@ -71,8 +71,14 @@ def test_managed_rollup_registers_before_releasing_database_queue(monkeypatch, _
         ("[A-Za-z0-9本]+|猫犬", True),
         ("", True),
         (r"\p{Script=Latin}", False),
-        (r"(?<=文)字", False),
-        (r"a.*?b", False),
+        (r"(?<=文)字", True),
+        (r"字(?=文)", True),
+        (r"(猫|犬)\1", True),
+        (r"[a&&b]", False),
+        (r"(?<=文+)", False),
+        (r"a.*?b", True),
+        ("【.*?】", True),
+        (r"a.*?b.*?c", False),
     ],
 )
 def test_custom_punctuation_preserves_regex_engine_for_advanced_expressions(monkeypatch, pattern, managed):

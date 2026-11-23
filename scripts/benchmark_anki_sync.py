@@ -112,16 +112,14 @@ def digest(db):
     return h.hexdigest()
 
 
-def measure(db, bus, desktop_pid, args, iterations):
+def prepare_collection(db, url):
     from GameSentenceMiner.util.config.configuration import get_config, get_master_config
-    from GameSentenceMiner.util.cron.anki_card_sync import run_full_sync, run_incremental_sync
     from GameSentenceMiner.util.database.anki_tables import setup_anki_tables
     from GameSentenceMiner.util.database.tokenization_tables import KanjiTable, WordsTable
-    from scripts.benchmark_mining_history import sample_operation_memory
 
     config = get_config().anki
     config.word_field, config.note_type = FIELD, "Mining"
-    config.url = f"http://127.0.0.1:{args.port}/sync/" + ("small" if args.case == "sync-small" else "collection")
+    config.url = url
     master = get_master_config().experimental
     master.enable_experimental_features = master.enable_tokenization = True
     setup_anki_tables(db)
@@ -146,6 +144,15 @@ def measure(db, bus, desktop_pid, args, iterations):
         db.run_transaction(seed)
 
     stale()
+    return config, stale
+
+
+def measure(db, bus, desktop_pid, args, iterations):
+    from GameSentenceMiner.util.cron.anki_card_sync import run_full_sync, run_incremental_sync
+    from scripts.benchmark_mining_history import sample_operation_memory
+
+    size = "small" if args.case == "sync-small" else "collection"
+    config, stale = prepare_collection(db, f"http://127.0.0.1:{args.port}/sync/{size}")
     expected_n = 12 if args.case == "sync-small" else 1200
     processes = [psutil.Process(), psutil.Process(desktop_pid)]
 

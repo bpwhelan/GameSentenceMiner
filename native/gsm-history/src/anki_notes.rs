@@ -10,6 +10,9 @@ const TAGGED: &str = "EXISTS (
     WHERE t.type='text' AND instr(t.value, ?1)=1)";
 
 pub(super) fn earliest(conn: &Connection, parent: &str) -> Result<Value> {
+    if !super::stats::table_exists(conn, "anki_notes")? {
+        return Ok(json!({"earliest_date": 0}));
+    }
     let sql = format!("SELECT min(CAST(n.note_id AS INTEGER)) FROM anki_notes n WHERE {TAGGED}");
     let id: Option<i64> = conn.query_row(&sql, [format!("{parent}::")], |row| row.get(0))?;
     Ok(json!({"earliest_date":id.unwrap_or_default() as f64 / 1000.0}))
@@ -22,6 +25,16 @@ pub(super) fn characters(
     start: Option<i64>,
     end: Option<i64>,
 ) -> Result<Value> {
+    Ok(Value::String(character_set(conn, parent, field, start, end)?.into_iter().collect()))
+}
+
+pub(super) fn character_set(
+    conn: &Connection,
+    parent: &str,
+    field: &str,
+    start: Option<i64>,
+    end: Option<i64>,
+) -> Result<BTreeSet<char>> {
     let mut characters = BTreeSet::new();
     if !field.is_empty() {
         let sql = format!(
@@ -50,5 +63,5 @@ pub(super) fn characters(
             }
         }
     }
-    Ok(Value::String(characters.into_iter().collect()))
+    Ok(characters)
 }

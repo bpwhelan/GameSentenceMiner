@@ -3,10 +3,10 @@ import path from 'node:path';
 import {describe,expect,it} from 'vitest';
 
 describe('prerelease build contract',()=>{
-    it('builds and embeds a matching backend wheel in the coordinated native matrix',()=>{
+    it('records native prerelease metadata without building a backend wheel',()=>{
         const workflow=fs.readFileSync('.github/workflows/native_desktop.yml','utf8');
-        expect(workflow).toContain('python -m pip wheel --no-deps --wheel-dir electron-src/assets/python .');
-        expect(workflow).toContain('scripts/write-prerelease-metadata.mjs');
+        expect(workflow).not.toContain('npm run build:qt-host');
+        expect(workflow).toContain('scripts/write-prerelease-metadata.mjs --desktop-only');
         expect(workflow).toContain('if: inputs.prerelease');
         const preview=fs.readFileSync('.github/workflows/dev_release_exe.yml','utf8');
         expect(preview).toContain('prerelease: true');

@@ -6,7 +6,7 @@ import test from 'node:test';
 import yauzl from 'yauzl';
 import {packagePortable} from './package-native-portable.mjs';
 
-const required = ['GameSentenceMiner.exe', 'app/dist/renderer/index.html', 'app/pyproject.toml', 'app/native/agent-runtime.json'];
+const required = ['GameSentenceMiner.exe', 'app/dist/renderer/index.html', 'app/LICENSE', 'app/native/agent-runtime.json'];
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'gsm-portable-'));
   t.after(() => fs.rm(root, {recursive: true, force: true}));

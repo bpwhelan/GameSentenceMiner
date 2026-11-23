@@ -38,6 +38,7 @@ const {
   MANUAL_HOTKEY_BACKEND_INPUT_SERVER,
   createManualHotkeyController,
   isManualHotkeyBlockedByGameWindowState,
+  isModifierOnlyHotkey,
   normalizeManualHotkeyMode,
   resolveManualHotkeyBackend,
 } = require('./manual_hotkey_controller');
@@ -243,9 +244,12 @@ if (!IN_PROCESS_OVERLAY) {
   ]);
 }
 
-let dataPath = process.env.GSM_OVERLAY_DATA_PATH || (process.env.APPDATA
-  ? path.join(process.env.APPDATA, "gsm_overlay") // Windows
-  : path.join(os.homedir(), '.config', "gsm_overlay")); // macOS/Linux
+const overlayConfigRoot = process.env.APPDATA || path.join(os.homedir(), '.config');
+const legacyOverlayRoot = path.join(overlayConfigRoot, 'gsm_overlay');
+const desktopOverlayRoot = path.join(overlayConfigRoot, 'GameSentenceMiner', 'Overlay');
+const dataPath = process.env.GSM_OVERLAY_DATA_PATH
+  || (process.platform === 'win32' && (fs.existsSync(desktopOverlayRoot) || !fs.existsSync(legacyOverlayRoot))
+    ? desktopOverlayRoot : legacyOverlayRoot);
 
 fs.mkdirSync(dataPath, { recursive: true });
 const recordOverlayDiagnostic = require('./diagnostics').createOverlayDiagnostics(dataPath);
@@ -1095,6 +1099,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "textHoverClickThrough": false,
   "manualMode": false,
   "manualModeType": "hold",
+  "requireGameFocusForPushToShow": true,
   "manualModeInactiveBehavior": MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY,
   "manualModeDisableInteractionFocusOverlay": false,
   "showHotkey": DEFAULT_MANUAL_HOTKEY,
@@ -1386,6 +1391,10 @@ function normalizeOverlaySettingsProfiles(reason = "unknown") {
     }
     if (!Object.prototype.hasOwnProperty.call(cleanedSettings, "hideLiveStatsOnTextOverlap")) {
       cleanedSettings.hideLiveStatsOnTextOverlap = DEFAULT_USER_SETTINGS.hideLiveStatsOnTextOverlap;
+      changed = true;
+    }
+    if (typeof cleanedSettings.requireGameFocusForPushToShow !== "boolean") {
+      cleanedSettings.requireGameFocusForPushToShow = DEFAULT_USER_SETTINGS.requireGameFocusForPushToShow;
       changed = true;
     }
     for (const key of ['customPageEnabled', 'customPageUrl', 'customPageHotkey', ...Object.keys(DEFAULT_USER_SETTINGS).filter(key => key.startsWith('vnGuide') && isOverlayProfileScopedSetting(key))]) {
@@ -1954,7 +1963,14 @@ function setTrackedGameWindowState(state, source = "unknown") {
 }
 
 function isTrackedGameWindowVisibleForManualHotkey() {
-  return canUseOverlayCapture() && !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState);
+  return canUseOverlayCapture() && (
+    !isManualHotkeyBlockedByGameWindowState(trackedGameWindowState) || hasFocusedManualActivation()
+  );
+}
+
+function hasFocusedManualActivation() {
+  return (manualHotkeyPressed || manualModeToggleState)
+    && mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
 }
 
 function hasValidOverlayCapture() {
@@ -1962,9 +1978,10 @@ function hasValidOverlayCapture() {
   if (["active", "background"].includes(trackedGameWindowState)) return true;
   // Reading windows can cover the game itself; keep their visibility exception
   // consistent with window-state-changed while the backend still confirms capture.
-  // Also preserve an already-open lookup through the Magpie focus handoff.
+  // Keep the capture while the active overlay itself covers the game.
   return trackedGameWindowState === "obscured" &&
-    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || shouldDeferObscuredStateForMagpieFocus());
+    (isTexthookerMode || customPageController?.isVisible() || yomitanShown || hasFocusedManualActivation()
+      || shouldDeferObscuredStateForMagpieFocus());
 }
 
 function canUseOverlayCapture() {
@@ -2055,6 +2072,12 @@ function getManualHotkeyTriggerBlockReason() {
 
   if (!isTrackedGameWindowVisibleForManualHotkey()) {
     return `game-window-${trackedGameWindowState}`;
+  }
+
+  const focusRequired = userSettings.requireGameFocusForPushToShow !== false
+    || isModifierOnlyHotkey(userSettings.showHotkey);
+  if (focusRequired && trackedGameWindowState !== "active" && !hasFocusedManualActivation()) {
+    return "game-window-unfocused";
   }
 
   return null;
@@ -2420,6 +2443,8 @@ let appHotkeyInputServerConnection = {
 const manualHotkeyController = createManualHotkeyController({
   holdReleaseTimeoutMs: MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS,
   getMode: () => normalizeManualModeType(userSettings.manualModeType),
+  isPopupShowing: () => yomitanShown,
+  checkPopupShowing: () => mainWindow?.webContents.executeJavaScript('window.isManualLookupVisible?.() === true'),
   onStateChange(snapshot, meta) {
     const previousActive = !!(manualHotkeyPressed || manualModeToggleState);
     manualModeToggleState = snapshot.toggleLatched;
@@ -3993,6 +4018,7 @@ function buildManualModeRecommendationPayload(game) {
     initial: {
       manualMode: userSettings.manualMode,
       manualModeType: userSettings.manualModeType,
+      requireGameFocusForPushToShow: userSettings.requireGameFocusForPushToShow,
       manualModeInactiveBehavior: userSettings.manualModeInactiveBehavior,
       showHotkey: userSettings.showHotkey,
     },
@@ -5710,18 +5736,12 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
 
   isOverlayVisible = false;
 
-  const preserveYomitanDuringManualHold =
-    pauseSource === OVERLAY_PAUSE_SOURCE_MANUAL_HOTKEY &&
-    normalizeManualModeType(userSettings.manualModeType) === "hold" &&
-    yomitanShown;
-
   // With a desktop-background snapshot up, hiding the overlay the instant focus is handed
   // back flashes the raw desktop because the game hasn't re-taken the display yet. Keep the
   // snapshot covering the screen, restore focus, then hide after the game has had a moment
   // to redraw. (Mirror of the activation fix — there's no "game painted" signal to wait on.)
   const deferReleaseForBackground =
     getManualModeBackgroundMode() !== "off" &&
-    !preserveYomitanDuringManualHold &&
     !resizeMode &&
     !shouldKeepOverlayVisibleWhenManualInactive();
 
@@ -5736,7 +5756,7 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
 
   mainWindow.webContents.send('show-overlay-hotkey', false);
 
-  if (!preserveYomitanDuringManualHold && !resizeMode) {
+  if (!resizeMode) {
     if (!isLinux()) {
       mainWindow.setIgnoreMouseEvents(true, { forward: true });
     }
@@ -5745,11 +5765,6 @@ function hideOverlayUsingManualFlow(triggerSource, pauseSource = OVERLAY_PAUSE_S
     } else {
       hideAndRestoreFocus({ focusFirst: false });
     }
-  } else {
-    console.log(
-      `[OverlayActivation] Skipping Focus Restore. ` +
-      `YomitanPreserved: ${preserveYomitanDuringManualHold}, Resize: ${resizeMode}`
-    );
   }
 
   return true;
@@ -7249,9 +7264,11 @@ async function startOverlayAppImpl() {
   if (!isWindows()) {
     setOverlaySettingValue("manualMode", true); // enforce manual mode on non-Windows platforms
     if (!userSettings.pushToShowEnforcedDialogDismissed) {
-      const manualModeDescription = normalizeManualModeType(userSettings.manualModeType) === "toggle"
-        ? "press the hotkey once to show the overlay and press it again to hide it"
-        : "hold the hotkey to keep the overlay visible";
+      const manualModeDescription = {
+        hold: "hold the hotkey to keep the overlay visible",
+        hybrid: "hold the hotkey to show the overlay. An open lookup keeps it visible after release",
+        toggle: "press the hotkey once to show the overlay and press it again to hide it",
+      }[normalizeManualModeType(userSettings.manualModeType)];
       const { checkboxChecked } = await dialog.showMessageBox({
         type: 'warning',
         buttons: ['OK'],
@@ -8112,6 +8129,8 @@ async function startOverlayAppImpl() {
       return;
     }
 
+    if (ignore && isManualMode() && (manualHotkeyPressed || manualModeToggleState)) return;
+
     if (
       !ignore &&
       isManualMode() &&
@@ -8202,6 +8221,10 @@ async function startOverlayAppImpl() {
         requestYomitanOverlayTopmostReassert("yomitan-open");
       }
     } else {
+      if (manualHotkeyController.handlePopupClosed()) {
+        yomitanForegroundActive = false;
+        return;
+      }
       if (yomitanForegroundActive || userSettings.focusOverlayOnYomitanLookup) {
         restoreOverlayAfterYomitanLookup();
         return;
@@ -8531,6 +8554,7 @@ async function startOverlayAppImpl() {
 
       case "obscured":
         console.log("[WindowState] Obscured - Game completely covered by other windows");
+        if (hasFocusedManualActivation()) break;
         if (shouldDeferObscuredStateForMagpieFocus()) {
           console.log("[WindowState] Deferring Magpie obscured state until focus restoration completes");
           break;
@@ -8724,6 +8748,8 @@ async function startOverlayAppImpl() {
       value = normalizeFuriganaOutlineWidth(value);
     } else if (key === "manualModeType") {
       value = normalizeManualModeType(value);
+    } else if (key === "requireGameFocusForPushToShow") {
+      value = value !== false;
     } else if (key === "manualModeInactiveBehavior") {
       value = normalizeManualModeInactiveBehavior(value);
     } else if (key === "liveStatsScope") {

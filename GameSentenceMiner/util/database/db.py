@@ -8,7 +8,7 @@ import sqlite3
 import sys
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime
 from datetime import timedelta
 from functools import lru_cache
@@ -726,6 +726,27 @@ class GameLinesTable(SQLiteDBTable):
         return [cls.from_row(row) for row in rows]
 
     @classmethod
+    def iter_recycled_line_texts(cls, scene: str, limit: int | None = None):
+        """Yield only the text column, in the indicator's original insertion order."""
+        if limit is None:
+            query = f"SELECT line_text FROM {cls._table} WHERE game_name=? ORDER BY rowid"
+            params = (scene,)
+        else:
+            # Select the newest row IDs before fetching their text. Break timestamp
+            # ties consistently and replay the bounded selection oldest first.
+            query = f"""
+                SELECT g.line_text FROM (
+                    SELECT rowid AS rid, timestamp FROM {cls._table} WHERE game_name=?
+                    ORDER BY timestamp DESC, rowid DESC LIMIT ?
+                ) AS recent CROSS JOIN {cls._table} AS g ON g.rowid=recent.rid
+                ORDER BY recent.timestamp, recent.rid
+            """
+            params = (scene, limit)
+        with closing(cls._db.execute(query, params)) as cursor:
+            for (text,) in cursor:
+                yield text
+
+    @classmethod
     def get_all_by_game_id(cls, game_id: str, for_stats: bool = False) -> List["GameLinesTable"]:
         """Get all lines for a specific game_id."""
         rows = cls._db.fetchall(
@@ -1434,8 +1455,26 @@ class GoalsTable(SQLiteDBTable):
         return (current_streak, longest_streak)
 
 
-# Ensure database directory exists and return path
+def _desktop_prepared_database(path: str) -> bool:
+    prepared = os.environ.get("GSM_DESKTOP_DATABASE_READY")
+    if not prepared:
+        return False
+    primary = os.path.normcase(os.path.abspath(prepared))
+    selected = os.path.normcase(os.path.abspath(path))
+    if primary == selected:
+        return True
+    if os.path.basename(primary) != os.path.basename(selected):
+        return False
+    # A profile can arrive through a junction or a Windows extended-length path.
+    # Compare directories so another database's WAL and SHM stay independent.
+    try:
+        return os.path.samefile(os.path.dirname(primary), os.path.dirname(selected))
+    except OSError:
+        return False
+
+
 def get_db_directory(test=False, delete_test=False) -> str:
+    """Ensure the database directory exists and return the selected database path."""
     testing_mode = os.environ.get("GAME_SENTENCE_MINER_TESTING", "0") == "1" or "pytest" in sys.modules
     if testing_mode:
         test_data_root = os.environ.get("GSM_TEST_DATA_ROOT", "").strip()
@@ -1445,7 +1484,7 @@ def get_db_directory(test=False, delete_test=False) -> str:
         test = True
     else:
         config_dir = get_app_directory()
-        if not test:
+        if not test and not _desktop_prepared_database(os.path.join(config_dir, "gsm.db")):
             recover_legacy_database(config_dir)
     # Create the directory if it doesn't exist
     os.makedirs(config_dir, exist_ok=True)
@@ -1618,9 +1657,15 @@ def backup_db(
                 if os.path.exists(temp_path):
                     os.remove(temp_path)
 
-            _create_sqlite_backup(db_path, temp_db)
-            _gzip_file(temp_db, temp_gz)
-            durable_replace(temp_gz, backup_file)
+            from GameSentenceMiner.native.ocr import _extension
+
+            native_snapshot = getattr(_extension, "compressed_history_snapshot", None)
+            if native_snapshot is None:
+                _create_sqlite_backup(db_path, temp_db)
+                _gzip_file(temp_db, temp_gz)
+                durable_replace(temp_gz, backup_file)
+            else:
+                native_snapshot(db_path, backup_file)
             _remove_excess_database_backups(backup_dir, retention_count=retention_count)
             logger.success(f"Database backup created: {backup_file}")
             return backup_file
@@ -1687,13 +1732,31 @@ gsm_db = SQLiteDB(db_path, read_only=_gsm_db_read_only)
 _pending_tokenization_schema_sync = False
 
 
-def sync_tokenization_schema_state(db: SQLiteDB) -> None:
+def sync_tokenization_schema_state(db: SQLiteDB, *, startup: bool = False) -> None:
     """Apply tokenization setup/teardown for the current feature-flag state."""
     if db.read_only:
         logger.info("Skipping tokenization schema sync in read-only mode")
         return
 
-    if _is_tokenization_enabled():
+    from GameSentenceMiner.native.history import configure_vocabulary_schema
+
+    enabled = _is_tokenization_enabled()
+    desktop_owner = os.environ.get("GSM_DESKTOP_VOCABULARY_READY") == "1" and _desktop_prepared_database(db.db_path)
+    if desktop_owner and startup:
+        from GameSentenceMiner.util.database.tokenization_tables import bind_vocabulary_models
+
+        bind_vocabulary_models(db, enabled)
+        return
+    owner = configure_vocabulary_schema(db, enabled)
+    if owner:
+        from GameSentenceMiner.util.database import tokenization_tables
+
+        if desktop_owner and owner == "desktop":
+            tokenization_tables.bind_vocabulary_models(db, enabled)
+        else:
+            tokenization_tables.bind_native_vocabulary(db, enabled)
+        return
+    if enabled:
         from GameSentenceMiner.util.database.tokenization_tables import (
             setup_tokenization,
         )
@@ -1799,7 +1862,7 @@ def bind_database_worker_tables() -> None:
 #     logger.info("Altered 'timestamp_old' column to 'timestamp' with TEXT type in GameLinesTable.")
 
 
-def check_and_run_migrations():
+def _migrate_legacy_core_schema():
     def migrate_timestamp():
         if GameLinesTable.has_column("timestamp") and GameLinesTable.get_column_type("timestamp") != "REAL":
             logger.info("Migrating 'timestamp' column to REAL type in GameLinesTable.")
@@ -2035,6 +2098,54 @@ def check_and_run_migrations():
         except Exception as e:
             logger.error(f"Error during cron timestamp migration: {e}")
 
+    def migrate_genres_and_tags():
+        """
+        Add genres and tags columns to games table.
+        These fields store data from jiten.moe API.
+        After adding columns, trigger jiten update to populate the new fields.
+        """
+        columns_added = False
+
+        if not GamesTable.has_column("genres"):
+            logger.info("Adding 'genres' column to games table...")
+            GamesTable._db.execute(f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT", commit=True)
+            logger.success("✅ Added 'genres' column to games table.")
+            columns_added = True
+        else:
+            logger.debug("genres column already exists in games table, skipping migration.")
+
+        if not GamesTable.has_column("tags"):
+            logger.info("Adding 'tags' column to games table...")
+            GamesTable._db.execute(f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT", commit=True)
+            logger.success("✅ Added 'tags' column to games table.")
+            columns_added = True
+        else:
+            logger.debug("tags column already exists in games table, skipping migration.")
+
+        # If we added columns, trigger jiten update to populate them
+        if columns_added:
+            logger.info("🔄 Triggering jiten update to populate genres and tags...")
+            try:
+                from GameSentenceMiner.util.cron.jiten_update import (
+                    update_all_jiten_games,
+                )
+
+                result = update_all_jiten_games(force=True)
+                logger.success(
+                    f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags"
+                )
+            except Exception as e:
+                logger.error(f"⚠️ Failed to auto-update games with genres/tags: {e}")
+                logger.info("You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update")
+
+    migrate_timestamp()
+    migrate_gameline_sync_tracking()
+    migrate_gameline_language()
+    migrate_obs_scene_name()
+    migrate_genres_and_tags()
+
+
+def check_and_run_migrations(*, core_schema_ready=False):
     def migrate_jiten_cron_job():
         """
         Create the daily jiten.moe update cron job if it doesn't exist.
@@ -2183,86 +2294,63 @@ def check_and_run_migrations():
 
         configure_tadoku_cron()
 
-    def migrate_genres_and_tags():
-        """
-        Add genres and tags columns to games table.
-        These fields store data from jiten.moe API.
-        After adding columns, trigger jiten update to populate the new fields.
-        """
-        columns_added = False
-
-        if not GamesTable.has_column("genres"):
-            logger.info("Adding 'genres' column to games table...")
-            GamesTable._db.execute(f"ALTER TABLE {GamesTable._table} ADD COLUMN genres TEXT", commit=True)
-            logger.success("✅ Added 'genres' column to games table.")
-            columns_added = True
-        else:
-            logger.debug("genres column already exists in games table, skipping migration.")
-
-        if not GamesTable.has_column("tags"):
-            logger.info("Adding 'tags' column to games table...")
-            GamesTable._db.execute(f"ALTER TABLE {GamesTable._table} ADD COLUMN tags TEXT", commit=True)
-            logger.success("✅ Added 'tags' column to games table.")
-            columns_added = True
-        else:
-            logger.debug("tags column already exists in games table, skipping migration.")
-
-        # If we added columns, trigger jiten update to populate them
-        if columns_added:
-            logger.info("🔄 Triggering jiten update to populate genres and tags...")
-            try:
-                from GameSentenceMiner.util.cron.jiten_update import (
-                    update_all_jiten_games,
-                )
-
-                result = update_all_jiten_games(force=True)
-                logger.success(
-                    f"✅ Jiten update completed: {result['updated_games']} games updated with genres and tags"
-                )
-            except Exception as e:
-                logger.error(f"⚠️ Failed to auto-update games with genres/tags: {e}")
-                logger.info("You can manually run the update with: python -m GameSentenceMiner.util.cron.jiten_update")
-
-    migrate_timestamp()
-    migrate_gameline_sync_tracking()
-    migrate_gameline_language()
-    migrate_obs_scene_name()
-    # migrate_cron_timestamps()  # Disabled - user will manually clean up data
+    if not core_schema_ready:
+        _migrate_legacy_core_schema()
     migrate_jiten_cron_job()
     migrate_populate_games_cron_job()  # Run BEFORE daily_rollup to ensure games exist
     migrate_daily_rollup_cron_job()
-    migrate_genres_and_tags()  # Add genres and tags columns
     CronTable.retire_user_script_schedules()
     migrate_jiten_upgrader_cron_job()  # Weekly check for new Jiten entries
     migrate_daily_goals_completion_cron_job()  # Hourly check for auto-completing daily goals
     migrate_tadoku_cron_job()
 
+    _initialize_vocabulary()
+
+
+def _initialize_vocabulary():
     global _pending_tokenization_schema_sync
     if _should_defer_tokenization_schema_sync():
         _pending_tokenization_schema_sync = True
     else:
-        sync_tokenization_schema_state(gsm_db)
+        sync_tokenization_schema_state(gsm_db, startup=True)
 
 
 def start_database_runtime() -> None:
     """Run database maintenance from application startup, never module import."""
-    global _startup_backup_future, _database_runtime_started
+    global _database_runtime_started
     with _database_runtime_lock:
         if _database_runtime_started:
             return
+        _initialize_database_runtime()
         _database_runtime_started = True
-    _startup_backup_future = schedule_database_backup(db_path, read_only=_gsm_db_read_only)
+
+
+def _initialize_database_runtime() -> None:
+    from GameSentenceMiner.native.history import migrate_schema
+
+    global _startup_backup_future
+    desktop_prepared = _desktop_prepared_database(db_path)
+    if not desktop_prepared:
+        _startup_backup_future = schedule_database_backup(db_path, read_only=_gsm_db_read_only)
     if gsm_db.read_only:
         logger.info("Skipping database migrations in read-only mode")
         return
+    core_schema_ready = desktop_prepared or migrate_schema(
+        gsm_db, str(get_config().general.target_language or "").strip()
+    )
+    if core_schema_ready:
+        logger.info("Core database schema ready via Rust.")
     for table_class in _DATABASE_TABLE_CLASSES:
-        table_class.set_db(gsm_db, ensure_schema=True)
+        table_class.set_db(gsm_db, ensure_schema=not core_schema_ready)
+    if desktop_prepared:
+        _initialize_vocabulary()
+        return
     # This is intentionally a one-time database initialization. Successful Tadoku
     # exports replace this value; subsequent launches leave it untouched.
     from GameSentenceMiner.util.tadoku_sync import initialize_tadoku_cursor
 
     initialize_tadoku_cursor()
-    check_and_run_migrations()
+    check_and_run_migrations(core_schema_ready=core_schema_ready)
     from GameSentenceMiner.util.database.maintenance import setup_database_maintenance
 
     setup_database_maintenance()

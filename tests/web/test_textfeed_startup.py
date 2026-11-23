@@ -9,6 +9,24 @@ from GameSentenceMiner.util.concurrency.transport import AsyncTransportRuntime
 from GameSentenceMiner.web import texthooking_page
 
 
+@pytest.mark.parametrize(
+    "general, port",
+    [
+        ({"single_port": 55000}, 7275),
+        ({"texthooker_port": "55000"}, 7275),
+        ({"texthooker_port": 8123}, 8123),
+        ({"single_port": 8124, "texthooker_port": 55000}, 8124),
+    ],
+)
+def test_saved_textfeed_port_migration(general, port):
+    from GameSentenceMiner.util.config.configuration import Config, General
+
+    profile = {"general": general}
+    Config._migrate_single_port_fields(profile)
+    assert profile == {"general": {"single_port": port}}
+    assert General.from_dict(profile["general"]).single_port == port
+
+
 @pytest.mark.parametrize("admin, enabled", [(True, True), (False, True), (True, False), (False, False)])
 def test_textfeed_startup_respects_elevation_without_stopping_server(monkeypatch, admin, enabled):
     config = SimpleNamespace(
@@ -32,7 +50,6 @@ def test_textfeed_startup_respects_elevation_without_stopping_server(monkeypatch
     monkeypatch.setattr(texthooking_page.webbrowser, "open", open_browser)
     monkeypatch.setattr(texthooking_page.logger, "info", info)
     monkeypatch.setattr(texthooking_page, "start_default_websocket_server", lambda: None)
-    monkeypatch.setattr(texthooking_page, "_start_legacy_moved_page_server", lambda: None)
     monkeypatch.setattr(texthooking_page, "_try_start_single_port_gateway", gateway)
 
     texthooking_page.start_web_server()
@@ -75,7 +92,6 @@ def test_textfeed_fallback_opens_only_after_waitress_binds(monkeypatch, bind_fai
     monkeypatch.setattr(texthooking_page, "is_windows_admin", lambda: False)
     monkeypatch.setattr(texthooking_page.webbrowser, "open", open_browser)
     monkeypatch.setattr(texthooking_page, "start_default_websocket_server", lambda: None)
-    monkeypatch.setattr(texthooking_page, "_start_legacy_moved_page_server", lambda: None)
     monkeypatch.setattr(texthooking_page, "_try_start_single_port_gateway", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(texthooking_page, "create_server", create_server)
 
@@ -139,9 +155,6 @@ def test_startup_browser_can_load_textfeed_on_its_first_request(monkeypatch, mod
     monkeypatch.setattr(texthooking_page, "is_windows_admin", lambda: False)
     monkeypatch.setattr(texthooking_page.webbrowser, "open", browser)
     monkeypatch.setattr(texthooking_page, "start_default_websocket_server", lambda: None)
-    monkeypatch.setattr(texthooking_page, "_start_legacy_moved_page_server", lambda: None)
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_server", None)
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_thread", None)
     monkeypatch.setattr(texthooking_page, "_waitress_servers", [])
     monkeypatch.setattr(texthooking_page, "_waitress_threads", [])
     monkeypatch.setattr(texthooking_page, "_open_texthooker_on_startup", ready)
@@ -175,35 +188,3 @@ def test_startup_browser_can_load_textfeed_on_its_first_request(monkeypatch, mod
         if runtime is not None:
             runtime.stop(timeout=3)
     assert not thread.is_alive()
-
-
-@pytest.mark.parametrize("bind_host", ["127.0.0.1", "0.0.0.0"])
-def test_legacy_redirect_listener_does_not_wait_for_reverse_dns(monkeypatch, bind_host):
-    port = texthooking_page._find_free_port(bind_host)
-    monkeypatch.setattr(texthooking_page, "_get_single_port", lambda: 7275)
-    monkeypatch.setattr(texthooking_page, "_get_legacy_texthooker_port", lambda: port)
-    monkeypatch.setattr(
-        texthooking_page,
-        "get_config",
-        lambda: SimpleNamespace(advanced=SimpleNamespace(localhost_bind_address=bind_host)),
-    )
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_server", None)
-    monkeypatch.setattr(texthooking_page, "_legacy_notice_thread", None)
-    monkeypatch.setattr(
-        texthooking_page.socket, "getfqdn", Mock(side_effect=AssertionError("A local redirect needs no DNS lookup"))
-    )
-
-    texthooking_page._start_legacy_moved_page_server()
-    server = texthooking_page._legacy_notice_server
-    connection = HTTPConnection("127.0.0.1", port, timeout=2)
-    try:
-        connection.request("GET", "/stats?day=today")
-        response = connection.getresponse()
-        assert response.status == 301
-        assert response.getheader("Location") == "http://localhost:7275/stats?day=today"
-        response.read()
-    finally:
-        connection.close()
-        server.shutdown()
-        server.server_close()
-        texthooking_page._legacy_notice_thread.join(timeout=2)

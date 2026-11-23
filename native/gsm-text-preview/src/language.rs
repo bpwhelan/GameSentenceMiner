@@ -31,6 +31,9 @@ pub(super) struct Target {
 }
 
 impl Target {
+    pub(super) fn code(&self) -> &str {
+        &self.code
+    }
     pub(super) fn new(code: &str) -> Self {
         Self {
             code: code.into(),
@@ -50,6 +53,8 @@ impl Target {
             return text;
         }
 
+        let trim = mode == "trim";
+        let keep_fullwidth = trim && language_code(&self.code).eq_ignore_ascii_case("ja");
         let mut output = String::with_capacity(text.len());
         let mut previous_ending = "";
         for (line, ending) in lines(&text) {
@@ -57,11 +62,13 @@ impl Target {
             let Some(first) = matches.next() else {
                 continue;
             };
-            let block = if mode == "trim" {
+            let block = if trim {
                 let (last, ch) = matches.next_back().unwrap_or(first);
                 let end = last + ch.len_utf8();
-                let before = line[..first.0].trim_end_matches(|ch| punctuation(ch, true));
-                let after = line[end..].trim_start_matches(|ch| punctuation(ch, false));
+                let before = line[..first.0]
+                    .trim_end_matches(|ch| keep_at_trim_edge(ch, true, keep_fullwidth));
+                let after = line[end..]
+                    .trim_start_matches(|ch| keep_at_trim_edge(ch, false, keep_fullwidth));
                 &line[before.len()..line.len() - after.len()]
             } else {
                 line
@@ -74,13 +81,16 @@ impl Target {
     }
 }
 
-fn compile(language: &str) -> Option<Characters> {
-    let language = language
+fn language_code(language: &str) -> &str {
+    language
         .trim_matches(|ch: char| ch.is_whitespace() || matches!(ch, '\x1c'..='\x1f'))
         .split(['-', '_'])
         .next()
         .unwrap_or_default()
-        .to_lowercase();
+}
+
+fn compile(language: &str) -> Option<Characters> {
+    let language = language_code(language).to_lowercase();
     let scripts: String = scripts_for(&language)?
         .split_whitespace()
         .map(|s| format!(r"\p{{scx={s}}}"))
@@ -90,7 +100,11 @@ fn compile(language: &str) -> Option<Characters> {
     )))
 }
 
-fn punctuation(ch: char, leading: bool) -> bool {
+fn keep_at_trim_edge(ch: char, leading: bool, keep_fullwidth: bool) -> bool {
+    // Japanese dialogue can contain full-width names and numbers at either edge.
+    if keep_fullwidth && matches!(ch, 'Ａ'..='Ｚ' | 'ａ'..='ｚ' | '０'..='９') {
+        return true;
+    }
     static OPEN: LazyLock<Characters> = LazyLock::new(|| Characters::new(r"[\p{Ps}\p{Pi}]"));
     static CLOSE: LazyLock<Characters> =
         LazyLock::new(|| Characters::new(r"[\p{Pe}\p{Pf}\p{Po}\p{Pd}]"));

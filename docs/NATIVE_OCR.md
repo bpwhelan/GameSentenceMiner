@@ -2,8 +2,8 @@
 
 The Tauri desktop runs the OCR tab in Rust, including advanced configurations.
 The existing tab, saved settings, text feed, preview boxes, start/stop buttons,
-and keyboard shortcuts control that worker. On macOS and Linux, the optional
-portable OneOCR engine uses its own local Python runtime for inference.
+and keyboard shortcuts control that worker. On macOS and Linux, portable
+OneOCR loads prepared models into ONNX Runtime from Rust.
 
 ## Ownership and lifecycle
 
@@ -182,26 +182,18 @@ and GSM bundles the fast large VOCR6-L recognizer. [CPU benchmark](benchmarks/oc
 
 ### Portable OneOCR setup
 
-On Windows GSM uses the native OneOCR DLL. On Linux and macOS, install the
-portable runtime in a dedicated environment and import the models from your own
-copy of Snipping Tool. The following commands use Python 3.13 and the versions
-tested under Ubuntu. The importer accepts a Snipping Tool folder or an MSIX bundle.
+On Windows GSM uses the native OneOCR DLL. On Linux and macOS the Rust desktop
+runs the ONNX models locally. Select **OneOCR** under Main OCR or in the reading
+overlay. GSM looks for `config.json`, the networks and alphabets under
+`~/.config/oneocr/models`. Set `ONEOCR_MODELS` before starting GSM to select
+another prepared model folder. An existing portable model installation works
+in place.
 
-```sh
-uv venv --python 3.13 "$HOME/.config/oneocr/venv"
-uv pip install --python "$HOME/.config/oneocr/venv/bin/python" \
-  'https://github.com/AuroraWright/oneocr_reimpl/archive/f3698522a341bcbe5e61394f61e8ab3ef11efbe6.zip' \
-  'onnxruntime==1.32.0' 'numpy==2.2.6' 'opencv-python-headless==4.13.0.92'
-"$HOME/.config/oneocr/venv/bin/oneocr-extract-models" "/path/to/SnippingTool"
-```
-
-Select **OneOCR** under Main OCR or in the reading overlay. The runtime reads
-models from `~/.config/oneocr/models`. To use existing installations elsewhere,
-set `GSM_ONEOCR_PYTHON` to the environment's Python executable and
-`ONEOCR_MODELS` to the extracted model directory before starting GSM. For Thai
-and right-to-left scripts, install the runtime's optional PyICU dependency.
-The local worker stays warm between scans and releases its models when GSM
-releases the engine. [OneOCR runtime and importer](https://github.com/AuroraWright/oneocr_reimpl/tree/f3698522a341bcbe5e61394f61e8ab3ef11efbe6)
+For a new installation, prepare the models separately from your own copy of
+Snipping Tool. The upstream importer uses Python for this one-time step. The
+desktop loads the detector and script classifier on first use, then loads only
+the recognizers it needs. It reuses recognized lines across scans and releases
+the models when the engine goes idle. [Model preparation and reference implementation](https://github.com/AuroraWright/oneocr_reimpl/tree/f3698522a341bcbe5e61394f61e8ab3ef11efbe6)
 
 ## Verification and measurements
 

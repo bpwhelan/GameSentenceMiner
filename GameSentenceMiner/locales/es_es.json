@@ -106,10 +106,6 @@
             "tooltip": "Abrir la página del flujo de texto al iniciar GSM. Se desactiva mientras GSM se ejecuta como administrador para evitar iniciar el navegador con privilegios de administrador. Tu preferencia se conserva para los inicios normales.",
             "disabled_admin": "Desactivado mientras GSM se ejecuta como administrador."
           },
-          "texthooker_port": {
-            "label": "Puerto de GSM Text Feed:",
-            "tooltip": "Puerto para que el Text Feed se ejecute. Solo cambie si sabe lo que está haciendo."
-          },
           "current_version": {
             "label": "Versión Actual:",
             "tooltip": "La versión actual de la aplicación."
@@ -747,6 +743,10 @@
           }
         },
         "ai": {
+          "auto_generate_character_summary": {
+            "label": "Generar resúmenes de personajes automáticamente",
+            "tooltip": "Si falta el resumen de un juego, el proveedor de IA lo crea a partir de los metadatos de sus personajes. Los resúmenes guardados y escritos a mano se usan aunque esta opción esté desactivada."
+          },
           "title": "AI / Translation",
           "enabled": {
             "label": "Agregar a Anki:",

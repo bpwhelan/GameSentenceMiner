@@ -7,10 +7,12 @@ import time
 import uuid
 from dataclasses import replace
 from datetime import datetime, timedelta
+from functools import partial
 
 import websockets
 
 from GameSentenceMiner import obs
+from GameSentenceMiner.native import intake as desktop_intake
 from GameSentenceMiner.ocr import benchmark as ocr_benchmark
 from GameSentenceMiner.text_pipeline.models import (
     IngressAck,
@@ -25,6 +27,11 @@ from GameSentenceMiner.text_pipeline.models import (
 )
 from GameSentenceMiner.text_pipeline.runtime import AuthoritativeTextRuntime
 from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
+from GameSentenceMiner.util.communication.desktop_events import (
+    announce_text_intake_state,
+    text_intake_paused,
+    text_intake_resumed,
+)
 from GameSentenceMiner.util.communication.electron_ipc import send_message
 from GameSentenceMiner.util.concurrency.actor import ActorStopped, MailboxFull
 from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
@@ -39,11 +46,6 @@ from GameSentenceMiner.util.config.configuration import (
 from GameSentenceMiner.util.database.db import DB_PRIORITY_HIGH, GameLinesTable, gsm_db
 from GameSentenceMiner.util.database.games_table import GamesTable
 from GameSentenceMiner.util.gsm_utils import SleepManager
-from GameSentenceMiner.util.communication.desktop_events import (
-    announce_text_intake_state,
-    text_intake_paused,
-    text_intake_resumed,
-)
 from GameSentenceMiner.util.platform.windows_clipboard import WindowsClipboardListener
 from GameSentenceMiner.util.sentence_exclusions import is_sentence_excluded
 from GameSentenceMiner.util.stats.live_stats import live_stats_tracker, publish_live_stats_update
@@ -94,7 +96,7 @@ _OCR_HOOK_REDUNDANCY_THRESHOLD = 3
 _ocr_hook_redundancy_count = 0
 _ocr_hook_redundancy_warned = False
 
-_text_runtime: AuthoritativeTextRuntime | None = None
+_text_runtime: AuthoritativeTextRuntime | desktop_intake.DesktopTextRuntime | None = None
 _text_runtime_lock = threading.RLock()
 _overlay_dispatcher = None
 
@@ -116,9 +118,11 @@ def _expire_live_stats_session() -> None:
     live_stats_tracker.reset_if_inactive()
 
 
-def get_authoritative_text_runtime() -> AuthoritativeTextRuntime:
+def get_authoritative_text_runtime() -> AuthoritativeTextRuntime | desktop_intake.DesktopTextRuntime:
     global _text_runtime
     with _text_runtime_lock:
+        if _text_runtime is None and desktop_intake.managed():
+            _text_runtime = desktop_intake.DesktopTextRuntime(_project_text_domain_event, _expire_live_stats_session)
         if _text_runtime is None:
             _text_runtime = AuthoritativeTextRuntime(
                 _project_text_domain_event,
@@ -154,8 +158,7 @@ def recover_skip_landing(text: str, scene: str) -> bool:
     if runtime is None:
         return False
     try:
-        runtime.recover_skip_landing(text, scene)
-        return True
+        return runtime.recover_skip_landing(text, scene) is not False
     except (ActorStopped, MailboxFull):
         return False
 
@@ -236,7 +239,7 @@ def _send_text_received_preview_event(
     source: str | None,
     source_display_name: str | None,
 ) -> None:
-    if not os.environ.get("GSM_ELECTRON"):
+    if not os.environ.get("GSM_ELECTRON") or desktop_intake.managed():
         return
     try:
         send_message(
@@ -285,21 +288,28 @@ def is_text_monitor_initialized() -> bool:
 
 
 def is_text_intake_paused() -> bool:
+    if desktop_intake.native_controls():
+        return desktop_intake.request("controlPause", operation="get")
     return bool(getattr(gsm_state, "text_input_paused", False))
 
 
 def set_text_intake_paused(paused: bool) -> bool:
     new_state = bool(paused)
+    if desktop_intake.native_controls():
+        return desktop_intake.request("controlPause", operation="set", paused=new_state)
     old_state = is_text_intake_paused()
     gsm_state.text_input_paused = new_state
     if new_state != old_state:
-        if new_state:
+        if isinstance(_text_runtime, desktop_intake.DesktopTextRuntime) and _text_runtime.ready:
+            desktop_intake.request("pause", paused=new_state)
+        if new_state and not desktop_intake.native_reader():
             from GameSentenceMiner.util.database.reading_breaks_table import ReadingBreaksTable
 
             paused_at = time.time()
             live_stats_tracker.mark_reading_break(paused_at)
             ReadingBreaksTable.record(paused_at)
-        publish_live_stats_update(live_stats_tracker, reason="intake_paused" if new_state else "intake_resumed")
+        if not desktop_intake.native_reader():
+            publish_live_stats_update(live_stats_tracker, reason="intake_paused" if new_state else "intake_resumed")
         logger.info(f"GSM text intake {'paused' if new_state else 'resumed'}.")
         announce_text_intake_state(new_state)
         if new_state:
@@ -310,6 +320,8 @@ def set_text_intake_paused(paused: bool) -> bool:
 
 
 def toggle_text_intake_paused() -> bool:
+    if desktop_intake.native_controls():
+        return desktop_intake.request("controlPause", operation="toggle")
     return set_text_intake_paused(not is_text_intake_paused())
 
 
@@ -337,7 +349,15 @@ def set_inhouse_source_active(source: str, active: bool) -> None:
     key = (source or "").strip().lower()
     if not key:
         return
+    runtime = _text_runtime
+    if isinstance(runtime, desktop_intake.DesktopTextRuntime) and runtime.desktop_outputs:
+        return
     inhouse_sources_active[key] = bool(active)
+    if desktop_intake.managed():
+        # Retain early notifications for older desktops that negotiate the original protocol.
+        if not isinstance(runtime, desktop_intake.DesktopTextRuntime) or not runtime.ready:
+            return
+        desktop_intake.request("inhouse", active=is_inhouse_source_active())
     logger.info(f"In-house text source '{key}' {'started' if active else 'stopped'}.")
 
     # Report the actual clipboard outcome, not just this source's state: a still
@@ -360,7 +380,10 @@ def is_inhouse_source_active() -> bool:
 def _clipboard_pause_blockers() -> list[str]:
     """Human-readable list of sources currently keeping clipboard polling paused."""
     blockers = []
-    connected_ws = [resolve_websocket_source_name(uri) for uri, ok in websocket_connected.items() if ok]
+    if isinstance(_text_runtime, desktop_intake.DesktopTextRuntime):
+        connected_ws = list(gsm_status.websockets_connected.values())
+    else:
+        connected_ws = [resolve_websocket_source_name(uri) for uri, ok in websocket_connected.items() if ok]
     blockers.extend(f"websocket: {name}" for name in connected_ws)
     blockers.extend(source for source, ok in inhouse_sources_active.items() if ok)
     return blockers
@@ -516,10 +539,6 @@ def get_output_websocket_ports():
     # Unified web+websocket public port.
     if hasattr(config.general, "single_port"):
         output_ports.add(str(config.general.single_port))
-
-    # Legacy texthooker port may still be used by users temporarily.
-    if hasattr(config.general, "texthooker_port"):
-        output_ports.add(str(config.general.texthooker_port))
 
     return output_ports
 
@@ -719,6 +738,24 @@ async def handle_new_text_event(
 ):
     """Single entry point for every text source (clipboard, websocket, IPC)."""
     global current_line
+    if desktop_intake.managed():
+        receipt = await add_line_to_text_log(
+            current_clipboard,
+            line_time,
+            dict_from_ocr=dict_from_ocr,
+            source=source,
+            source_display_name=source_display_name,
+            copy_to_clipboard=copy_to_clipboard,
+            exclude_from_stats=exclude_from_stats,
+            observation_id=observation_id,
+            emitted_at=emitted_at,
+            source_instance=source_instance,
+            revision_window_ms=revision_window_ms,
+            metadata_extra=metadata_extra,
+        )
+        if receipt.status is IngressStatus.BACKPRESSURED:
+            logger.warning(f"Text intake is busy for {receipt.observation_id}: {receipt.reason}")
+        return
     guarded_line, guard_reason = guard_text_input(current_clipboard)
     if guarded_line is None:
         logger.warning(f"Blocked text input: {guard_reason}.")
@@ -764,7 +801,8 @@ async def add_line_to_text_log(
     source_sequence=None,
     metadata_extra=None,
 ):
-    return _ingest_line_sync(
+    ingest = partial(
+        _ingest_line_sync,
         line,
         line_time=line_time,
         dict_from_ocr=dict_from_ocr,
@@ -782,6 +820,10 @@ async def add_line_to_text_log(
         source_sequence=source_sequence,
         metadata_extra=metadata_extra,
     )
+    # The shared transport loop also receives the desktop reply.
+    if desktop_intake.managed():
+        return await get_authoritative_text_runtime().from_async_producer(ingest)
+    return ingest()
 
 
 def _ingest_line_sync(
@@ -805,6 +847,25 @@ def _ingest_line_sync(
     processor_overrides=None,
 ):
     global current_line_time
+    if desktop_intake.managed():
+        kind = SourceKind.normalize(source, source_display_name)
+        payload = {
+            "text": line,
+            "source": source or "",
+            "source_display_name": source_display_name or source or "Unknown",
+            "source_instance": source_instance or source_display_name or source or kind.value,
+            "captured_at": line_time.isoformat() if isinstance(line_time, datetime) else line_time,
+            "dict_from_ocr": dict_from_ocr,
+            "skip_overlay": skip_overlay,
+            "copy_to_clipboard": copy_to_clipboard,
+            "exclude_from_stats": exclude_from_stats,
+            "observation_id": observation_id,
+            "revision_window_ms": 2500 if revision_window_ms is None else revision_window_ms,
+            "remove_matching_prefix": remove_matching_prefix,
+            "metadata": metadata_extra or {},
+        }
+        ack = get_authoritative_text_runtime().submit(payload, wait=wait_projected)
+        return IngressAck(**{**ack, "status": IngressStatus(ack["status"])})
     guarded_line, guard_reason = guard_text_input(line)
     observation_id = str(observation_id or uuid.uuid4())
     if guarded_line is None:
@@ -927,6 +988,8 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
             "observation_id": str(payload.get("observation_id") or payload.get("observationId") or ""),
             "reason": "text is required",
         }
+    if desktop_intake.managed():
+        return get_authoritative_text_runtime().submit(payload)
 
     source = str(payload.get("source") or "texthook")
     display_name = str(payload.get("source_display_name") or payload.get("sourceDisplayName") or "")
@@ -985,7 +1048,7 @@ def ingest_text_v2_payload(payload: dict) -> dict[str, object]:
 _skip_break_recorded = False
 
 
-def _project_text_domain_event(event: TextDomainEvent) -> None:
+def _project_text_domain_event(event: TextDomainEvent, *, desktop_outputs=False) -> None:
     global current_line_time, _dont_collect_stats_notice_count, _skip_break_recorded
     record = event.record
     if event.kind in (TextEventKind.SKIP_STARTED, TextEventKind.SKIP_ENDED):
@@ -1022,24 +1085,26 @@ def _project_text_domain_event(event: TextDomainEvent) -> None:
         return
     if event.kind in (TextEventKind.APPENDED, TextEventKind.UPDATED):
         current_line_time = projected_time
-        if event.kind is TextEventKind.APPENDED:
-            log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"
-        else:
-            log_message = (
-                f"<cyan>Line revised from [{source_label}] "
-                f"seq={record.stream_sequence} rev={record.revision}: {record.text}</cyan>"
+        if not desktop_outputs:
+            if event.kind is TextEventKind.APPENDED:
+                log_message = f"<cyan>Line Received from [{source_label}]: {record.text}</cyan>"
+            else:
+                log_message = (
+                    f"<cyan>Line revised from [{source_label}] "
+                    f"seq={record.stream_sequence} rev={record.revision}: {record.text}</cyan>"
+                )
+            _log_info(log_message, colors=True)
+            _send_text_received_preview_event(
+                record.raw_text,
+                record.text,
+                current_line_time,
+                record.source_kind.value,
+                source_label,
             )
-        _log_info(log_message, colors=True)
-        _send_text_received_preview_event(
-            record.raw_text,
-            record.text,
-            current_line_time,
-            record.source_kind.value,
-            source_label,
-        )
         gsm_status.last_line_received = record.first_seen_at_utc.astimezone().strftime("%Y-%m-%d %H:%M:%S")
         if (
-            event.kind is TextEventKind.APPENDED
+            not desktop_outputs
+            and event.kind is TextEventKind.APPENDED
             and record.copy_to_clipboard
             and record.text
             and record.stats_status != "skipped"
@@ -1204,6 +1269,11 @@ def reset_line_hotkey_pressed():
 async def start_text_monitor():
     global text_monitor_initialized
     text_monitor_initialized = False
+    if desktop_intake.managed():
+        runtime = get_authoritative_text_runtime()
+        await asyncio.to_thread(runtime.wait_ready)
+        text_monitor_initialized = True
+        return
     await listen_websockets()
     if get_config().general.use_websocket:
         if get_config().general.use_both_clipboard_and_websocket:

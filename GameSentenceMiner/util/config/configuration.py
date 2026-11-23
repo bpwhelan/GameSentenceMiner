@@ -598,6 +598,14 @@ DEFAULT_WEBSOCKET_SOURCES: List[Dict[str, Any]] = [
 ]
 
 
+def _primary_port(value):
+    try:
+        port = int(value)
+    except (ValueError, TypeError, OverflowError):
+        return 7275
+    return port if 0 < port <= 65535 and port != 55000 else 7275
+
+
 @dataclass_json
 @dataclass
 class General:
@@ -616,8 +624,6 @@ class General:
     texthook_max_buffer_size: int = 3000
     # Primary public port used for both web and websocket endpoints.
     single_port: int = 7275
-    # Legacy texthooker port kept for compatibility routing.
-    texthooker_port: int = 55000
     native_language: str = CommonLanguages.ENGLISH.value
     target_language: str = CommonLanguages.JAPANESE.value
 
@@ -655,18 +661,7 @@ class General:
                 else:
                     coerced.append(s)
             self.websocket_sources = coerced
-        try:
-            self.single_port = int(self.single_port or 7275)
-        except Exception:
-            self.single_port = 7275
-        if self.single_port <= 0:
-            self.single_port = 7275
-        try:
-            self.texthooker_port = int(self.texthooker_port or 55000)
-        except Exception:
-            self.texthooker_port = 55000
-        if self.texthooker_port < 0:
-            self.texthooker_port = 55000
+        self.single_port = _primary_port(self.single_port)
         try:
             self.texthook_max_buffer_size = int(self.texthook_max_buffer_size or 3000)
         except (TypeError, ValueError):
@@ -1437,6 +1432,7 @@ class Advanced:
 class Ai:
     enabled: bool = False  # DEPRECATED, use is_configured() instead
     add_to_anki: bool = False
+    auto_generate_character_summary: bool = False
     anki_field: str = ""
     deepl_api_key: str = ""
     deepl_target_lang: str = "EN"
@@ -1878,6 +1874,8 @@ class ProfileConfig:
 
         self.general.use_websocket = config_data["websocket"].get("enabled", self.general.use_websocket)
         self.general.websocket_uri = config_data["websocket"].get("uri", self.general.websocket_uri)
+        Config._migrate_single_port_fields(config_data)
+        self.general.single_port = config_data.get("general", {}).get("single_port", self.general.single_port)
 
         self.hotkeys.process_pause = config_data["hotkeys"].get("process_pause", self.hotkeys.process_pause)
 
@@ -1897,7 +1895,6 @@ class ProfileConfig:
                 previous.obs.host != self.obs.host,
                 previous.obs.port != self.obs.port,
                 previous.general.single_port != self.general.single_port,
-                previous.general.texthooker_port != self.general.texthooker_port,
                 previous.advanced.direct_websocket_port != self.advanced.direct_websocket_port,
             ]
         ):
@@ -2179,43 +2176,15 @@ class Config:
             process_pausing.pop("allowlist", None)
 
     @staticmethod
-    def _normalize_port(value: Any, fallback: int) -> int:
-        try:
-            port = int(value)
-        except Exception:
-            return fallback
-        if port <= 0:
-            return fallback
-        return port
-
-    @classmethod
-    def _migrate_single_port_fields(cls, profile_data: Dict[str, Any]) -> None:
+    def _migrate_single_port_fields(profile_data: Dict[str, Any]) -> None:
         if not isinstance(profile_data, dict):
             return
         general = profile_data.get("general")
         if not isinstance(general, dict):
             return
 
-        legacy_default = 55000
-        primary_default = 7275
-
-        if "single_port" not in general:
-            previous_texthooker_port = cls._normalize_port(
-                general.get("texthooker_port", primary_default),
-                primary_default,
-            )
-            # Preserve existing behavior for upgraded installs:
-            # old active texthooker port becomes the new primary single port.
-            general["single_port"] = previous_texthooker_port
-            # Keep the legacy listener port at the historical default.
-            general["texthooker_port"] = legacy_default
-            return
-
-        general["single_port"] = cls._normalize_port(general.get("single_port"), primary_default)
-        general["texthooker_port"] = cls._normalize_port(
-            general.get("texthooker_port", legacy_default),
-            legacy_default,
-        )
+        legacy = general.pop("texthooker_port", None)
+        general["single_port"] = _primary_port(general.get("single_port", legacy))
 
     @staticmethod
     def _migrate_websocket_sources(profile_data: Dict[str, Any]) -> None:
@@ -2275,16 +2244,32 @@ class Config:
             with open(config_path, "r", encoding="utf-8-sig") as file:
                 data = json.load(file)
                 data = cls._migrate_raw_data(data)
-                return cls.from_dict(data)
+                return cls._from_saved_data(data)
         else:
             return cls.new()
+
+    @classmethod
+    def _from_saved_data(cls, data):
+        from GameSentenceMiner.util.config import desktop_profile
+
+        layered = "profile_layers" in data
+        if layered:
+            # Rust owns version upgrades. __post_init__ runs before the editor
+            # baseline exists and a legacy upgrade there could overwrite it.
+            config = cls.from_dict({**data, "version": ""})
+            config.version = data.get("version", "")
+        else:
+            config = cls.from_dict(data)
+        if layered or desktop_profile.is_settings_worker() or desktop_profile.enabled():
+            config._desktop_editor_base = config.to_dict()
+        return config
 
     def __post_init__(self):
         if self.current_profile in self.configs:
             self.configs[self.current_profile].overlay = self.overlay
 
         # Add a way to migrate certain things based on version if needed, also help with better defaults
-        if self.version:
+        if self.version and os.environ.get("GSM_CLIENT_ID") != "qt-settings":
             current_version = get_current_version()
             if "0.0.0" in self.version:
                 self.version = current_version
@@ -2338,6 +2323,8 @@ class Config:
         return self.configs[DEFAULT_CONFIG]
 
     def sync_changed_fields(self, previous_config: ProfileConfig):
+        if hasattr(self, "_desktop_editor_base"):
+            return self
         current_config = self.get_config()
 
         for section in current_config.to_dict():
@@ -2361,6 +2348,8 @@ class Config:
         return self
 
     def sync_shared_fields(self):
+        if getattr(self, "_desktop_editor_base", None) is not None:
+            return self  # Rust owns global fields and game inheritance for desktop settings.
         config = self.get_config()
         for profile in self.configs.values():
             self.sync_shared_field(config.hotkeys, profile.hotkeys, "open_utility")
@@ -2447,7 +2436,6 @@ class Config:
             self.sync_shared_field(config.general, profile.general, "open_multimine_on_startup")
             self.sync_shared_field(config.general, profile.general, "websocket_uri")
             self.sync_shared_field(config.general, profile.general, "single_port")
-            self.sync_shared_field(config.general, profile.general, "texthooker_port")
             self.sync_shared_field(config.general, profile.general, "texthook_max_buffer_size")
             self.sync_shared_field(config.general, profile.general, "target_language")
             self.sync_shared_field(config.vad, profile.vad, "preload_vad_model")
@@ -2677,13 +2665,10 @@ def load_config():
                 config_file = _remove_deprecated_config_settings(config_file)
                 config_file = Config._migrate_raw_data(config_file)
                 if "current_profile" in config_file:
-                    return Config.from_dict(config_file)
+                    return Config._from_saved_data(config_file)
                 else:
                     logger.warning("Loading Profile-less Config, Converting to new Config!")
-                    with open(config_path, "r", encoding="utf-8-sig") as file:
-                        config_file = json.load(file)
-                    config_file = _remove_legacy_hotkeys(config_file)
-                    config_file = _remove_deprecated_config_settings(config_file)
+                    Config._migrate_single_port_fields(config_file)
                     Config._migrate_anki_profile_data(config_file)
                     Config._migrate_vad_profile_data(config_file)
 
@@ -2764,10 +2749,17 @@ def get_master_config():
 
 def save_full_config(config):
     if hasattr(config, "get_config") and getattr(config, "current_profile", None) in getattr(config, "configs", {}):
-        config.configs[config.current_profile].overlay = config.overlay
+        selected = config.configs[config.current_profile]
+        previous = getattr(config, "_desktop_editor_base", None)
+        if previous and previous["current_profile"] != config.current_profile:
+            config.overlay = selected.overlay
+        else:
+            selected.overlay = config.overlay
     from GameSentenceMiner.util.config import desktop_profile
 
-    if desktop_profile.enabled():
+    if desktop_profile.is_settings_worker() or hasattr(config, "_desktop_editor_base"):
+        desktop_profile.save_editor_changes(config)
+    elif desktop_profile.enabled():
         desktop_profile.write_settings(get_config_path(), config.to_dict())
     else:
         with open(get_config_path(), "w", encoding="utf-8") as file:

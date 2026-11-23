@@ -243,7 +243,17 @@ def handle_benchmark_request(message):
             "use_text_filtering": overlay.use_text_filtering,
             "adaptive_ocr_retries": overlay.adaptive_ocr_retries,
         }
+    from GameSentenceMiner.native import intake
+
+    if not enabled and recorder.enabled and intake.managed():
+        from GameSentenceMiner.gametext import get_authoritative_text_runtime
+
+        get_authoritative_text_runtime().set_benchmark(False)
     result = recorder.set_enabled(enabled, settings=settings)
+    if enabled and intake.managed():
+        from GameSentenceMiner.gametext import get_authoritative_text_runtime
+
+        get_authoritative_text_runtime().set_benchmark(True)
     configuration.logger.info(f"OCR benchmark {'started' if enabled else 'stopped'}: {result['csv_path']}")
     return result
 

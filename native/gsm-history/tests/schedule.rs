@@ -20,7 +20,7 @@ fn recurring_jobs_preserve_wall_clock_rules_and_service_retry_overrides() {
         "special",
     ] {
         conn.execute(
-            "INSERT INTO cron_table (name,enabled,schedule) VALUES ('sample',1,?)",
+            "INSERT INTO cron_table (name,enabled,next_run,schedule) VALUES ('sample',1,1,?)",
             [schedule],
         )
         .unwrap();
@@ -75,6 +75,41 @@ fn recurring_jobs_preserve_wall_clock_rules_and_service_retry_overrides() {
 }
 
 #[test]
+fn legacy_deadlines_sort_by_instant_and_ignore_missing_values() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gsm.db");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch("CREATE TABLE cron_table(id INTEGER PRIMARY KEY,name TEXT,enabled INTEGER,next_run,schedule TEXT,last_run);
+        INSERT INTO cron_table VALUES
+        (1,'anki_word_sync',1,'1970-01-01T01:00:03+01:00','once',NULL),
+        (2,'anki_word_sync',1,NULL,'once',NULL),
+        (3,'anki_word_sync',1,'broken','once',NULL),
+        (4,'anki_word_sync',1,0,'once',NULL),
+        (5,'anki_word_sync',1,'2.75','once',NULL);").unwrap();
+    let history = History::default();
+    let jobs = history.scheduled_jobs(&path, 0).unwrap();
+    assert_eq!(
+        jobs.iter().map(|j| j.deadline).collect::<Vec<_>>(),
+        [0., 2.75, 3.]
+    );
+    let iso = jobs.last().unwrap();
+    assert!(history.scheduled_job_current(&path, 0, iso).unwrap());
+    history.run_direct_job(&path, 0, iso).unwrap();
+    assert!(!history.scheduled_job_current(&path, 0, iso).unwrap());
+    conn.execute("UPDATE cron_table SET next_run='2.751' WHERE id=5", [])
+        .unwrap();
+    history.run_direct_job(&path, 0, &jobs[1]).unwrap();
+    let pending: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM cron_table WHERE last_run IS NULL",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending, 4);
+}
+
+#[test]
 fn scheduled_native_task_observes_edits_and_commits_once() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("gsm.db");
@@ -118,4 +153,33 @@ fn scheduled_native_task_observes_edits_and_commits_once() {
         .unwrap();
     history.close().unwrap();
     assert!(history.scheduled_jobs(&path, 0).is_err());
+}
+
+#[test]
+fn scheduled_rollup_uses_saved_settings_and_preserves_a_pending_compatibility_job() {
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("gsm.db");
+    let db = gsm_db::open_profile(&path, "ja").unwrap();
+    db.execute_batch("INSERT INTO game_lines(id,game_name,line_text,timestamp) VALUES
+        ('a','game','猫猫猫猫猫。犬',1600000000);
+        INSERT INTO cron_table(name,enabled,next_run,schedule) VALUES ('daily_stats_rollup',1,1,'once');").unwrap();
+    let history = History::default();
+    let job = history.scheduled_jobs(&path, 0).unwrap().pop().unwrap();
+    let stats = serde_json::json!({"session_gap_seconds":300,"regex_out_repetitions":true,"extra_punctuation_regex":"(?<=。)犬"});
+    assert!(history
+        .try_scheduled_rollup(&path, 0, &job, &stats, false)
+        .unwrap());
+    let chars: u64 = db
+        .query_row(
+            "SELECT CAST(total_characters AS INTEGER) FROM daily_stats_rollup",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(chars, 3);
+    assert!(!history.scheduled_job_current(&path, 0, &job).unwrap());
+    history.close().unwrap();
+    assert!(history
+        .try_scheduled_rollup(&path, 0, &job, &stats, false)
+        .is_err());
 }

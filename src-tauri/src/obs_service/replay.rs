@@ -12,6 +12,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn duplicate_ack_cannot_release_a_save_waiting_for_its_file() {
+        let mut replay = Replay::default();
+        replay.begin("main", "first").unwrap();
+        assert!(replay.reply("main", "first", Ok(Value::Null)).is_none());
+        assert!(replay
+            .reply("main", "first", Err(ObsError::new("duplicate")))
+            .is_none());
+        assert!(replay.begin("main", "second").is_err());
+        let (id, file) = replay
+            .event(
+                "main",
+                "ReplayBufferSaved",
+                &json!({"savedReplayPath":"first.mkv"}),
+            )
+            .unwrap();
+        assert_eq!(id, "first");
+        assert_eq!(file.unwrap()["savedReplayPath"], "first.mkv");
+        replay.begin("main", "second").unwrap();
+    }
+
+    #[test]
     fn late_save_is_drained_before_another_request_can_claim_a_file() {
         let mut replay = Replay::default();
         replay.begin("connection", "card").unwrap();
@@ -85,6 +106,9 @@ impl Replay {
         else {
             return Some(result);
         };
+        if save.acknowledged {
+            return None;
+        }
         if result.is_err() {
             self.save = None;
             return Some(result);

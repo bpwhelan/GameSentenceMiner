@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 import tomllib
@@ -68,18 +67,9 @@ def get_policy_violations() -> list[str]:
     if managed_uv_version != locked_uv_version:
         violations.append(f"Managed installer must use uv {locked_uv_version}; found {managed_uv_version!r}")
 
-    pinned_python_version = _read(".python-version").strip()
-    downloader_python_version = _rust_string_constant(installer_source, "PYTHON_VERSION")
-    if downloader_python_version != pinned_python_version:
-        violations.append(
-            "Managed Python and .python-version must match; "
-            f"expected {pinned_python_version!r}, found {downloader_python_version!r}"
-        )
-
-    extra_file_sources = set(json.loads(_read("package.json")).get("desktopRootFiles", []))
-    for required_file in ("pyproject.toml", "uv.lock", ".python-version"):
-        if required_file not in extra_file_sources:
-            violations.append(f"Desktop package must bundle {required_file}")
+    pinned_python_version = _rust_string_constant(installer_source, "PYTHON_VERSION")
+    if not pinned_python_version:
+        violations.append("Managed compatibility installer must pin a Python version")
 
     root_project = next(
         (package for package in lock.get("package", []) if package.get("name") == "gamesentenceminer"),

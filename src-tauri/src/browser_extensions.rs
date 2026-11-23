@@ -10,21 +10,26 @@ use windows::core::{Interface, HSTRING, PWSTR};
 // Extension pages do not receive Tauri's page preload. Evaluate through the
 // owning WebView2 controller instead of adding an IPC bridge to the extension.
 pub async fn evaluate(window: &WebviewWindow, source: String) -> Result<Value, String> {
+    let arguments = json!({"expression":format!("(async()=>{{\n{source}\n}})()"),"awaitPromise":true,"returnByValue":true,"userGesture":true});
+    let result = devtools_command(window, "Runtime.evaluate", arguments).await?;
+    if let Some(error) = result.get("exceptionDetails") {
+        return Err(error["exception"]["description"].as_str().unwrap_or("Extension script failed").into());
+    }
+    Ok(result["result"]["value"].clone())
+}
+
+pub(crate) async fn devtools_command(window: &WebviewWindow, method: &'static str, arguments: Value) -> Result<Value, String> {
     let (tx, rx) = tokio::sync::oneshot::channel();
     window.with_webview(move |view| unsafe {
         let sender=std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
         let completed=sender.clone();
         let result=(|| -> windows::core::Result<()> {
             let callback=webview2_com::CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |status,response| {
-                let result=status.map_err(|e|e.to_string()).and_then(|_|{
-                    let result:Value=serde_json::from_str(&response).map_err(|e|e.to_string())?;
-                    if let Some(error)=result.get("exceptionDetails") {Err(error["exception"]["description"].as_str().unwrap_or("Extension script failed").into())}
-                    else {Ok(result["result"]["value"].clone())}
-                });
+                let result=status.map_err(|e|e.to_string())
+                    .and_then(|_| serde_json::from_str(&response).map_err(|e|e.to_string()));
                 if let Some(tx)=completed.lock().unwrap().take(){let _=tx.send(result);}Ok(())
             }));
-            let arguments=json!({"expression":format!("(async()=>{{\n{source}\n}})()"),"awaitPromise":true,"returnByValue":true,"userGesture":true});
-            view.controller().CoreWebView2()?.CallDevToolsProtocolMethod(&HSTRING::from("Runtime.evaluate"),&HSTRING::from(arguments.to_string()),&callback)
+            view.controller().CoreWebView2()?.CallDevToolsProtocolMethod(&HSTRING::from(method),&HSTRING::from(arguments.to_string()),&callback)
         })();
         if let Err(error)=result {if let Some(tx)=sender.lock().unwrap().take(){let _=tx.send(Err(error.to_string()));}}
     }).map_err(|e|e.to_string())?;

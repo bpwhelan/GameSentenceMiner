@@ -36,6 +36,7 @@ from GameSentenceMiner.ocr.image_scaling import (
 from GameSentenceMiner.owocr.owocr.ocr_runtime import apply_ocr_config_to_image, TextFiltering
 from GameSentenceMiner.native import ocr as native_ocr
 from GameSentenceMiner.native import overlay as native_overlay
+from GameSentenceMiner.native.recycled_lines import desktop_owns_recycled_lines
 from GameSentenceMiner.native.runtime import NativeMode, get_native_mode
 from GameSentenceMiner.util.config.configuration import (
     OverlayEngine,
@@ -1637,7 +1638,7 @@ class OverlayProcessor:
             if source == TextSource.SKIP_RECOVERY:
                 from GameSentenceMiner.gametext import recover_skip_landing
 
-                recover_skip_landing(text, gsm_state.current_game or "")
+                await asyncio.to_thread(recover_skip_landing, text, gsm_state.current_game or "")
             if get_overlay_config().inject_scanned_lines and source != TextSource.SKIP_RECOVERY:
                 from GameSentenceMiner.gametext import add_line_to_text_log
 
@@ -1732,12 +1733,17 @@ class OverlayProcessor:
             native_source = getattr(line, "source", None) or source
             native_source = getattr(native_source, "value", native_source)
             line_text = getattr(line, "text", None)
+            line_context = {}
+            if desktop_owns_recycled_lines():
+                line_context["line_scene"] = getattr(line, "scene", None)
+            else:
+                line_context["is_sentence_recycled"] = self._is_sentence_recycled(line_text) if line_text else False
             await native_runtime.send(
                 self,
                 "scan",
                 line_id=str(line.id) if line else None,
                 text=line_text,
-                is_sentence_recycled=self._is_sentence_recycled(line_text) if line_text else False,
+                **line_context,
                 precomputed=dict_from_ocr,
                 retries=local_ocr_retry,
                 manual=self._is_manual_overlay_source(native_source),

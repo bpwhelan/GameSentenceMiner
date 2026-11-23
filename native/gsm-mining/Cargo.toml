@@ -1,0 +1,40 @@
+[package]
+name = "gsm-mining"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+gsm-web = { path = "../gsm-web" }
+flate2 = "1"
+gsm-settings = { path = "../gsm-settings" }
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "6"
+futures-util = { version = "0.3", features = ["sink"] }
+tokio-tungstenite = "0.28"
+http = "1"
+httpdate = "1"
+http-range-header = "0.4"
+http-body-util = "0.1"
+tower-http = { version = "0.6", features = ["fs"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "client-legacy"] }
+ndarray = "0.17"
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "download-binaries", "copy-dylibs", "tls-native"] }
+rapidfuzz = "0.5"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+sha2 = "0.10"
+shell-words = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["sync", "time", "macros", "net", "rt-multi-thread", "fs", "io-util", "process"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+multer = "3"
+
+[dev-dependencies]
+gsm-db = { path = "../gsm-db" }
+tokio = { version = "1", features = ["full"] }

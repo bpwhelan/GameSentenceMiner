@@ -65,6 +65,8 @@ class LongPlayHandler:
                     self._set_recording_path_locked(output_path)
                 return
 
+            if not self._record_active and not gsm_state.recording_started_time:
+                return
             self._finalize_locked(
                 end_time=datetime.datetime.now(),
                 output_path=output_path,

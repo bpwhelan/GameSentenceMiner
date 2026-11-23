@@ -43,11 +43,11 @@ document.getElementById("ack-main-box-warning").addEventListener("click", () => 
   acknowledgeMainBoxStartupWarning();
 });
 
-document.getElementById("openJitenReaderSettings").addEventListener("click", () => {
+document.getElementById("openJitenReaderSettings")?.addEventListener("click", () => {
   ipcRenderer.send("open-jiten-reader-settings");
 });
 
-document.getElementById("openYomitanSettings").addEventListener("click", () => {
+document.getElementById("openYomitanSettings")?.addEventListener("click", () => {
   ipcRenderer.send("open-yomitan-settings");
 });
 

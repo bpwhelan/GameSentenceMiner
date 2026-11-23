@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 5,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Both databases include the same 4,000 fixture rows. Search includes response serialization and transfer.",
+  "medians": {
+    "/api/preview-text-deletion": {
+      "python": {
+        "ms": 46.8401,
+        "server_cpu_ms": 46.875,
+        "server_resident_mib": 88.6094
+      },
+      "rust": {
+        "ms": 1.9817,
+        "server_cpu_ms": 3.125,
+        "server_resident_mib": 30.4062
+      }
+    },
+    "/api/preview-deduplication": {
+      "python": {
+        "ms": 89.4398,
+        "server_cpu_ms": 87.5,
+        "server_resident_mib": 89.5586
+      },
+      "rust": {
+        "ms": 3.3444,
+        "server_cpu_ms": 3.125,
+        "server_resident_mib": 31.6914
+      }
+    },
+    "/api/search-duplicates": {
+      "python": {
+        "ms": 106.4732,
+        "server_cpu_ms": 106.25,
+        "server_resident_mib": 91.9414
+      },
+      "rust": {
+        "ms": 20.4397,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 32.7344
+      }
+    }
+  }
+}

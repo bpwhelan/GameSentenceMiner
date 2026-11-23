@@ -251,6 +251,58 @@ describe('App install-session integration', () => {
         (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
     });
 
+    it.each(['yomitan', 'hachidori'] as const)('imports a %s browser library from desktop settings', async (reader) => {
+        const { DictionarySettings } = await import('./components/tabs/DictionarySettings');
+        const profile = { browser: 'Edge', profile: 'Default', directory: 'test-profile', id: 'extension-id', reader, direct: true };
+        let imported = false;
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'dictionary.settings') {
+                return { reader, browserImport: { supported: true, selection: imported ? { [reader]: 'new-library' } : {} } };
+            }
+            if (channel === 'dictionary.browserSources') return [profile];
+            if (channel === 'dictionary.importBrowser') imported = true;
+            return null;
+        });
+        const click = async (text: string) => {
+            const button = [...container.querySelectorAll('button')].find(item => item.textContent === text);
+            expect(button).toBeDefined();
+            await act(async () => { button?.click(); });
+        };
+        await act(async () => { root.render(<DictionarySettings active />); });
+        expect(invokeMock).not.toHaveBeenCalledWith('dictionary.browserSources');
+        await click('Find browser profiles');
+        const source = container.querySelectorAll('select')[1];
+        await act(async () => {
+            source.value = '0';
+            source.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+        await click('Import dictionaries and settings');
+        expect(invokeMock).toHaveBeenCalledWith('dictionary.importBrowser', { directory: profile.directory, id: profile.id });
+        expect(container.textContent).toContain(`Use original ${reader === 'yomitan' ? 'Yomitan' : 'Hachidori'} library`);
+        expect(container.textContent).not.toMatch(/restart/i);
+    });
+
+    it('shows dictionary migration progress in the desktop and clears it when complete', async () => {
+        const { DictionaryTransferNotice } = await import('./components/DictionaryTransferNotice');
+        let transfers = [{ name: 'Yomitan', phase: 'reading', records: 0 }];
+        invokeMock.mockImplementation(async () => transfers);
+
+        await act(async () => { root.render(<DictionaryTransferNotice />); });
+        expect(container.querySelector('[role="status"]')?.textContent).toContain('Preparing your Yomitan');
+
+        await act(async () => {
+            transfers = [{ name: 'Yomitan', phase: 'exporting', records: 123 }];
+            listeners.get('reader.dictionaryTransfersChanged')?.forEach(listener => listener({}));
+        });
+        expect(container.querySelector('[role="status"]')?.textContent).toContain('123 records exported');
+
+        await act(async () => {
+            transfers = [];
+            listeners.get('reader.dictionaryTransfersChanged')?.forEach(listener => listener({}));
+        });
+        expect(container.querySelector('[role="status"]')).toBeNull();
+    });
+
     it('makes anonymization visible on the log export action', async () => {
         const { default: App } = await import('./App.js');
         await act(async () => {
@@ -381,6 +433,7 @@ describe('App install-session integration', () => {
                 listener({}, { seq: 1, message: '[rust:startup] 2026-11-19 12:30:01 | INFO       | Desktop started', source: 'rust:startup' });
                 listener({}, { seq: 3, message: '[py:backend] 2026-11-19 12:30:03 | ANKI       | INFO       | Card updated', source: 'py:backend' });
                 listener({}, { seq: 4, message: '[py:backend] UpdateProgress: 2/4 Syncing', source: 'py:backend' });
+                listener({}, { seq: 6, message: '[rust:text-intake] 2026-11-19 12:30:05 | TEXT_RECEIVED | Line received from [agent]: こんにちは', level: 'TEXT_RECEIVED', source: 'rust:text-intake' });
             }
             for (const listener of listeners.get('terminal-error') ?? []) {
                 listener({}, { seq: 5, message: '[rust:obs] 2026-11-19 12:30:04 | ERROR      | Connection lost', source: 'rust:obs' });
@@ -395,6 +448,7 @@ describe('App install-session integration', () => {
         expect(written).toContain('\x1b[38;5;208m[rust:startup]\x1b[0m');
         expect(written).toContain('\x1b[93m[py:backend]\x1b[0m');
         expect(written).toContain('Card updated');
+        expect(written).toContain('\x1b[38;5;208m[rust:text-intake]\x1b[0m \x1b[36m2026-11-19 12:30:05 | TEXT_RECEIVED | Line received from [agent]: こんにちは\r\n\x1b[0m');
         expect(written).toContain('Update: [############------------] 50% Syncing');
         expect(written).toContain('\x1b[38;5;208m[rust:obs]\x1b[0m');
         expect(written).toContain('\x1b[91m2026-11-19 12:30:04 | ERROR      | Connection lost');

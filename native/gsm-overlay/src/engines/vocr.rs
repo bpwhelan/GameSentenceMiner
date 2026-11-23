@@ -58,7 +58,7 @@ fn asset_directory() -> Result<PathBuf> {
     anyhow::bail!("The host has not configured the bundled VOCR model directory")
 }
 
-fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
+fn model_hash(filename: &str) -> Result<&'static str> {
     let hashes = [
         (
             LARGE_FAST,
@@ -81,24 +81,31 @@ fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
             "030c4a7441b5bd92cb0812a86cb00ada19ee0cade8b48af602552fc8fcb9ed28",
         ),
     ];
-    let (_, hash) = hashes
-        .iter()
+    hashes
+        .into_iter()
         .find(|(name, _)| *name == filename)
-        .context("Unknown VOCR model")?;
+        .map(|(_, hash)| hash)
+        .context("Unknown VOCR model")
+}
+fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
+    let hash = model_hash(filename)?;
     let bundled = directory.join(filename);
     let model = match ASSET_LOCATIONS.get() {
-        Some((_, cache)) => gsm_downloads::ensure_asset(cache, &format!("vocr/{filename}"), Some(&bundled))
-            .map_err(anyhow::Error::msg)
-            .with_context(|| format!("Download VOCR model {filename}"))?,
+        Some((_, cache)) => {
+            gsm_downloads::ensure_asset(cache, &format!("vocr/{filename}"), Some(&bundled))
+                .map_err(anyhow::Error::msg)
+                .with_context(|| format!("Download VOCR model {filename}"))?
+        }
         None => bundled,
     };
     let bytes = std::fs::read(model).with_context(|| format!("Read VOCR model {filename}"))?;
     ensure!(
-        format!("{:x}", Sha256::digest(&bytes)) == *hash,
+        format!("{:x}", Sha256::digest(&bytes)) == hash,
         "VOCR model checksum failed"
     );
     Ok(bytes)
 }
+
 pub fn verify_bundled() -> Result<()> {
     let directory = asset_directory()?;
     for filename in [SMALL, NORMAL, LARGE, LARGE_FAST, DETECTOR] {

@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-import json
 import logging
 import os
 import socket
@@ -9,8 +8,6 @@ import threading
 import time
 import webbrowser
 from collections.abc import Callable
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from socketserver import TCPServer
 
 import flask
 from flask import jsonify, render_template, request, send_file, send_from_directory
@@ -28,7 +25,6 @@ from GameSentenceMiner.util.config.configuration import (
     logger,
 )
 from GameSentenceMiner.util.elevation import is_windows_admin
-from GameSentenceMiner.util.gsm_utils import TEXT_REPLACEMENTS_FILE
 from GameSentenceMiner.util.text_log import get_all_lines, get_line_by_id
 
 # Import from new modules
@@ -68,8 +64,6 @@ except Exception as error:  # pragma: no cover - depends on the host OpenSSL bui
     _AIOHTTP_IMPORT_ERROR = error
 
 server_start_time = datetime.datetime.now().timestamp()
-_legacy_notice_server = None
-_legacy_notice_thread = None
 _single_port_gateway_active = False
 _single_port_gateway_port = None
 _single_port_gateway_future = None
@@ -129,14 +123,6 @@ def _get_websocket_endpoint_payload(gateway_port: int | None = None) -> dict:
         "gateway_port": gateway_port,
         "gateway_active": gateway_port is not None,
     }
-
-
-def _get_legacy_texthooker_port() -> int:
-    try:
-        port = int(get_config().general.texthooker_port or 55000)
-    except Exception:
-        port = 55000
-    return 55000 if port < 0 else port
 
 
 class _WebsocketInvalidUpgradeLogFilter(logging.Filter):
@@ -626,9 +612,19 @@ try:
 except ImportError:
     logger.warning("flask-compress not installed. Run 'pip install flask-compress' for better performance.")
 
-# Configure Swagger/Flasgger for API documentation
-try:
-    from flasgger import Swagger
+
+def _desktop_manages_web_routes():
+    return os.environ.get("GSM_NATIVE_GAME_SESSION") == "1" or os.environ.get("GSM_PYTHONLESS") == "1"
+
+
+def _configure_standalone_api_docs():
+    if _desktop_manages_web_routes():
+        return
+    try:
+        from flasgger import Swagger
+    except ImportError:
+        logger.warning("flasgger not installed. Run 'pip install flasgger' for API documentation support.")
+        return
 
     swagger_config = {
         "headers": [],
@@ -674,8 +670,9 @@ try:
 
     Swagger(app, config=swagger_config, template=swagger_template)
     logger.background("Swagger API documentation enabled at /api/docs")
-except ImportError:
-    logger.warning("flasgger not installed. Run 'pip install flasgger' for API documentation support.")
+
+
+_configure_standalone_api_docs()
 
 
 # Add cache control headers for static files
@@ -723,67 +720,6 @@ def add_cache_headers(response):
     return response
 
 
-# Load data from the JSON file
-def load_data_from_file():
-    if os.path.exists(TEXT_REPLACEMENTS_FILE):
-        with open(TEXT_REPLACEMENTS_FILE, "r", encoding="utf-8") as file:
-            return json.load(file)
-    return {"enabled": True, "args": {"replacements": {}}}
-
-
-# Save data to the JSON file
-def save_data_to_file(data):
-    with open(TEXT_REPLACEMENTS_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4, ensure_ascii=False)
-
-
-@app.route("/load-data", methods=["GET"])
-def load_data():
-    try:
-        data = load_data_from_file()
-        return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to load data: {str(e)}"}), 500
-
-
-@app.route("/save-data", methods=["POST"])
-def save_data():
-    """
-    Save text replacement data
-    ---
-    tags:
-      - Text Processing
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            enabled:
-              type: boolean
-            args:
-              type: object
-    responses:
-      200:
-        description: Data saved successfully
-      400:
-        description: Invalid data format
-      500:
-        description: Failed to save data
-    """
-    try:
-        data = request.get_json()
-        if not isinstance(data, dict):
-            return jsonify({"error": "Invalid data format"}), 400
-
-        # Save updated data
-        save_data_to_file(data)
-        return jsonify({"message": "Data saved successfully"}), 200
-    except Exception as e:
-        return jsonify({"error": f"Failed to save data: {str(e)}"}), 500
-
-
 def inject_server_start_time(html_content, timestamp):
     placeholder = "<script>"
     replacement = f"<script>const serverStartTime = {timestamp};"
@@ -814,39 +750,6 @@ def texthooker():
     return send_from_directory("templates", "index.html")
 
 
-@app.route("/textreplacements")
-def textreplacements():
-    """
-    Get text replacements configuration
-    ---
-    tags:
-      - Text Processing
-    responses:
-      200:
-        description: Text replacements configuration
-        schema:
-          type: object
-          properties:
-            enabled:
-              type: boolean
-            args:
-              type: object
-      404:
-        description: Text replacements file not found
-      500:
-        description: Failed to load text replacements
-    """
-    # Serve the text replacements data as JSON for compatibility
-    try:
-        if not os.path.exists(TEXT_REPLACEMENTS_FILE):
-            return jsonify({"error": "Text replacements file not found."}), 404
-        with open(TEXT_REPLACEMENTS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"error": f"Failed to load text replacements: {str(e)}"}), 500
-
-
 @app.route("/tools")
 def tools():
     return flask.render_template("database.html")
@@ -855,6 +758,22 @@ def tools():
 @app.route("/database")
 def database():
     return flask.redirect(flask.url_for("tools"))
+
+
+@app.before_request
+def desktop_reader_request():
+    if request.path not in ("/data", "/get_ids", "/update_checkbox", "/update_checkboxes"):
+        return None
+    if request.method != ("POST" if request.path.startswith("/update_") else "GET"):
+        return None
+    from GameSentenceMiner.native import intake
+
+    if intake.native_reader():
+        reply = intake.request("readerHttp", path=request.path, body=request.get_json(silent=True))
+        response = jsonify(reply["body"])
+        response.headers["Cache-Control"] = "no-store"
+        return response, reply["status"]
+    return None
 
 
 @app.route("/data", methods=["GET"])
@@ -903,12 +822,15 @@ def set_stats_gathering_enabled():
     return jsonify({"enabled": enabled}), 200
 
 
-@app.route("/clear_history", methods=["POST"])
 def clear_history():
     temp_em = EventManager()
     temp_em.clear_history()
     temp_em.close_connection()
     return jsonify({"message": "History cleared successfully"}), 200
+
+
+if not _desktop_manages_web_routes():
+    app.add_url_rule("/clear_history", view_func=clear_history, methods=["POST"])
 
 
 def check_for_lines_outside_replay_buffer():
@@ -1203,7 +1125,11 @@ def create_media():
     if not lines:
         lines = get_selected_lines()
     if not lines:
-        ordered_ids = event_manager.get_ordered_ids()
+        from GameSentenceMiner.native import intake
+
+        ordered_ids = (
+            [r.id for r in intake.reader_lines("last")] if intake.native_reader() else event_manager.get_ordered_ids()
+        )
         if ordered_ids:
             last_line = get_event_line_by_id(ordered_ids[-1])
             if last_line:
@@ -1490,14 +1416,24 @@ def get_status():
         schema:
           type: object
     """
-    try:
-        from GameSentenceMiner import anki as anki_module
+    from GameSentenceMiner.native import mining as native_mining
 
-        anki_module.refresh_anki_beacon_connection_status()
-        anki_module.refresh_anki_connect_connection_status()
-    except Exception:
-        logger.debug("Unable to refresh Anki status for /get_status.", exc_info=True)
+    native_status = native_mining.get_mining_status()
+    if native_status is None:
+        try:
+            from GameSentenceMiner import anki as anki_module
+
+            anki_module.refresh_anki_beacon_connection_status()
+            anki_module.refresh_anki_connect_connection_status()
+        except Exception:
+            logger.debug("Unable to refresh Anki status for /get_status.", exc_info=True)
     payload = gsm_status.to_dict()
+    if native_status is not None:
+        payload["anki_connected"] = bool(native_status.get("anki_connected", False))
+        payload["anki_beacon_connected"] = bool(native_status.get("anki_beacon_connected", False))
+        words = native_status.get("words_being_processed")
+        if isinstance(words, list):
+            payload["words_being_processed"] = words
     try:
         from GameSentenceMiner.gametext import get_text_runtime_health
 
@@ -1668,6 +1604,10 @@ def get_websocket_port():
 
 
 def get_selected_lines():
+    from GameSentenceMiner.native import intake
+
+    if intake.native_reader():
+        return intake.reader_lines("selected")
     return [item.line for item in event_manager if item.checked]
 
 
@@ -1692,10 +1632,15 @@ def get_event_line_by_id(event_id: str):
 
 
 def are_lines_selected():
-    return any(item.checked for item in event_manager)
+    return bool(get_selected_lines())
 
 
 def reset_checked_lines():
+    from GameSentenceMiner.native import intake
+
+    if intake.native_reader():
+        intake.request("readerReset")
+        return
     event_manager.reset_checked_lines()
     _notify_selection_reset()
 
@@ -1710,143 +1655,6 @@ def reset_buttons():
 
 def open_texthooker():
     webbrowser.open(f"http://localhost:{_get_single_port()}")
-
-
-class _LegacyMovedPageHandler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-
-    def _send_moved_page(self, include_body: bool = True):
-        current_port = _get_single_port()
-        # Pin host to localhost and strip CR/LF + leading slashes so the Host header / request
-        # path can't be reflected into the Location header (open redirect / header injection).
-        requested_path = "/" + (self.path or "/").replace("\r", "").replace("\n", "").lstrip("/")
-        new_url = f"http://localhost:{current_port}{requested_path}"
-
-        message = textwrap.dedent(f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta http-equiv="refresh" content="3;url={new_url}">
-                <meta charset="utf-8">
-                <title>Page Moved - GameSentenceMiner</title>
-                <style>
-                    body {{
-                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        height: 100vh;
-                        margin: 0;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    }}
-                    .container {{
-                        text-align: center;
-                        background: white;
-                        padding: 40px;
-                        border-radius: 12px;
-                        box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-                        max-width: 500px;
-                    }}
-                    h1 {{ color: #333; margin-top: 0; }}
-                    p {{ color: #666; line-height: 1.6; }}
-                    a {{ 
-                        color: #667eea; 
-                        text-decoration: none; 
-                        font-weight: bold;
-                    }}
-                    a:hover {{ text-decoration: underline; }}
-                    .redirect-note {{
-                        margin-top: 20px;
-                        font-size: 0.9em;
-                        color: #999;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>Page Moved</h1>
-                    <p>GameSentenceMiner web UI has moved to port <strong>{current_port}</strong>.</p>
-                    <p>You will be automatically redirected in 3 seconds...</p>
-                    <p>Or click here: <a href="{new_url}">{new_url}</a></p>
-                    <div class="redirect-note">
-                        Update your bookmarks to the new address.
-                    </div>
-                </div>
-            </body>
-            </html>
-        """).strip()
-
-        payload = message.encode("utf-8")
-        self.send_response(301)  # Moved Permanently
-        self.send_header("Location", new_url)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Connection", "close")
-        self.end_headers()
-        if include_body:
-            self.wfile.write(payload)
-
-    def do_GET(self):
-        self._send_moved_page(include_body=True)
-
-    def do_HEAD(self):
-        self._send_moved_page(include_body=False)
-
-    def do_POST(self):
-        self._send_moved_page(include_body=True)
-
-    def do_PUT(self):
-        self._send_moved_page(include_body=True)
-
-    def do_DELETE(self):
-        self._send_moved_page(include_body=True)
-
-    def do_OPTIONS(self):
-        self._send_moved_page(include_body=True)
-
-    def log_message(self, format, *args):
-        # Keep this legacy compatibility server silent.
-        return
-
-
-class _LegacyMovedPageServer(ThreadingHTTPServer):
-    def server_bind(self):
-        # HTTPServer.server_bind does a reverse DNS lookup just to populate
-        # server_name. This local redirect uses a fixed localhost URL and needs
-        # no hostname resolution (which can stall startup on offline systems).
-        TCPServer.server_bind(self)
-        self.server_name, self.server_port = self.server_address[:2]
-
-
-def _start_legacy_moved_page_server():
-    global _legacy_notice_server, _legacy_notice_thread
-    if _legacy_notice_server is not None:
-        return
-
-    current_port = _get_single_port()
-    legacy_port = _get_legacy_texthooker_port()
-
-    if legacy_port <= 0:
-        return
-    if current_port == legacy_port:
-        return
-
-    host = get_config().advanced.localhost_bind_address
-    try:
-        _legacy_notice_server = _LegacyMovedPageServer((host, legacy_port), _LegacyMovedPageHandler)
-    except OSError as error:
-        logger.warning(f"Could not start legacy moved-page server on {host}:{legacy_port}: {error}")
-        _legacy_notice_server = None
-        return
-
-    _legacy_notice_thread = threading.Thread(
-        target=_legacy_notice_server.serve_forever,
-        name=f"GSM-Legacy-{legacy_port}-Moved-Page",
-        daemon=False,
-    )
-    _legacy_notice_thread.start()
-    logger.info(f"Legacy moved-page server active on {host}:{legacy_port} (current texthooker port: {current_port}).")
 
 
 def _open_texthooker_on_startup():
@@ -1865,19 +1673,81 @@ def _open_texthooker_on_startup():
             submit_background_work(open_texthooker)
 
 
+def _start_with_external_rust_gateway(
+    host: str, external_port: int, *, on_ready: Callable[[], None] | None = None
+) -> bool:
+    """Bind Waitress on a free internal port and register HTTP + WS upstreams with Rust's gateway."""
+    global _single_port_gateway_active, _single_port_gateway_port
+    from GameSentenceMiner.native import mining as native_mining
+
+    internal_http_port = _find_free_port(host)
+    ingress_ws_port = websocket_manager.get_ingress_port()
+    if ingress_ws_port == external_port:
+        replacement_ws_port = _find_free_port(host)
+        logger.warning(
+            f"External gateway conflict: websocket ingress equals gateway port ({external_port}). "
+            f"Rebinding websocket ingress internally to {replacement_ws_port}."
+        )
+        try:
+            websocket_manager.stop_server(ID_HOOKER)
+        except Exception as stop_error:
+            logger.warning(f"Could not stop existing multiplex websocket server: {stop_error}")
+        websocket_manager.start_multiplex_server(
+            port_getter=lambda: replacement_ws_port,
+            endpoint_specs={
+                ID_HOOKER: EndpointSpec(read_mode=True, enable_backup=True),
+                ID_OVERLAY: EndpointSpec(
+                    read_mode=True,
+                    enable_backup=False,
+                    on_message=_overlay_message_handler,
+                ),
+                ID_PLAINTEXT: EndpointSpec(read_mode=False, enable_backup=False),
+            },
+            default_endpoint_id=ID_HOOKER,
+        )
+        ingress_ws_port = websocket_manager.get_ingress_port()
+
+    try:
+        configured_direct_port = int(getattr(get_config().advanced, "direct_websocket_port", 0) or 0)
+    except (AttributeError, TypeError, ValueError):
+        configured_direct_port = 0
+
+    def _on_waitress_ready():
+        global _single_port_gateway_active, _single_port_gateway_port
+        if native_mining.register_gateway_upstreams(internal_http_port, ingress_ws_port, configured_direct_port):
+            _single_port_gateway_active = True
+            _single_port_gateway_port = external_port
+            logger.info(
+                f"Registered Python Waitress ({internal_http_port}) and WS ({ingress_ws_port}) "
+                f"with native Rust single-port gateway on :{external_port}."
+            )
+        if on_ready is not None:
+            on_ready()
+
+    _run_waitress_server(host, internal_http_port, on_ready=_on_waitress_ready)
+    return True
+
+
 def start_web_server(debug=False):
     logger.debug("Starting web server...")
     start_default_websocket_server()
 
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)  # Set to ERROR to suppress most logs
-    _start_legacy_moved_page_server()
 
     # FOR TEXTHOOKER DEVELOPMENT, UNCOMMENT THE FOLLOWING LINE WITH Flask-CORS INSTALLED:
     # from flask_cors import CORS
     # CORS(app, resources={r"/*": {"origins": "http://localhost:5174"}})
     host = get_config().advanced.localhost_bind_address
     single_port = _get_single_port()
+
+    from GameSentenceMiner.native import mining as native_mining
+
+    external_port = native_mining.external_gateway_port()
+    if external_port is not None:
+        if _start_with_external_rust_gateway(host, external_port, on_ready=_open_texthooker_on_startup):
+            return
+
     if _is_single_port_experiment_enabled():
         if _try_start_single_port_gateway(host, single_port, on_ready=_open_texthooker_on_startup):
             return
@@ -1902,17 +1772,6 @@ def stop_web_server(timeout: float = 5.0) -> None:
         logger.warning(f"Failed to finish single-port gateway shutdown: {error}")
     if gateway_future is not None and gateway_future.done():
         _single_port_gateway_future = None
-
-    notice_server = _legacy_notice_server
-    if notice_server is not None:
-        try:
-            notice_server.shutdown()
-            notice_server.server_close()
-        except Exception as error:
-            logger.debug(f"Failed to stop legacy notice server: {error}")
-    notice_thread = _legacy_notice_thread
-    if notice_thread is not None and notice_thread is not threading.current_thread():
-        notice_thread.join(timeout)
 
     with _waitress_lock:
         servers = list(_waitress_servers)

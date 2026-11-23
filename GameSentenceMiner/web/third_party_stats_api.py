@@ -433,41 +433,17 @@ def register_third_party_stats_routes(app):
 
                 label = str(entry.get("label", "")).strip() or source
 
-                validated.append(
-                    {
-                        "date": date_str,
-                        "characters_read": characters_read,
-                        "time_read_seconds": time_read_seconds,
-                        "source": source,
-                        "label": label,
-                    }
-                )
+                validated.append((date_str, characters_read, time_read_seconds, source, label))
 
             if errors and not validated:
                 return jsonify({"error": "All entries failed validation", "details": errors}), 400
 
-            # Clear previous data for the source if requested
-            cleared_count = 0
-            if clear_source:
-                cleared_count = ThirdPartyStatsTable.delete_by_source(str(clear_source).strip())
-
-            # Insert all validated entries
-            imported_count = 0
-            total_characters = 0
-            total_time = 0.0
-
-            for entry_data in validated:
-                obj = ThirdPartyStatsTable(
-                    date=entry_data["date"],
-                    characters_read=entry_data["characters_read"],
-                    time_read_seconds=entry_data["time_read_seconds"],
-                    source=entry_data["source"],
-                    label=entry_data["label"],
-                )
-                obj.save()
-                imported_count += 1
-                total_characters += entry_data["characters_read"]
-                total_time += entry_data["time_read_seconds"]
+            cleared_count = ThirdPartyStatsTable.import_batch(
+                validated, str(clear_source).strip() if clear_source else None
+            )
+            imported_count = len(validated)
+            total_characters = sum(row[1] for row in validated)
+            total_time = sum(row[2] for row in validated)
 
             result = {
                 "message": f"Successfully imported {imported_count} entries",
@@ -565,13 +541,11 @@ def register_third_party_stats_routes(app):
             if not isinstance(volume_data, dict):
                 return jsonify({"error": "Expected a JSON object with volume UUIDs as keys"}), 400
 
-            # Clear previous mokuro data if requested
-            cleared_count = 0
-            if clear_previous:
-                cleared_count = ThirdPartyStatsTable.delete_by_source("mokuro")
-
-            # Parse the volume data
             parsed_entries = parse_mokuro_volume_data(volume_data)
+            rows = [
+                (e["date"], e["characters_read"], e["time_read_seconds"], "mokuro", e["label"]) for e in parsed_entries
+            ]
+            cleared_count = ThirdPartyStatsTable.import_batch(rows, "mokuro" if clear_previous else None)
 
             if not parsed_entries:
                 return jsonify(
@@ -583,28 +557,10 @@ def register_third_party_stats_routes(app):
                     }
                 ), 200
 
-            # Save all entries
-            imported_count = 0
-            volumes_seen = set()
-            date_range = {"min": None, "max": None}
-
-            for entry_data in parsed_entries:
-                entry = ThirdPartyStatsTable(
-                    date=entry_data["date"],
-                    characters_read=entry_data["characters_read"],
-                    time_read_seconds=entry_data["time_read_seconds"],
-                    source="mokuro",
-                    label=entry_data["label"],
-                )
-                entry.save()
-                imported_count += 1
-                volumes_seen.add(entry_data["label"])
-
-                if date_range["min"] is None or entry_data["date"] < date_range["min"]:
-                    date_range["min"] = entry_data["date"]
-                if date_range["max"] is None or entry_data["date"] > date_range["max"]:
-                    date_range["max"] = entry_data["date"]
-
+            imported_count = len(rows)
+            volumes_seen = {e["label"] for e in parsed_entries}
+            dates = [e["date"] for e in parsed_entries]
+            date_range = {"min": min(dates), "max": max(dates)}
             total_chars = sum(e["characters_read"] for e in parsed_entries)
             total_time = sum(e["time_read_seconds"] for e in parsed_entries)
 

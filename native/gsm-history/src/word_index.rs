@@ -50,7 +50,7 @@ pub(crate) fn cleanup(conn: &mut rusqlite::Connection) -> Result<usize> {
     Ok(deleted)
 }
 
-fn repair_first_seen(
+pub(super) fn repair_first_seen(
     conn: &rusqlite::Connection,
     archived: bool,
     predicate: &str,
@@ -112,6 +112,41 @@ impl FirstSeenRepair {
         };
         tx.commit()?;
         Ok(count)
+    }
+}
+
+impl History {
+    /// Prepare dictionary rows on a reader. Only publishing the new ranks and
+    /// repairing first-seen metadata need the serialized profile writer.
+    pub fn refresh_vocabulary(
+        &self,
+        path: &Path,
+        directory: &Path,
+        generation: u64,
+    ) -> Result<usize> {
+        if self.generation()? != generation {
+            return Err("Job cancelled because the database closed".into());
+        }
+        let repair = self.with_writer_generation(path, Some(generation), |conn| {
+            FirstSeenRepair {
+                ids: None,
+                only_missing: true,
+            }
+            .run(conn)
+        });
+        let ranks = self
+            .with_reader(path, |conn| gsm_db::frequency::prepare(conn, directory))
+            .and_then(|sources| {
+                self.with_writer_generation(path, Some(generation), |conn| sources.apply(conn))
+            });
+        match (repair, ranks) {
+            (Ok(_), result) => result,
+            (Err(error), Ok(_)) => Err(error),
+            (Err(repair), Err(ranks)) => Err(format!(
+                "First-seen repair failed ({repair}) and frequency import failed ({ranks})"
+            )
+            .into()),
+        }
     }
 }
 

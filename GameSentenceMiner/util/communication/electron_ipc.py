@@ -282,7 +282,20 @@ def start_ipc_listener_in_thread(
         from GameSentenceMiner.ocr.native_context import handle_context, handle_result
 
         client.handle("ocr.native.context", handle_context)
-        client.handle("ocr.native.result", handle_result)
+
+        async def off_loop(handler, message):
+            import asyncio
+
+            return await asyncio.to_thread(handler, message)
+
+        # A compatibility producer can arrive before the native desktop registers
+        # its intake. Its adapter needs the same bus loop to receive the reply.
+        native_intake = os.environ.get("GSM_NATIVE_TEXT_INTAKE") == "1"
+        client.handle(
+            "ocr.native.result",
+            (lambda msg: off_loop(handle_result, msg)) if native_intake else handle_result,
+            concurrent=native_intake,
+        )
 
         async def rank_legacy_hooks(message):
             # Older desktops request rankings over the bus. Current desktops rank locally.
@@ -293,13 +306,29 @@ def start_ipc_listener_in_thread(
         client.handle("texthook.rank", rank_legacy_hooks, concurrent=True)
         client.subscribe(BACKEND_COMMAND_TOPIC, _on_backend_command)
         client.subscribe(OCR_EVENT_TOPIC, _on_ocr_event)
-        client.handle(TEXT_INGRESS_TOPIC, _on_text_ingress_request)
+        client.handle(
+            TEXT_INGRESS_TOPIC,
+            (lambda msg: off_loop(_on_text_ingress_request, msg)) if native_intake else _on_text_ingress_request,
+            concurrent=native_intake,
+        )
         from GameSentenceMiner.ui.desktop_dialog import handle_dialog
 
         client.handle("gui.dialog", handle_dialog, concurrent=True)
+        from GameSentenceMiner.native import mining as native_mining
+
+        client.subscribe(
+            "mining.cardCompleted",
+            (lambda msg: off_loop(native_mining.on_card_completed, msg))
+            if native_intake
+            else native_mining.on_card_completed,
+        )
         from GameSentenceMiner.ocr.benchmark import BENCHMARK_TOPIC, handle_benchmark_request
 
-        client.handle(BENCHMARK_TOPIC, handle_benchmark_request)
+        client.handle(
+            BENCHMARK_TOPIC,
+            (lambda msg: off_loop(handle_benchmark_request, msg)) if native_intake else handle_benchmark_request,
+            concurrent=native_intake,
+        )
         from GameSentenceMiner.util.vad_debug import VAD_DEBUG_TOPIC, handle_debug_request
 
         client.handle(VAD_DEBUG_TOPIC, handle_debug_request)

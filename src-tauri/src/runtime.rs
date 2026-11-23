@@ -2,8 +2,8 @@
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-#[derive(Default)]
-pub struct Runtime(Mutex<Option<Arc<gsm_runtime::Runtime>>>);
+#[derive(Clone, Default)]
+pub struct Runtime(Arc<Mutex<Option<Arc<gsm_runtime::Runtime>>>>);
 pub fn get(app: &tauri::AppHandle) -> Result<Arc<gsm_runtime::Runtime>, String> {
     app.state::<Runtime>().0.lock().unwrap().clone().ok_or("The native runtime has not started".into())
 }
@@ -43,22 +43,28 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
                     if data["id"] == "backend" {
                         if matches!(event, "bus.connected" | "bus.disconnected") {
                             let epoch = (event == "bus.connected").then(|| data["epoch"].as_u64()).flatten();
+                            app.state::<crate::text_intake::Intake>().connection(&app,epoch);
                             app.state::<crate::anki_sync::SyncLane>().connection(epoch);
                             app.state::<crate::anki_poll::monitor::Monitor>().connection(epoch);
                         }
                         match event {
                             "bus.connected" => app.state::<crate::cron::Scheduler>().connection(data["epoch"].as_u64()),
                             "bus.disconnected" => app.state::<crate::cron::Scheduler>().connection(None),
-                            "process.exit" => app.state::<crate::cron::Scheduler>().close(),
+                            "process.exit" => app.state::<crate::cron::Scheduler>().forget_backend(),
                             _ => {}
                         }
                     }
                     if event == "bus.disconnected" && data["id"] == "backend" {
+                        if let Some(mining) = app.try_state::<Arc<crate::mining::MiningService>>() {
+                            mining.clear_upstreams();
+                        }
                         let desktop = app.clone();
                         tauri::async_runtime::spawn(async move {
                             let _ = desktop.state::<crate::word_index::WordIndex>().flush().await;
                             let _ = tauri::async_runtime::spawn_blocking(move || {
-                                let _ = desktop.state::<Arc<gsm_history::History>>().close();
+                                if crate::database_startup::close_history(&desktop).is_ok() {
+                                    let _ = desktop.state::<crate::cron::Scheduler>().refresh_generation();
+                                }
                             }).await;
                         });
                     }
@@ -66,6 +72,8 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
                         if data["id"] == "backend" {
                             app.state::<crate::anki_poll::Notes>().backend_exited();
                         }
+                    }
+                    if event == "process.exit" || (event == "bus.message" && data["src"] == "qt-settings") {
                         app.state::<crate::gui_dialog::DialogHost>().observe(event, &data);
                     }
                     crate::backend::observe(&app, event, &data);
@@ -91,11 +99,17 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
 }
 
 pub async fn backend_command(app: &tauri::AppHandle, function: &str, data: Value) -> Result<bool, String> {
-    let runtime = app.state::<Runtime>().0.lock().unwrap().clone();
-    match runtime {
-        Some(runtime) => runtime.call("backend.command", json!({"function":function,"data":data})).await
-            .map(|value| value == true),
-        None => Ok(false),
+    app.state::<Runtime>().backend_command(function, data).await
+}
+
+impl Runtime {
+    pub async fn backend_command(&self, function: &str, data: Value) -> Result<bool, String> {
+        let runtime = self.0.lock().unwrap().clone();
+        match runtime {
+            Some(runtime) => runtime.call("backend.command", json!({"function":function,"data":data})).await
+                .map(|value| value == true),
+            None => Ok(false),
+        }
     }
 }
 

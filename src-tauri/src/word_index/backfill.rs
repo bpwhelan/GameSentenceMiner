@@ -1,6 +1,7 @@
 //! Weekly vocabulary repair. The live capture lane gets a turn between each
 //! dictionary batch. Neither dictionary work nor throttling holds the writer.
 use super::WordIndex;
+pub(crate) use gsm_settings::gsm_config::dictionary_edition;
 use serde_json::{json, Value};
 use std::{
     path::Path,
@@ -11,20 +12,6 @@ struct Options {
     enabled: bool,
     low_performance: bool,
     dictionary: String,
-}
-
-pub(crate) fn dictionary_edition(document: &Value) -> &'static str {
-    let value = document["experimental"]["tokenization_sudachi_dictionary"]
-        .as_str()
-        .unwrap_or("")
-        .trim();
-    if value.eq_ignore_ascii_case("full") {
-        "full"
-    } else if value.eq_ignore_ascii_case("core") {
-        "core"
-    } else {
-        "small"
-    }
 }
 
 impl Options {

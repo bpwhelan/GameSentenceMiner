@@ -1,0 +1,14 @@
+.screenshot-selector { box-sizing: border-box; height: 100vh; padding: 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.screenshot-selector h1 { font-size: 1.35rem; margin: 0; }
+.screenshot-selector p { margin: .3rem 0; }
+.screenshot-selector nav, .screenshot-selector footer { display: flex; gap: .5rem; align-items: center; }
+.screenshot-selector nav { justify-content: space-between; }
+.screenshot-selector footer { justify-content: flex-end; }
+.screenshot-frames { overflow: auto; flex: 1; display: grid; grid-template-columns: repeat(auto-fill,minmax(230px,1fr)); align-content: start; gap: .5rem; }
+.screenshot-frames button { padding: .25rem; min-width: 0; }
+.screenshot-frames button[aria-pressed=true] { outline: 2px solid currentColor; outline-offset: -2px; }
+.screenshot-frames img { display: block; width: 100%; object-fit: contain; aspect-ratio: 16/9; background: #111; }
+.screenshot-choices { display: flex; overflow-x: auto; gap: .5rem; list-style: none; margin: 0; padding: .3rem 0; }
+.screenshot-choices li { display: grid; grid-template-columns: repeat(3, 1fr); flex: 0 0 115px; }
+.screenshot-choices img, .screenshot-choices span { grid-column: span 3; width: 100%; text-align: center; }
+.screenshot-choices img { height: 62px; object-fit: contain; }

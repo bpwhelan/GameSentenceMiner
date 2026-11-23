@@ -1,5 +1,26 @@
 # Overlay processing performance
 
+## Recycled-line indicator
+
+The Rust desktop process opens the active profile’s SQLite database read-only, loads the scene history, and keeps the latest 10,000 eligible distinct lines in insertion order. Startup and scene or profile changes replay the newest 10,000 rows in timestamp order. Enabling the setting during a scene streams all its rows in insertion order. The reader borrows one text value at a time, uses a 256 KiB SQLite page cache, and closes the connection after each load. Disabling the setting releases the index.
+
+Rust removes Unicode 15.1 punctuation and whitespace and requires ten remaining code points. It preserves case and verifies the full normalized text on a hash match. A duplicate keeps its original position in the eviction order. Live history follows the preceding line from the same scene, including speech revisions. The desktop records the verdict when it accepts a line so that a delayed overlay scan can reuse that verdict. Scene loads appear in the desktop log under `[rust:recycled-lines]`. Standalone Python and older desktop hosts retain the compatibility path.
+
+Measured on Windows with a synthetic scene of 30,000 Japanese and English lines. Each column gives the median of three runs in fresh processes. The desktop measurement runs the release Rust database loader and text lookup used by the app.
+
+| Workload | Original Python | Python loader with Rust index | Rust desktop |
+| --- | ---: | ---: | ---: |
+| Load recent scene history | 129 ms | 21.9 ms | 18.5 ms |
+| Additional peak private memory during scene load | 13.1 MiB | 4.44 MiB | 1.35 MiB |
+| Enable the indicator for the full scene | 341 ms | 51.1 ms | 27.5 ms |
+| Additional peak private memory when enabling | 34.4 MiB | 3.27 MiB | 1.75 MiB |
+| Additional private memory retained after enabling | 15.4 MiB | 3.27 MiB | 1.13 MiB |
+| Check a line after enabling, half hits and half misses | 4.32 µs | 1.00 µs | 0.41 µs |
+
+Memory is the increase above each worker’s pre-load baseline, sampled every 2 ms. The lookup benchmark supplies raw text for every probe. Ordinary desktop overlays can reuse the verdict already computed for a live line ID. To reproduce, install the release extension in the repository environment and run `python -m scripts.benchmark_recycled_lines`. The benchmark builds the Rust measurement executable and loads the original Python implementation from revision `4fea8c90`.
+
+## Coordinate processing and layout
+
 This pass moves overlay coordinate projection, payload copying, minimum-size decisions, and exclusion-region decisions into the existing Rust extension. It also batches Chromium layout work and reduces the cost of matching retained dialogue against recent block history.
 
 The reference revision is `90eb145b5b8dd1a91ba4c0eca99ec20984b46b64`. Measurements were taken on Windows 11 with Python 3.13.2, Node 22.23.1, and the locally installed Electron 42.3.2. The native extension was built in release mode. These are offline synthetic processing benchmarks; capture, OCR inference, network requests, and enrichment are outside the measured stages.

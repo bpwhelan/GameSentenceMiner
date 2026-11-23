@@ -6,6 +6,7 @@
   const nativeDispatch = window.__GSM_DESKTOP_DISPATCH__;
   const dispatch = (channel, value) => nativeDispatch(channel, [value]);
   let hachidoriShown = false;
+  let lookupPoint;
   window.addEventListener('gsm-hachidori-popup-shown', () => { hachidoriShown = true; });
   window.addEventListener('gsm-hachidori-popup-hidden', () => { hachidoriShown = false; });
   const receive = value => handleOverlayWebSocketData(JSON.stringify(value));
@@ -14,6 +15,52 @@
     words: [{ text: '食べる', bounding_rect: { x1: 0.25, y1: 0.4, x3: 0.4, y3: 0.46 } }],
   }] });
   window.__gsmSmokeOverlay = {
+    async waitForManualState(active) {
+      for (let i = 0; i < 120; i++) {
+        if (manualHotkeyPressed === active) return true;
+        await wait(25);
+      }
+      throw Error(`The configured shortcut did not set manual activation to ${active}`);
+    },
+    startHybridLookup() {
+      // Exercise key-up arriving before the popup-shown IPC, even on a fast machine.
+      const send = ipcRenderer.send;
+      ipcRenderer.send = (channel, ...args) => {
+        if (channel !== 'yomitan-event' || args[0] !== true) send.call(ipcRenderer, channel, ...args);
+      };
+      let checked = false;
+      const visible = window.isManualLookupVisible;
+      window.isManualLookupVisible = () => { checked = true; return visible(); };
+      // Keep the simulated cursor at the lookup word through key-up.
+      window.__GSM_DESKTOP_DISPATCH__ = (channel, args) => {
+        if (channel !== 'text-hover-pointer') nativeDispatch(channel, args);
+      };
+      this.finishHybridLookup = async () => {
+        try {
+          for (let i = 0; i < 120 && !checked; i++) await wait(25);
+          check(checked, 'Key-up never checked the visible lookup');
+          const box = document.querySelector('.text-box');
+          const rect = box.getBoundingClientRect();
+          dispatch('text-hover-pointer', { ...lookupPoint, buttons: 0, shiftKey: false });
+          await wait(350);
+          const style = getComputedStyle(box);
+          check(manualHotkeyPressed && isManualLookupVisible() && rect.width > 0 && style.pointerEvents === 'auto',
+            'Hybrid lost the lookup or its hit target after key-up');
+          check(style.color === 'rgba(255, 255, 255, 0)' && style.backgroundColor === 'rgba(15, 15, 15, 0)',
+            'Push to Show painted OCR text over the game');
+          if (dictionaryReader === 'yomitan') check(getVisibleYomitanPopupFrames().length > 0, 'Yomitan frame is hidden');
+          await closeDictionaryLookups('hybrid-smoke');
+          await this.waitForManualState(false);
+          check(!yomitanShowing && getComputedStyle(box).display === 'none', 'Last popup close left the overlay active');
+          return true;
+        } finally {
+          ipcRenderer.send = send;
+          window.isManualLookupVisible = visible;
+          window.__GSM_DESKTOP_DISPATCH__ = nativeDispatch;
+        }
+      };
+      return true;
+    },
     async geometry() {
       dispatch('show-overlay-hotkey', true);
       // Negative desktop origins and non-unit DPI exercise physical -> viewport mapping.
@@ -42,6 +89,7 @@
     async lookup(reader, { shiftKey = true, stationary = false } = {}) {
       // A fixed native sample drives the real forwarding/scanning path while the
       // user's physical mouse continues moving independently on the desktop.
+      const previousDispatch = window.__GSM_DESKTOP_DISPATCH__;
       window.__GSM_DESKTOP_DISPATCH__ = (channel, args) => {
         if (channel !== 'text-hover-pointer') nativeDispatch(channel, args);
       };
@@ -62,6 +110,7 @@
         range.selectNodeContents(box);
         const rect = range.getBoundingClientRect();
         const x = rect.left + 2, y = rect.top + rect.height / 2;
+        lookupPoint = {x, y};
         window.addEventListener(shownEvent, onShown);
         const hoveredAt = performance.now();
         for (let i = 0; i < 150; i++) {
@@ -84,7 +133,7 @@
         throw Error(`No ${reader} popup after hovering production overlay text (hit=${document.elementFromPoint(x,y)?.className}, visibility=${document.visibilityState}, capture=${overlayCaptureAvailable}, manual=${manualHotkeyPressed}, popup=${yomitanShowing}, rect=${JSON.stringify(rect.toJSON())})`);
       } finally {
         window.removeEventListener(shownEvent, onShown);
-        window.__GSM_DESKTOP_DISPATCH__ = nativeDispatch;
+        window.__GSM_DESKTOP_DISPATCH__ = previousDispatch;
       }
     },
   };

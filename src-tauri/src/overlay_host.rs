@@ -132,73 +132,73 @@ fn resolve_gamepad_port(settings: &Map<String, Value>, app: Option<&AppHandle>) 
         .unwrap_or(7276)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ManualModeType {
+    Hold,
+    Hybrid,
+    Toggle,
+}
+
+impl ManualModeType {
+    fn from_settings(settings: &Map<String, Value>) -> Self {
+        match settings.get("manualModeType").and_then(Value::as_str) {
+            Some("hybrid") => Self::Hybrid,
+            Some("toggle") => Self::Toggle,
+            _ => Self::Hold,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct ManualHotkeyMachine {
     key_down: bool,
-    hold_active: bool,
-    toggle_latched: bool,
-    last_signal_at: Option<Instant>,
+    blocked_until_release: bool,
+    active: bool,
+    press_id: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ManualHotkeyAction {
+    SetActive(bool),
+    CheckPopup(u64),
 }
 
 impl ManualHotkeyMachine {
-    #[cfg(test)]
-    fn is_active(&self, toggle_mode: bool) -> bool {
-        if toggle_mode {
-            self.toggle_latched
-        } else {
-            self.hold_active
-        }
-    }
-
-    /// Returns `Some(true)` when overlay manual mode activates, `Some(false)` when deactivated.
-    fn handle_press(&mut self, toggle_mode: bool) -> Option<bool> {
-        if self.key_down {
+    fn signal(&mut self, mode: ManualModeType, pressed: bool, popup_open: bool) -> Option<ManualHotkeyAction> {
+        if self.key_down == pressed {
             return None;
         }
-        self.key_down = true;
-        if toggle_mode {
-            self.toggle_latched = !self.toggle_latched;
-            Some(self.toggle_latched)
-        } else if !self.hold_active {
-            self.hold_active = true;
-            Some(true)
-        } else {
-            None
-        }
-    }
-
-    fn handle_release(&mut self, toggle_mode: bool) -> Option<bool> {
-        if !self.key_down && !self.hold_active {
-            return None;
-        }
-        self.key_down = false;
-        self.last_signal_at = None;
-        if toggle_mode {
-            None
-        } else if self.hold_active {
-            self.hold_active = false;
-            Some(false)
-        } else {
-            None
-        }
-    }
-
-    fn handle_tauri_shortcut_signal(&mut self, toggle_mode: bool, pressed: bool) -> Option<bool> {
+        self.key_down = pressed;
         if pressed {
-            self.last_signal_at = Some(Instant::now());
-            self.handle_press(toggle_mode)
-        } else {
-            self.handle_release(toggle_mode)
+            self.press_id = self.press_id.wrapping_add(1);
         }
+        let next = match mode {
+            ManualModeType::Hybrid if !pressed && self.active => {
+                return (!popup_open).then_some(ManualHotkeyAction::CheckPopup(self.press_id));
+            }
+            ManualModeType::Hold | ManualModeType::Hybrid => pressed,
+            ManualModeType::Toggle => self.active ^ pressed,
+        };
+        let changed = self.active != next;
+        self.active = next;
+        changed.then_some(ManualHotkeyAction::SetActive(next))
+    }
+
+    fn finish_popup_check(&mut self, press_id: u64, mode: ManualModeType, visible: bool) -> bool {
+        self.press_id == press_id && !visible && self.popup_closed(mode)
+    }
+
+    fn popup_closed(&mut self, mode: ManualModeType) -> bool {
+        if mode == ManualModeType::Hybrid && !self.key_down {
+            return std::mem::take(&mut self.active);
+        }
+        false
     }
 
     fn reset(&mut self) -> bool {
-        let was_active = self.hold_active || self.toggle_latched;
         self.key_down = false;
-        self.hold_active = false;
-        self.toggle_latched = false;
-        self.last_signal_at = None;
-        was_active
+        self.blocked_until_release = false;
+        std::mem::take(&mut self.active)
     }
 }
 
@@ -295,6 +295,7 @@ struct OverlayInner {
     displays: Vec<DisplayInfo>,
     selected_display_index: usize,
     manual_hotkey: ManualHotkeyMachine,
+    overlay_focused: bool,
     hotkey_suppressed_for_input_test: bool,
     registered_tauri_accelerators: HashMap<String, String>,
     shortcut_cooldowns: HashMap<String, Instant>,
@@ -366,6 +367,7 @@ impl Default for OverlayInner {
             displays: Vec::new(),
             selected_display_index: 0,
             manual_hotkey: ManualHotkeyMachine::default(),
+            overlay_focused: false,
             hotkey_suppressed_for_input_test: false,
             registered_tauri_accelerators: HashMap::new(),
             shortcut_cooldowns: HashMap::new(),
@@ -440,7 +442,7 @@ impl Default for OverlayHost {
 
 impl OverlayHost {
     fn interaction_active(inner: &OverlayInner) -> bool {
-        inner.navigation_active || inner.manual_hotkey.hold_active || inner.manual_hotkey.toggle_latched
+        inner.navigation_active || inner.manual_hotkey.active
     }
 
     fn reveal_transition(inner: &mut OverlayInner) -> Option<bool> {
@@ -537,11 +539,8 @@ impl OverlayHost {
             }
         }
     }
-    fn should_forward_native_result(payload: &Value) -> bool {
-        // Text-driven scans (line_id present) already originated in Python; Rust owns
-        // capture, OCR, logging, and rendering with no back-and-forth. Only unbacked
-        // overlay-originated scans (periodic/manual/skip_recovery with no line_id)
-        // notify Python so mining/skip-recovery can record the transient scan.
+    pub(crate) fn is_unbacked_scan(payload: &Value) -> bool {
+        // Only a fresh, final scan without a backing line can supply a transient mining candidate.
         payload["is_final"] == true
             && payload["coordinates_only"] != true
             && payload["line_id"].is_null()
@@ -580,7 +579,7 @@ impl OverlayHost {
         }
         let mut inner = self.inner.lock().unwrap();
         inner.last_text_payload = payload.clone();
-        if Self::should_forward_native_result(payload) {
+        if Self::is_unbacked_scan(payload) && !app.state::<Arc<crate::mining::MiningService>>().is_enabled() {
             if let Some(tx) = &inner.ws2_tx {
                 let _ = tx.send(Ws2Outbound::Direct(
                     json!({"type":"native-overlay-result", "data":payload}),
@@ -603,37 +602,61 @@ impl OverlayHost {
         };
         desktop_state::emit_to_window(app, OVERLAY_OFFSET_LABEL, "text-data", &[payload]);
     }
-    async fn refresh_dictionary(&self, app: &AppHandle, previous: String) -> Result<(), String> {
-        let _guard = self.reader_switch.lock().await;
-        self.inner.lock().unwrap().dictionary_ready = false;
-        {
+    fn reset_dictionary_attachment(&self, app: &AppHandle) {
+        let release = {
             let mut inner = self.inner.lock().unwrap();
+            inner.dictionary_ready = false;
             // Disabling an extension can discard its popup-hidden event.
             // Do not carry the previous reader's mouse ownership into reload.
             inner.yomitan_showing = false;
             inner.lookup_focus_owned = false;
             inner.text_hover_ignoring = Some(true);
             inner.magpie_pointer_pending = None;
+            let mode = ManualModeType::from_settings(&inner.user_settings);
+            inner.manual_hotkey.popup_closed(mode)
+        };
+        if release {
+            self.emit_manual_hotkey_state(app, false);
         }
         self.sync_window_ignore_mouse(app);
-        desktop_state::emit_to_window(
-            app,
-            OVERLAY_SETTINGS_LABEL,
-            "dictionary-reader-switching",
-            &[json!(true)],
-        );
-        let result = async {
-            let dm = app.state::<DictionaryManager>();
-            let (reader, ext) = dm.load_selected_extension(app).await?;
-            if reader == "hachidori" {
-                dm.ensure_hachidori_engine(app, &ext).await?;
-            }
-            if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                dm.attach_reader_window(app, &win, &ext).await?;
-            }
-            Ok::<(), String>(())
+    }
+
+    async fn attach_selected_dictionary(&self, app: &AppHandle) -> Result<(), String> {
+        let dm = app.state::<DictionaryManager>();
+        let (reader, ext) = dm.load_selected_extension(app).await?;
+        if reader == "hachidori" {
+            dm.ensure_hachidori_engine(app, &ext).await?;
         }
-        .await;
+        if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+            dm.attach_reader_window(app, &win, &ext).await?;
+        }
+        Ok(())
+    }
+
+    pub async fn reload_browser_dictionary(&self, app: &AppHandle, reader: &str) -> Result<(), String> {
+        let _guard = self.reader_switch.lock().await;
+        if !dictionary_host::use_windows_native_extensions()
+            || dictionary_host::reader_selection(&dictionary_host::overlay_data_path(app)) != reader
+        {
+            return Ok(());
+        }
+
+        self.reset_dictionary_attachment(app);
+        // The previous extension may have been disabled during a failed switch.
+        // Reload its documents on rollback even when the extension ID matches.
+        app.state::<DictionaryManager>().invalidate_reader_attachments();
+        self.attach_selected_dictionary(app).await?;
+        self.push_preload_settings(app);
+        self.push_settings_to_main(app);
+        desktop_state::emit_to_desktop_windows(app, "dictionary-library-changed", &[]);
+        Ok(())
+    }
+
+    async fn refresh_dictionary(&self, app: &AppHandle, previous: String) -> Result<(), String> {
+        let _guard = self.reader_switch.lock().await;
+        self.reset_dictionary_attachment(app);
+        desktop_state::emit_to_desktop_windows(app, "dictionary-reader-switching", &[json!(true)]);
+        let result = self.attach_selected_dictionary(app).await;
         if let Err(error) = &result {
             {
                 let mut inner = self.inner.lock().unwrap();
@@ -642,35 +665,14 @@ impl OverlayHost {
                     .insert("dictionaryReaderSelection".into(), json!(previous));
                 Self::persist_user_settings_locked(&inner);
             }
-            if let Ok((_, ext)) = app
-                .state::<DictionaryManager>()
-                .load_selected_extension(app)
-                .await
-            {
-                if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                    let _ = app
-                        .state::<DictionaryManager>()
-                        .attach_reader_window(app, &win, &ext)
-                        .await;
-                }
-            }
+            let _ = self.attach_selected_dictionary(app).await;
             crate::desktop_log::error(app, "overlay", format!("Reader switch failed: {error}"));
         }
         self.push_preload_settings(app);
         self.push_settings_to_main(app);
-        desktop_state::emit_to_window(
-            app,
-            OVERLAY_SETTINGS_LABEL,
-            "dictionary-reader-switching",
-            &[json!(false)],
-        );
+        desktop_state::emit_to_desktop_windows(app, "dictionary-reader-switching", &[json!(false)]);
         if let Err(error) = &result {
-            desktop_state::emit_to_window(
-                app,
-                OVERLAY_SETTINGS_LABEL,
-                "dictionary-reader-error",
-                &[json!(error)],
-            );
+            desktop_state::emit_to_desktop_windows(app, "dictionary-reader-error", &[json!(error)]);
         }
         result
     }
@@ -699,7 +701,7 @@ impl OverlayHost {
                     "gamepad_manual_pause" => true,
                     _ => false,
                 };
-            if !enabled || !inner.ws2_connected || !inner.pause_sources.insert(source.into()) {
+            if (!enabled && !crate::app_lifecycle::native_session_requested()) || !inner.ws2_connected || !inner.pause_sources.insert(source.into()) {
                 return;
             }
         } else if !inner.pause_sources.remove(source) {
@@ -711,16 +713,58 @@ impl OverlayHost {
         }
     }
 
-    fn restore_game_focus(&self) {
-        let inner = self.inner.lock().unwrap();
-        if let Some(tx) = &inner.ws2_tx {
-            let _ = tx.send(Ws2Outbound::Direct(
-                json!({"type":"restore-focus-request", "expected_target_hwnd":inner.target_hwnd}),
-            ));
+    fn restore_game_focus(&self, app: &AppHandle) {
+        let hwnd = self.inner.lock().unwrap().target_hwnd;
+        self.deliver_game_input(
+            app,
+            json!({"type":"restore-focus-request","expected_target_hwnd":hwnd}),
+        );
+    }
+
+    pub(crate) fn restore_after_confirmation(&self, app: &AppHandle, previous: &str) -> bool {
+        if app.get_webview_window(OVERLAY_MAIN_LABEL).is_none() {
+            return false;
+        }
+        #[cfg(windows)]
+        {
+            let return_overlay = {
+                let inner = self.inner.lock().unwrap();
+                inner.navigation_active && Self::capture_available(&inner)
+            };
+            if return_overlay {
+                if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+                    if window.hwnd().is_ok_and(|hwnd| previous == (hwnd.0 as usize).to_string()) {
+                        let _ = window.set_focusable(true);
+                        let _ = window_platform::apply(&window, "focus", &Value::Null);
+                        return true;
+                    }
+                }
+            }
+        }
+        #[cfg(not(windows))]
+        let _ = previous;
+        self.restore_game_focus(app);
+        true
+    }
+
+    fn deliver_game_input(&self, _app: &AppHandle, message: Value) {
+        #[cfg(windows)]
+        if let Some(obs) = _app.try_state::<crate::obs::Obs>() {
+            let obs = obs.inner().clone();
+            let Some(request) = obs.overlay_input_request(&message) else {
+                return;
+            };
+            tauri::async_runtime::spawn(async move {
+                let _ = obs.target_input(&request).await;
+            });
+            return;
+        }
+        if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
+            let _ = tx.send(Ws2Outbound::Direct(message));
         }
     }
 
-    fn forward_game_input(&self, channel: &str, first: &Value) {
+    fn forward_game_input(&self, channel: &str, first: &Value, deliver: impl FnOnce(Value)) {
         let inner = self.inner.lock().unwrap();
         // Forward bindings also advance the game while overlay navigation is idle.
         if inner.user_settings["gamepadEnabled"] != true
@@ -740,13 +784,13 @@ impl OverlayHost {
         {
             return;
         }
-        if let Some(tx) = &inner.ws2_tx {
-            let _ = tx.send(Ws2Outbound::Direct(json!({
+        let message = json!({
                 "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
                 "key": key, "source": "gamepad", "activateWindow": true,
                 "targetPid": inner.game_state.pid, "expected_target_hwnd": inner.target_hwnd,
-            })));
-        }
+        });
+        drop(inner);
+        deliver(message);
     }
 
     fn finish_manual_focus(&self, app: &AppHandle) {
@@ -755,9 +799,7 @@ impl OverlayHost {
             let pending = inner.manual_focus_deadline.take().is_some();
             pending
                 && Self::capture_available(&inner)
-                && (inner.manual_hotkey.hold_active
-                    || inner.manual_hotkey.toggle_latched
-                    || inner.navigation_active)
+                && Self::interaction_active(&inner)
         };
         if focus {
             if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
@@ -866,9 +908,19 @@ impl OverlayHost {
                 || (inner.game_state.state == "obscured"
                     && (inner.yomitan_showing
                         || inner.navigation_active
-                        || inner.manual_hotkey.hold_active
-                        || inner.manual_hotkey.toggle_latched
+                        || inner.manual_hotkey.active
                         || inner.magpie_info.as_ref().is_some_and(source_focused))))
+    }
+
+    fn set_capture_available(inner: &mut OverlayInner, available: bool) {
+        inner.capture_available = Some(available);
+        // Hide on startup applies to the waiting window. The first usable game
+        // capture must reveal the automatic overlay even before any text arrives.
+        if inner.startup_hidden && available && !Self::manual_mode(inner)
+            && matches!(inner.game_state.state.as_str(), "active" | "background")
+        {
+            inner.startup_hidden = false;
+        }
     }
 
     fn manual_mode(inner: &OverlayInner) -> bool {
@@ -896,12 +948,9 @@ impl OverlayHost {
         {
             return (false, true);
         }
-        if Self::manual_mode(inner)
-            && !inner.manual_hotkey.hold_active
-            && !inner.manual_hotkey.toggle_latched
-            && !inner.navigation_active
-        {
-            return (true, false);
+        if Self::manual_mode(inner) {
+            let active = inner.manual_hotkey.active;
+            return (!active, active && !Self::focus_neutral_manual_mode(inner));
         }
         let ignore = if inner.magpie_info.is_some() && Self::routes_text_hover(inner) {
             !inner.magpie_hovering
@@ -1303,6 +1352,7 @@ impl OverlayHost {
             inner.target_hwnd = None;
             inner.last_window_state = None;
             inner.manual_hotkey.reset();
+            inner.overlay_focused = false;
             inner.capture_available = None;
             inner.vn_guide_available = false;
             inner.vn_guide_choice_click_through = false;
@@ -1481,6 +1531,12 @@ impl OverlayHost {
         let win = builder
             .build()
             .map_err(|e| format!("Failed creating overlay window: {e}"))?;
+        let host = self.clone();
+        win.on_window_event(move |event| {
+            if let tauri::WindowEvent::Focused(focused) = event {
+                host.inner.lock().unwrap().overlay_focused = *focused;
+            }
+        });
 
         let _ = window_platform::apply(&win, "frameless", &Value::Null);
         let _ = window_platform::apply(
@@ -1709,7 +1765,7 @@ impl OverlayHost {
         if label == OVERLAY_TEXTHOOKER_LABEL {
             self.set_process_pause("texthooker_hotkey", false);
         }
-        self.restore_game_focus();
+        self.restore_game_focus(app);
         self.sync_game_visibility(app);
     }
 
@@ -1790,6 +1846,7 @@ impl OverlayHost {
         let mut settings = {
             let inner = self.inner.lock().unwrap();
             let mut settings = inner.user_settings.clone();
+            settings.insert("manualMode".into(), json!(Self::manual_mode(&inner)));
             settings.insert("vnGuideChoiceClickThroughActive".into(), json!(inner.vn_guide_choice_click_through));
             settings
         };
@@ -1877,6 +1934,10 @@ impl OverlayHost {
     fn broadcast_settings_update(&self, app: &AppHandle, patch: &Map<String, Value>) {
         self.refresh_tray(app);
         let mut patch = patch.clone();
+        if patch.contains_key("manualMode") || patch.contains_key("platformOverride") {
+            let inner = self.inner.lock().unwrap();
+            patch.insert("manualMode".into(), json!(Self::manual_mode(&inner)));
+        }
         if let Some(port) = input_server::port(app) {
             patch.insert("gamepadServerPort".into(), json!(port));
         }
@@ -2030,6 +2091,9 @@ impl OverlayHost {
                     if let Some(val) = inner.user_settings.get(key) {
                         applied.insert(key.into(), val.clone());
                     }
+                }
+                if let Some(value) = applied.get_mut("requireGameFocusForPushToShow") {
+                    *value = inner.user_settings["requireGameFocusForPushToShow"].clone();
                 }
             }
 
@@ -2270,7 +2334,13 @@ impl OverlayHost {
         );
         if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
             if available && !afk && !hidden {
-                let _ = win.show();
+                if !win.is_visible().unwrap_or(false) {
+                    let _ = win.show();
+                    // A topmost game can regain the front of the topmost band
+                    // while the overlay is hidden. Raise it without taking focus.
+                    #[cfg(windows)]
+                    let _ = window_platform::apply(&win, "moveTop", &Value::Null);
+                }
             } else {
                 self.reset_interactions(app);
                 let _ = win.hide();
@@ -2456,40 +2526,96 @@ impl OverlayHost {
         }
     }
 
+    fn manual_hotkey_signal(
+        inner: &mut OverlayInner,
+        pressed: bool,
+        game_focused: impl FnOnce() -> bool,
+    ) -> Option<ManualHotkeyAction> {
+        if inner.manual_hotkey.blocked_until_release {
+            inner.manual_hotkey.blocked_until_release = pressed;
+            return None;
+        }
+        if pressed && !inner.manual_hotkey.key_down {
+            let focus_required = inner
+                .user_settings
+                .get("requireGameFocusForPushToShow")
+                .and_then(Value::as_bool)
+                != Some(false)
+                || inner
+                    .user_settings
+                    .get("showHotkey")
+                    .and_then(Value::as_str)
+                    .is_some_and(is_modifier_only_hotkey);
+            // An active overlay can own focus after the initial press. Releases
+            // also bypass the focus check so hold and hybrid can finish normally.
+            if !Self::capture_available(inner)
+                || (focus_required
+                    && !(inner.manual_hotkey.active && inner.overlay_focused)
+                    && !game_focused())
+            {
+                inner.manual_hotkey.blocked_until_release = true;
+                return None;
+            }
+        }
+        let mode = ManualModeType::from_settings(&inner.user_settings);
+        inner.manual_hotkey.signal(mode, pressed, inner.yomitan_showing)
+    }
+
+    fn handle_manual_hotkey(&self, app: &AppHandle, pressed: bool) {
+        let transition = {
+            let mut inner = self.inner.lock().unwrap();
+            if !Self::manual_mode(&inner) || inner.hotkey_suppressed_for_input_test {
+                return;
+            }
+            let target = inner.target_hwnd.filter(|&id| id != 0);
+            let reported_focused = inner.game_state.state == "active";
+            Self::manual_hotkey_signal(&mut inner, pressed, || match target {
+                // Sample at the press instead of trusting an earlier OBS frame
+                // that may predate an Alt-Tab.
+                Some(id) => window_platform::is_capture_target_focused(id),
+                None => reported_focused,
+            })
+        };
+        match transition {
+            Some(ManualHotkeyAction::SetActive(active)) => self.emit_manual_hotkey_state(app, active),
+            Some(ManualHotkeyAction::CheckPopup(id)) => {
+                let host = self.clone();
+                let app_handle = app.clone();
+                if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+                    let evaluation = window.eval_with_callback("window.isManualLookupVisible?.() === true", move |result| {
+                        // WebView2 invokes this on the UI thread. Releasing input can
+                        // synchronously wait for window operations on that same thread.
+                        let host = host.clone();
+                        let app = app_handle.clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            host.finish_manual_popup_check(&app, id, result == "true");
+                        });
+                    });
+                    if evaluation.is_ok() {
+                        return;
+                    }
+                }
+                self.finish_manual_popup_check(app, id, false);
+            }
+            None => {}
+        }
+    }
+
+    fn finish_manual_popup_check(&self, app: &AppHandle, id: u64, visible: bool) {
+        let release = {
+            let mut inner = self.inner.lock().unwrap();
+            let mode = ManualModeType::from_settings(&inner.user_settings);
+            let visible = visible || inner.yomitan_showing;
+            inner.manual_hotkey.finish_popup_check(id, mode, visible)
+        };
+        if release {
+            self.emit_manual_hotkey_state(app, false);
+        }
+    }
+
     fn on_global_shortcut_event(&self, app: &AppHandle, action_key: &str, pressed: bool) {
         if action_key == "showHotkey" {
-            let (manual_mode, toggle_mode, suppressed, state_name) = {
-                let inner = self.inner.lock().unwrap();
-                let manual_mode = Self::manual_mode(&inner);
-                let toggle_mode = inner
-                    .user_settings
-                    .get("manualModeType")
-                    .and_then(Value::as_str)
-                    .unwrap_or("hold")
-                    .trim()
-                    .eq_ignore_ascii_case("toggle");
-                (
-                    manual_mode,
-                    toggle_mode,
-                    inner.hotkey_suppressed_for_input_test,
-                    inner.game_state.state.clone(),
-                )
-            };
-            if !manual_mode || suppressed {
-                return;
-            }
-            if pressed && !matches!(state_name.as_str(), "active" | "background") {
-                return;
-            }
-            let transition = {
-                let mut inner = self.inner.lock().unwrap();
-                inner
-                    .manual_hotkey
-                    .handle_tauri_shortcut_signal(toggle_mode, pressed)
-            };
-            if let Some(active) = transition {
-                self.emit_manual_hotkey_state(app, active);
-            }
+            self.handle_manual_hotkey(app, pressed);
             return;
         }
 
@@ -2692,7 +2818,7 @@ impl OverlayHost {
             }
         } else {
             self.inner.lock().unwrap().manual_focus_deadline = None;
-            self.restore_game_focus();
+            self.restore_game_focus(app);
         }
         desktop_state::emit_to_window(
             app,
@@ -3529,9 +3655,29 @@ impl OverlayHost {
                     ))
                     .await;
 
+                let mut capture = Some(crate::text_intake::overlay_control::CaptureConfig::default());
+                let native = crate::app_lifecycle::native_session_requested();
+                let mut refresh = tokio::time::interval(Duration::from_secs(1));
+                refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
                         biased;
+                        _ = refresh.tick(), if native => {
+                            if !host.is_running() || host.inner.lock().unwrap().worker_gen != gen { return; }
+                            if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() {
+                                let mut state = capture.take().unwrap_or_default();
+                                let handle = app.clone();
+                                if let Ok((state,updates)) = tauri::async_runtime::spawn_blocking(move || {
+                                    let updates = state.refresh(&handle);
+                                    (state,updates)
+                                }).await {
+                                    capture = Some(state);
+                                    if let Ok(updates) = updates {
+                                        for msg in updates { host.handle_ws2_text(&app,&msg.to_string()).await; }
+                                    }
+                                }
+                            } else { capture = None; }
+                        }
                         maybe_out = rx.recv() => {
                             let Some(first) = maybe_out else {
                                 break;
@@ -3641,6 +3787,75 @@ impl OverlayHost {
         }
     }
 
+    pub(crate) fn is_running(&self) -> bool {
+        self.inner.lock().unwrap().running
+    }
+
+    pub(crate) async fn present_session(&self, app: &AppHandle, session: &Value) {
+        let frame = &session["window_state"];
+        if !frame.is_object() {
+            return;
+        }
+        let available = session["available"] == true || session["obs_fallback_available"] == true;
+        let (window_changed, capture_changed) = {
+            let inner = self.inner.lock().unwrap();
+            if !inner.running {
+                return;
+            }
+            let previous = inner.last_window_state.as_ref();
+            (
+                previous != Some(frame),
+                inner.capture_available != Some(available)
+                    || inner.game_state.game.as_deref() != session["scene"].as_str()
+                    || previous.map(|p| &p["data"]) != Some(&frame["data"]),
+            )
+        };
+        if window_changed {
+            self.present_window(app, &frame.to_string(), frame).await;
+        }
+        if capture_changed {
+            self.present_capture(app,&json!({"window_state":frame["data"],"scene_name":session["scene"],"available":available})).await;
+        }
+    }
+    async fn present_window(&self, app: &AppHandle, raw_txt: &str, msg: &Value) {
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.target_hwnd = msg["target_hwnd"].as_u64();
+            inner.last_window_state = Some(msg.clone());
+            inner.game_state.state = msg["data"].as_str().unwrap_or("unknown").to_owned();
+        }
+        self.publish_ws2_data(app, raw_txt, Some(msg)).await;
+        self.refresh_magpie_state(app);
+        self.sync_game_visibility(app);
+    }
+
+    async fn present_capture(&self, app: &AppHandle, msg: &Value) {
+        let state = msg
+            .get("window_state")
+            .and_then(Value::as_str)
+            .unwrap_or("closed")
+            .to_string();
+        let scene = msg
+            .get("scene_name")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let avail =
+            msg.get("available").and_then(Value::as_bool) == Some(true) && state != "closed";
+        {
+            let mut inner = self.inner.lock().unwrap();
+            inner.game_state.state = state.clone();
+            if scene.is_some() {
+                inner.game_state.game = scene.clone();
+            }
+            inner.vn_guide_available = avail;
+            Self::set_capture_available(&mut inner, avail);
+        }
+        self.sync_vn_guide_capture(app, avail, scene.as_deref())
+            .await;
+        desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "game-state", &[json!(state)]);
+        self.sync_game_visibility(app);
+    }
+
     pub(crate) async fn handle_ws2_text(&self, app: &AppHandle, raw_txt: &str) {
         if raw_txt == "True" || raw_txt == "False" {
             self.publish_ws2_data(app, raw_txt, None).await;
@@ -3670,6 +3885,9 @@ impl OverlayHost {
                         || msg["action"] == "stop"
                     {
                         if let Ok(result) = overlay.command(OVERLAY_MAIN_LABEL, msg.clone()) {
+                            if msg["action"]=="configure" && msg["config"]["available"]==true {
+                                app.state::<crate::text_intake::Intake>().overlay_ready(app,msg["config"]["scene"].as_str().unwrap_or(""));
+                            }
                             if result["clear"] == true {
                                 crate::overlay::clear(app, OVERLAY_MAIN_LABEL);
                             }
@@ -3705,48 +3923,19 @@ impl OverlayHost {
                 });
             }
             "window_state" => {
-                {
-                    let mut inner = self.inner.lock().unwrap();
-                    inner.target_hwnd = msg["target_hwnd"].as_u64();
-                    inner.last_window_state = Some(msg.clone());
-                    inner.game_state.state = msg["data"].as_str().unwrap_or("unknown").to_owned();
+                if msg["desktop_projection"] != true {
+                    self.present_window(app,raw_txt,&msg).await;
                 }
-                self.publish_ws2_data(app, raw_txt, Some(&msg)).await;
-                self.refresh_magpie_state(app);
-                self.sync_game_visibility(app);
             }
             "capture_status" => {
-                let state = msg
-                    .get("window_state")
-                    .and_then(Value::as_str)
-                    .unwrap_or("closed")
-                    .to_string();
-                let scene = msg
-                    .get("scene_name")
-                    .and_then(Value::as_str)
-                    .map(str::to_string);
-                let avail = msg.get("available").and_then(Value::as_bool) == Some(true)
-                    && state != "closed";
-                {
-                    let mut inner = self.inner.lock().unwrap();
-                    inner.game_state.state = state.clone();
-                    if scene.is_some() {
-                        inner.game_state.game = scene.clone();
-                    }
-                    inner.vn_guide_available = avail;
-                    inner.capture_available = Some(avail);
+                if msg["desktop_projection"] != true {
+                    self.present_capture(app,&msg).await;
                 }
-                self.sync_vn_guide_capture(app, avail, scene.as_deref())
-                    .await;
-                desktop_state::emit_to_window(
-                    app,
-                    OVERLAY_MAIN_LABEL,
-                    "game-state",
-                    &[json!(state)],
-                );
-                self.sync_game_visibility(app);
             }
             "gsm-overlay-config-updated" | "gsm_overlay_config" | "gsm-overlay-config" => {
+                if msg["type"] == "gsm-overlay-config-updated" && msg["settings"]["showRecycledIndicator"].is_boolean() {
+                    app.state::<crate::obs::Obs>().refresh_session();
+                }
                 if let Some(cfg_map) = msg
                     .get("settings")
                     .or_else(|| msg.get("config"))
@@ -3834,25 +4023,7 @@ impl OverlayHost {
                 self.stop(app).await;
             }
             "anki-confirmation-closed" => {
-                let navigation = self.inner.lock().unwrap().navigation_active;
-                let mut return_overlay = false;
-                #[cfg(windows)]
-                if navigation {
-                    if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                        if let Ok(hwnd) = win.hwnd() {
-                            return_overlay = msg["previousForegroundHwnd"].as_str()
-                                == Some(&(hwnd.0 as usize).to_string());
-                        }
-                    }
-                }
-                if return_overlay && Self::capture_available(&self.inner.lock().unwrap()) {
-                    if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                        let _ = win.set_focusable(true);
-                        let _ = window_platform::apply(&win, "focus", &Value::Null);
-                    }
-                } else {
-                    self.restore_game_focus();
-                }
+                self.restore_after_confirmation(app, msg["previousForegroundHwnd"].as_str().unwrap_or(""));
             }
             "restore-focus-result" => {
                 if msg["success"] == true {
@@ -4023,46 +4194,14 @@ impl OverlayHost {
         });
     }
 
-    fn handle_input_server_msg(&self, app: &AppHandle, msg: &Value) {
+    pub(super) fn handle_input_server_msg(&self, app: &AppHandle, msg: &Value) {
         let msg_type = msg.get("type").and_then(Value::as_str).unwrap_or("");
         match msg_type {
-            "manual_hotkey_event" => {
-                let pressed = msg.get("state").and_then(Value::as_str) == Some("pressed");
-                let (manual_mode, toggle_mode, suppressed, game_state) = {
-                    let inner = self.inner.lock().unwrap();
-                    let mm = Self::manual_mode(&inner);
-                    let tm = inner
-                        .user_settings
-                        .get("manualModeType")
-                        .and_then(Value::as_str)
-                        .unwrap_or("hold")
-                        .trim()
-                        .eq_ignore_ascii_case("toggle");
-                    (
-                        mm,
-                        tm,
-                        inner.hotkey_suppressed_for_input_test,
-                        inner.game_state.state.clone(),
-                    )
-                };
-                if !manual_mode || suppressed {
-                    return;
-                }
-                if pressed && !matches!(game_state.as_str(), "active" | "background") {
-                    return;
-                }
-                let transition = {
-                    let mut inner = self.inner.lock().unwrap();
-                    if pressed {
-                        inner.manual_hotkey.handle_press(toggle_mode)
-                    } else {
-                        inner.manual_hotkey.handle_release(toggle_mode)
-                    }
-                };
-                if let Some(active) = transition {
-                    self.emit_manual_hotkey_state(app, active);
-                }
-            }
+            "manual_hotkey_event" => match msg["state"].as_str() {
+                Some("pressed") => self.handle_manual_hotkey(app, true),
+                Some("released") => self.handle_manual_hotkey(app, false),
+                _ => {}
+            },
             "app_hotkey_event" => {
                 if msg.get("state").and_then(Value::as_str) == Some("pressed") {
                     if let Some(id) = msg.get("id").and_then(Value::as_str) {
@@ -4114,6 +4253,8 @@ impl OverlayHost {
                         .unwrap_or(0.0);
                     let afk_due = afk_mins > 0.0
                         && !inner.is_afk
+                        && !Self::interaction_active(&inner)
+                        && !inner.yomitan_showing
                         && inner.last_ocr_activity.elapsed()
                             >= Duration::from_secs_f64(afk_mins * 60.0);
                     if afk_due {
@@ -4376,21 +4517,28 @@ impl OverlayHost {
             }
             "yomitan-event" => {
                 let showing = first.as_bool().unwrap_or(false);
-                let (focus, restore) = {
+                if label != OVERLAY_MAIN_LABEL {
+                    return true;
+                }
+                let (focus, restore, release) = {
                     let mut inner = self.inner.lock().unwrap();
                     inner.yomitan_showing = showing;
+                    let mode = ManualModeType::from_settings(&inner.user_settings);
+                    let release = !showing && inner.manual_hotkey.popup_closed(mode);
                     inner.magpie_pointer_pending = None;
                     let focus = showing
                         && inner.user_settings["focusOverlayOnYomitanLookup"] == true
                         && Self::capture_available(&inner);
-                    let restore = !showing
+                    let restore = !showing && !release
                         && inner.lookup_focus_owned
                         && !inner.navigation_active
-                        && !inner.manual_hotkey.hold_active
-                        && !inner.manual_hotkey.toggle_latched;
+                        && !inner.manual_hotkey.active;
                     inner.lookup_focus_owned = focus;
-                    (focus, restore)
+                    (focus, restore, release)
                 };
+                if release {
+                    self.emit_manual_hotkey_state(app, false);
+                }
                 self.sync_window_ignore_mouse(app);
                 self.sync_game_visibility(app);
                 if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
@@ -4399,7 +4547,7 @@ impl OverlayHost {
                     }
                     if restore {
                         let _ = window_platform::apply(&window, "blur", &Value::Null);
-                        self.restore_game_focus();
+                        self.restore_game_focus(app);
                     }
                     let _ = window_platform::apply(&window, "moveTop", &Value::Null);
                 }
@@ -4656,17 +4804,13 @@ impl OverlayHost {
                 true
             }
             "open-ai-settings" | "open-gsm-profile-settings" => {
-                if let Some(hub) = desktop_state::find_hub_window(app) {
-                    let _ = hub.show();
-                    let _ = desktop_state::focus_window(&hub);
-                }
-                if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
-                    let _ = tx.send(Ws2Outbound::Direct(json!({
-                        "type": "open-gsm-settings",
-                        "root_tab_key": "profiles",
-                        "subtab_key": if channel == "open-ai-settings" { "ai" } else { "" }
-                    })));
-                }
+                let tab = if channel == "open-ai-settings" { "ai" } else { "profiles" };
+                let handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(error) = crate::mining_settings::open(&handle, tab.into(), String::new()).await {
+                        crate::desktop_log::warn(&handle, "settings", error);
+                    }
+                });
                 true
             }
             "overlay-select-ocr-area" => {
@@ -4710,7 +4854,7 @@ impl OverlayHost {
             "request-live-stats-today" => {
                 if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
                     let _ = tx.send(Ws2Outbound::Direct(
-                        json!({ "type": "get-live-stats-today" }),
+                        json!({ "type": "get-live-stats-today", "reason": first["reason"] }),
                     ));
                 }
                 true
@@ -4744,15 +4888,11 @@ impl OverlayHost {
                 if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
                     let _ = window_platform::apply(&win, "blur", &Value::Null);
                 }
-                if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
-                    let _ = tx.send(Ws2Outbound::Direct(
-                        json!({ "type": "restore-focus-request" }),
-                    ));
-                }
+                self.restore_game_focus(app);
                 true
             }
             "gamepad-forward-enter" | "gamepad-forward-key" | "gamepad-forward-click" => {
-                self.forward_game_input(channel, &first);
+                self.forward_game_input(channel, &first, |message| self.deliver_game_input(app, message));
                 true
             }
             "gamepad-translate" => {
@@ -5111,35 +5251,10 @@ impl OverlayHost {
                 .await;
                 Some(res)
             }
-            "overlay-vita-model" | "overlay-meiki-model" => {
-                let single_port = self.inner.lock().unwrap().single_port;
-                let endpoint = if channel == "overlay-vita-model" {
-                    format!("http://127.0.0.1:{single_port}/api/ocr/vita-model")
-                } else {
-                    format!("http://127.0.0.1:{single_port}/api/ocr/meiki-model")
-                };
-                let http = Self::http_client(app);
-                let has_model = first.get("model").is_some_and(|v| !v.is_null());
-                let res = async move {
-                    let req = if has_model {
-                        http.post(&endpoint).json(&first)
-                    } else {
-                        http.get(&endpoint)
-                    };
-                    let resp = req
-                        .timeout(Duration::from_secs(120))
-                        .send()
-                        .await
-                        .map_err(|e| format!("Failed contacting model endpoint: {e}"))?;
-                    let body: Value = resp
-                        .json()
-                        .await
-                        .map_err(|e| format!("Invalid model API JSON: {e}"))?;
-                    Ok(body)
-                }
-                .await;
-                Some(res)
-            }
+            "overlay-meiki-model" => Some(crate::ocr_coordinator::meiki::invoke(app,
+                if first["model"].is_null() { json!({}) } else { first }).await),
+            "overlay-vita-model" => Some(crate::ocr_coordinator::vocr::invoke(app,
+                if first["model"].is_null() { json!({}) } else { first }).await),
             "sudachi-setup" => {
                 let port = {
                     let inner = self.inner.lock().unwrap();
@@ -5231,6 +5346,30 @@ mod tests {
     }
 
     #[test]
+    fn automatic_overlay_reveals_on_first_showable_capture_without_text() {
+        let mut inner = OverlayInner::default();
+        inner.user_settings.insert("platformOverride".into(), json!("win32"));
+        inner.startup_hidden = true;
+        for (state, available) in [("closed", false), ("obscured", true)] {
+            inner.game_state.state = state.into();
+            OverlayHost::set_capture_available(&mut inner, available);
+            assert!(inner.startup_hidden);
+        }
+        inner.game_state.state = "active".into();
+        inner.user_settings.insert("manualMode".into(), json!(true));
+        OverlayHost::set_capture_available(&mut inner, true);
+        assert!(inner.startup_hidden);
+        inner.user_settings.insert("manualMode".into(), json!(false));
+        OverlayHost::set_capture_available(&mut inner, true);
+        assert!(!inner.startup_hidden);
+    }
+
+    fn send_test_input(host: &OverlayHost, message: Value) {
+        host.inner.lock().unwrap().ws2_tx.as_ref().unwrap()
+            .send(Ws2Outbound::Direct(message)).unwrap();
+    }
+
+    #[test]
     fn forwarded_game_input_works_outside_navigation_and_after_navigation_exit() {
         let (host, mut rx) = game_input_host();
         for navigation_active in [false, true, false] {
@@ -5245,7 +5384,7 @@ mod tests {
                     ("gamepad-forward-key", json!("escape"), json!("escape")),
                     ("gamepad-forward-click", Value::Null, Value::Null),
                 ] {
-                    host.forward_game_input(channel, &first);
+                    host.forward_game_input(channel, &first, |m| send_test_input(&host, m));
                     let Ws2Outbound::Direct(message) = rx.try_recv().unwrap_or_else(|error| {
                         panic!("{channel} was not forwarded with navigation={navigation_active}, state={state}: {error}")
                     }) else {
@@ -5283,7 +5422,7 @@ mod tests {
                     ("gamepad-forward-key", json!("space")),
                     ("gamepad-forward-click", Value::Null),
                 ] {
-                    host.forward_game_input(channel, &first);
+                    host.forward_game_input(channel, &first, |m| send_test_input(&host, m));
                     assert!(rx.try_recv().is_err(), "Forwarded {channel} while {blocked}");
                 }
             }
@@ -5296,7 +5435,7 @@ mod tests {
         for navigation_active in [false, true] {
             host.inner.lock().unwrap().navigation_active = navigation_active;
             for key in [Value::Null, json!(""), json!("a"), json!("F4"), json!(13)] {
-                host.forward_game_input("gamepad-forward-key", &key);
+                host.forward_game_input("gamepad-forward-key", &key, |m| send_test_input(&host, m));
                 assert!(rx.try_recv().is_err());
             }
         }
@@ -5315,8 +5454,8 @@ mod tests {
         assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "Navigation owns input before the renderer replies");
         assert_eq!(OverlayHost::reveal_transition(&mut inner), Some(true));
         assert_eq!(OverlayHost::reveal_transition(&mut inner), None, "Focus and state events must not repeat reveal/scan");
-        inner.manual_hotkey.handle_press(false);
-        inner.manual_hotkey.handle_release(false);
+        inner.manual_hotkey.signal(ManualModeType::Hold, true, false);
+        inner.manual_hotkey.signal(ManualModeType::Hold, false, false);
         assert!(OverlayHost::interaction_active(&inner), "Releasing the hotkey must preserve controller navigation");
         assert_eq!(OverlayHost::reveal_transition(&mut inner), None);
         inner.navigation_active = false;
@@ -5380,7 +5519,9 @@ mod tests {
         inner.user_settings.insert("manualMode".into(), json!(true));
         assert!(!OverlayHost::routes_text_hover(&inner));
         assert!(OverlayHost::mouse_policy(&inner).0);
-        inner.manual_hotkey.handle_press(false);
+        // Inactive manual mode and mouseleave both leave this value set.
+        inner.text_hover_ignoring = Some(true);
+        inner.manual_hotkey.signal(ManualModeType::Hold, true, false);
         assert!(!OverlayHost::mouse_policy(&inner).0);
         inner.capture_available = Some(false);
         inner.yomitan_showing = true;
@@ -5411,13 +5552,14 @@ mod tests {
 
     #[test]
     fn repeated_native_keydown_does_not_toggle_off_until_released() {
+        use ManualHotkeyAction::SetActive;
         let mut machine = ManualHotkeyMachine::default();
-        assert_eq!(machine.handle_tauri_shortcut_signal(true, true), Some(true));
-        assert_eq!(machine.handle_tauri_shortcut_signal(true, true), None);
-        assert_eq!(machine.handle_tauri_shortcut_signal(true, false), None);
+        assert_eq!(machine.signal(ManualModeType::Toggle, true, false), Some(SetActive(true)));
+        assert_eq!(machine.signal(ManualModeType::Toggle, true, false), None);
+        assert_eq!(machine.signal(ManualModeType::Toggle, false, false), None);
         assert_eq!(
-            machine.handle_tauri_shortcut_signal(true, true),
-            Some(false)
+            machine.signal(ManualModeType::Toggle, true, false),
+            Some(SetActive(false))
         );
     }
 
@@ -5472,22 +5614,146 @@ mod tests {
     }
 
     #[test]
+    fn hybrid_release_depends_on_a_visible_popup_and_the_physical_key() {
+        use ManualHotkeyAction::{CheckPopup, SetActive};
+        let mut m = ManualHotkeyMachine::default();
+        let mode = ManualModeType::Hybrid;
+        assert_eq!(m.signal(mode, true, false), Some(SetActive(true)));
+        assert_eq!(m.signal(mode, false, false), Some(CheckPopup(1)));
+        assert!(m.active);
+        assert!(m.finish_popup_check(1, mode, false));
+        assert!(!m.popup_closed(mode));
+        assert_eq!(m.signal(mode, true, false), Some(SetActive(true)));
+        assert_eq!(m.signal(mode, false, false), Some(CheckPopup(2)));
+        assert!(!m.finish_popup_check(2, mode, true), "popup already painted in renderer");
+        assert!(!m.finish_popup_check(1, mode, false), "reply from a previous hold");
+        assert!(m.active);
+        assert_eq!(m.signal(mode, true, true), None);
+        assert!(!m.popup_closed(mode), "a second hold owns the reveal");
+        assert_eq!(m.signal(mode, false, true), None);
+        assert!(m.popup_closed(mode));
+        assert!(!m.popup_closed(mode));
+        assert!(!m.active);
+    }
+
+    #[test]
     fn manual_hotkey_machine_handles_hold_and_toggle_modes() {
+        use ManualHotkeyAction::SetActive;
         let mut m = ManualHotkeyMachine::default();
         // Hold mode
-        assert_eq!(m.handle_press(false), Some(true));
-        assert_eq!(m.handle_press(false), None); // idempotent repeat
-        assert!(m.is_active(false));
-        assert_eq!(m.handle_release(false), Some(false));
-        assert!(!m.is_active(false));
+        assert_eq!(m.signal(ManualModeType::Hold, true, false), Some(SetActive(true)));
+        assert_eq!(m.signal(ManualModeType::Hold, true, false), None); // idempotent repeat
+        assert!(m.active);
+        assert_eq!(m.signal(ManualModeType::Hold, false, false), Some(SetActive(false)));
+        assert!(!m.active);
 
         // Toggle mode
-        assert_eq!(m.handle_press(true), Some(true));
-        assert_eq!(m.handle_release(true), None);
-        assert!(m.is_active(true));
-        assert_eq!(m.handle_press(true), Some(false));
-        assert_eq!(m.handle_release(true), None);
-        assert!(!m.is_active(true));
+        assert_eq!(m.signal(ManualModeType::Toggle, true, false), Some(SetActive(true)));
+        assert_eq!(m.signal(ManualModeType::Toggle, false, false), None);
+        assert!(m.active);
+        assert_eq!(m.signal(ManualModeType::Toggle, true, false), Some(SetActive(false)));
+        assert_eq!(m.signal(ManualModeType::Toggle, false, false), None);
+        assert!(!m.active);
+    }
+
+    #[test]
+    fn manual_hotkey_focus_policy_distinguishes_modifiers_from_other_bindings() {
+        use ManualHotkeyAction::SetActive;
+        for (hotkey, modifier_only) in [
+            ("Shift", true),
+            ("Ctrl+Alt", true),
+            ("Shift+Space", false),
+            ("Mouse4", false),
+        ] {
+            for strict in [None, Some(true), Some(false)] {
+                let mut inner = OverlayInner::default();
+                inner.game_state.state = "background".into();
+                inner
+                    .user_settings
+                    .insert("showHotkey".into(), json!(hotkey));
+                if let Some(value) = strict {
+                    inner
+                        .user_settings
+                        .insert("requireGameFocusForPushToShow".into(), json!(value));
+                } else {
+                    inner.user_settings.remove("requireGameFocusForPushToShow");
+                }
+                let allowed = strict == Some(false) && !modifier_only;
+                assert_eq!(
+                    OverlayHost::manual_hotkey_signal(&mut inner, true, || false),
+                    allowed.then_some(SetActive(true))
+                );
+                assert_eq!(
+                    OverlayHost::manual_hotkey_signal(&mut inner, true, || true),
+                    None,
+                    "a repeat cannot activate after focus returns"
+                );
+                assert_eq!(
+                    OverlayHost::manual_hotkey_signal(&mut inner, false, || unreachable!()),
+                    allowed.then_some(SetActive(false))
+                );
+                assert_eq!(
+                    OverlayHost::manual_hotkey_signal(&mut inner, true, || true),
+                    Some(SetActive(true))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn focused_overlay_can_dismiss_or_continue_an_existing_manual_activation() {
+        use ManualHotkeyAction::SetActive;
+        for mode in ["hold", "toggle", "hybrid"] {
+            let mut inner = OverlayInner::default();
+            inner.game_state.state = "active".into();
+            inner
+                .user_settings
+                .insert("manualModeType".into(), json!(mode));
+            inner.user_settings.insert("showHotkey".into(), json!("Shift"));
+            inner.overlay_focused = true;
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, true, || false),
+                None,
+                "overlay focus alone cannot open Push to Show"
+            );
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, false, || unreachable!()),
+                None
+            );
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, true, || true),
+                Some(SetActive(true))
+            );
+
+            inner.game_state.state = "obscured".into();
+            inner.yomitan_showing = mode == "hybrid";
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, false, || unreachable!()),
+                (mode == "hold").then_some(SetActive(false))
+            );
+            if mode == "hold" {
+                continue;
+            }
+
+            assert!(inner.manual_hotkey.active);
+            inner.game_state.state = "background".into();
+            inner.overlay_focused = false;
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, true, || false),
+                None,
+                "a shortcut in another app cannot dismiss an active overlay"
+            );
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, false, || unreachable!()),
+                None
+            );
+            inner.overlay_focused = true;
+            assert_eq!(
+                OverlayHost::manual_hotkey_signal(&mut inner, true, || false),
+                (mode == "toggle").then_some(SetActive(false))
+            );
+            assert_eq!(inner.manual_hotkey.active, mode == "hybrid");
+        }
     }
 
     #[test]
@@ -5507,25 +5773,25 @@ mod tests {
             "is_final": true,
             "data": [{"text": "日本語"}],
         });
-        assert!(OverlayHost::should_forward_native_result(&base));
+        assert!(OverlayHost::is_unbacked_scan(&base));
 
         // Text-driven scans originated in Python: never bounce them back.
         let mut with_line_id = base.clone();
         with_line_id["line_id"] = json!("hook-line-1");
-        assert!(!OverlayHost::should_forward_native_result(&with_line_id));
+        assert!(!OverlayHost::is_unbacked_scan(&with_line_id));
 
         // Partial scans, coordinate-only reprojections, and empty scans stay in Rust.
         let mut partial = base.clone();
         partial["is_final"] = json!(false);
-        assert!(!OverlayHost::should_forward_native_result(&partial));
+        assert!(!OverlayHost::is_unbacked_scan(&partial));
 
         let mut reprojected = base.clone();
         reprojected["coordinates_only"] = json!(true);
-        assert!(!OverlayHost::should_forward_native_result(&reprojected));
+        assert!(!OverlayHost::is_unbacked_scan(&reprojected));
 
         let mut empty = base.clone();
         empty["data"] = json!([{"text": "   "}]);
-        assert!(!OverlayHost::should_forward_native_result(&empty));
+        assert!(!OverlayHost::is_unbacked_scan(&empty));
     }
 
     #[test]
@@ -5556,8 +5822,8 @@ mod tests {
         let mut m = ManualHotkeyMachine::default();
         let started = Instant::now();
         for _ in 0..10_000 {
-            let _ = m.handle_press(false);
-            let _ = m.handle_release(false);
+            let _ = m.signal(ManualModeType::Hold, true, false);
+            let _ = m.signal(ManualModeType::Hold, false, false);
         }
         let elapsed = started.elapsed();
         println!(

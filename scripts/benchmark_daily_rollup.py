@@ -36,7 +36,8 @@ def prepare_rollup(db, case):
     ReadingBreaksTable.set_db(db)
     for table in (WordsTable, KanjiTable, WordOccurrencesTable, KanjiOccurrencesTable):
         table.set_db(db)
-    db.execute("ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0", commit=True)
+    if "tokenized" not in {row[1] for row in db.fetchall("PRAGMA table_info(game_lines)")}:
+        db.execute("ALTER TABLE game_lines ADD COLUMN tokenized INTEGER DEFAULT 0", commit=True)
     db.execute("CREATE INDEX IF NOT EXISTS rollup_fixture_time ON game_lines(timestamp)", commit=True)
     create_tokenization_indexes(db)
     ensure_archive_schema(db)

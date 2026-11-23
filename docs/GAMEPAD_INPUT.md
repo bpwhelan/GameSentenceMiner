@@ -71,7 +71,11 @@ to press the manual hotkey separately before activating navigation. With
 **Keep overlay visible, disable interaction**, text stays visible, and activation
 enables interaction.
 
-The manual hotkey uses the hold/toggle type in Push to Show. Navigation uses its
+Push to Show enables the transparent lookup targets over the game's own text.
+**Hold** ends the lookup when you release the hotkey. **Hybrid**
+keeps the overlay interactive after release while a dictionary popup is visible.
+Closing the last popup returns you to the game. **Toggle** stays active until
+you press the hotkey again. Navigation uses its
 own activation mode and bindings in Gamepad settings. Leaving navigation restores
 the inactive behavior unless the manual hotkey is still active.
 

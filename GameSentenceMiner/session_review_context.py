@@ -109,6 +109,29 @@ def poll(*, lines=None, now=None, config=None, scene=None):
                 continue
             ready.append(replace(pending, future_lines=tuple(_line_entry(line, "context") for line in following)))
     if ready:
+        from GameSentenceMiner.native import mining as native_mining
+
+        if native_mining.native_mining_enabled():
+            from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+
+            payload_targets = [
+                {
+                    "entry_id": pending.entry.id,
+                    "original_lines": list(pending.manifest.get("lines") or []),
+                    "future_lines": list(pending.future_lines),
+                }
+                for pending in ready
+            ]
+
+            def _capture_native():
+                try:
+                    native_mining.session_review_capture_future_replay(payload_targets)
+                except Exception:  # noqa: BLE001 - Optional capture must not interfere with mining.
+                    logger.exception("Could not capture future review context; keeping the original replay.")
+
+            submit_background_work(_capture_native)
+            return
+
         future = request_session_review_replay(ready)
 
         def completed(result):

@@ -23,7 +23,9 @@ import { GpuSettings } from "./GpuSettings";
 import { NotificationSettings } from "./NotificationSettings";
 import { PythonSettings } from "./PythonSettings";
 import { ResourceUsage } from "./ResourceUsage";
+import { MiningSettings } from "./MiningSettings";
 import { ObsUpdates } from "./ObsUpdates";
+import { DictionarySettings } from "./DictionarySettings";
 import {
   SETTINGS_BACKUP_CATEGORY_IDS,
   type SettingsBackupCategoryId,
@@ -99,15 +101,17 @@ const STATS_ENDPOINT_OPTIONS = [
   { value: "search", labelKey: "settings.workspace.statsSearch" },
 ];
 
-type SettingsView = "general" | "notifications" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage" | "resources";
+type SettingsView = "dictionary" | "obs" | "general" | "notifications" | "gpu" | "python" | "layout" | "updates" | "backups" | "storage" | "resources";
 const SETTINGS_VIEWS = [
   {
     id: "general",
     labelKey: "settings.workspace.general",
   },
+  { id: "dictionary", labelKey: "settings.dictionary.title" },
   { id: "layout", labelKey: "settings.workspace.layout" },
   { id: "notifications", labelKey: "settings.notifications.title" },
   { id: "gpu", labelKey: "settings.gpu.title" },
+  { id: "obs", labelKey: "mining.sections.obs" },
   { id: "updates", labelKey: "settings.updates.title" },
   { id: "backups", labelKey: "settings.backup.title" },
   { id: "python", labelKey: "settings.python.title" },
@@ -118,6 +122,7 @@ const SETTINGS_VIEWS = [
   },
 ] as const;
 const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: string }> = {
+  "desktop-dictionary": { view: "dictionary", focusId: "settings-view-dictionary" },
   "desktop-notifications": { view: "notifications", focusId: "settings-view-notifications" },
   "desktop-appearance-startup": { view: "general", focusId: "icon-style" },
   "desktop-tabs-and-stats": { view: "layout", focusId: "settings-view-layout" },
@@ -506,19 +511,34 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
+  const pythonBackend = window.gsmEnv?.pythonBackend !== false;
   const hasResourceUsage = isWindows && window.gsmEnv?.shell === "tauri" && Boolean(window.__GSM_INVOKE__);
   const backupSelectionTree = useMemo(() => getBackupSelectionTree(isWindows), [isWindows]);
   const [currentLocale, setCurrentLocale] = useLocale();
 
   const [workspaceView, setWorkspaceView] = useState<SettingsView>("general");
+  const nativeEditor = window.gsmEnv?.shell === "tauri";
+  const [obsVisited, setObsVisited] = useState(false);
   useEffect(() => {
+    const open = () => {
+      setWorkspaceView("obs");
+      setSettingsSearchQuery("");
+    };
+    window.addEventListener("gsm-open-obs-settings", open);
+    return () => window.removeEventListener("gsm-open-obs-settings", open);
+  }, []);
+  useEffect(() => {
+    if (workspaceView === "obs") setObsVisited(true);
+  }, [workspaceView]);
+  useEffect(() => {
+    if (!pythonBackend) return;
     const openPython = () => {
       setWorkspaceView("python");
       setSettingsSearchQuery("");
     };
     window.addEventListener("gsm-open-python-settings", openPython);
     return () => window.removeEventListener("gsm-open-python-settings", openPython);
-  }, []);
+  }, [pythonBackend]);
   const pendingFocusRef = useRef<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [customPackageDraft, setCustomPackageDraft] = useState(
@@ -959,16 +979,23 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   const combinedUpdateError = updateMessage || updateStatus.backend.error || updateStatus.app.error;
   const localizedCatalogEntries = useMemo(
     () =>
-      SETTINGS_CATALOG.map((entry) => {
+      SETTINGS_CATALOG
+        .filter(entry => pythonBackend || !["desktop-python", "desktop-gpu"].includes(entry.id))
+        .filter(entry => nativeEditor || entry.id !== "desktop-dictionary")
+        .map((entry) => {
         const i18nKey = SETTINGS_CATALOG_I18N_KEYS[entry.id];
         return {
           ...entry,
+          ...(nativeEditor && entry.id === "gsm-obs" && {
+            owner: "electron" as const,
+            openAction: { type: "current-tab" as const, label: entry.label },
+          }),
           label: t(`settings.catalog.${i18nKey}.label`),
           shortDescription: t(`settings.catalog.${i18nKey}.description`),
-          notes: entry.notes ? t(`settings.catalog.${i18nKey}.notes`) : undefined,
+          notes: entry.notes && !(nativeEditor && entry.openAction.type === "open-gsm-settings") ? t(`settings.catalog.${i18nKey}.notes`) : undefined,
         };
       }),
-    [currentLocale, t],
+    [currentLocale, t, pythonBackend, nativeEditor],
   );
   const filteredCatalogEntries = useMemo(
     () => filterSettingsCatalogEntries(localizedCatalogEntries, settingsSearchQuery),
@@ -1017,6 +1044,10 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
     setHubMessage(null);
   };
   const openCatalogEntry = async (entry: SettingsCatalogEntry) => {
+    if (nativeEditor && entry.id === "gsm-obs") {
+      navigateWorkspace("obs");
+      return;
+    }
     const target = LOCAL_SETTINGS_TARGETS[entry.id];
     if (entry.openAction.type === "current-tab" && target) {
       pendingFocusRef.current = target.focusId;
@@ -1061,6 +1092,8 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
           <WorkspaceNavigation
             prefix="settings"
             items={SETTINGS_VIEWS
+              .filter((view) => pythonBackend || (view.id !== "gpu" && view.id !== "python"))
+              .filter((view) => nativeEditor || (view.id !== "obs" && view.id !== "dictionary"))
               .filter((view) => view.id !== "resources" || hasResourceUsage)
               .map((view) => ({ id: view.id, label: t(view.labelKey) }))}
             value={hasSearchQuery ? null : workspaceView}
@@ -1116,15 +1149,29 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
             ) : null}
           </header>
           <div className="ws-pages">
+            {nativeEditor && <section
+              id="settings-view-dictionary"
+              className="ws-view"
+              role="tabpanel"
+              aria-labelledby="settings-nav-dictionary"
+              hidden={hasSearchQuery || workspaceView !== "dictionary"}
+              tabIndex={0}
+            >
+              <DictionarySettings active={active && !hasSearchQuery && workspaceView === "dictionary"} />
+            </section>}
+            <section id="settings-view-obs" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-obs"
+              hidden={hasSearchQuery || workspaceView !== "obs"}>
+              {nativeEditor && obsVisited && <MiningSettings obsOnly />}
+            </section>
             <section id="settings-view-notifications" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-notifications"
               hidden={hasSearchQuery || workspaceView !== "notifications"} tabIndex={0}>
               <NotificationSettings active={active && !hasSearchQuery && workspaceView === "notifications"} />
             </section>
-            <section id="settings-view-gpu" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-gpu"
+            {pythonBackend && <section id="settings-view-gpu" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-gpu"
               hidden={hasSearchQuery || workspaceView !== "gpu"} tabIndex={0}>
               <GpuSettings active={active && !hasSearchQuery && workspaceView === "gpu"} />
-            </section>
-            <section
+            </section>}
+            {pythonBackend && <section
               id="settings-view-python"
               className="ws-view"
               role="tabpanel"
@@ -1136,7 +1183,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                 active={active && !hasSearchQuery && workspaceView === "python"}
                 onRequestConsole={onRequestConsole}
               />
-            </section>
+            </section>}
             {hasResourceUsage && (
               <section
                 id="settings-view-resources"
@@ -1341,7 +1388,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                         type="button"
                         className="launcher-docs-button secondary settings-hub-quick-link"
                         onClick={() => {
-                          void handleCatalogAction(entry.openAction);
+                          void openCatalogEntry(entry);
                         }}
                       >
                         <span>{entry.label}</span>
@@ -1459,10 +1506,10 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                   </div>
 
                   <div className="settings-update-panel">
-                    <p className="muted">{t("settings.updates.description")}</p>
+                    {pythonBackend && <p className="muted">{t("settings.updates.description")}</p>}
 
                     <div className="update-version-list">
-                      <div className="update-version-row">
+                      {pythonBackend && <div className="update-version-row">
                         <div>
                           <strong>{t("settings.updates.backend")}</strong>
                           <div className="update-version-meta">
@@ -1494,11 +1541,11 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                             </span>
                           )}
                         </div>
-                      </div>
+                      </div>}
 
                       <div className="update-version-row">
                         <div>
-                          <strong>{t("settings.updates.electronApp")}</strong>
+                          <strong>{t("settings.updates.desktopApp")}</strong>
                           <div className="update-version-meta">
                             {t("settings.updates.current", {
                               version: getDisplayCurrentVersion(updateStatus.app),
@@ -1883,7 +1930,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                             <span
                               className={`settings-owner-pill settings-owner-pill--${entry.owner}`}
                             >
-                              {t(LOCATION_I18N_KEYS[entry.owner])}
+                                {t(nativeEditor && entry.openAction.type === "open-gsm-settings" ? "mining.title" : LOCATION_I18N_KEYS[entry.owner])}
                             </span>
                           </div>
                           <p className="muted settings-directory-description">

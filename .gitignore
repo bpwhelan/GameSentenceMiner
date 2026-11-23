@@ -172,7 +172,15 @@ electron-src/assets/prerelease.json
 /.tmp-ocr-benchmark/
 /src-tauri/gen/
 /build/native-desktop/
+/build/desktop-qt/
 /build/size-audit/
+/build/gsm-python-audit-*/
+/build/mining-settings-preview/
+/src-tauri/.tmp-ocr-benchmark/
+
+# The desktop uses npm. Texthooker tracks its own pnpm lockfile.
+/pnpm-lock.yaml
+/pnpm-workspace.yaml
 
 /native/gsm-capture/target/
 

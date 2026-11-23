@@ -73,7 +73,7 @@ def test_first_use_installs_prebuilt_runtime_and_model_without_build_tools(downl
     import subprocess
 
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: pytest.fail("Installation must never compile"))
-    installer.ensure_installation(downloads.directory, model="large")
+    installer.ensure_installation(downloads.directory, backend="c", model="large")
     assert vita_ocr.read_installation(downloads.directory)["model"] == "large"
     runtime = installer.get_runtime_directory(downloads.directory)
     assert runtime != downloads.directory
@@ -84,7 +84,7 @@ def test_first_use_installs_prebuilt_runtime_and_model_without_build_tools(downl
     assert "normal.vocr" not in downloads.calls
     assert (downloads.directory / finder.SPOTTER_ATTRIBUTION).is_file()
     downloads.calls.clear()
-    installer.ensure_installation(downloads.directory)
+    installer.ensure_installation(downloads.directory, backend="c")
     assert downloads.calls == []
     assert vita_ocr.read_installation(downloads.directory)["model"] == "large"
 
@@ -92,7 +92,7 @@ def test_first_use_installs_prebuilt_runtime_and_model_without_build_tools(downl
 def test_detector_only_setup_never_downloads_or_changes_recognizer(downloads):
     vita_ocr.write_installation(downloads.directory, "large")
     before = (downloads.directory / "installation.json").read_bytes()
-    installer.ensure_installation(downloads.directory, detector_only=True)
+    installer.ensure_installation(downloads.directory, backend="c", detector_only=True)
     assert not any(name.endswith(".vocr") for name in downloads.calls)
     assert (downloads.directory / "installation.json").read_bytes() == before
     assert installer.runtime_installed(downloads.directory)
@@ -114,7 +114,7 @@ def test_failed_install_preserves_previous_choice_and_can_retry(downloads, monke
             installer, "validate_installation", lambda *a, **kw: (_ for _ in ()).throw(OSError("bad DLL"))
         )
     with pytest.raises((OSError, ValueError)):
-        installer.ensure_installation(downloads.directory, model="large")
+        installer.ensure_installation(downloads.directory, backend="c", model="large")
     assert (downloads.directory / "installation.json").read_bytes() == before
     assert not list(downloads.directory.rglob("*.download"))
     if failure == "checksum":
@@ -122,13 +122,13 @@ def test_failed_install_preserves_previous_choice_and_can_retry(downloads, monke
     elif failure == "network":
         monkeypatch.setattr(installer, "download_file", download)
     monkeypatch.setattr(installer, "validate_installation", validate)
-    installer.ensure_installation(downloads.directory, model="large")
+    installer.ensure_installation(downloads.directory, backend="c", model="large")
     assert vita_ocr.read_installation(downloads.directory)["model"] == "large"
 
 
 def test_parallel_first_use_downloads_each_asset_once(downloads):
     with ThreadPoolExecutor(max_workers=2) as workers:
-        list(workers.map(lambda _: installer.ensure_installation(downloads.directory), range(2)))
+        list(workers.map(lambda _: installer.ensure_installation(downloads.directory, backend="c"), range(2)))
     assert len(downloads.calls) == len(set(downloads.calls))
     assert vita_ocr.read_installation(downloads.directory)["model"] == "normal"
 
@@ -141,7 +141,7 @@ def test_verified_archive_cannot_write_outside_runtime_directory(downloads, monk
     downloads.assets["vocr-runtime-win32-x64.zip"] = data
     monkeypatch.setattr(installer, "RUNTIME_ASSETS", {"win32-x64": hashlib.sha256(data).hexdigest()})
     with pytest.raises(ValueError, match="archive"):
-        installer.ensure_installation(downloads.directory)
+        installer.ensure_installation(downloads.directory, backend="c")
     assert not (downloads.directory / "installation.json").exists()
     assert not list(downloads.directory.parent.glob("escaped.dll"))
 
@@ -149,7 +149,7 @@ def test_verified_archive_cannot_write_outside_runtime_directory(downloads, monk
 def test_unsupported_platform_is_actionable_and_never_downloads(downloads, monkeypatch):
     monkeypatch.setattr(installer, "platform_key", lambda: "unsupported")
     with pytest.raises(RuntimeError, match="not available"):
-        installer.ensure_installation(downloads.directory)
+        installer.ensure_installation(downloads.directory, backend="c")
     assert downloads.calls == []
 
 
@@ -157,5 +157,5 @@ def test_status_check_never_starts_a_download(downloads, monkeypatch):
     from GameSentenceMiner.ocr import vita_model_manager as manager
 
     monkeypatch.setattr(manager, "get_install_directory", lambda: downloads.directory)
-    assert manager.get_model_status()["available"] is False
+    assert manager.get_model_status()["backend"] == "onnx"
     assert downloads.calls == []

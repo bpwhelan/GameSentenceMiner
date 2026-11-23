@@ -1,0 +1,521 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "source_sha256": "03075ede4e0cf0b17da358b78b1c75a173d45496db474883522ede50859c725f",
+  "python_extension_sha256": "039dc8e8cfec025dca03c98cc42c8caf88c19fbcb85df389a9d0ca16e05fe736",
+  "rust_worker_sha256": "4d07d22d3bd06a0190327a54d26b0e0f8b1fbf4ac4ed731fb6e0f9bc34d2a0d6",
+  "workloads": {
+    "enable": {
+      "calls": 1,
+      "samples": {
+        "rust": [
+          {
+            "ms": 4.0334,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.0
+          },
+          {
+            "ms": 3.7935,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.00390625
+          },
+          {
+            "ms": 4.5053,
+            "cpu_ms": 15.625,
+            "resident_mib": 6.00390625
+          },
+          {
+            "ms": 4.2625,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.0
+          },
+          {
+            "ms": 4.276000000000001,
+            "cpu_ms": 15.625,
+            "resident_mib": 6.0078125
+          }
+        ],
+        "python": [
+          {
+            "ms": 17.64460001140833,
+            "cpu_ms": 0.0,
+            "resident_mib": 41.21875
+          },
+          {
+            "ms": 15.973700035829097,
+            "cpu_ms": 0.0,
+            "resident_mib": 41.69140625
+          },
+          {
+            "ms": 15.997299982700497,
+            "cpu_ms": 0.0,
+            "resident_mib": 41.76953125
+          },
+          {
+            "ms": 17.97159999841824,
+            "cpu_ms": 0.0,
+            "resident_mib": 41.6640625
+          },
+          {
+            "ms": 17.379799974150956,
+            "cpu_ms": 15.625,
+            "resident_mib": 41.5546875
+          }
+        ]
+      },
+      "rust": {
+        "ms": 4.2625,
+        "cpu_ms": 0.0,
+        "resident_mib": 6.0039
+      },
+      "python": {
+        "ms": 17.3798,
+        "cpu_ms": 0.0,
+        "resident_mib": 41.6641
+      }
+    },
+    "enabled": {
+      "calls": 40,
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.06898,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.00390625
+          },
+          {
+            "ms": 0.06439500000000001,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.0078125
+          },
+          {
+            "ms": 0.06745999999999999,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.0078125
+          },
+          {
+            "ms": 0.06606999999999999,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.00390625
+          },
+          {
+            "ms": 0.06653,
+            "cpu_ms": 0.0,
+            "resident_mib": 6.01171875
+          }
+        ],
+        "python": [
+          {
+            "ms": 1.1158400011481717,
+            "cpu_ms": 0.78125,
+            "resident_mib": 41.76171875
+          },
+          {
+            "ms": 1.1328874999890104,
+            "cpu_ms": 1.5625,
+            "resident_mib": 42.25390625
+          },
+          {
+            "ms": 1.1145099997520447,
+            "cpu_ms": 1.171875,
+            "resident_mib": 42.3203125
+          },
+          {
+            "ms": 1.1981574993114918,
+            "cpu_ms": 1.5625,
+            "resident_mib": 42.2109375
+          },
+          {
+            "ms": 1.2253100008820184,
+            "cpu_ms": 0.78125,
+            "resident_mib": 42.109375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 0.0665,
+        "cpu_ms": 0.0,
+        "resident_mib": 6.0078
+      },
+      "python": {
+        "ms": 1.1329,
+        "cpu_ms": 1.1719,
+        "resident_mib": 42.2109
+      }
+    },
+    "fresh": {
+      "calls": 1,
+      "samples": {
+        "rust": [
+          {
+            "ms": 1070.6698999999999,
+            "cpu_ms": 1031.25,
+            "resident_mib": 46.01171875
+          },
+          {
+            "ms": 1038.6423,
+            "cpu_ms": 968.75,
+            "resident_mib": 45.98828125
+          },
+          {
+            "ms": 1057.4124,
+            "cpu_ms": 1031.25,
+            "resident_mib": 46.00390625
+          },
+          {
+            "ms": 1019.8990000000001,
+            "cpu_ms": 1000.0,
+            "resident_mib": 46.01953125
+          },
+          {
+            "ms": 1137.7295000000001,
+            "cpu_ms": 968.75,
+            "resident_mib": 46.0
+          }
+        ],
+        "python": [
+          {
+            "ms": 3361.1917000380345,
+            "cpu_ms": 3296.875,
+            "resident_mib": 199.5
+          },
+          {
+            "ms": 4268.932600039989,
+            "cpu_ms": 4156.25,
+            "resident_mib": 199.45703125
+          },
+          {
+            "ms": 3378.252199967392,
+            "cpu_ms": 3328.125,
+            "resident_mib": 199.93359375
+          },
+          {
+            "ms": 3502.6246999623254,
+            "cpu_ms": 3421.875,
+            "resident_mib": 199.89453125
+          },
+          {
+            "ms": 3326.72819995787,
+            "cpu_ms": 3250.0,
+            "resident_mib": 199.46484375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 1057.4124,
+        "cpu_ms": 1000.0,
+        "resident_mib": 46.0039
+      },
+      "python": {
+        "ms": 3378.2522,
+        "cpu_ms": 3328.125,
+        "resident_mib": 199.5
+      }
+    },
+    "reopen": {
+      "calls": 1,
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.3239,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.01171875
+          },
+          {
+            "ms": 0.4451,
+            "cpu_ms": 0.0,
+            "resident_mib": 45.98828125
+          },
+          {
+            "ms": 0.31789999999999996,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.00390625
+          },
+          {
+            "ms": 0.3141,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.01953125
+          },
+          {
+            "ms": 0.3302,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.0
+          }
+        ],
+        "python": [
+          {
+            "ms": 3.556300012860447,
+            "cpu_ms": 15.625,
+            "resident_mib": 199.5
+          },
+          {
+            "ms": 3.4362999722361565,
+            "cpu_ms": 15.625,
+            "resident_mib": 199.45703125
+          },
+          {
+            "ms": 3.2399000483565032,
+            "cpu_ms": 15.625,
+            "resident_mib": 199.93359375
+          },
+          {
+            "ms": 3.3617999870330095,
+            "cpu_ms": 15.625,
+            "resident_mib": 199.89453125
+          },
+          {
+            "ms": 5.361599964089692,
+            "cpu_ms": 0.0,
+            "resident_mib": 199.46484375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 0.3239,
+        "cpu_ms": 0.0,
+        "resident_mib": 46.0039
+      },
+      "python": {
+        "ms": 3.4363,
+        "cpu_ms": 15.625,
+        "resident_mib": 199.5
+      }
+    },
+    "warm": {
+      "calls": 25,
+      "samples": {
+        "rust": [
+          {
+            "ms": 0.294636,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.01171875
+          },
+          {
+            "ms": 0.25227200000000005,
+            "cpu_ms": 0.625,
+            "resident_mib": 45.98828125
+          },
+          {
+            "ms": 0.261832,
+            "cpu_ms": 0.625,
+            "resident_mib": 46.00390625
+          },
+          {
+            "ms": 0.231268,
+            "cpu_ms": 0.0,
+            "resident_mib": 46.01953125
+          },
+          {
+            "ms": 0.236892,
+            "cpu_ms": 0.625,
+            "resident_mib": 46.0
+          }
+        ],
+        "python": [
+          {
+            "ms": 1.054519999306649,
+            "cpu_ms": 0.0,
+            "resident_mib": 199.5
+          },
+          {
+            "ms": 1.1128320009447634,
+            "cpu_ms": 0.625,
+            "resident_mib": 199.45703125
+          },
+          {
+            "ms": 1.01643200032413,
+            "cpu_ms": 0.625,
+            "resident_mib": 199.93359375
+          },
+          {
+            "ms": 1.0231600003316998,
+            "cpu_ms": 1.25,
+            "resident_mib": 199.89453125
+          },
+          {
+            "ms": 0.9383359993807971,
+            "cpu_ms": 0.625,
+            "resident_mib": 199.46484375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 0.2523,
+        "cpu_ms": 0.625,
+        "resident_mib": 46.0039
+      },
+      "python": {
+        "ms": 1.0232,
+        "cpu_ms": 0.625,
+        "resident_mib": 199.5
+      }
+    },
+    "upgrade": {
+      "calls": 1,
+      "samples": {
+        "rust": [
+          {
+            "ms": 730.7468,
+            "cpu_ms": 671.875,
+            "resident_mib": 46.328125
+          },
+          {
+            "ms": 721.9665,
+            "cpu_ms": 671.875,
+            "resident_mib": 46.33203125
+          },
+          {
+            "ms": 975.2467,
+            "cpu_ms": 953.125,
+            "resident_mib": 46.30078125
+          },
+          {
+            "ms": 726.6424000000001,
+            "cpu_ms": 671.875,
+            "resident_mib": 46.29296875
+          },
+          {
+            "ms": 729.8426000000001,
+            "cpu_ms": 656.25,
+            "resident_mib": 46.328125
+          }
+        ],
+        "python": [
+          {
+            "ms": 6284.139200055506,
+            "cpu_ms": 6203.125,
+            "resident_mib": 199.55859375
+          },
+          {
+            "ms": 6296.987599984277,
+            "cpu_ms": 6250.0,
+            "resident_mib": 200.32421875
+          },
+          {
+            "ms": 6447.318799968343,
+            "cpu_ms": 6359.375,
+            "resident_mib": 199.93359375
+          },
+          {
+            "ms": 6369.1754000028595,
+            "cpu_ms": 6343.75,
+            "resident_mib": 199.89453125
+          },
+          {
+            "ms": 7214.090200024657,
+            "cpu_ms": 7156.25,
+            "resident_mib": 199.46484375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 729.8426,
+        "cpu_ms": 671.875,
+        "resident_mib": 46.3281
+      },
+      "python": {
+        "ms": 6369.1754,
+        "cpu_ms": 6343.75,
+        "resident_mib": 199.8945
+      }
+    },
+    "disable": {
+      "calls": 1,
+      "samples": {
+        "rust": [
+          {
+            "ms": 37.8618,
+            "cpu_ms": 31.25,
+            "resident_mib": 46.328125
+          },
+          {
+            "ms": 41.2184,
+            "cpu_ms": 31.25,
+            "resident_mib": 46.33203125
+          },
+          {
+            "ms": 46.3881,
+            "cpu_ms": 62.5,
+            "resident_mib": 46.30078125
+          },
+          {
+            "ms": 39.7639,
+            "cpu_ms": 31.25,
+            "resident_mib": 46.29296875
+          },
+          {
+            "ms": 37.7596,
+            "cpu_ms": 31.25,
+            "resident_mib": 46.328125
+          }
+        ],
+        "python": [
+          {
+            "ms": 53.89800004195422,
+            "cpu_ms": 46.875,
+            "resident_mib": 199.55859375
+          },
+          {
+            "ms": 59.784899989608675,
+            "cpu_ms": 46.875,
+            "resident_mib": 200.32421875
+          },
+          {
+            "ms": 78.76910001505166,
+            "cpu_ms": 62.5,
+            "resident_mib": 199.93359375
+          },
+          {
+            "ms": 60.80390000715852,
+            "cpu_ms": 62.5,
+            "resident_mib": 199.89453125
+          },
+          {
+            "ms": 55.501399969216436,
+            "cpu_ms": 46.875,
+            "resident_mib": 199.46484375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 39.7639,
+        "cpu_ms": 31.25,
+        "resident_mib": 46.3281
+      },
+      "python": {
+        "ms": 59.7849,
+        "cpu_ms": 46.875,
+        "resident_mib": 199.8945
+      }
+    }
+  },
+  "validated_frequency_data": {
+    "metadata": [
+      [
+        "jiten-global",
+        "Jiten Global Frequency",
+        "2026-03-11-full",
+        "https://jiten.moe/other",
+        1,
+        367422,
+        424746
+      ]
+    ],
+    "pairs_sha256": "a97e98f94f166e10c9b89462746bd94cac361accce5e48b4fb47f44a6a64a942",
+    "cached": [
+      [
+        1,
+        1
+      ],
+      [
+        2,
+        2
+      ],
+      [
+        3,
+        null
+      ]
+    ]
+  }
+}

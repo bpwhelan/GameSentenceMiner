@@ -1,0 +1,403 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python_version": "3.13.2",
+  "rust_version": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "logical_cpus": 16,
+  "historical_lines": 50000,
+  "live_lines": 20,
+  "rollup_days": 365,
+  "goal_history_days": 365,
+  "anki_notes": 400,
+  "rounds": 5,
+  "initialization": {
+    "python": {
+      "schema": {
+        "ms": 214.8756,
+        "cpu_ms": 62.5,
+        "resident_mib": 74.7812
+      },
+      "vocabulary-schema": {
+        "ms": 5.3594,
+        "cpu_ms": 15.625,
+        "resident_mib": 75.0938
+      }
+    },
+    "rust": {
+      "schema": {
+        "ms": 20.7423,
+        "cpu_ms": 15.625,
+        "resident_mib": 9.3555
+      },
+      "vocabulary-schema": {
+        "ms": 7.6797,
+        "cpu_ms": 15.625,
+        "resident_mib": 9.3555
+      }
+    }
+  },
+  "workloads": {
+    "/api/stats": {
+      "iterations_per_round": 10,
+      "python": {
+        "ms": 6.584,
+        "cpu_ms": 6.25,
+        "resident_mib": 76.4688
+      },
+      "rust": {
+        "ms": 2.1658,
+        "cpu_ms": 3.125,
+        "resident_mib": 10.1445
+      }
+    },
+    "/api/goals-projection": {
+      "iterations_per_round": 5,
+      "python": {
+        "ms": 9.3946,
+        "cpu_ms": 9.375,
+        "resident_mib": 77.0977
+      },
+      "rust": {
+        "ms": 0.2651,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.1719
+      }
+    },
+    "/api/goals/current": {
+      "iterations_per_round": 100,
+      "python": {
+        "ms": 0.2386,
+        "cpu_ms": 0.1562,
+        "resident_mib": 77.1016
+      },
+      "rust": {
+        "ms": 0.0179,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.1719
+      }
+    },
+    "/api/goals/latest_goals": {
+      "iterations_per_round": 100,
+      "python": {
+        "ms": 0.2822,
+        "cpu_ms": 0.3125,
+        "resident_mib": 77.1016
+      },
+      "rust": {
+        "ms": 0.0182,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.1719
+      }
+    },
+    "/api/goals/current_streak": {
+      "iterations_per_round": 50,
+      "python": {
+        "ms": 0.7483,
+        "cpu_ms": 0.625,
+        "resident_mib": 77.1016
+      },
+      "rust": {
+        "ms": 0.018,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.1719
+      }
+    },
+    "complete-dailies": {
+      "iterations_per_round": 10,
+      "python": {
+        "ms": 2.3573,
+        "cpu_ms": 1.5625,
+        "resident_mib": 77.1445
+      },
+      "rust": {
+        "ms": 0.6623,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.1719
+      }
+    },
+    "/api/stats/all-lines-data": {
+      "iterations_per_round": 10,
+      "python": {
+        "ms": 5.3254,
+        "cpu_ms": 6.25,
+        "resident_mib": 77.1445
+      },
+      "rust": {
+        "ms": 0.9958,
+        "cpu_ms": 0.0,
+        "resident_mib": 10.4258
+      }
+    },
+    "/api/game/g/stats": {
+      "iterations_per_round": 5,
+      "python": {
+        "ms": 25.9957,
+        "cpu_ms": 28.125,
+        "resident_mib": 77.4844
+      },
+      "rust": {
+        "ms": 25.4705,
+        "cpu_ms": 25.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/games/g/archive": {
+      "iterations_per_round": 20,
+      "python": {
+        "ms": 1.6434,
+        "cpu_ms": 1.5625,
+        "resident_mib": 77.4883
+      },
+      "rust": {
+        "ms": 1.2056,
+        "cpu_ms": 0.7812,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/stats/kanji-grid": {
+      "iterations_per_round": 5,
+      "python": {
+        "ms": 6.114,
+        "cpu_ms": 6.25,
+        "resident_mib": 77.4883
+      },
+      "rust": {
+        "ms": 0.671,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/daily-activity": {
+      "iterations_per_round": 100,
+      "python": {
+        "ms": 1.0993,
+        "cpu_ms": 1.0938,
+        "resident_mib": 77.4922
+      },
+      "rust": {
+        "ms": 0.0675,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/kanji-frequency?kanji=%E6%97%A5": {
+      "iterations_per_round": 30,
+      "python": {
+        "ms": 9.5987,
+        "cpu_ms": 9.375,
+        "resident_mib": 78.0
+      },
+      "rust": {
+        "ms": 0.1676,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/mining_heatmap": {
+      "iterations_per_round": 2,
+      "python": {
+        "ms": 736.6617,
+        "cpu_ms": 726.5625,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 17.1543,
+        "cpu_ms": 15.625,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/stats/game-milestones": {
+      "iterations_per_round": 50,
+      "python": {
+        "ms": 15.6038,
+        "cpu_ms": 15.625,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 14.8434,
+        "cpu_ms": 14.375,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/today-stats": {
+      "iterations_per_round": 50,
+      "python": {
+        "ms": 0.5299,
+        "cpu_ms": 0.625,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.3745,
+        "cpu_ms": 0.3125,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/anki_game_stats": {
+      "iterations_per_round": 20,
+      "python": {
+        "ms": 0.7776,
+        "cpu_ms": 0.7812,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.1817,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/anki_earliest_date": {
+      "iterations_per_round": 50,
+      "python": {
+        "ms": 0.405,
+        "cpu_ms": 0.3125,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.1597,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/anki_nsfw_sfw_retention": {
+      "iterations_per_round": 20,
+      "python": {
+        "ms": 0.8286,
+        "cpu_ms": 0.7812,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.1734,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/api/kanji-sorting-configs": {
+      "iterations_per_round": 100,
+      "python": {
+        "ms": 9.0952,
+        "cpu_ms": 8.9062,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.0001,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.1797
+      }
+    },
+    "/search": {
+      "iterations_per_round": 100,
+      "python": {
+        "ms": 0.3307,
+        "cpu_ms": 0.3125,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.0101,
+        "cpu_ms": 0.0,
+        "resident_mib": 13.4297
+      }
+    },
+    "schema": {
+      "iterations_per_round": 25,
+      "python": {
+        "ms": 15.3706,
+        "cpu_ms": 15.625,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 1.7091,
+        "cpu_ms": 1.875,
+        "resident_mib": 13.4648
+      }
+    },
+    "vocabulary-schema": {
+      "iterations_per_round": 25,
+      "python": {
+        "ms": 2.8749,
+        "cpu_ms": 3.125,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 1.5717,
+        "cpu_ms": 1.25,
+        "resident_mib": 13.4688
+      }
+    },
+    "replace-500": {
+      "iterations_per_round": 2,
+      "python": {
+        "ms": 361.7625,
+        "cpu_ms": 125.0,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 6.9468,
+        "cpu_ms": 7.8125,
+        "resident_mib": 13.4688
+      }
+    },
+    "/api/third-party-stats?source=bench": {
+      "iterations_per_round": 10,
+      "python": {
+        "ms": 5.4261,
+        "cpu_ms": 6.25,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 1.3084,
+        "cpu_ms": 1.5625,
+        "resident_mib": 13.4688
+      }
+    },
+    "/api/third-party-stats/summary": {
+      "iterations_per_round": 50,
+      "python": {
+        "ms": 0.4955,
+        "cpu_ms": 0.625,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 0.2026,
+        "cpu_ms": 0.3125,
+        "resident_mib": 13.4688
+      }
+    },
+    "backup": {
+      "iterations_per_round": 1,
+      "python": {
+        "ms": 164.2065,
+        "cpu_ms": 156.25,
+        "resident_mib": 118.0625
+      },
+      "rust": {
+        "ms": 119.359,
+        "cpu_ms": 109.375,
+        "resident_mib": 17.3086
+      }
+    }
+  },
+  "storage_and_writes": {
+    "python": {
+      "journal_mode": "wal",
+      "database_bytes": 10633216,
+      "compressed_snapshot_bytes": 1371977,
+      "capture_batch_64_ms": 1.5698,
+      "capture_batch_64_cpu_ms": 0.0
+    },
+    "rust": {
+      "journal_mode": "wal",
+      "database_bytes": 10723328,
+      "compressed_snapshot_bytes": 1566210,
+      "capture_batch_64_ms": 1.6157,
+      "capture_batch_64_cpu_ms": 0.0
+    },
+    "dashboard_query_plans": {
+      "CAST(timestamp AS REAL)": [
+        "SCAN game_lines",
+        "USE TEMP B-TREE FOR ORDER BY"
+      ],
+      "timestamp": [
+        "SEARCH game_lines USING INDEX idx_game_lines_timestamp (timestamp>? AND timestamp<?)"
+      ]
+    }
+  }
+}

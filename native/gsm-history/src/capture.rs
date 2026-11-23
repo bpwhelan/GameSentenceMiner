@@ -17,11 +17,11 @@ enum Mode {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Line {
-    id: String,
-    text: String,
-    scene: Option<String>,
-    timestamp: f64,
+pub struct Line {
+    pub id: String,
+    pub text: String,
+    pub scene: Option<String>,
+    pub timestamp: f64,
 }
 
 #[derive(Deserialize)]
@@ -33,7 +33,7 @@ pub struct Batch {
     dictionary: Option<String>,
 }
 
-fn game_id(conn: &Connection, scene: &str) -> Result<String> {
+pub(super) fn game_id(conn: &Connection, scene: &str) -> Result<String> {
     if scene.is_empty() {
         return Ok(String::new());
     }
@@ -87,7 +87,21 @@ pub(super) fn link_game_lines_in(tx: &Connection) -> Result<serde_json::Value> {
     Ok(serde_json::json!({"created":names.len(),"linked":linked}))
 }
 
+pub(super) const IMPORT_LINE: &str = "INSERT INTO game_lines
+    (id,game_name,line_text,timestamp,game_id,language,last_modified,created_at,
+     screenshot_in_anki,audio_in_anki,screenshot_path,audio_path,replay_path,translation)
+    VALUES (?1,?2,?3,?4,?5,?6,?7,?7,'','','','','','')";
+
 impl Batch {
+    pub fn captured(lines: Vec<Line>, language: String, dictionary: Option<String>) -> Self {
+        Self {
+            mode: Mode::Capture,
+            lines,
+            language,
+            dictionary,
+        }
+    }
+
     pub fn word_index(&self) -> Option<(String, Vec<String>)> {
         self.dictionary.as_ref().map(|dictionary| {
             (
@@ -97,14 +111,11 @@ impl Batch {
         })
     }
 
-    pub(super) fn persist(self, conn: &mut Connection) -> Result<usize> {
+    pub(super) fn persist(&self, conn: &mut Connection) -> Result<usize> {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs_f64();
         let sql = match self.mode {
-            Mode::Import => "INSERT INTO game_lines
-                (id,game_name,line_text,timestamp,game_id,language,last_modified,created_at,
-                 screenshot_in_anki,audio_in_anki,screenshot_path,audio_path,replay_path,translation)
-                VALUES (?1,?2,?3,?4,?5,?6,?7,?7,'','','','','','')",
+            Mode::Import => IMPORT_LINE,
             Mode::Capture => "INSERT INTO game_lines
                 (id,game_name,line_text,timestamp,game_id,language,last_modified,created_at,
                  screenshot_in_anki,audio_in_anki,screenshot_path,audio_path,replay_path,translation,original_game_name)
@@ -118,7 +129,7 @@ impl Batch {
         let mut scenes = HashMap::new();
         let mut stmt = tx.prepare_cached(sql)?;
         let mut count = 0;
-        for line in self.lines {
+        for line in &self.lines {
             let scene = line.scene.as_deref().unwrap_or("");
             let id = match scenes.get(scene) {
                 Some(id) => id,

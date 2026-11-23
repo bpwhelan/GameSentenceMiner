@@ -9,6 +9,7 @@ use gsm_packages::install_session::Lease;
 use gsm_settings::preferences::Preferences;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::Manager;
 use tokio::sync::Notify;
@@ -295,6 +296,16 @@ pub async fn ensure_and_run_gsm(
     repair_on_failure: bool,
     restart: bool,
 ) -> Result<(), String> {
+    if crate::app_lifecycle::native_session_requested() {
+        let handle = app.clone();
+        return tauri::async_runtime::spawn_blocking(move || {
+            crate::database_startup::prepare(&handle)?;
+            let mining = handle.state::<Arc<crate::mining::MiningService>>();
+            mining.invalidate_config_cache();
+            mining.refresh_profile(&handle)?;
+            Ok(())
+        }).await.map_err(|e| e.to_string())?;
+    }
     if crate::update_manager::any_app_update_in_progress(app) {
         // Note: explicit update bypasses should wait before calling ensure_and_run_gsm.
     }
@@ -549,6 +560,16 @@ pub async fn run_python_maintenance(app: &tauri::AppHandle, origin: &str) -> Val
     );
 
     let outcome: Result<String, String> = async {
+        if origin == "repair" && crate::app_lifecycle::native_session_requested() {
+            #[cfg(windows)]
+            crate::startup_tools::prepare(app, lease.clone()).await?;
+            ensure_and_run_gsm(app, None, None, origin, false, false, false).await?;
+            if let Some(lease) = &lease {
+                let _ = sessions.model.finish(lease, "completed", Some("GSM repaired successfully."), None);
+                sessions.notify();
+            }
+            return Ok("GSM repaired successfully".into());
+        }
         close_all_python_processes(app, true).await?;
         let extras = read_python_extras(app);
         let res = crate::python_install::dispatch(
@@ -684,6 +705,8 @@ pub async fn execute_native_retry(app: tauri::AppHandle, target: String, lease: 
                     .to_owned())
             }
         }
+        "native:startup" if crate::app_lifecycle::native_session_requested() =>
+            crate::app_lifecycle::start_native_services(&app, Some(lease.clone())).await,
         "native:startup" => ensure_and_run_gsm(&app, None, None, "startup", true, true, false).await,
         "native:backend_update" => {
             let updater = app.state::<crate::update_manager::UpdateManager>().inner().clone();

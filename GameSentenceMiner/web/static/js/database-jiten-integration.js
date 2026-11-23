@@ -728,6 +728,7 @@ function openEditGameModal(game) {
     document.getElementById('editCharacterCount').value = game.jiten_character_count || '';
     document.getElementById('editStatus').value = game.status || (game.completed ? 'completed' : 'in_progress');
     document.getElementById('editCharacterSummary').value = game.character_summary || '';
+    window.setCharacterSummaryGame?.(game.id);
     
     // Handle release date - convert ISO format to date input format (YYYY-MM-DD)
     if (game.release_date) {

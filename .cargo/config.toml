@@ -1,6 +1,12 @@
 [build]
-# Share the desktop cache between Tauri CLI and the stable restartable build.
+jobs = 6
 target-dir = "src-tauri/target/native-dev"
+
+[profile.dev]
+# Tests inherit this profile. Keep source locations for backtraces and avoid
+# retaining incremental state for each feature set, test binary and toolchain.
+debug = "line-tables-only"
+incremental = false
 
 [env]
 # sdl2-sys bundles SDL 2.26, whose CMake minimum predates CMake 4's policy floor.

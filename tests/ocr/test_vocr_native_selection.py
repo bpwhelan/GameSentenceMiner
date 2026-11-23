@@ -34,11 +34,11 @@ def package(tmp_path, monkeypatch):
     return tmp_path, runtime
 
 
-def test_opt_in_selects_verified_native_and_explicit_onnx_wins(package, monkeypatch):
+def test_legacy_trial_preserves_onnx_selection(package, monkeypatch):
     directory, runtime = package
     assert vocr_onnx.selected_directory() == vocr_onnx.bundled_directory()
     vocr_native.activate(directory, runtime)
-    assert vocr_onnx.selected_directory() is None
+    assert vocr_onnx.selected_directory() == vocr_onnx.bundled_directory()
     assert vocr_runtime.get_runtime_directory(directory) == runtime
     assert vocr_runtime.runtime_installed(directory)
     monkeypatch.setenv("GSM_VOCR_BACKEND", "onnx")
@@ -75,12 +75,11 @@ def test_auto_falls_back_to_bundled_onnx_when_native_cpu_features_are_unavailabl
     assert (directory / "native-runtime.json").read_bytes() == marker
 
 
-def test_auto_does_not_hide_a_corrupt_native_package(package):
+def test_corrupt_native_package_does_not_hide_onnx(package):
     directory, runtime = package
     vocr_native.activate(directory, runtime)
     (runtime / vita_ocr.library_name()).write_bytes(b"corrupt")
-    with pytest.raises(ValueError, match="checksum"):
-        vocr_onnx.selected_directory(directory=directory)
+    assert vocr_onnx.selected_directory(directory=directory) == vocr_onnx.bundled_directory()
 
 
 @pytest.mark.parametrize("damage", ["library", "metadata", "missing", "abi", "platform"])

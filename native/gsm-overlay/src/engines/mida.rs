@@ -14,9 +14,9 @@ impl Finder {
         let path = models::pinned_model(
             root,
             "rtr46/mida",
-            "8503f1ccf4bc214b9c4710b5d19cba5ce422df83",
-            "mida_l_alpha_v0.0.1.onnx",
-            "9f72bce58b50b1837bb16e81c5c035d32d9cd45d84dcef56f0b6fb2ef25e8aed",
+            "0805742410e7d4daf797ff4993e4ad9b53d95a04",
+            "mida_l_alpha_v0.0.2.onnx",
+            "7a09988b2596ef3fda2e5dfa815bfebbba6d3dcc385cc905cbb329cd8c95a4fa",
         )?;
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
         Ok(Self(Model::file(&path, threads)?))

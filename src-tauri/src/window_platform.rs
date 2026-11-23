@@ -1,6 +1,29 @@
 use serde_json::Value;
 use tauri::WebviewWindow;
 
+#[cfg(windows)]
+pub fn is_capture_target_focused(id: u64) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    unsafe { GetForegroundWindow().0 as usize as u64 == id }
+}
+
+#[cfg(not(windows))]
+pub fn is_capture_target_focused(id: u64) -> bool {
+    #[cfg(target_os = "linux")]
+    if std::env::var("XDG_SESSION_TYPE").is_ok_and(|s| s.eq_ignore_ascii_case("wayland"))
+        || std::env::var_os("WAYLAND_DISPLAY").is_some_and(|s| !s.is_empty())
+    {
+        return false;
+    }
+
+    xcap::Window::all().is_ok_and(|windows| {
+        windows.iter().any(|window| {
+            window.id().is_ok_and(|candidate| u64::from(candidate) == id)
+                && window.is_focused().unwrap_or(false)
+        })
+    })
+}
+
 // GTK, AppKit and window subclasses must be touched on their owning UI thread.
 pub fn apply(window: &WebviewWindow, action: &str, value: &Value) -> Result<(), String> {
     let action = action.to_owned();

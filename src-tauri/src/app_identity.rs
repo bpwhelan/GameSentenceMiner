@@ -278,7 +278,9 @@ pub fn refresh_icon_presentation(app: &tauri::AppHandle) {
 }
 
 pub fn get_windows_app_id(is_packaged: bool) -> &'static str {
-    if is_packaged {
+    if crate::PORTABLE_PREVIEW {
+        "com.beangate.gamesentenceminer.preview"
+    } else if is_packaged {
         "com.beangate.gamesentenceminer"
     } else {
         // The old Electron development shortcut may still claim the `.dev` ID.
@@ -319,7 +321,7 @@ pub fn init_process_identity(_app: &tauri::AppHandle) {
         let app_id = get_windows_app_id(!crate::LOCAL_BUILD);
         let _ = unsafe { SetCurrentProcessExplicitAppUserModelID(&HSTRING::from(app_id)) };
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", not(feature = "portable-preview")))]
     {
         ensure_stable_appimage_desktop_entry();
     }
@@ -449,7 +451,7 @@ pub fn write_data_dir_registry(data_dir: &Path, has_profile: bool) {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(feature = "portable-preview")))]
 fn ensure_stable_appimage_desktop_entry() {
     let Some(appimage_path) = std::env::var_os("APPIMAGE")
         .map(|s| s.to_string_lossy().trim().to_owned())

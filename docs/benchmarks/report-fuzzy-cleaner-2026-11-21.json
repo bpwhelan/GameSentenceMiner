@@ -1,0 +1,71 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "pattern": "(?:speaker){e<=1}",
+  "corpus": [
+    "speaker",
+    "speker猫。speaxer犬",
+    "xspeaker",
+    "speakerXspeaker",
+    "sspeaker猫",
+    "今日は雨。"
+  ],
+  "outputs": [
+    "",
+    "猫犬",
+    "x",
+    "X",
+    "猫",
+    "今日は雨"
+  ],
+  "rounds": 3,
+  "iterations": 1000,
+  "method": "Warm production Python cleaner and release Rust report cleaner, timed with the workers in scripts/benchmark_stats_cleaner.py. Wall and process CPU milliseconds per six lines. Peak working set over each worker lifetime on Windows.",
+  "medians": {
+    "python": {
+      "ms": 0.00918,
+      "cpu_ms": 0.01562,
+      "resident_mib": 38.20703
+    },
+    "rust": {
+      "ms": 0.0008,
+      "cpu_ms": 0.0,
+      "resident_mib": 14.87891
+    }
+  },
+  "samples": {
+    "python": [
+      {
+        "ms": 0.008707900000445079,
+        "cpu_ms": 0.015625,
+        "resident_mib": 38.20703125
+      },
+      {
+        "ms": 0.009179100001347251,
+        "cpu_ms": 0.0,
+        "resident_mib": 38.20703125
+      },
+      {
+        "ms": 0.009471400000620633,
+        "cpu_ms": 0.015625,
+        "resident_mib": 38.20703125
+      }
+    ],
+    "rust": [
+      {
+        "ms": 0.0008814,
+        "cpu_ms": 0.0,
+        "resident_mib": 14.87890625
+      },
+      {
+        "ms": 0.0008017,
+        "cpu_ms": 0.0,
+        "resident_mib": 14.87890625
+      },
+      {
+        "ms": 0.0008044,
+        "cpu_ms": 0.0,
+        "resident_mib": 14.87890625
+      }
+    ]
+  }
+}

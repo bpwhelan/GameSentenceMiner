@@ -1,0 +1,33 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Link an existing game through the GSM Cloud IGDB HTTP contract on loopback. Include a 600 by 800 transparent cover, thumbnail generation and SQLite commit. Compare every response field, game fields, link ordering, preserved scene, image dimensions and three decoded pixels. Alternate initial linking and explicit metadata overwrite.",
+  "medians": {
+    "initial": {
+      "python": {
+        "ms": 30.3739,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 91.0391
+      },
+      "rust": {
+        "ms": 16.9473,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 30.7031
+      }
+    },
+    "overwrite": {
+      "python": {
+        "ms": 31.5085,
+        "server_cpu_ms": 31.25,
+        "server_resident_mib": 91.7891
+      },
+      "rust": {
+        "ms": 16.4409,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 30.6992
+      }
+    }
+  }
+}

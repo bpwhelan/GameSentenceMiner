@@ -7,9 +7,8 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, Read};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,17 +17,15 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(test)]
 use zip::ZipArchive;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 const DICTIONARY_PRELOAD_TEMPLATE: &str = include_str!("../preloads/dictionary_preload.js");
 const LEGACY_IMPORT_MODULE_JS: &str = include_str!("../preloads/legacy_import.mjs");
 
 pub const EXTENSION_CONTROLLER_LABEL: &str = "gsm-dictionary-controller";
 pub const HACHIDORI_ENGINE_LABEL: &str = "gsm-hachidori-engine";
+#[cfg(windows)]
+const YOMITAN_PUBLIC_KEY: &str = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAjhXmk6bLKLKx3W6A32aAlnbu2EyWWo4SHGclT6oLLGs4bvdpUEbFuIqXg5iHn/eXe6PTV6e1ATz5aUif06mzw7DgxkK8yqNBV/oIUrf/v5YuJbOxrZIkAu7l/ng6yb1Rw6YXL3a40sC8adF4odSHYLeThv2WJJ+LKbyP1P/dx+302OwgZa0Z9ppJZ3H7bN0MJ4CeNk/TP01zIuM/4Odz7BEHVVJlUPK6vybIjq30LuFPmDDNPCGpahCkKoOt9u/42YNa+mKkC9AAY/ZWRNByIYQonUV6g6kvoyPkf7S85dmo30Efq5dZRqMuMJyZoSuOpQOy24ShKkyYEB87/vIRUQIDAQAB";
+
 pub const LEGACY_TRANSFER_LABEL: &str = "gsm-legacy-transfer";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -131,6 +128,7 @@ pub struct DictionaryManager {
     window_seq: AtomicU64,
     portable_lock: AsyncMutex<()>,
     windows_lock: AsyncMutex<()>,
+    browser_import_lock: AsyncMutex<()>,
     hachidori_engine_lock: AsyncMutex<()>,
 }
 
@@ -153,6 +151,7 @@ impl Default for DictionaryManager {
             window_seq: AtomicU64::new(1),
             portable_lock: AsyncMutex::new(()),
             windows_lock: AsyncMutex::new(()),
+            browser_import_lock: AsyncMutex::new(()),
             hachidori_engine_lock: AsyncMutex::new(()),
         }
     }
@@ -646,230 +645,50 @@ pub fn find_legacy_dictionary(
     None
 }
 
-async fn resolve_migration_python(app: &AppHandle) -> Result<String, String> {
-    if let Some(env_py) = std::env::var_os("GSM_MIGRATION_PYTHON").filter(|v| !v.is_empty()) {
-        let path = PathBuf::from(&env_py);
-        if path.exists() {
-            return Ok(path.to_string_lossy().into_owned());
-        }
-    }
-    let app_root = app.state::<crate::desktop_state::DesktopState>().app_root.clone();
-    let venv_rel = if cfg!(windows) {
-        Path::new("Scripts").join("python.exe")
-    } else {
-        Path::new("bin").join("python")
-    };
-    let dev_venv = app_root.join(".venv").join(&venv_rel);
-    if dev_venv.exists() {
-        return Ok(dev_venv.to_string_lossy().into_owned());
-    }
-    crate::python_ops::ensure_python_path(app).await
-}
-
-fn resolve_legacy_exporter_script(app: &AppHandle) -> Result<PathBuf, String> {
-    let app_root = &app.state::<crate::desktop_state::DesktopState>().app_root;
-    let direct = app_root
-        .join("assets")
-        .join("scripts")
-        .join("legacy_dictionary_export.py");
-    if direct.exists() {
-        return Ok(direct);
-    }
-    if let Ok(resource_dir) = app.path().resource_dir() {
-        for candidate in [
-            resource_dir
-                .join("assets")
-                .join("scripts")
-                .join("legacy_dictionary_export.py"),
-            resource_dir
-                .join("app")
-                .join("assets")
-                .join("scripts")
-                .join("legacy_dictionary_export.py"),
-        ] {
-            if candidate.exists() {
-                return Ok(candidate);
-            }
-        }
-    }
-    Err(format!(
-        "Legacy dictionary exporter script not found under {}",
-        app_root.display()
-    ))
-}
-
-fn configure_hidden_command(cmd: &mut Command) {
-    cmd.stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        cmd.creation_flags(CREATE_NO_WINDOW);
-    }
-}
-
 pub async fn discover_legacy(
-    app: &AppHandle,
+    _app: &AppHandle,
     session_directory: &Path,
     extension_id: &str,
     extension_name: &str,
     extension_path: &Path,
 ) -> Result<Option<LegacySource>, String> {
-    if let Some(direct) = find_legacy_dictionary(session_directory, extension_id, extension_path) {
-        return Ok(Some(direct));
+    if let Some(source) = find_legacy_dictionary(session_directory, extension_id, extension_path) {
+        return Ok(Some(source));
     }
-    let settings_root = session_directory.join("Local Extension Settings");
-    let has_entries = fs::read_dir(&settings_root)
-        .map(|mut it| it.next().is_some())
-        .unwrap_or(false);
-    if !has_entries {
-        return Ok(None);
-    }
-
-    let python = resolve_migration_python(app).await?;
-    let script = resolve_legacy_exporter_script(app)?;
-    let settings_arg = settings_root.clone();
-    let output = tokio::task::spawn_blocking(move || {
-        let mut cmd = Command::new(&python);
-        cmd.arg(&script).arg(&settings_arg).arg("--identify");
-        configure_hidden_command(&mut cmd);
-        cmd.output()
-    })
-    .await
-    .map_err(|e| format!("Legacy identify task failed: {e}"))?
-    .map_err(|e| format!("Could not run legacy dictionary identification: {e}"))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr.chars().rev().take(2000).collect::<String>().chars().rev().collect();
-        return Err(format!("Could not identify saved dictionaries: {tail}"));
-    }
-    let records: Vec<Value> = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("Invalid legacy identify output: {e}"))?;
     let kind = extension_kind(extension_name);
-    let want_kind = match kind {
-        "yomitan" | "hachidori" => Some(kind),
-        _ => None,
-    };
-    let Some(want) = want_kind else {
+    let settings = session_directory.join("Local Extension Settings");
+    if !settings.is_dir() || !matches!(kind, "yomitan" | "hachidori") {
         return Ok(None);
-    };
-    let found = records.into_iter().find_map(|rec| {
-        let rec_kind = rec.get("kind").and_then(Value::as_str)?;
-        let id = rec.get("id").and_then(Value::as_str)?;
-        if rec_kind == want && is_valid_extension_id(id) {
-            Some(LegacySource {
-                id: id.to_string(),
-                database: session_directory
-                    .join("IndexedDB")
-                    .join(format!("chrome-extension_{id}_0.indexeddb.leveldb")),
-                settings: settings_root.join(id),
-                filesystem: None,
-            })
-        } else {
-            None
-        }
-    });
-    Ok(found)
+    }
+    let directory = session_directory.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let id = gsm_dictionary_transfer::identify(&settings, kind).map_err(|e| e.to_string())?;
+        Ok(id.map(|id| LegacySource {
+            database: directory.join("IndexedDB").join(format!("chrome-extension_{id}_0.indexeddb.leveldb")),
+            settings: settings.join(&id),
+            filesystem: None,
+            id,
+        }))
+    }).await.map_err(|e| e.to_string())?
 }
 
 async fn run_legacy_export(
     app: &AppHandle,
-    _manager: &DictionaryManager,
     extension_id: &str,
     extension_name: &str,
     source: &LegacySource,
     destination: &Path,
 ) -> Result<(), String> {
-    let python = resolve_migration_python(app).await?;
-    let script = resolve_legacy_exporter_script(app)?;
-    let db = source.database.clone();
-    let settings = source.settings.clone();
-    let fs_dir = source.filesystem.clone();
-    let dest = destination.to_path_buf();
-    let ext_id = extension_id.to_string();
-    let ext_name = extension_name.to_string();
-    let app_handle = app.clone();
-
-    tokio::task::spawn_blocking(move || -> Result<(), String> {
-        let mut cmd = Command::new(&python);
-        cmd.arg(&script)
-            .arg(&db)
-            .arg(&dest)
-            .arg("--settings")
-            .arg(&settings);
-        if let Some(ref filesystem) = fs_dir {
-            cmd.arg("--filesystem").arg(filesystem);
-        }
-        configure_hidden_command(&mut cmd);
-
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed to start legacy dictionary export: {e}"))?;
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-
-        let stderr_thread = std::thread::spawn(move || {
-            let mut tail = String::new();
-            if let Some(err) = stderr {
-                let mut reader = std::io::BufReader::new(err);
-                let mut line = String::new();
-                while let Ok(n) = reader.read_line(&mut line) {
-                    if n == 0 {
-                        break;
-                    }
-                    tail.push_str(&line);
-                    if tail.len() > 16000 {
-                        let drop_n = tail.len() - 12000;
-                        if let Some((idx, _)) = tail.char_indices().find(|(i, _)| *i >= drop_n) {
-                            tail.drain(..idx);
-                        }
-                    }
-                    line.clear();
-                }
-            }
-            tail
-        });
-
-        if let Some(out) = stdout {
-            let mut reader = std::io::BufReader::new(out);
-            let mut line = String::new();
-            while let Ok(n) = reader.read_line(&mut line) {
-                if n == 0 {
-                    break;
-                }
-                let trimmed = line.trim();
-                if !trimmed.is_empty() {
-                    crate::desktop_log::background(
-                        &app_handle,
-                        "dictionary",
-                        format!("Transfer: {trimmed}"),
-                    );
-                    if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
-                        if let Some(records) = val.get("records").and_then(Value::as_u64) {
-                            app_handle
-                                .state::<DictionaryManager>()
-                                .set_transfer(&ext_id, &ext_name, "reading", records);
-                        }
-                    }
-                }
-                line.clear();
-            }
-        }
-
-        let status = child
-            .wait()
-            .map_err(|e| format!("Legacy export wait failed: {e}"))?;
-        let err_tail = stderr_thread.join().unwrap_or_default();
-        if !status.success() {
-            return Err(format!(
-                "Legacy dictionary transfer failed ({}): {err_tail}",
-                status.code().unwrap_or(-1)
-            ));
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| format!("Legacy export task failed: {e}"))?
+    let source = source.clone();
+    let destination = destination.to_owned();
+    let (id, name) = (extension_id.to_owned(), extension_name.to_owned());
+    let handle = app.clone();
+    tokio::task::spawn_blocking(move || {
+        gsm_dictionary_transfer::export(&source.database, &source.settings, source.filesystem.as_deref(),
+            &destination, &|phase, records| {
+                handle.state::<DictionaryManager>().set_transfer(&handle, &id, &name, phase, records);
+            }).map_err(|e| format!("Could not transfer saved {name} dictionaries: {e:#}"))
+    }).await.map_err(|e| e.to_string())?
 }
 
 // ============================================================================
@@ -2172,14 +1991,14 @@ fn build_desktop_preload(token: &str, extra_preload: Option<&str>) -> String {
     }
 }
 
-fn legacy_import_script(base_url: &str) -> String {
+fn legacy_import_script(base_url: &str, browser_filesystem: bool) -> String {
     let body = LEGACY_IMPORT_MODULE_JS.replace(
         "export async function importLegacyDictionary(",
         "async function importLegacyDictionary(",
     );
     let base_json = json!(base_url).to_string();
     format!(
-        "(() => {{\n{body}\nglobalThis.__GSM_TRANSFER__ = {{ status: 'running', records: 0 }};\nvoid importLegacyDictionary({base_json}).then(result => {{ globalThis.__GSM_TRANSFER__ = {{ status: 'complete', result }}; }}, error => {{ globalThis.__GSM_TRANSFER__ = {{ status: 'failed', error: String(error) }}; }});\n}})()"
+        "(() => {{\n{body}\nglobalThis.__GSM_TRANSFER__ = {{ status: 'running', records: 0 }};\nvoid importLegacyDictionary({base_json}, {browser_filesystem}).then(result => {{ globalThis.__GSM_TRANSFER__ = {{ status: 'complete', result }}; }}, error => {{ globalThis.__GSM_TRANSFER__ = {{ status: 'failed', error: String(error) }}; }});\n}})()"
     )
 }
 
@@ -2222,7 +2041,7 @@ impl DictionaryManager {
             .collect()
     }
 
-    pub fn set_transfer(&self, id: &str, name: &str, phase: &str, records: u64) {
+    pub fn set_transfer(&self, app: &AppHandle, id: &str, name: &str, phase: &str, records: u64) {
         self.transfers.lock().unwrap().insert(
             id.to_string(),
             TransferProgress {
@@ -2231,14 +2050,21 @@ impl DictionaryManager {
                 records,
             },
         );
+        crate::desktop_state::emit_to_desktop_windows(app, "reader.dictionaryTransfersChanged", &[]);
     }
 
-    pub fn clear_transfer(&self, id: &str) {
-        self.transfers.lock().unwrap().remove(id);
+    pub fn clear_transfer(&self, app: &AppHandle, id: &str) {
+        if self.transfers.lock().unwrap().remove(id).is_some() {
+            crate::desktop_state::emit_to_desktop_windows(app, "reader.dictionaryTransfersChanged", &[]);
+        }
     }
 
     pub(crate) fn get_home_reader_extension(&self, label: &str) -> Option<String> {
         self.home_reader_ext.lock().unwrap().get(label).cloned()
+    }
+
+    pub(crate) fn invalidate_reader_attachments(&self) {
+        self.home_reader_ext.lock().unwrap().clear();
     }
 
     fn set_home_reader_extension(&self, label: &str, extension_id: &str) {
@@ -2506,33 +2332,18 @@ impl DictionaryManager {
         directory: &Path,
     ) -> Result<LoadedExtension, String> {
         let _guard = self.windows_lock.lock().await;
-        let canonical_source = canonical_path_for_hash(directory);
-
-        if let Some(existing) = self
-            .windows_extensions
-            .lock()
-            .unwrap()
-            .values()
-            .find(|e| e.source_path == canonical_source)
-            .cloned()
-        {
-            return Ok(existing);
-        }
 
         #[cfg(not(windows))]
         {
-            let _ = app;
+            let _ = (app, directory);
             return Err("WebView2 native extensions are only supported on Windows".into());
         }
 
         #[cfg(windows)]
         {
             let overlay_data = overlay_data_path(app);
-            prepare_windows_profile(&overlay_data)?;
-
-            let manifest = read_manifest(&canonical_source)?;
-            let mut active_dir = canonical_source.clone();
-            let mut expected = extension_id_for_directory(&active_dir, &manifest, true);
+            let canonical_source = canonical_path_for_hash(directory);
+            let mut manifest = read_manifest(&canonical_source)?;
             let name = manifest["name"]
                 .as_str()
                 .unwrap_or("Dictionary")
@@ -2542,66 +2353,181 @@ impl DictionaryManager {
                 .unwrap_or_default()
                 .to_string();
 
-            let legacy = discover_legacy(app, &overlay_data, &expected, &name, &active_dir).await?;
             let state_root = overlay_data.join("native-dictionaries");
-            let mut relocated = false;
-
-            if extension_kind(&name) == "jiten" && std::env::var_os("GSM_SMOKE_TEST").is_some() {
-                active_dir =
-                    crate::smoke_test::stage_jiten_extension(&canonical_source, &overlay_data)?;
+            let kind = extension_kind(&name);
+            let imports = state_root.join("browser-imports");
+            let imported = self.browser_import_selection(app)[kind]
+                .as_str()
+                .filter(|id| crate::browser_dictionary::valid_id(id))
+                .map(|id| imports.join(id).join("extension"))
+                .filter(|dir| dir.join("manifest.json").is_file());
+            if let Some(existing) = self.windows_extensions.lock().unwrap().values().find(|ext| {
+                ext.source_path == canonical_source && match &imported {
+                    Some(path) => &ext.path == path,
+                    None => !ext.path.starts_with(&imports),
+                }
+            }).cloned() {
+                return Ok(existing);
             }
 
-            if let Some(ref legacy_src) = legacy {
-                if legacy_src.id != expected {
-                    let kind = extension_kind(&name);
-                    let folder_name = if kind == "yomitan" {
-                        "yomitan".to_string()
-                    } else {
-                        canonical_source
-                            .file_name()
-                            .map(|s| s.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "dictionary".into())
-                    };
-                    active_dir = state_root.join("extensions").join(folder_name);
-                    fs::create_dir_all(&active_dir).map_err(|e| e.to_string())?;
-                    copy_dir_recursive(&canonical_source, &active_dir)?;
-                    expected = extension_id_for_directory(&active_dir, &manifest, true);
-                    let marker = state_root.join(format!("{expected}-legacy-transfer.json"));
-                    let marker_format = fs::read_to_string(&marker)
-                        .ok()
-                        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-                        .and_then(|v| v["format"].as_u64())
-                        .unwrap_or(0);
-                    relocated = marker_format < 4;
-                    if relocated {
-                        let mut temp_manifest = json!({
-                            "manifest_version": 3,
-                            "name": manifest["name"],
-                            "version": manifest["version"],
-                            "permissions": ["storage", "unlimitedStorage"],
-                            "host_permissions": ["http://gsm.localhost/*"],
-                        });
-                        if let Some(key) = manifest.get("key").filter(|v| !v.is_null()) {
-                            temp_manifest["key"] = key.clone();
-                        }
-                        fs::write(
-                            active_dir.join("manifest.json"),
-                            temp_manifest.to_string(),
-                        )
-                        .map_err(|e| e.to_string())?;
+            prepare_windows_profile(&overlay_data)?;
+            let mut active_dir = canonical_source.clone();
+            let mut expected = extension_id_for_directory(&active_dir, &manifest, true);
+            let legacy = if imported.is_none() {
+                discover_legacy(app, &overlay_data, &expected, &name, &active_dir).await?
+            } else {
+                None
+            };
+            let pinned_source = if kind == "yomitan" && imported.is_none() {
+                fs::read_to_string(state_root.join("yomitan-local-path.txt"))
+                    .ok()
+                    .map(|path| PathBuf::from(path.trim()))
+                    .filter(|path| path.is_absolute() && *path != canonical_source)
+                    .filter(|path| {
+                        let id = extension_id_for_directory(path, &manifest, true);
+                        browser_profile_dir(&overlay_data)
+                            .join("IndexedDB")
+                            .join(format!("chrome-extension_{id}_0.indexeddb.leveldb"))
+                            .join("CURRENT")
+                            .is_file()
+                    })
+            } else {
+                None
+            };
+            // Chromium hashes the full path for an unkeyed extension. Keep its
+            // old code path while opening the dictionary storage from the new profile.
+            let retained_stage = (imported.is_none() && pinned_source.is_none() && manifest["key"].is_null()
+                && matches!(kind, "yomitan" | "hachidori"))
+                .then(|| gsm_packages::overlay_directory::migration_source(&overlay_data))
+                .flatten()
+                .and_then(|old_overlay| {
+                    let folder = if kind == "yomitan" { "yomitan".as_ref() } else { canonical_source.file_name()? };
+                    let directory = old_overlay.join("native-dictionaries/extensions").join(folder);
+                    let id = extension_id_for_directory(&directory, &manifest, true);
+                    let browser_profile = browser_profile_dir(&overlay_data);
+                    let (database, settings) = crate::browser_dictionary::storage_paths(&browser_profile, &id);
+                    let pending = state_root.join("transfers").join(format!("{id}.json")).is_file();
+                    (pending || database.join("CURRENT").is_file() || settings.join("CURRENT").is_file())
+                        .then_some((directory, pending))
+                });
+            let use_existing_storage = matches!(&retained_stage, Some((_, false)));
+            let controller = self
+                .ensure_windows_controller(app, &overlay_data)
+                .await
+                .map_err(|e| format!("ensure_windows_controller: {e}"))?;
+            let mut staged = false;
+            if let Some(path) = imported {
+                active_dir = path;
+                manifest["key"] = read_manifest(&active_dir)?["key"].clone();
+                staged = true;
+            } else if let Some(path) = pinned_source {
+                active_dir = path;
+                copy_dir_recursive(&canonical_source, &active_dir)?;
+                expected = extension_id_for_directory(&active_dir, &manifest, true);
+            } else if let Some((path, _)) = retained_stage {
+                active_dir = path;
+                staged = true;
+            } else if kind == "yomitan" {
+                let stable_dir = state_root.join("extensions").join("yomitan");
+                let old_staged_id = extension_id_for_directory(&stable_dir, &manifest, true);
+                let installed = crate::browser_extensions::list(&controller).await?;
+                let is_installed = |id: &str| {
+                    installed.as_array().is_some_and(|items| {
+                        items.iter().any(|extension| extension["id"].as_str() == Some(id))
+                    })
+                };
+                // Keep the destination for profiles that previously loaded the
+                // unkeyed extension or began a transfer to that origin.
+                let uses_old_stage = is_installed(&old_staged_id)
+                    || state_root.join(format!("{old_staged_id}-legacy-transfer.json")).is_file()
+                    || state_root.join("transfers").join(format!("{old_staged_id}.json")).is_file();
+                if uses_old_stage || !is_installed(&expected) {
+                    active_dir = stable_dir;
+                    staged = true;
+                    if !uses_old_stage && manifest["key"].is_null() {
+                        manifest["key"] = json!(YOMITAN_PUBLIC_KEY);
+                    }
+                }
+            } else if kind == "jiten" && std::env::var_os("GSM_SMOKE_TEST").is_some() {
+                active_dir =
+                    crate::smoke_test::stage_jiten_extension(&canonical_source, &overlay_data)?;
+            } else if legacy.as_ref().is_some_and(|source| source.id != expected) {
+                let folder_name = canonical_source
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "dictionary".into());
+                active_dir = state_root.join("extensions").join(folder_name);
+                staged = true;
+            }
+            if staged {
+                copy_dir_recursive(&canonical_source, &active_dir)?;
+                expected = extension_id_for_directory(&active_dir, &manifest, true);
+            }
+            let marker = state_root.join(format!("{expected}-legacy-transfer.json"));
+            let marker_format = fs::read_to_string(&marker)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .and_then(|v| v["format"].as_u64())
+                .unwrap_or(0);
+            let relocated = staged
+                && !use_existing_storage
+                && legacy.as_ref().is_some_and(|source| source.id != expected)
+                && marker_format < 4;
+            let direct_clone = relocated && kind == "yomitan";
+            if direct_clone {
+                if let Ok(list) = crate::browser_extensions::list(&controller).await {
+                    if list.as_array().is_some_and(|items| {
+                        items
+                            .iter()
+                            .any(|item| item["id"].as_str() == Some(expected.as_str()))
+                    }) {
+                        let _ =
+                            crate::browser_extensions::enable(&controller, expected.clone(), false)
+                                .await;
+                    }
+                }
+                self.clone_windows_chromium_dictionary(
+                    app,
+                    &overlay_data,
+                    &state_root,
+                    &expected,
+                    &name,
+                    legacy.as_ref().unwrap(),
+                )
+                .await
+                .map_err(|e| format!("clone_windows_chromium_dictionary(relocated): {e}"))?;
+            }
+            if staged {
+                let active_manifest = if relocated && !direct_clone {
+                    let mut transfer_manifest = json!({
+                        "manifest_version": 3,
+                        "name": manifest["name"],
+                        "version": manifest["version"],
+                        "permissions": ["storage", "unlimitedStorage"],
+                        "host_permissions": ["http://gsm.localhost/*"],
+                    });
+                    if let Some(key) = manifest.get("key") {
+                        transfer_manifest["key"] = key.clone();
+                    }
+                    fs::write(
+                        active_dir.join("gsm-transfer.html"),
+                        "<!doctype html><title>GSM dictionary transfer</title>",
+                    )
+                    .map_err(|e| e.to_string())?;
+                    transfer_manifest
+                } else {
+                    if direct_clone {
                         fs::write(
                             active_dir.join("gsm-transfer.html"),
                             "<!doctype html><title>GSM dictionary transfer</title>",
                         )
                         .map_err(|e| e.to_string())?;
                     }
-                }
+                    manifest.clone()
+                };
+                fs::write(active_dir.join("manifest.json"), active_manifest.to_string())
+                    .map_err(|e| e.to_string())?;
             }
-
-            let controller = self
-                .ensure_windows_controller(app, &overlay_data)
-                .await
-                .map_err(|e| format!("ensure_windows_controller: {e}"))?;
             let mut installed = crate::browser_extensions::load(
                 &controller,
                 active_dir.to_string_lossy().into_owned(),
@@ -2627,7 +2553,7 @@ impl DictionaryManager {
                 .unwrap()
                 .insert(installed_id.clone());
 
-            if relocated {
+            if relocated && !direct_clone {
                 let placeholder = LoadedExtension {
                     id: installed_id.clone(),
                     name: name.clone(),
@@ -2843,6 +2769,346 @@ impl DictionaryManager {
         Ok(extension)
     }
 
+    fn browser_import_selection(&self, app: &AppHandle) -> Value {
+        let path = overlay_data_path(app).join("native-dictionaries/browser-import-selection.json");
+        fs::read(path)
+            .ok()
+            .and_then(|data| serde_json::from_slice(&data).ok())
+            .unwrap_or_else(|| json!({}))
+    }
+
+    pub fn browser_import_status(&self, app: &AppHandle) -> Value {
+        json!({
+            "supported": use_windows_native_extensions(),
+            "selection": self.browser_import_selection(app),
+        })
+    }
+
+    async fn select_browser_library(
+        &self,
+        app: &AppHandle,
+        reader: &str,
+        slot: Option<String>,
+    ) -> Result<Value, String> {
+        let previous = self.browser_import_selection(app);
+        let mut selection = previous.as_object().cloned().unwrap_or_default();
+        if let Some(slot) = slot {
+            selection.insert(reader.into(), json!(slot));
+        } else {
+            selection.remove(reader);
+        }
+        let selection = Value::Object(selection);
+        if selection != previous {
+            let path =
+                overlay_data_path(app).join("native-dictionaries/browser-import-selection.json");
+            gsm_settings::write_atomic(&path, &selection).map_err(|error| error.to_string())?;
+            let overlay = app.state::<crate::overlay_host::OverlayHost>();
+            if let Err(error) = overlay.reload_browser_dictionary(app, reader).await {
+                gsm_settings::write_atomic(&path, &previous)
+                    .map_err(|rollback| format!("{error}. Could not restore the previous library: {rollback}"))?;
+                overlay.reload_browser_dictionary(app, reader).await
+                    .map_err(|rollback| format!("{error}. Could not reload the previous library: {rollback}"))?;
+                return Err(error);
+            }
+        }
+        Ok(self.browser_import_status(app))
+    }
+
+    pub async fn use_original_browser_dictionary(
+        &self,
+        app: &AppHandle,
+        reader: &str,
+    ) -> Result<Value, String> {
+        if !matches!(reader, "yomitan" | "hachidori") {
+            return Err("Invalid dictionary reader".into());
+        }
+        let _guard = self.browser_import_lock.lock().await;
+        self.select_browser_library(app, reader, None).await
+    }
+
+    #[cfg(windows)]
+    pub async fn import_browser_dictionary(
+        &self,
+        app: &AppHandle,
+        profile: PathBuf,
+        source_id: String,
+    ) -> Result<Value, String> {
+        if !use_windows_native_extensions() {
+            return Err("Browser profile import requires Windows WebView2".into());
+        }
+        if !crate::browser_dictionary::valid_id(&source_id) {
+            return Err("Invalid browser extension ID".into());
+        }
+        let overlay_data = overlay_data_path(app);
+        let (source, profile) = tokio::task::spawn_blocking(move || {
+            let profile = fs::canonicalize(profile).map_err(|e| e.to_string())?;
+            let source = crate::browser_dictionary::sources_in("", &profile)
+                .into_iter()
+                .find(|source| source.direct && source.id == source_id)
+                .ok_or("The selected browser dictionary could not be found")?;
+            Ok::<_, String>((source, profile))
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        if fs::canonicalize(&overlay_data)
+            .ok()
+            .is_some_and(|overlay| profile.starts_with(overlay))
+        {
+            return Err("Select a browser profile outside GSM's data folder".into());
+        }
+
+        let _guard = self.browser_import_lock.lock().await;
+        let controller = {
+            let _guard = self.windows_lock.lock().await;
+            prepare_windows_profile(&overlay_data)?;
+            self.ensure_windows_controller(app, &overlay_data).await?
+        };
+        let state_root = overlay_data.join("native-dictionaries");
+        let resource_root = overlay_resources_root(app);
+        let bundled = resolve_extension_source(&overlay_data, &resource_root, source.reader, true)?;
+        let mut manifest = read_manifest(&bundled)?;
+        let name = manifest["name"].as_str().unwrap_or("Dictionary").to_owned();
+        let fingerprint = format!("{}|{}", profile.display(), source.id);
+        let pending_id = extension_id_from_bytes(fingerprint.as_bytes());
+        let pending = state_root
+            .join("browser-imports")
+            .join(format!("{pending_id}.json"));
+        let slot = fs::read(&pending)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<String>(&bytes).ok())
+            .filter(|id| crate::browser_dictionary::valid_id(id))
+            .unwrap_or_else(|| extension_id_from_bytes(uuid::Uuid::new_v4().as_bytes()));
+        gsm_settings::write_atomic(&pending, &json!(slot)).map_err(|error| error.to_string())?;
+        let active_dir = state_root
+            .join("browser-imports")
+            .join(&slot)
+            .join("extension");
+        fs::create_dir_all(&active_dir).map_err(|e| e.to_string())?;
+        let key_file = active_dir.with_file_name("public-key.json");
+        let key: String = match fs::read(&key_file) {
+            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|error| error.to_string())?,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                let key = tokio::task::spawn_blocking(|| {
+                    use rsa::pkcs8::EncodePublicKey;
+                    let key = rsa::RsaPrivateKey::new(&mut rand_core::OsRng, 2048)
+                        .map_err(|error| error.to_string())?;
+                    let public = key
+                        .to_public_key()
+                        .to_public_key_der()
+                        .map_err(|error| error.to_string())?;
+                    Ok::<_, String>(STANDARD.encode(public.as_bytes()))
+                })
+                .await
+                .map_err(|error| error.to_string())??;
+                gsm_settings::write_atomic(&key_file, &json!(key))
+                    .map_err(|error| error.to_string())?;
+                key
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        manifest["key"] = json!(key);
+        let id = extension_id_for_directory(&active_dir, &manifest, true);
+        let completed = state_root.join(format!("{id}-legacy-transfer.json"));
+        let browser_filesystem = source.reader == "hachidori";
+        if !completed.is_file() {
+            let (database, settings) =
+                crate::browser_dictionary::storage_paths(&profile, &source.id);
+            let filesystem = browser_filesystem.then(|| profile.join("File System"));
+            let legacy = LegacySource {
+                id: source.id,
+                database,
+                settings,
+                filesystem,
+            };
+            if !browser_filesystem {
+                let _ = crate::browser_extensions::enable(&controller, id.clone(), false).await;
+                self.clone_windows_chromium_dictionary(
+                    app,
+                    &overlay_data,
+                    &state_root,
+                    &id,
+                    &name,
+                    &legacy,
+                )
+                .await?;
+            } else {
+                let mut transfer_manifest = json!({
+                    "manifest_version":3, "name":"GSM Browser Transfer", "version":manifest["version"],
+                    "key":manifest["key"],
+                    "permissions":["storage","unlimitedStorage"],
+                    "host_permissions":["http://gsm.localhost/*"],
+                });
+                for policy in ["cross_origin_opener_policy", "cross_origin_embedder_policy"] {
+                    if let Some(value) = manifest.get(policy) {
+                        transfer_manifest[policy] = value.clone();
+                    }
+                }
+                for file in ["opfs-capability-worker.js", "error-text.js"] {
+                    fs::copy(bundled.join(file), active_dir.join(file)).map_err(|error| error.to_string())?;
+                }
+                fs::write(
+                    active_dir.join("manifest.json"),
+                    transfer_manifest.to_string(),
+                )
+                .map_err(|e| e.to_string())?;
+                fs::write(
+                    active_dir.join("gsm-transfer.html"),
+                    "<!doctype html><title>GSM Dictionary Transfer</title>",
+                )
+                .map_err(|e| e.to_string())?;
+                let installed = crate::browser_extensions::load(
+                    &controller,
+                    active_dir.to_string_lossy().into_owned(),
+                )
+                .await?;
+                if installed["id"].as_str() != Some(id.as_str()) {
+                    return Err("Browser import extension identity changed unexpectedly".into());
+                }
+                crate::browser_extensions::enable(&controller, id.clone(), true).await?;
+                let assets = app
+                    .state::<crate::desktop_state::DesktopState>()
+                    .assets
+                    .clone();
+                assets.3.lock().unwrap().insert(id.clone());
+                let placeholder = LoadedExtension {
+                    id: id.clone(),
+                    name,
+                    version: manifest["version"].as_str().unwrap_or_default().into(),
+                    path: active_dir.clone(),
+                    source_path: bundled.clone(),
+                    manifest: manifest.clone(),
+                    base: format!("chrome-extension://{id}"),
+                };
+                let result = self.run_legacy_transfer(
+                    app, &overlay_data, &state_root, &placeholder, Some(&legacy), true, browser_filesystem,
+                ).await;
+                if result.is_ok() {
+                    self.clear_transfer(app, &id);
+                } else {
+                    self.set_transfer(app, &id, &placeholder.name, "failed", 0);
+                }
+                let disabled = crate::browser_extensions::enable(&controller, id.clone(), false).await;
+                assets.3.lock().unwrap().remove(&id);
+                result?;
+                disabled?;
+            }
+        }
+        copy_dir_recursive(&bundled, &active_dir)?;
+        fs::write(active_dir.join("manifest.json"), manifest.to_string())
+            .map_err(|e| e.to_string())?;
+        fs::write(
+            active_dir.join("gsm-transfer.html"),
+            "<!doctype html><title>GSM Dictionary Transfer</title>",
+        )
+        .map_err(|e| e.to_string())?;
+        let status = self.select_browser_library(app, source.reader, Some(slot)).await?;
+        let _ = fs::remove_file(pending);
+        Ok(status)
+    }
+
+    #[cfg(windows)]
+    async fn clone_windows_chromium_dictionary(
+        &self,
+        app: &AppHandle,
+        overlay_data: &Path,
+        state_root: &Path,
+        extension_id: &str,
+        extension_name: &str,
+        source: &LegacySource,
+    ) -> Result<(), String> {
+        fs::create_dir_all(state_root).map_err(|e| e.to_string())?;
+        let completed = state_root.join(format!("{extension_id}-legacy-transfer.json"));
+        if let Ok(raw) = fs::read_to_string(&completed) {
+            if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                if val["format"].as_u64().unwrap_or(0) >= 4 {
+                    return Ok(());
+                }
+            }
+        }
+
+        prepare_windows_profile(overlay_data)?;
+        let (dest_database, dest_settings) =
+            crate::browser_dictionary::storage_paths(&browser_profile_dir(overlay_data), extension_id);
+
+        self.set_transfer(app, extension_id, extension_name, "importing", 0);
+        let source_db = source.database.clone();
+        let source_settings = source.settings.clone();
+        let source_id = source.id.clone();
+        let dest_id = extension_id.to_owned();
+        let id_owned = extension_id.to_owned();
+        let name_owned = extension_name.to_owned();
+        let handle = app.clone();
+
+        let result = tokio::task::spawn_blocking(move || {
+            gsm_dictionary_transfer::clone_chromium(
+                &source_db,
+                &source_settings,
+                &source_id,
+                &dest_database,
+                &dest_settings,
+                &dest_id,
+                &|phase, records| {
+                    handle
+                        .state::<DictionaryManager>()
+                        .set_transfer(&handle, &id_owned, &name_owned, phase, records);
+                },
+            )
+            .map_err(|e| format!("Could not transfer saved {name_owned} dictionaries: {e:#}"))
+        })
+        .await
+        .map_err(|e| e.to_string())
+        .and_then(|res| res);
+
+        let summary = match result {
+            Ok(summary) => summary,
+            Err(error) => {
+                self.set_transfer(app, extension_id, extension_name, "failed", 0);
+                return Err(error);
+            }
+        };
+
+        let marker = json!({
+            "format": 4,
+            "sourceId": source.id,
+            "date": current_iso_timestamp(),
+            "databases": summary.databases,
+            "records": summary.records,
+        });
+        if let Err(error) = gsm_settings::write_atomic(&completed, &marker) {
+            let error_msg = error.to_string();
+            self.set_transfer(app, extension_id, extension_name, "failed", 0);
+            return Err(error_msg);
+        }
+
+        let transfers_dir = state_root.join("transfers");
+        let pointer = transfers_dir.join(format!("{extension_id}.json"));
+        if let Ok(raw) = fs::read_to_string(&pointer) {
+            if let Ok(val) = serde_json::from_str::<Value>(&raw) {
+                if let Some(dir) = val["directory"].as_str().map(PathBuf::from) {
+                    if let (Ok(canonical_dest), Ok(canonical_parent)) =
+                        (fs::canonicalize(&dir), fs::canonicalize(&transfers_dir))
+                    {
+                        if canonical_dest.parent() == Some(canonical_parent.as_path()) {
+                            let _ = fs::remove_dir_all(&canonical_dest);
+                        }
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_file(&pointer);
+
+        self.clear_transfer(app, extension_id);
+        crate::desktop_log::info(
+            app,
+            "dictionary",
+            format!(
+                "Completed {} transfer ({} files cloned).",
+                extension_name, summary.records
+            ),
+        );
+        Ok(())
+    }
+
     async fn migrate_windows_legacy(
         &self,
         app: &AppHandle,
@@ -2852,12 +3118,12 @@ impl DictionaryManager {
         pre_discovered: Option<&LegacySource>,
     ) -> Result<(), String> {
         let result = self
-            .run_legacy_transfer(app, overlay_data, state_root, extension, pre_discovered, true)
+            .run_legacy_transfer(app, overlay_data, state_root, extension, pre_discovered, true, false)
             .await;
         if result.is_ok() {
-            self.clear_transfer(&extension.id);
+            self.clear_transfer(app, &extension.id);
         } else {
-            self.set_transfer(&extension.id, &extension.name, "failed", 0);
+            self.set_transfer(app, &extension.id, &extension.name, "failed", 0);
         }
         result
     }
@@ -2870,12 +3136,12 @@ impl DictionaryManager {
         extension: &LoadedExtension,
     ) -> Result<(), String> {
         let result = self
-            .run_legacy_transfer(app, overlay_data, state_root, extension, None, false)
+            .run_legacy_transfer(app, overlay_data, state_root, extension, None, false, false)
             .await;
         if result.is_ok() {
-            self.clear_transfer(&extension.id);
+            self.clear_transfer(app, &extension.id);
         } else {
-            self.set_transfer(&extension.id, &extension.name, "failed", 0);
+            self.set_transfer(app, &extension.id, &extension.name, "failed", 0);
         }
         result
     }
@@ -2888,6 +3154,7 @@ impl DictionaryManager {
         extension: &LoadedExtension,
         pre_discovered: Option<&LegacySource>,
         is_windows_native: bool,
+        browser_filesystem: bool,
     ) -> Result<(), String> {
         fs::create_dir_all(state_root).map_err(|e| e.to_string())?;
         let completed = state_root.join(format!("{}-legacy-transfer.json", extension.id));
@@ -2917,8 +3184,8 @@ impl DictionaryManager {
             }
         };
 
-        self.set_transfer(&extension.id, &extension.name, "reading", 0);
-        if extension_kind(&extension.name) == "hachidori" {
+        self.set_transfer(app, &extension.id, &extension.name, "reading", 0);
+        if extension_kind(&extension.name) == "hachidori" && source.filesystem.is_none() {
             source.filesystem = Some(overlay_data.join("File System"));
         }
 
@@ -2931,10 +3198,18 @@ impl DictionaryManager {
             .ok()
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .and_then(|v| v["directory"].as_str().map(PathBuf::from))
-            .filter(|p| {
-                p.parent()
-                    .map(canonical_path_for_hash)
-                    .is_some_and(|parent| parent == canonical_transfers)
+            .and_then(|p| {
+                let parent = canonical_path_for_hash(p.parent()?);
+                if parent == canonical_transfers {
+                    return Some(p);
+                }
+                let old = gsm_packages::overlay_directory::migration_source(overlay_data)?;
+                let old_transfers = old.join(state_root.file_name()?).join("transfers");
+                if parent != canonical_path_for_hash(&old_transfers) {
+                    return None;
+                }
+                let copied = transfers_dir.join(p.file_name()?);
+                copied.join("manifest.json").is_file().then_some(copied)
             })
             .unwrap_or_else(|| {
                 transfers_dir.join(format!("{}-{}", extension.id, uuid::Uuid::new_v4()))
@@ -2970,7 +3245,6 @@ impl DictionaryManager {
             );
             run_legacy_export(
                 app,
-                self,
                 &extension.id,
                 &extension.name,
                 &source,
@@ -2979,7 +3253,7 @@ impl DictionaryManager {
             .await?;
         }
 
-        self.set_transfer(&extension.id, &extension.name, "importing", 0);
+        self.set_transfer(app, &extension.id, &extension.name, "importing", 0);
         let mount_id = format!("transfer-{}", uuid::Uuid::new_v4());
         let assets = app.state::<crate::desktop_state::DesktopState>().assets.clone();
         assets.mount(&mount_id, &destination)?;
@@ -3019,7 +3293,7 @@ impl DictionaryManager {
 
             let result = async {
                 // Wait briefly for the page document to finish initializing.
-                let import_script = legacy_import_script(&base_url);
+                let import_script = legacy_import_script(&base_url, browser_filesystem);
                 for attempt in 0..80 {
                     match evaluate_raw(app, &page, &import_script).await {
                         Ok(_) => break,
@@ -3039,7 +3313,7 @@ impl DictionaryManager {
                     match state["status"].as_str() {
                         Some("running") => {
                             let recs = state["records"].as_u64().unwrap_or(0);
-                            self.set_transfer(&extension.id, &extension.name, "importing", recs);
+                            self.set_transfer(app, &extension.id, &extension.name, "importing", recs);
                         }
                         Some("failed") => {
                             return Err(state["error"]
@@ -3133,7 +3407,12 @@ impl DictionaryManager {
     ) -> Result<Option<WebviewWindow>, String> {
         let _guard = self.hachidori_engine_lock.lock().await;
         if let Some(existing) = app.get_webview_window(HACHIDORI_ENGINE_LABEL) {
-            return Ok(Some(existing));
+            if !use_windows_native_extensions()
+                || existing.url().is_ok_and(|url| url.host_str() == Some(extension.id.as_str()))
+            {
+                return Ok(Some(existing));
+            }
+            crate::reader_service::destroy_reader_window(app, &existing).await?;
         }
         if self
             .hachidori_engine_ready
@@ -3334,10 +3613,9 @@ impl DictionaryManager {
             if previous.as_deref() == Some(extension.id.as_str()) {
                 return Ok(());
             }
+            let url = window.url().map_err(|e| e.to_string())?;
+            window.navigate(url).map_err(|e| e.to_string())?;
             self.set_home_reader_extension(&label, &extension.id);
-            if let Ok(url) = window.url() {
-                window.navigate(url).map_err(|e| e.to_string())?;
-            }
             return Ok(());
         }
 

@@ -1,8 +1,11 @@
 """Real desktop scheduling on the benchmark harness's isolated GSM profiles."""
 
+import json
+import os
 import queue
 import threading
 import time
+from pathlib import Path
 from unittest.mock import patch
 
 import psutil
@@ -16,14 +19,33 @@ def until(check):
         time.sleep(0.001)
 
 
-def measure_rollup(db, bus, desktop_pid, mode):
+def measure_scheduled(db, bus, desktop_pid, args):
+    from GameSentenceMiner.util.config.configuration import get_master_config
     from GameSentenceMiner.util.cron.run_crons import CronScheduler
     from GameSentenceMiner.util.database.cron_table import CronTable
+    from scripts.benchmark_anki_sync import digest, prepare_collection
     from scripts.benchmark_daily_rollup import prepare_rollup
 
-    _, verify = prepare_rollup(db, "rollup-mixed")
+    if args.case == "cron-rollup":
+        name, operation = "daily_stats_rollup", "rebuildRollups"
+        _, verify = prepare_rollup(db, "rollup-mixed")
+    else:
+        name, operation = "anki_card_sync", "anki.sync"
+        prepare_collection(db, f"http://127.0.0.1:{args.port}/sync/collection")
+
+        def verify():
+            assert db.fetchone("SELECT count(*) FROM anki_notes")[0] == 1200
+            assert db.fetchone("SELECT count(*) FROM anki_cards")[0] == 2400
+            assert db.fetchone("SELECT count(*) FROM anki_reviews")[0] == 14400
+            return digest(db)
+
     CronTable.set_db(db)
-    row = CronTable.create_cron_entry("daily_stats_rollup", "Benchmark rollup", time.time() - 1, "once")
+    db.execute("DELETE FROM cron_table", commit=True)
+
+    (Path(os.environ["GSM_PROFILE_DIR"]) / "config.json").write_text(
+        json.dumps(get_master_config().to_dict()), encoding="utf-8"
+    )
+    row = CronTable.create_cron_entry(name, name, time.time() - 1, "once")
     scheduler = CronScheduler()
     processes = [psutil.Process(), psutil.Process(desktop_pid)]
     calls = []
@@ -32,6 +54,8 @@ def measure_rollup(db, bus, desktop_pid, mode):
     def observe(dst, topic, data=None, timeout=15):
         if topic == "mining.history" and data["operation"] == "rebuildRollups":
             calls.append(data["operation"])
+        elif topic == "anki.sync":
+            calls.append(topic)
         return original(dst, topic, data, timeout)
 
     def cpu():
@@ -44,9 +68,10 @@ def measure_rollup(db, bus, desktop_pid, mode):
             until(lambda: not CronTable.get(row.id).enabled)
             wall_ms = (time.perf_counter() - start) * 1000
             cpu_ms = (cpu() - start_cpu) * 1000
-            assert (scheduler._desktop is not None) == (mode == "rust")
-            assert calls == ["rebuildRollups"]
-            assert db.fetchone("SELECT count(*) FROM daily_stats_rollup")[0] == 10
+            assert (scheduler._desktop is not None) == (args.worker == "rust")
+            assert calls == ([] if args.worker == "rust" else [operation])
+            if args.case == "cron-rollup":
+                assert db.fetchone("SELECT count(*) FROM daily_stats_rollup")[0] == 10
             uss = sum(p.memory_full_info().uss for p in processes) / 2**20
             return {"result": verify(), "wall_ms": wall_ms, "cpu_ms": cpu_ms, "settled_uss_mib": uss}
         finally:
@@ -58,6 +83,12 @@ def measure(db, bus, desktop_pid, iterations, mode):
     from GameSentenceMiner.util.database.cron_table import CronTable
 
     CronTable.set_db(db)
+    db.execute("DELETE FROM cron_table", commit=True)
+    # The dispatch workload intentionally exercises one high-priority leased
+    # job. The separate rollup case measures a native scheduled calculation.
+    (Path(os.environ["GSM_PROFILE_DIR"]) / "config.json").write_text(
+        json.dumps({"stats": {"extra_punctuation_regex": "(?<=a)b"}}), encoding="utf-8"
+    )
     scheduler = cron.CronScheduler()
     jobs = []
     for name in ("populate_games", "daily_goals_completion", "daily_stats_rollup"):

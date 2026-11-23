@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import json
 
+from GameSentenceMiner.ai.features.character_filter import CharacterContext
+from GameSentenceMiner.ai.translation_cache import is_successful_translation
+
 
 class CharacterContextProvider:
     def __init__(self, summary_service, logger):
         self.summary_service = summary_service
         self.logger = logger
 
-    def get_character_context(self, game_title: str, ai_service) -> str:
+    def get_character_context(self, game_title: str, ai_service) -> CharacterContext:
         if not game_title:
-            return ""
+            return CharacterContext("")
 
         try:
             from GameSentenceMiner.util.database.games_table import GamesTable
@@ -20,29 +23,32 @@ class CharacterContextProvider:
                 game = GamesTable.get_by_title(game_title)
 
             if not game:
-                return ""
+                return CharacterContext("")
 
             self.logger.debug(f"Found game '{game.title_original}' (id={game.id}) for scene '{game_title}'")
-            if game.character_summary:
-                return game.character_summary
-
-            if game.vndb_character_data:
+            data = game.vndb_character_data
+            if isinstance(data, str):
                 try:
-                    if isinstance(game.vndb_character_data, dict):
-                        vndb_data = game.vndb_character_data
-                    else:
-                        vndb_data = json.loads(game.vndb_character_data)
-                    summary = self.summary_service.generate_from_vndb(vndb_data, ai_service)
-                    if summary:
-                        game.character_summary = summary
-                        game.save()
-                        self.logger.info(f"Generated and stored character summary for {game_title}")
-                        return summary
+                    data = json.loads(data)
                 except json.JSONDecodeError:
-                    self.logger.warning(f"Failed to parse VNDB data for {game_title}")
+                    data = None
+            if is_successful_translation(game.character_summary):
+                return CharacterContext.from_metadata(game.character_summary, data)
+
+            if ai_service.config_snapshot.ai.auto_generate_character_summary and data:
+                try:
+                    summary = self.summary_service.generate_from_vndb(data, ai_service)
+                    if summary:
+                        GamesTable._db.execute(
+                            "UPDATE games SET character_summary = ? WHERE id = ? AND character_summary IS ?",
+                            (summary, game.id, game.character_summary),
+                            commit=True,
+                        )
+                        self.logger.info(f"Generated and stored character summary for {game_title}")
+                        return CharacterContext.from_metadata(summary, data)
                 except Exception as e:
                     self.logger.error(f"Failed to generate character summary for {game_title}: {e}")
         except Exception as e:
             self.logger.error(f"Error fetching character context: {e}")
 
-        return ""
+        return CharacterContext("")

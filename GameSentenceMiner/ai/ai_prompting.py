@@ -51,6 +51,26 @@ def get_ai_prompt_result(
     translation_only: bool = False,
 ) -> str:
     lines, game_title = _clip_context(lines, current_line, game_title)
+    from GameSentenceMiner.native import mining as native_mining
+
+    if native_mining.native_mining_enabled():
+        try:
+            return native_mining.ai_translate(
+                lines=lines,
+                sentence=sentence,
+                current_line=current_line,
+                game_title=game_title,
+                force_refresh=force_refresh,
+                custom_prompt=custom_prompt,
+                translation_only=translation_only,
+            )
+        except Exception as e:
+            logger.error(
+                "Error caught while trying to get native AI prompt result. Check logs for more details.",
+                exc_info=True,
+            )
+            logger.debug(e, exc_info=True)
+            return ""
     try:
         config = get_config()
         AIService, snapshot_config = _get_ai_service_components()
@@ -76,6 +96,17 @@ def get_ai_prompt_result(
 
 def get_sentence_analysis(lines, sentence, current_line, game_title="", mode="sentence", question="") -> str:
     lines, game_title = _clip_context(lines, current_line, game_title)
+    from GameSentenceMiner.native import mining as native_mining
+
+    if native_mining.native_mining_enabled():
+        return native_mining.ai_analyze(
+            lines,
+            sentence,
+            current_line,
+            game_title,
+            mode=mode,
+            question=question,
+        )
     config = get_config()
     AIService, snapshot_config = _get_ai_service_components()
     service = AIService(config_snapshot=snapshot_config(config.ai, config.general), logger=logger)
@@ -154,6 +185,10 @@ def ai_config_changed(config: Ai, current: Optional[Ai]) -> bool:
 def generate_character_summary(character_data: dict) -> Optional[str]:
     if not character_data:
         return None
+    from GameSentenceMiner.native import mining as native_mining
+
+    if native_mining.native_mining_enabled():
+        return native_mining.ai_character_summary(character_data)
 
     config = get_config()
     AIService, snapshot_config = _get_ai_service_components()

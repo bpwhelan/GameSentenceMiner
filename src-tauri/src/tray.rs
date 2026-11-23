@@ -199,17 +199,12 @@ pub fn build_tray_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, Strin
             .map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    menu.append(
-        &MenuItem::with_id(
-            app,
-            "tray::restart-python",
-            "Restart Python App",
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    if !crate::app_lifecycle::native_session_requested() {
+        menu.append(
+            &MenuItem::with_id(app, "tray::restart-python", "Restart Python App", true, None::<&str>)
+                .map_err(|e| e.to_string())?,
+        ).map_err(|e| e.to_string())?;
+    }
     menu.append(
         &MenuItem::with_id(app, "tray::open-gsm-folder", "Open GSM Folder", true, None::<&str>)
             .map_err(|e| e.to_string())?,
@@ -366,7 +361,9 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
         }
         "tray::open-texthooker" => {
             tauri::async_runtime::spawn(async move {
-                let _ = crate::runtime::backend_command(&handle, "open_texthooker", json!({})).await;
+                if let Err(error) = crate::launchers_ui::open_text_feed(&handle).await {
+                    crate::desktop_log::warn(&handle, "tray", error);
+                }
             });
         }
         "tray::open-gsm-folder" => {
@@ -396,14 +393,18 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
                     .select_game_profile(&profile_name, None)
                     .is_ok()
                 {
-                    let _ = refresh_menu(&handle);
+                    crate::mining_settings::changed(&handle).await;
                 }
             });
         }
         id if id.starts_with("tray::dev::") => {
             let fn_name = id["tray::dev::".len()..].to_owned();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::runtime::backend_command(&handle, &fn_name, json!({})).await;
+                if crate::app_lifecycle::native_session_requested() {
+                    if let Err(e)=crate::gui_dialog::preview(&handle,&fn_name).await { crate::desktop_log::warn(&handle,"dialog",e); }
+                } else {
+                    let _ = crate::runtime::backend_command(&handle, &fn_name, json!({})).await;
+                }
             });
         }
         "tray::update-gsm" => {

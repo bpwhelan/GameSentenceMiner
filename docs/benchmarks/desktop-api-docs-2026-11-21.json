@@ -1,0 +1,18 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "method": "Fresh checkout interpreter and disposable profile per sample. Time covers importing the production Flask web module with standalone Swagger and legacy history route registration enabled or omitted by the desktop. One warmup per mode, then alternating order. All runs verify route registration and desktop imports.",
+  "rounds": 5,
+  "medians": {
+    "desktop": {
+      "wall_ms": 696.031,
+      "cpu_ms": 578.125,
+      "working_set_growth_mib": 45.406
+    },
+    "standalone": {
+      "wall_ms": 791.744,
+      "cpu_ms": 687.5,
+      "working_set_growth_mib": 49.891
+    }
+  }
+}

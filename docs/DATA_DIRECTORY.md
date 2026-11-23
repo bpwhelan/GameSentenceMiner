@@ -4,14 +4,35 @@ The application installation, active data folder, and location setting have sepa
 
 | Location | Contents |
 | --- | --- |
-| Application installation | Electron and bundled application code; replaced by updates |
-| Active data folder | GSM settings, `gsm.db`, logs, downloaded tools, Python environment, and models |
+| Application installation | Desktop executable and bundled application code, replaced by updates |
+| Active data folder | GSM settings, `gsm.db`, logs, downloaded tools, and models |
 | `~/.config/GameSentenceMiner/data_dir.json` | Small permanent file recording the active data folder |
 
 On Windows, `~` means `%USERPROFILE%`. The default **data** folder remains
 `%APPDATA%/GameSentenceMiner`; only the bootstrap file moves to `.config`.
 On macOS/Linux, the default data folder was already `~/.config/GameSentenceMiner`.
 `XDG_CONFIG_HOME` does not relocate the bootstrap file.
+
+## Windows overlay data
+
+GSM stores the default Windows overlay profile under
+`%APPDATA%\GameSentenceMiner\Overlay`. On the first launch from an older
+installation, GSM copies the settings and extension storage from
+`%APPDATA%\gsm_overlay` before opening the profile. The copy skips browser
+caches and incomplete transfer scratch files. GSM keeps using the legacy
+profile if it cannot finish the copy, and keeps the original files after a
+successful move. Existing path-based extension IDs can keep their original
+unpacked extension location while reading their data from the new profile.
+
+Portable profiles keep their existing layout.
+
+## Mining settings
+
+**Settings → Open Main GSM Settings** opens a dedicated Tauri window that edits the active data folder’s `config.json`. Global credentials and connection settings apply to every game. A base profile holds mining preferences. A game can inherit individual values from its base or keep its own overrides. Creating a game with inheritance turned off copies the base’s current values. Selecting a profile in the editor chooses what to edit. **Use in GSM** activates it.
+
+During the first upgrade, GSM takes shared connection values from the active profile. If existing profiles disagree, GSM writes a copy of the original document beside `config.json` and displays its filename in Global settings.
+
+The Rust scope rules live in `native/gsm-settings/src/mining_scopes.rs` and its `schema` module. Each save publishes the shared fields, overrides, and resolved `configs` in one atomic write. Desktop controls that modify mining settings use `mining_scopes::update`. Readers can consume the active resolved profile directly. The desktop sends `settings.mining.changed` without a configuration payload so subscribed views can reload their own scope. The unified port and listening address take effect at the next launch.
 
 ## Selecting a folder
 
@@ -28,9 +49,10 @@ selection from an elevated installer. Uninstalling preserves both the data and p
 In **Settings > Data Folder**, GSM shows the current folder, database path, and the
 location of the bootstrap file. Changing folders stops the backend, OCR, OBS, and overlay,
 copies the configuration and database, commits the new location, and restarts GSM.
-Source files remain available for manual cleanup. Installed tools and the Python
-environment are recreated in the destination. Chromium profiles and Yomitan databases
-are not copied; export/import dictionaries when moving.
+Source files remain available for manual cleanup. Downloaded tools are prepared in
+the destination. Tauri keeps any legacy Python environment in place for rollback.
+Use dictionary export and import when moving Chromium profiles and Yomitan databases
+between data folders. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md).
 
 **Use Original AppData Folder** explicitly switches to the data already in the original
 folder; it does not merge newer changes from the custom folder. This is stated in the
@@ -69,7 +91,7 @@ migration, deleting the old Windows AppData folder cannot reset the selected loc
 
 Older versions incorrectly kept writing to the original `gsm.db` after relocation.
 Migrated pointers temporarily record `legacyDatabaseDir`. Before opening its database,
-the backend repairs this once using SQLite's backup API, including committed rows still
+the desktop repairs this once using SQLite's backup API, including committed rows still
 in the original WAL. Any existing destination database and sidecars are preserved under
 `<data>/backup/data-directory-migration/<unique-id>/`. The original database is kept.
 The marker is cleared only after the replacement succeeds; failures leave it retryable.
@@ -88,7 +110,8 @@ Keep these implementations of the pointer contract aligned:
 - `electron-src/main/data_dir.ts`: early Electron startup, atomic pointer writes.
 - `GameSentenceMiner/util/data_directory.py`: dependency-free Python resolver.
 - `build/data-directory.ps1`: Windows installer inspection, validation, initial write.
-- `GameSentenceMiner/util/database/data_dir_migration.py`: one-time database repair.
+- `native/gsm-db/src/profile.rs`: desktop database repair before opening history readers.
+- `GameSentenceMiner/util/database/data_dir_migration.py`: standalone Python compatibility.
 
 Focused regression checks:
 

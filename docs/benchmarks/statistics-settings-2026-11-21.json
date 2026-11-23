@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 40,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Saves alternate the game target on each request and include profile persistence.",
+  "medians": {
+    "GET /api/settings 200": {
+      "python": {
+        "ms": 0.4802,
+        "server_cpu_ms": 0.3906,
+        "server_resident_mib": 83.5781
+      },
+      "rust": {
+        "ms": 0.2951,
+        "server_cpu_ms": 0.3906,
+        "server_resident_mib": 29.9375
+      }
+    },
+    "POST /api/settings 200": {
+      "python": {
+        "ms": 4.9123,
+        "server_cpu_ms": 5.0781,
+        "server_resident_mib": 85.6875
+      },
+      "rust": {
+        "ms": 8.5522,
+        "server_cpu_ms": 3.125,
+        "server_resident_mib": 30.2031
+      }
+    },
+    "POST /api/settings 400": {
+      "python": {
+        "ms": 0.4678,
+        "server_cpu_ms": 0.3906,
+        "server_resident_mib": 86.4805
+      },
+      "rust": {
+        "ms": 0.2054,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 30.832
+      }
+    }
+  }
+}

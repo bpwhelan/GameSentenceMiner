@@ -1,5 +1,9 @@
 recursive-include native/gsm-native Cargo.toml Cargo.lock *.rs
 recursive-include native/gsm-downloads Cargo.toml assets.json *.rs
+recursive-include native/gsm-db Cargo.toml *.rs *.sql
+recursive-include native/gsm-settings Cargo.toml *.rs mining-defaults.json
+prune native/gsm-settings/target
+prune native/gsm-db/target
 prune native/gsm-native/target
 prune GameSentenceMiner/mecab
 global-exclude *.dic

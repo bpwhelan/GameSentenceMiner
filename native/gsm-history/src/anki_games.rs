@@ -8,9 +8,9 @@ use std::collections::BTreeMap;
 #[derive(Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Report {
-    parent_tag: String,
-    start: Option<i64>,
-    end: Option<i64>,
+    pub parent_tag: String,
+    pub start: Option<i64>,
+    pub end: Option<i64>,
 }
 
 #[derive(Default)]

@@ -375,7 +375,7 @@ def _find_field_grouping_candidates(source_note: "AnkiCard", *, oldest_only=Fals
     return candidates
 
 
-def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[str, Any]]:
+def _resolve_field_grouping_decision(source_note: "AnkiCard", *, strict=False) -> dict[str, Any] | None:
     config = get_config()
     if not bool(getattr(config.anki, "field_grouping_enabled", False)):
         return None
@@ -386,6 +386,8 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
         else:
             candidates = _find_field_grouping_candidates(source_note)
     except Exception as e:
+        if strict:
+            raise
         logger.warning(f"Could not search Anki for field-grouping duplicates: {e}")
         return None
     if not candidates:
@@ -410,6 +412,8 @@ def _resolve_field_grouping_decision(source_note: "AnkiCard") -> Optional[Dict[s
                 default_delete_duplicate=bool(getattr(config.anki, "field_grouping_delete_duplicate", True)),
             )
         except Exception as e:
+            if strict:
+                raise
             logger.warning(f"Could not show the Anki field-grouping dialog: {e}")
             return None
     if not isinstance(result, dict):
@@ -713,70 +717,6 @@ def _apply_field_grouping_merge(
 
 
 # --- Migration Utilities ---
-def migrate_old_word_folders():
-    """
-    Move old word folders in the output directory to the new date-based structure (YYYY-MM/DD/WORD),
-    using the latest modified date of the files inside each folder.
-    """
-    config = get_config()
-    output_folder = config.paths.output_folder
-    if not output_folder or not os.path.exists(output_folder):
-        return
-
-    # Regex for new date-based folder: YYYY-MM/DD
-    date_folder_pattern = re.compile(r"^\d{4}-\d{2}$")
-
-    file_pattern = re.compile(r"_\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d{3}")
-
-    for entry in os.listdir(output_folder):
-        entry_path = os.path.join(output_folder, entry)
-        if not os.path.isdir(entry_path):
-            continue
-        # If this is a date folder, skip
-        if date_folder_pattern.match(entry):
-            continue
-        # Otherwise, this is an old-style word folder
-        # Check all files for the required pattern
-        all_files_match = True
-        file_paths = []
-        for root, dirs, files in os.walk(entry_path):
-            for fname in files:
-                fpath = os.path.join(root, fname)
-                file_paths.append(fpath)
-                if not file_pattern.search(fname):
-                    all_files_match = False
-                    break
-            if not all_files_match:
-                break
-        if not file_paths or not all_files_match:
-            # No files or not all files match the pattern, skip
-            continue
-        # Find latest modified date among files
-        latest_mtime = 0
-        for fpath in file_paths:
-            try:
-                mtime = os.path.getmtime(fpath)
-                if mtime > latest_mtime:
-                    latest_mtime = mtime
-            except Exception:
-                continue
-        if latest_mtime == 0:
-            # No files, skip
-            continue
-        dt = datetime.fromtimestamp(latest_mtime)
-        date_dir = dt.strftime("%Y-%m")
-        day_dir = dt.strftime("%d")
-        new_base = os.path.join(output_folder, date_dir, day_dir)
-        os.makedirs(new_base, exist_ok=True)
-        new_path = os.path.join(new_base, entry)
-        # Move the folder
-        try:
-            shutil.move(entry_path, new_path)
-            logger.info(f"Migrated old word folder '{entry_path}' to '{new_path}'")
-        except Exception as e:
-            logger.error(f"Failed to migrate '{entry_path}': {e}")
-
-
 @dataclass
 class MediaAssets:
     """A simple container for media file paths and their Anki names."""
@@ -3841,7 +3781,9 @@ def _resolve_mined_line_for_card(card, lines):
     genuine match. If no scan matches either, overlay cards use their own sentence and the
     mining time as a best guess, without adding synthetic text to the log or statistics.
     """
-    overlay_line = getattr(gsm_state, "last_overlay_scan_line", None)
+    from GameSentenceMiner.native.intake import overlay_scan
+
+    overlay_line = overlay_scan()
     anki_sentence = remove_html_and_cloze_tags(get_sentence(card)) if card else ""
     overlay_matches = overlay_line is not None and anki_sentence and lines_match(overlay_line.text, anki_sentence)
     overlay_mine = _is_overlay_mine(card)
@@ -4365,6 +4307,10 @@ def _is_anki_polling_allowed() -> bool:
     if bool(getattr(config.obs, "disable_recording", False)):
         return False
 
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        return bool(desktop_session.snapshot().get("replay_active"))
     obs_service = getattr(obs, "obs_service", None)
     if not obs_service:
         return False

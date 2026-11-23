@@ -2130,6 +2130,7 @@ document.addEventListener('DOMContentLoaded', function () {
         document.getElementById('editCharacterCount').value = game.character_count || game.game_character_count || '';
         document.getElementById('editReleaseDate').value = game.release_date || '';
         document.getElementById('editCharacterSummary').value = game.character_summary || '';
+        window.setCharacterSummaryGame?.(getCurrentManagedGameId());
         document.getElementById('editCompleted').checked = game.completed || false;
         document.getElementById('editImageUpload').value = '';
 

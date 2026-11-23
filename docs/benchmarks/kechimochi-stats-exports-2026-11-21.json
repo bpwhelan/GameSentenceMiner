@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Create, poll and download a Kechimochi CSV through production HTTP. Library includes 48 covers of 16 KiB each, activity includes daily rollups, live lines and imports, and incremental includes a modified historical sentence. Poll every millisecond. Compare entire CSV files and verify partial downloads, validation and cursor persistence.",
+  "medians": {
+    "library": {
+      "python": {
+        "ms": 39.5829,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 92.2305
+      },
+      "rust": {
+        "ms": 14.2715,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.25
+      }
+    },
+    "activity": {
+      "python": {
+        "ms": 29.3111,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 102.2148
+      },
+      "rust": {
+        "ms": 13.5753,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 33.4805
+      }
+    },
+    "incremental": {
+      "python": {
+        "ms": 13.1277,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 111.0664
+      },
+      "rust": {
+        "ms": 3.9681,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 33.3438
+      }
+    }
+  }
+}

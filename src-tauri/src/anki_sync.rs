@@ -12,13 +12,43 @@ use tokio::sync::{watch, Mutex};
 
 const STOPPED: &str = "Anki sync stopped with the backend session";
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct SyncLane {
-    writer: Mutex<()>,
+    writer: Arc<Mutex<()>>,
     owner: watch::Sender<Option<u64>>,
+    database: watch::Sender<Option<u64>>,
 }
 
 impl SyncLane {
+    pub fn database_closing(&self) {
+        self.database
+            .send_modify(|v| *v = Some(v.unwrap_or(0).wrapping_add(1)));
+    }
+
+    pub async fn scheduled(
+        &self,
+        client: &reqwest::Client,
+        cache: Cache,
+        config: &Value,
+    ) -> Result<(), String> {
+        let profile = gsm_mining::config::ProfileConfig::from_config_json(config)?;
+        let request = Request::full(cache.generation, profile.anki)?;
+        let mut owner = self.database.subscribe();
+        let _guard = tokio::select! {
+            biased;
+            _ = owner.changed() => return Err("Anki sync stopped because the database closed".into()),
+            guard = self.writer.lock() => guard,
+        };
+        Sync {
+            client,
+            request,
+            cache,
+            owner,
+        }
+        .run()
+        .await?;
+        Ok(())
+    }
     pub fn session(&self, epoch: u64) -> Result<watch::Receiver<Option<u64>>, String> {
         let owner = self.owner.subscribe();
         if *owner.borrow() != Some(epoch) {
@@ -50,6 +80,28 @@ pub struct Request {
     field: String,
     query: String,
     notes: Option<Vec<i64>>,
+}
+
+impl Request {
+    fn full(generation: u64, config: gsm_mining::config::AnkiConfig) -> Result<Self, String> {
+        let field = config.word.name;
+        let query = anki_sync::collection_query(&field, &config.note_type)
+            .ok_or("Anki word field is empty")?;
+        let url: reqwest::Url = config
+            .url
+            .parse()
+            .map_err(|e| format!("Invalid AnkiConnect URL: {e}"))?;
+        if !matches!(url.scheme(), "http" | "https") {
+            return Err("Invalid AnkiConnect URL".into());
+        }
+        Ok(Self {
+            generation,
+            url,
+            field,
+            query,
+            notes: None,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -318,6 +370,72 @@ fn page_result<T>(
     }
 }
 
+pub(crate) fn trigger_incremental(
+    app: AppHandle,
+    url: reqwest::Url,
+    word_field: String,
+    parent_tag: String,
+    note_ids: Vec<i64>,
+) {
+    if note_ids.is_empty()
+        || word_field.trim().is_empty()
+        || !matches!(url.scheme(), "http" | "https")
+    {
+        return;
+    }
+    let query = if parent_tag.trim().is_empty() {
+        format!("\"{}:_*\"", word_field.replace('"', "\\\""))
+    } else {
+        format!(
+            "tag:{} \"{}:_*\"",
+            parent_tag.trim(),
+            word_field.replace('"', "\\\"")
+        )
+    };
+    tauri::async_runtime::spawn(async move {
+        let lane = app.state::<SyncLane>();
+        let owner = lane.owner.subscribe();
+        let _guard = lane.writer.lock().await;
+        let history = app.state::<Arc<gsm_history::History>>().inner().clone();
+        let generation = match history.generation() {
+            Ok(gen_id) => gen_id,
+            Err(_) => return,
+        };
+        let path = app
+            .state::<crate::settings::Settings>()
+            .paths
+            .active
+            .join("gsm.db");
+        if !path.is_file() {
+            return;
+        }
+        let state = app.state::<crate::desktop_state::DesktopState>();
+        let sync = Sync {
+            client: &state.http,
+            request: Request {
+                generation,
+                url,
+                field: word_field,
+                query,
+                notes: Some(note_ids),
+            },
+            cache: Cache {
+                history,
+                path,
+                generation,
+            },
+            owner,
+        };
+        if let Err(err) = sync.run().await {
+            crate::desktop_log::info(
+                &app,
+                "anki-sync",
+                format!("Incremental sync skipped: {err}"),
+            );
+        }
+    });
+}
+
 pub async fn request(app: &AppHandle, epoch: u64, payload: Value) -> Result<Value, String> {
     let request: Request = serde_json::from_value(payload).map_err(|e| e.to_string())?;
     if !matches!(request.url.scheme(), "http" | "https") {
@@ -357,6 +475,19 @@ pub async fn request(app: &AppHandle, epoch: u64, payload: Value) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scheduled_scope_uses_the_configured_word_field_and_quoted_note_type() {
+        let mut config = gsm_mining::config::AnkiConfig::default();
+        config.word.name = " 単語 ".into();
+        config.note_type = r#"  Mining "A"  "#.into();
+        let request = Request::full(17, config.clone()).unwrap();
+        assert_eq!(request.query, r#"単語:_* note:"Mining \"A\"""#);
+        assert_eq!(request.field, " 単語 ");
+        assert!(request.notes.is_none());
+        config.word.name.clear();
+        assert!(Request::full(18, config).is_err());
+    }
 
     #[tokio::test]
     async fn shutdown_interrupts_a_pending_anki_request_and_old_stops_cannot_cancel_a_reconnect() {

@@ -317,10 +317,18 @@ app.whenReady().then(async () => {
     };
     await gsmHachidoriBridge.closePopups();
     const listeners = new Map();
-    const ipcRenderer = { on: (channel, callback) => listeners.set(channel, callback), send() {} };
+    const { createManualHotkeyController } = (() => {
+      const module = { exports: {} };
+      ${fs.readFileSync(path.join(__dirname, '../manual_hotkey_controller.js'), 'utf8')}
+      return module.exports;
+    })();
+    let hotkey;
+    const ipcRenderer = { on: (channel, callback) => listeners.set(channel, callback), send(channel, value) {
+      if (channel === 'yomitan-event' && value === false) hotkey?.handlePopupClosed();
+    } };
     const dictionaryReader = 'hachidori', pinned = false, isMagpieActive = false;
-    let manualModeType = 'toggle', manualHotkeyPressed = true, manualModeActivatedOnce = true;
-    let yomitanShowing = false, yomitanPopupCount = 0, hideOnYomitanClose = false;
+    let manualHotkeyPressed = true, manualModeActivatedOnce = true;
+    let yomitanShowing = false, yomitanPopupCount = 0;
     const yomitanPopupIds = new Set();
     let lastPopupCount = 0, lastPopupChangeTime = 0, releaseFinished = false;
     const textHover = { reset() {} };
@@ -331,24 +339,26 @@ app.whenReady().then(async () => {
     ${between(renderer, '  async function closeDictionaryLookups', '  function getGsmDictionaryUrls')}
     ${between(renderer, '  function handleDictionaryPopupShown', '  const HACHIDORI_EXTERNAL_LINK_RESULT_EVENT')}
     ${between(renderer, "  ipcRenderer.on('show-overlay-hotkey'", '  // Dedicated AFK hide channel')}
-    for (const mode of ['toggle', 'hold']) {
-      manualModeType = mode;
+    for (const mode of ['toggle', 'hold', 'hybrid']) {
+      hotkey = createManualHotkeyController({mode, isPopupShowing: () => yomitanShowing,
+        onStateChange: state => { if (!state.isActive) listeners.get('show-overlay-hotkey')({}, false); }});
+      hotkey.handlePress();
       manualHotkeyPressed = true;
       releaseFinished = false;
       window.fixtureHandler.triggerDictionaryLookup({ targetChar: document.querySelector('.text-box'), centerX: 95, centerY: 100 });
       await wait(() => yomitanPopupCount === 1, mode + ' tracked root popup');
       document.querySelector('hachidori-host').shadowRoot.querySelector('[data-hoshidicts-query="犬"]').click();
       await wait(() => yomitanPopupCount === 2, mode + ' tracked nested popup');
-      listeners.get('show-overlay-hotkey')({}, false);
-      if (mode === 'hold') {
-        assert(yomitanShowing && hideOnYomitanClose, 'Hold release must preserve the popup');
-        assert((await gsmHachidoriBridge.state()).popups.length === 2, 'Hold release preserves real nested popups');
+      hotkey.handleRelease();
+      if (mode === 'toggle') hotkey.handlePress();
+      if (mode === 'hybrid') {
+        assert(yomitanShowing && manualHotkeyPressed, 'Hybrid stays active after release');
+        assert((await gsmHachidoriBridge.state()).popups.length === 2, 'Hybrid preserves real nested popups');
         await gsmHachidoriBridge.closePopups();
       }
       await wait(() => !yomitanShowing && releaseFinished, mode + ' release completed');
       assert((await gsmHachidoriBridge.state()).popups.length === 0, mode + ' real popups closed');
     }
-    manualModeType = 'toggle';
     manualHotkeyPressed = true;
     releaseFinished = false;
     const lateTarget = document.querySelectorAll('.text-box')[2];
@@ -399,7 +409,7 @@ app.whenReady().then(async () => {
       blocks[1].replaceChildren(...Array.from(fixture.sentence, (glyph, index) => {
         const box = document.createElement('span');
         box.className = 'text-box';
-        applyTextBoxLayout(box, glyph, 2 + index * 2, 20, 4 + index * 2, 25, true);
+        applyTextBoxLayout(box, glyph, 2 + index * 2, 20, 4 + index * 2, 25);
         box.style.fontSize = '24px';
         return box;
       }));

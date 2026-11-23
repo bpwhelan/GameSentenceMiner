@@ -9,8 +9,13 @@ on:
       - 'native/gsm-texthook/**'
       - 'native/gsm-agent/**'
       - 'native/gsm-runtime/**'
+      - 'native/gsm-intake/**'
       - 'native/gsm-settings/**'
       - 'native/gsm-text-preview/**'
+      - 'native/gsm-db/**'
+      - 'native/gsm-web/**'
+      - 'GameSentenceMiner/web/templates/**'
+      - 'GameSentenceMiner/web/static/**'
       - 'native/gsm-history/**'
       - 'native/gsm-packages/**'
       - 'native/gsm-downloads/**'
@@ -29,6 +34,9 @@ on:
         type: boolean
         default: false
       prerelease:
+        type: boolean
+        default: false
+      portable_preview:
         type: boolean
         default: false
       force_rebuild:
@@ -53,7 +61,13 @@ jobs:
       - id: version
         env:
           PRERELEASE: ${{ inputs.prerelease }}
+          PORTABLE_PREVIEW: ${{ inputs.portable_preview }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
+          if [ "$PORTABLE_PREVIEW" = true ] && [ "$PUBLISH" = true ]; then
+            echo "Portable preview ZIPs are distributed through CI artifacts."
+            exit 1
+          fi
           if [ "$PRERELEASE" = true ]; then
             version=$(node scripts/compute-version.cjs --pre-release --preid beta)
           else
@@ -84,6 +98,7 @@ jobs:
     env:
       GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
       CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target/native-dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -114,18 +129,20 @@ jobs:
         run: node scripts/set-native-ci-version.mjs
       - name: Install development dependencies
         run: npm ci --no-audit --no-fund
-      - name: Prepare isolated Python transfer checks
+      - name: Prepare compatibility smoke fixtures
+        if: ${{ !inputs.portable_preview }}
         shell: bash
         run: |
           python -m venv .venv
           if [ "$RUNNER_OS" = Windows ]; then python=.venv/Scripts/python.exe; else python=.venv/bin/python; fi
-          "$python" -m pip install cramjam websockets loguru
-          echo "GSM_MIGRATION_PYTHON=$GITHUB_WORKSPACE/$python" >> "$GITHUB_ENV"
+          "$python" -m pip install websockets loguru
       - name: Build the desktop and native input service
+        if: ${{ !inputs.portable_preview }}
         run: |
           npm run build:tauri
           npm run build:input-server
       - name: Check shared services and reader behavior
+        if: ${{ !inputs.portable_preview }}
         run: |
           npm run test:ts -- --maxWorkers=2
           node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs
@@ -135,41 +152,48 @@ jobs:
           cargo test --locked --manifest-path native/gsm-texthook/Cargo.toml
           cargo test --locked --manifest-path native/gsm-agent/Cargo.toml
           cargo test --locked --manifest-path native/gsm-runtime/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-intake/Cargo.toml
           cargo test --locked --manifest-path native/gsm-settings/Cargo.toml
           cargo test --locked --manifest-path native/gsm-text-preview/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-web/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-db/Cargo.toml
           cargo test --locked --manifest-path native/gsm-history/Cargo.toml
           cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
           cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
       - name: Exercise native Python supervision and message delivery
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && !inputs.portable_preview
         run: |
           node scripts/test-native-desktop.mjs runtime
           node scripts/test-native-desktop.mjs foundation
       - name: Exercise native windows, dictionaries, transfer, Home and overlay
-        if: runner.os != 'Linux'
+        if: runner.os != 'Linux' && !inputs.portable_preview
         run: npm run test:native
       - name: Exercise the preview and onboarding with Python unavailable
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !inputs.portable_preview
         run: node scripts/test-native-desktop.mjs workspace
       - name: Exercise Linux webviews under a window manager
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && !inputs.portable_preview
         run: bash scripts/test-native-linux.sh all
         env:
           GSM_NATIVE_TEST_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/native-dev/debug/gsm-desktop
-      - name: Build the bundled Python runtime modules
-        run: npm run build:native
-      - name: Include the matching prerelease backend
+      - name: Build preview resources and check packaging contracts
+        if: inputs.portable_preview
+        run: |
+          npm run build
+          npm run build:input-server
+          npm run test:ts -- --maxWorkers=2 electron-src/main/release_build_contract.test.ts electron-src/main/prerelease_build_contract.test.ts
+          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
+      - name: Record prerelease metadata
         if: inputs.prerelease
         run: |
-          python -m pip wheel --no-deps --wheel-dir electron-src/assets/python .
-          node scripts/write-prerelease-metadata.mjs --version "${{ needs.version.outputs.version }}" --branch "${{ github.ref_name }}" --commit "${{ github.sha }}"
+          node scripts/write-prerelease-metadata.mjs --desktop-only --version "${{ needs.version.outputs.version }}" --branch "${{ github.ref_name }}" --commit "${{ github.sha }}"
       - name: Stage the complete native application
         run: |
           npm run build:windows-helpers
-          npm run stage:native
+          npm run stage:native -- ${{ inputs.portable_preview && '--portable-preview' || '' }}
           node scripts/verify-native-package.mjs
       - name: Build unsigned preview bundles
-        if: ${{ !inputs.publish || runner.os == 'Windows' }}
+        if: ${{ !inputs.portable_preview && (!inputs.publish || runner.os == 'Windows') }}
         run: node scripts/build-native-desktop.mjs
       - name: Build signed update bundles
         if: inputs.publish && runner.os != 'Windows'
@@ -184,9 +208,21 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       - name: Verify isolated Windows release resources
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !inputs.portable_preview
         run: node scripts/test-native-package.mjs
+      - name: Build and package the portable preview
+        if: inputs.portable_preview
+        run: |
+          node scripts/build-native-desktop.mjs --portable-preview
+          node scripts/package-native-preview.mjs
+      - uses: actions/upload-artifact@v4
+        if: inputs.portable_preview
+        with:
+          name: GSM-Preview-${{ matrix.platform }}
+          path: dist/native-preview/*.zip
+          if-no-files-found: error
       - name: Collect installers and portable builds
+        if: ${{ !inputs.portable_preview }}
         run: node scripts/collect-native-assets.mjs
       - name: Upload Windows installer for code signing
         id: windows-installer
@@ -236,6 +272,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.portable_preview }}
         with:
           name: native-release-${{ matrix.platform }}
           path: dist/native-release/${{ matrix.platform }}

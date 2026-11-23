@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Compare previews spanning 2,000 lines from eight games, full syncs with covers, and repeat syncs against independent loopback Kechimochi instances. Check remote media and logs, recovery after a lost POST reply, retained edits, deletions and scheduled retries. Sync timing includes polling for completion.",
+  "medians": {
+    "preview": {
+      "python": {
+        "ms": 13.831,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 89.0
+      },
+      "rust": {
+        "ms": 3.1756,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.2891
+      }
+    },
+    "full": {
+      "python": {
+        "ms": 75.0487,
+        "server_cpu_ms": 78.125,
+        "server_resident_mib": 89.668
+      },
+      "rust": {
+        "ms": 24.2663,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.9414
+      }
+    },
+    "repeat": {
+      "python": {
+        "ms": 40.0376,
+        "server_cpu_ms": 31.25,
+        "server_resident_mib": 91.0312
+      },
+      "rust": {
+        "ms": 9.0303,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 33.0117
+      }
+    }
+  }
+}

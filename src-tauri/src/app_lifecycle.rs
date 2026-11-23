@@ -35,6 +35,11 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 pub const HUB_WINDOW_LABEL: &str = "gsm-hub";
 pub const APP_MENU_PREFIX: &str = "app-menu::";
 
+/// Local builds can opt in to the old backend for compatibility tests.
+pub(crate) fn native_session_requested() -> bool {
+    !crate::LOCAL_BUILD || std::env::var("GSM_PYTHONLESS").as_deref() != Ok("0")
+}
+
 const TRAY_READY_INDICATOR_MS: u64 = 10_000;
 const BACKEND_STATUS_POLL_MS: u64 = 2_000;
 const FIRST_EPHEMERAL_NOTIFICATION_ID: i64 = 1_000_000;
@@ -237,7 +242,7 @@ pub fn init_startup(app: &AppHandle) -> Result<(), String> {
 
     let bus_info = tauri::async_runtime::block_on(crate::runtime::dispatch(
         app,
-        json!({ "action": "bus.start", "params": {} }),
+        json!({ "action": "bus.start", "params": {"nativeTextIntake": native_session_requested()} }),
     ))?;
 
     setup_agent_control(app, &bus_info);
@@ -349,23 +354,50 @@ fn start_desktop_session(app: &AppHandle) -> Result<(), String> {
         }
     });
 
-    let boot_app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        // The environment probe can start Python and touch a large installation.
-        // Keep it off the window thread so tabs and window controls remain usable.
-        let probe_app = boot_app.clone();
-        let track_startup = tauri::async_runtime::spawn_blocking(move || {
-            should_track_startup_install_session(&probe_app)
+    tauri::async_runtime::spawn(boot_desktop_backend(app.clone()));
+    Ok(())
+}
+
+pub(crate) async fn boot_desktop_backend(boot_app: AppHandle) {
+    if native_session_requested() {
+        let shared = boot_app
+            .state::<crate::settings::Settings>()
+            .paths
+            .shared
+            .clone();
+        let version = boot_app.package_info().version.to_string();
+        let marker = tauri::async_runtime::spawn_blocking(move || {
+            let marked_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            gsm_packages::legacy_venv::mark_retired(&shared, &version, &marked_at)
+                .map_err(|error| format!("{}: {error}", shared.join("python_venv").display()))
         })
         .await
-        .unwrap_or(false);
-        if track_startup {
+        .map_err(|error| error.to_string())
+        .and_then(|result| result);
+        if let Err(error) = marker {
+            crate::desktop_log::warn(
+                &boot_app,
+                "startup",
+                format!("Could not mark the legacy Python environment: {error}"),
+            );
+        }
+        if !read_bool_pref(&boot_app, "hasCompletedSetup", false) {
             start_startup_install_session(&boot_app);
         }
-        run_startup_backend_pipeline(boot_app, track_startup).await;
-    });
-
-    Ok(())
+        let lease = boot_app.state::<crate::install_session::InstallSessions>().model.lease();
+        if let Err(error) = start_native_services(&boot_app, lease).await {
+            crate::desktop_log::error(&boot_app, "startup", error);
+        }
+        return;
+    }
+    let probe_app = boot_app.clone();
+    let track_startup = tauri::async_runtime::spawn_blocking(move || {
+        should_track_startup_install_session(&probe_app)
+    }).await.unwrap_or(false);
+    if track_startup {
+        start_startup_install_session(&boot_app);
+    }
+    run_startup_backend_pipeline(boot_app, track_startup).await;
 }
 
 fn should_track_startup_install_session(app: &AppHandle) -> bool {
@@ -380,6 +412,72 @@ fn should_track_startup_install_session(app: &AppHandle) -> bool {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     !present
+}
+
+pub(crate) async fn start_native_services(app: &AppHandle, lease: Option<gsm_packages::install_session::Lease>) -> Result<(), String> {
+    let sessions = app.state::<crate::install_session::InstallSessions>();
+    let result: Result<(), String> = async {
+        if !crate::mining::native_mining_requested() {
+            return Err("Native mining is required for a Pythonless session".into());
+        }
+        if let Err(e) = app.state::<crate::obs::game_pause::GamePause>().recover(app) {
+            crate::desktop_log::warn(app,"game pause",e);
+        }
+        // Database setup normally starts intake and binds the gateway before the Hub opens.
+        // A retry from the installer must also recover an earlier database or port error.
+        let mining = app.state::<Arc<crate::mining::MiningService>>();
+        if !mining.is_enabled() {
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || crate::database_startup::prepare(&handle))
+                .await.map_err(|e| e.to_string())??;
+        }
+        if !mining.is_enabled() || !app.state::<crate::text_intake::Intake>().active() {
+            return Err("The text intake service or single-port gateway failed to start. Check the desktop log.".into());
+        }
+        #[cfg(windows)]
+        crate::startup_tools::prepare(app, lease.clone()).await?;
+        if std::env::var_os("GSM_SMOKE_TEST").is_none()
+            && !app.state::<DesktopState>().quitting.load(Ordering::SeqCst)
+        {
+            if let Err(error) = app.state::<crate::obs::Obs>().launch_on_startup(app).await {
+                crate::desktop_log::warn(app, "obs", format!("Could not start OBS: {error}"));
+            }
+        }
+        if app.state::<DesktopState>().quitting.load(Ordering::SeqCst) { return Err("Desktop is shutting down".into()); }
+        Ok(())
+    }.await;
+    if let Some(ref lease) = lease {
+        match result.as_ref() {
+            Ok(()) => { let _ = sessions.model.finish(lease,"completed",Some("Setup complete."),None); }
+            Err(error) => { let _ = sessions.model.finish(lease,"failed",Some("Desktop startup failed."),Some(error)); }
+        }
+        sessions.notify();
+    }
+    result?;
+    {
+        let lifecycle = app.state::<AppLifecycle>();
+        let mut state = lifecycle.inner.lock().unwrap();
+        state.backend_initialized = true;
+        state.backend_status_ready = true;
+    }
+    emit_to_desktop_windows(app, "gsm-initialized", &[json!({"status":"ready"})]);
+    maybe_activate_ready_tray_indicator(app);
+    let _ = crate::tray::refresh_menu(app);
+    crate::auto_launcher::sync_process_pausing_for_current_scene(app).await;
+    process_startup_args_and_features(app).await;
+    let prefs = gsm_settings::preferences::Preferences::new(&app.state::<crate::settings::Settings>().paths.active);
+    let mgr = app.state::<crate::update_manager::UpdateManager>();
+    mgr.check_startup_changelog(app);
+    let version = app.package_info().version.to_string();
+    if read_string_pref(app, "electronAppVersion") != version {
+        if let Err(error) = prefs.patch(&json!({"electronAppVersion":version})) {
+            crate::desktop_log::warn(app, "startup", format!("Saving desktop version: {error}"));
+        }
+    }
+    if read_bool_pref(app, "autoUpdateGSMApp", true) {
+        let _ = mgr.check_app_update_status(app, false).await;
+    }
+    Ok(())
 }
 
 fn start_startup_install_session(app: &AppHandle) {
@@ -531,7 +629,9 @@ async fn process_startup_args_and_features(app: &AppHandle) {
             .await;
     }
 
-    if cli.force_python_update {
+    if native_session_requested() && cli.force_all_updates {
+        let _ = app.state::<crate::update_manager::UpdateManager>().check_app_update_status(app, true).await;
+    } else if cli.force_python_update && !native_session_requested() {
         app.state::<crate::update_manager::UpdateManager>()
             .update_gsm(app, true, true)
             .await;
@@ -552,6 +652,25 @@ async fn process_startup_args_and_features(app: &AppHandle) {
         }
     }
 
+    if native_session_requested() {
+        let path = app.state::<crate::settings::Settings>().paths.active.join("config.json");
+        let doc = gsm_settings::read_object(&path).unwrap_or(Value::Null);
+        let general = gsm_settings::gsm_config::active_profile(&doc).and_then(|p| p.get("general")).unwrap_or(&Value::Null);
+        if general["open_config_on_startup"] == true {
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = crate::gui_dialog::open_settings(&handle,String::new(),String::new()).await {
+                    crate::desktop_log::warn(&handle, "settings", error);
+                }
+            });
+        }
+        if general["open_multimine_on_startup"] != false && !is_running_as_admin() {
+            if let Err(error) = crate::launchers_ui::open_text_feed(app).await {
+                crate::desktop_log::warn(app, "text-feed", error);
+            }
+        }
+    }
+
     if let Some(game) = cli.game {
         let _ = crate::game_launcher::launch(app, &game).await;
     }
@@ -566,7 +685,7 @@ async fn process_startup_args_and_features(app: &AppHandle) {
     }
 }
 
-fn hub_window_url(app: &AppHandle) -> Result<url::Url, String> {
+pub(crate) fn desktop_renderer_url(app: &AppHandle) -> Result<url::Url, String> {
     if let Some(dev_url) = std::env::var("VITE_DEV_SERVER_URL")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -584,13 +703,15 @@ fn build_hub_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
             &MenuItemBuilder::with_id("app-menu::update-gsm", "Update GSM")
                 .build(app)
                 .map_err(|e| e.to_string())?,
-        )
-        .item(
+        );
+    if !native_session_requested() {
+        file_builder = file_builder.item(
             &MenuItemBuilder::with_id("app-menu::restart-python", "Restart Python App")
                 .build(app)
                 .map_err(|e| e.to_string())?,
-        )
-        .item(
+        );
+    }
+    file_builder = file_builder.item(
             &MenuItemBuilder::with_id("app-menu::open-folder", "Open GSM Folder")
                 .build(app)
                 .map_err(|e| e.to_string())?,
@@ -705,7 +826,7 @@ pub fn create_hub_window(app: &AppHandle) -> Result<WebviewWindow, String> {
         return Ok(existing);
     }
 
-    let url = hub_window_url(app)?;
+    let url = desktop_renderer_url(app)?;
     let desktop = app.state::<DesktopState>();
     let token = desktop.register_window(HUB_WINDOW_LABEL, "desktop");
     let theme = theme_for_app(app);
@@ -1074,7 +1195,7 @@ fn sync_tray_visual_state(app: &AppHandle) {
         let lc = app.state::<AppLifecycle>();
         let g = lc.inner.lock().unwrap();
         (
-            g.python_ipc_connected,
+            g.python_ipc_connected || (native_session_requested() && g.backend_initialized),
             g.backend_status_ready,
             g.ready_indicator_expires_at_ms,
             g.text_intake_paused,
@@ -1082,6 +1203,25 @@ fn sync_tray_visual_state(app: &AppHandle) {
     };
     let ready_active = ready_expires > now_epoch_ms();
     crate::tray::update_backend_status(app, ipc, status_ready, ready_active, paused);
+}
+
+pub(crate) fn initialized(app: &AppHandle) -> bool {
+    app.state::<AppLifecycle>().inner.lock().unwrap().backend_initialized
+}
+
+pub(crate) fn intake_pause_changed(app: &AppHandle, paused: bool, relay: bool) {
+    app.state::<AppLifecycle>().inner.lock().unwrap().text_intake_paused = paused;
+    sync_tray_visual_state(app);
+    let (kind, title, message) = if paused {
+        ("GSMTextIntakePaused", "GSM Text Intake Paused", if relay {
+            "Stats collection is paused. Card mining, the overlay, Text Feed, and output relays stay active. Incoming text will not update live stats, Discord activity, or the database."
+        } else {
+            "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."
+        })
+    } else {
+        ("GSMTextIntakeResumed", "GSM Text Intake Resumed", "Clipboard and websocket text intake resumed.")
+    };
+    send_notification_for_event(app, kind, title, message, None);
 }
 
 fn reset_startup_tray_state(app: &AppHandle) {
@@ -1121,7 +1261,7 @@ fn maybe_activate_ready_tray_indicator(app: &AppHandle) {
     let timer_gen = {
         let lc = app.state::<AppLifecycle>();
         let mut g = lc.inner.lock().unwrap();
-        if !g.python_ipc_connected || !g.backend_status_ready || g.ready_indicator_expires_at_ms > 0
+        if !(g.python_ipc_connected || (native_session_requested() && g.backend_initialized)) || !g.backend_status_ready || g.ready_indicator_expires_at_ms > 0
         {
             return;
         }
@@ -1570,6 +1710,26 @@ fn handle_python_notification(app: &AppHandle, data: &Value) {
     }
 }
 
+pub(crate) fn notify_mining_event(
+    app: &AppHandle,
+    event_id: &str,
+    title: &str,
+    body: &str,
+    note_id: Option<i64>,
+    open_path: Option<PathBuf>,
+) {
+    let action = note_id
+        .filter(|n| *n > 0)
+        .map(NotificationClickAction::AnkiCard)
+        .or_else(|| open_path.map(NotificationClickAction::OpenPath));
+    send_notification_for_event(app, event_id, title, body, action);
+}
+
+pub(crate) fn notify_pending_reviews(app: &AppHandle, count: usize) {
+    send_notification_for_event(app,"PendingSessionReviews","Anki reviews pending",
+        &format!("{count} card(s) awaiting session review"),Some(NotificationClickAction::SessionReviews));
+}
+
 fn send_notification_for_event(
     app: &AppHandle,
     event_id: &str,
@@ -1816,6 +1976,54 @@ async fn send_bus_reply(app: &AppHandle, req: &Value, result: Result<Value, Stri
 
 async fn handle_agent_bus_request(app: &AppHandle, mut req: Value) {
     let topic = req["topic"].as_str().unwrap_or("");
+    if topic == "settings.profile.save" {
+        let result = if req["src"] == "qt-settings" || req["src"] == "backend" {
+            let handle = app.clone();
+            let data = req["data"].take();
+            tokio::task::spawn_blocking(move || {
+                let path = handle.state::<crate::settings::Settings>().paths.active.join("config.json");
+                gsm_settings::profile_config::save_edits(&path,&data["before"],&data["after"])?;
+                Ok(Value::Null)
+            }).await.unwrap_or_else(|e| Err(e.to_string()))
+        } else { Err("Settings editor required".into()) };
+        let saved = result.is_ok();
+        send_bus_reply(app, &req, result).await;
+        if saved {
+            let handle = app.clone();
+            tauri::async_runtime::spawn(async move { crate::mining_settings::changed(&handle).await; });
+        }
+        return;
+    }
+    if topic == "text.intake" || topic == "text.intake.hook" {
+        let result = match (topic, req["src"].as_str(), req["connectionEpoch"].as_u64()) {
+            ("text.intake", Some("backend"), Some(epoch)) => crate::text_intake::request(app, epoch, req["data"].take()).await,
+            ("text.intake.hook", Some("main"), _) => crate::text_intake::submit(app, req["data"].take(), None).await,
+            _ => Err("Invalid text intake sender".into()),
+        };
+        send_bus_reply(app, &req, result).await;
+        return;
+    }
+    if matches!(
+        topic,
+        "mining.gateway.register"
+            | "mining.replayState"
+            | "mining.configChanged"
+            | "mining.status"
+            | "mining.ai"
+            | "mining.sessionReview"
+    ) {
+        let result = if req["src"] == "backend" {
+            let mining = app
+                .state::<Arc<crate::mining::MiningService>>()
+                .inner()
+                .clone();
+            mining.handle_request(app, topic, req["data"].clone()).await
+        } else {
+            Err("Mining backend required".into())
+        };
+        send_bus_reply(app, &req, result).await;
+        return;
+    }
     if topic == "text.classify" {
         let result = if req["src"] == "backend" {
             let input = req["data"].take();
@@ -1926,7 +2134,9 @@ async fn handle_agent_bus_request(app: &AppHandle, mut req: Value) {
     }
     if matches!(topic, "game.session" | "game.profile.select") {
         let obs = app.state::<crate::obs::Obs>();
-        let result = if req["src"] != "backend" {
+        let result = if req["src"] != "backend"
+            && !(topic == "game.session" && crate::obs::is_reader(&req["src"]))
+        {
             Err("Mining backend required".into())
         } else if topic == "game.session" {
             Ok(obs.wait_game_session(req["data"]["after"].as_u64()).await)
@@ -1936,20 +2146,48 @@ async fn handle_agent_bus_request(app: &AppHandle, mut req: Value) {
                 req["data"]["scene_epoch"].as_u64(),
             );
             if result.is_ok() {
-                let _ = crate::tray::refresh_menu(app);
+                crate::mining_settings::changed(app).await;
             }
             result
         };
         send_bus_reply(app, &req, result).await;
         return;
     }
-    if topic == "obs.outputs" {
-        let result = if req["src"] == "backend" {
-            app.state::<crate::obs::Obs>()
-                .mining_output(app, &req["data"], now_epoch_ms())
-                .await
+    if matches!(
+        topic,
+        "obs.outputs"
+            | "obs.request"
+            | "obs.imageChunk"
+            | "obs.configure"
+            | "obs.lifecycle"
+            | "game.windowInput"
+    ) {
+        let reader = crate::obs::is_reader(&req["src"]);
+        let result = if req["src"] == "backend"
+            || (reader
+                && (topic == "obs.imageChunk"
+                    || (topic == "obs.request"
+                        && req["data"]["method"]
+                            .as_str()
+                            .is_some_and(|m| m.starts_with("Get")))))
+        {
+            let obs = app.state::<crate::obs::Obs>();
+            match topic {
+                #[cfg(windows)]
+                "game.windowInput" => obs.target_input(&req["data"]).await,
+                #[cfg(not(windows))]
+                "game.windowInput" => Ok(Value::Bool(false)),
+                "obs.outputs" => obs.mining_output(app, &req["data"], now_epoch_ms()).await,
+                "obs.configure" => { obs.refresh_session(); Ok(Value::Null) },
+                "obs.lifecycle" => match req["data"]["action"].as_str() {
+                    Some("close") => obs.invoke(app,"obs.close",&[]).await,
+                    Some(action @ ("start"|"restart")) => obs.invoke(app,"obs.launchManaged",&[json!({"forceRestart":action=="restart","ignoreOpenConfig":true,"allowPathFallback":true})]).await,
+                    _ => Err("Unknown OBS lifecycle action".into()),
+                },
+                _ => obs.backend_request(topic, &req["data"]).await,
+            }
         } else {
-            Err("Only the mining backend can request OBS outputs".into())
+            Err("Desktop OBS request is unavailable for this client".into())
         };
         send_bus_reply(app, &req, result).await;
         return;
@@ -1987,15 +2225,16 @@ async fn handle_agent_bus_request(app: &AppHandle, mut req: Value) {
             let (ready, blocked) = {
                 let lc = app.state::<AppLifecycle>();
                 let g = lc.inner.lock().unwrap();
-                let bus_ok = app
-                    .try_state::<crate::python_ops::PythonOpsState>()
-                    .is_some_and(|s| s.is_backend_connected());
-                let pid_ok = crate::backend::snapshot(app)["pid"].is_u64();
+                let owner_ready = if native_session_requested() {
+                    app.state::<Arc<crate::mining::MiningService>>().is_enabled()
+                } else {
+                    app.try_state::<crate::python_ops::PythonOpsState>().is_some_and(|s| s.is_backend_connected())
+                        && crate::backend::snapshot(app)["pid"].is_u64()
+                };
                 (
                     g.backend_initialized
                         && g.backend_status_ready
-                        && bus_ok
-                        && pid_ok
+                        && owner_ready
                         && !app.state::<DesktopState>().quitting.load(Ordering::SeqCst),
                     agent_blocked_reason(app),
                 )
@@ -2109,6 +2348,7 @@ fn hide_user_facing_shutdown_surfaces(app: &AppHandle) {
 }
 
 async fn stop_all_subsystems(app: &AppHandle, reason: &str) -> Result<(), String> {
+    app.state::<crate::mining_workspace::MiningWorkspace>().speech.stop(app, reason).await;
     if let Some(obs) = app.try_state::<crate::obs::Obs>() {
         let _ = tokio::time::timeout(
             Duration::from_secs(60),
@@ -2118,6 +2358,7 @@ async fn stop_all_subsystems(app: &AppHandle, reason: &str) -> Result<(), String
     }
 
     crate::auto_launcher::AutoLauncher::stop(app);
+    app.state::<crate::cron::Scheduler>().drain().await;
     crate::game_privileges::stop(app);
     crate::game_background::stop(app);
     crate::game_launcher::stop(app);
@@ -2136,6 +2377,15 @@ async fn stop_all_subsystems(app: &AppHandle, reason: &str) -> Result<(), String
     app.state::<crate::ocr::Ocr>().shutdown();
 
     let mut errors = Vec::new();
+    if let Err(e)=crate::text_intake::finish_desktop(app).await{errors.push(e);}
+    #[cfg(windows)]
+    crate::obs::game_audio::shutdown(app);
+    if let Some(obs) = app.try_state::<crate::obs::Obs>() {
+        if let Err(error) = obs.shutdown_mining(app).await {
+            crate::desktop_log::warn(app,"obs",error);
+        }
+    }
+    if let Err(error) = app.state::<crate::longplay::Service>().finish().await { errors.push(error); }
     if let Err(err) = crate::python_ops::close_all_python_processes(app, true).await {
         errors.push(err);
     }
@@ -2159,6 +2409,9 @@ async fn stop_all_subsystems(app: &AppHandle, reason: &str) -> Result<(), String
         }
     }
 
+    if let Some(mining) = app.try_state::<Arc<crate::mining::MiningService>>() {
+        mining.shutdown();
+    }
     app.state::<crate::runtime::Runtime>().shutdown();
     app.state::<crate::install_session::InstallSessions>()
         .shutdown();

@@ -1,0 +1,79 @@
+.native-dialog {
+    height: 100dvh;
+    color: var(--color-base-content);
+    background: var(--color-base-100);
+    font-size: 13px;
+}
+
+.native-dialog p { margin: 0; }
+.native-dialog button {
+    padding: 4px 10px;
+    color: inherit;
+    background: var(--color-base-200);
+    border: 1px solid var(--color-base-300);
+    border-radius: 3px;
+}
+.native-dialog button:hover:not(:disabled) { background: var(--color-base-300); }
+.native-dialog input[type="checkbox"] { margin: 0; }
+
+.furigana-preview { display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+.furigana-preview-scroll { position: relative; display: flex; overflow: auto; }
+.furigana-preview-image { position: relative; flex: none; margin: auto; }
+.furigana-preview-image img,
+.furigana-preview-image svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.furigana-preview-image svg { pointer-events: none; }
+.furigana-preview-loading {
+    position: fixed;
+    inset: 50% auto auto 50%;
+    transform: translate(-50%, -50%);
+    min-width: 200px;
+    padding: 12px;
+    color: white;
+    background: black;
+    border: 2px solid white;
+    text-align: center;
+}
+.furigana-preview footer { display: flex; align-items: center; gap: 8px; padding: 10px; }
+.furigana-preview input[type="range"] { min-width: 0; flex: 1; }
+.furigana-preview output { min-width: 46px; }
+
+.recommended-anki {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    gap: 7px;
+    padding: 10px;
+    box-sizing: border-box;
+}
+.recommended-anki-form {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: center;
+    gap: 5px 8px;
+}
+.recommended-anki-deck, .recommended-anki-check { display: flex; align-items: center; gap: 6px; }
+.recommended-anki-form select, .recommended-anki-deck input {
+    width: 100%;
+    min-width: 0;
+    padding: 4px 6px;
+    color: inherit;
+    background: var(--color-base-200);
+    border: 1px solid var(--color-base-300);
+    border-radius: 3px;
+}
+.recommended-anki-deck button { flex-shrink: 0; }
+.recommended-anki .native-dialog-link {
+    padding: 0;
+    color: var(--color-primary);
+    background: transparent;
+    border: 0;
+    text-decoration: underline;
+}
+.recommended-anki-tabs { display: flex; margin-bottom: -7px; gap: 2px; }
+.recommended-anki-tabs [aria-selected="true"] { background: var(--color-base-300); }
+.recommended-anki-table { flex: 1 0 125px; overflow: auto; border: 1px solid var(--color-base-300); }
+.recommended-anki-table table { width: 100%; border-collapse: collapse; }
+.recommended-anki-table th { position: sticky; top: 0; background: var(--color-base-200); }
+.recommended-anki-table th:first-child { width: 1%; white-space: nowrap; }
+.recommended-anki-table :is(th, td) { padding: 4px 8px; text-align: left; border: 1px solid var(--color-base-300); }
+.recommended-anki footer { display: flex; justify-content: end; gap: 7px; }

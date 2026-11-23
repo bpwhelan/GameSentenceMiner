@@ -101,21 +101,12 @@ def read_model_selection(directory=None):
 
 
 def create_runtime(directory=None, *, model=None):
-    """Use a verified local native trial or bundled faithful ONNX on CPU.
-
-    The native class remains directly constructible for reproducible benchmarks.
-    GSM_VOCR_BACKEND=c explicitly opts into C; onnx overrides a local trial.
-    """
+    """Open the selected ONNX recognizer and its detector."""
     from GameSentenceMiner.ocr.vocr_onnx import ONNXRuntime, selected_directory
 
-    assets = selected_directory(directory=directory)
-    if assets is not None:
-        installation = Path(directory) if directory is not None else get_install_directory()
-        tier = model if model is not None else read_model_selection(installation)
-        return ONNXRuntime(assets, model=tier, installation_directory=installation)
-    if model is None:
-        return VitaOCRRuntime() if directory is None else VitaOCRRuntime(directory)
-    return VitaOCRRuntime(directory, model=model)
+    installation = Path(directory) if directory is not None else get_install_directory()
+    tier = model if model is not None else read_model_selection(installation)
+    return ONNXRuntime(selected_directory(), model=tier, installation_directory=installation)
 
 
 class _Image(C.Structure):

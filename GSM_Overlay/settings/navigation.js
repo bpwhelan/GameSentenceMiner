@@ -81,7 +81,9 @@
       label: "System",
       icon: "settings",
       pages: [
-        ["dictionary", "Dictionary", "Select and configure the dictionary used for lookups."],
+        ...(global.gsmEnv?.shell === "tauri" ? [] : [
+          ["dictionary", "Dictionary", "Select and configure the dictionary used for lookups."],
+        ]),
         [
           "tokenizer",
           "Tokenizer",

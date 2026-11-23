@@ -25,9 +25,10 @@ from GameSentenceMiner.util import anki_actions
 from GameSentenceMiner.util.text_log import GameLine, TextSource
 
 
-def set_get_audio_from_video_callback(func):
-    global get_audio_from_video
-    get_audio_from_video = func
+def get_audio_from_video(*args, **kwargs):
+    from GameSentenceMiner.replay_handler import ReplayAudioExtractor
+
+    return ReplayAudioExtractor.get_audio(*args, **kwargs)
 
 
 # Global audio player instance

@@ -57,6 +57,12 @@ class ObsFixture:
                 return 100, {"outputPath": "fixture.mkv"} if method == "StopRecord" else {}
         return 100, {"sceneItems": [], "scenes": [], "currentSceneCollectionName": "Fixture"}
 
+    def respond_request(self, method, data):
+        return self.respond(method)
+
+    def send_response(self, ws, reply):
+        ws.send(json.dumps({"op": 7, "d": reply}))
+
     def handle(self, ws):
         with suppress(ConnectionClosed):
             self.serve_session(ws)
@@ -72,7 +78,7 @@ class ObsFixture:
             method = request["requestType"]
             if "ReplayBuffer" in method or method in {"GetRecordStatus", "StartRecord", "StopRecord"}:
                 self.calls += 1
-            code, data = self.respond(method)
+            code, data = self.respond_request(method, request.get("requestData", {}))
             reply = {
                 "requestId": request["requestId"],
                 "requestType": method,
@@ -80,10 +86,9 @@ class ObsFixture:
             }
             if data:
                 reply["responseData"] = data
-            ws.send(json.dumps({"op": 7, "d": reply}))
+            self.send_response(ws, reply)
             if method == "SaveReplayBuffer" and code == 100 and listens_for_outputs:
-                path = self.directory / f"replay-{self.saves}.mkv"
-                path.write_bytes(b"fixture")
+                path = self.write_replay()
                 ws.send(
                     json.dumps(
                         {
@@ -96,6 +101,11 @@ class ObsFixture:
                         }
                     )
                 )
+
+    def write_replay(self):
+        path = self.directory / f"replay-{self.saves}.mkv"
+        path.write_bytes(b"fixture")
+        return path
 
 
 def cpu_seconds(processes):

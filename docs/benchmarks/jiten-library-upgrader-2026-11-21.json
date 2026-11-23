@@ -1,0 +1,19 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Run the public Jiten upgrader against VNDB and AniList lookup fixtures. Include the one-second provider pacing, two successful links and an unmatched game. Compare every result field except elapsed time, cover bytes, stored game fields and character documents.",
+  "medians": {
+    "rust": {
+      "ms": 2031.36,
+      "server_cpu_ms": 0.0,
+      "server_resident_mib": 31.9062
+    },
+    "python": {
+      "ms": 2090.8792,
+      "server_cpu_ms": 31.25,
+      "server_resident_mib": 88.9141
+    }
+  }
+}

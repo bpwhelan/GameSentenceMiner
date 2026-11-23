@@ -135,6 +135,11 @@ impl NotificationAudio {
         let Some(source) = request.into_source()? else {
             return Ok(());
         };
+        self.mixer()?.add(source);
+        Ok(())
+    }
+
+    pub(crate) fn mixer(&self) -> Result<rodio::mixer::Mixer,String> {
         let mut output = self.0.lock().map_err(|error| error.to_string())?;
         let stream = match output.as_ref() {
             Some(stream) if !stream.failed.load(Ordering::Relaxed) => stream,
@@ -143,8 +148,7 @@ impl NotificationAudio {
                 output.insert(Output::open()?)
             }
         };
-        stream.sink.mixer().add(source);
-        Ok(())
+        Ok(stream.sink.mixer().clone())
     }
 }
 

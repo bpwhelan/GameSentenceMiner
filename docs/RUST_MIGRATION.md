@@ -1,27 +1,34 @@
 # Incremental Rust migration
 
-## Current ownership catalogue (2026-11-19)
+The desktop now starts its Rust backend by default and opens the Python Qt host
+on demand. See the [desktop cutover and measurements](PYTHONLESS_DESKTOP_AUDIT.md).
+
+## Ownership before the desktop cutover (2026-11-21)
 
 The desktop shell runs as pure Rust (`src-tauri`, zero Node runtime) and already
 owns windowing, capture, OCR, text hooking, Agent supervision, OBS management,
 packaging/updates, dictionaries, AnkiConnect transport/sync, cron scheduling,
-Sudachi word indexing, and most read/write SQLite analytics. Mining itself still
-launches `GameSentenceMiner.gsm`. See [AI_AGENT_MAP.md](AI_AGENT_MAP.md) for the
+Sudachi word indexing, the default Anki mining pipeline and most read/write SQLite analytics.
+The desktop still launches `GameSentenceMiner.gsm` for remaining services. See [AI_AGENT_MAP.md](AI_AGENT_MAP.md) for the
 full cross-component map across Rust crates, PyO3 `_native`, standalone native
 helpers, Python, and WebView UIs.
+
+Profiles with the former Text Hooker port 55000 move to 7275. Other custom primary
+ports are preserved. Startup no longer opens a redirect listener or scans the
+Anki output directory for old word folders. [Desktop port measurements](benchmarks/desktop-python-port-2026-11-21.md)
 
 | Subsystem | Owned by Rust (Tauri / `native/*`) | Owned by PyO3 (`_native`) | Still owned by Python (`GameSentenceMiner/`) |
 | --- | --- | --- | --- |
 | **Desktop shell, settings, packages, bus** | Full runtime: Tauri windows/trays/updates, `gsm-settings`, `gsm-packages`, `gsm-runtime` bus & 256-item text outbox, `gsm-downloads`. | Verified asset/file downloads (`gsm-downloads`). | Mining profile schema (`config.json`), profile switching, standalone/non-Tauri fallbacks. |
-| **Capture, OBS, hooks & Agent** | `gsm-capture` (WGC/xcap/OBS), `obs/*` (install, v5 client, scenes, switcher, game session/profile selection, recording/longplay outputs), `gsm-texthook`, `gsm-agent` + `gsm-agent-host`, `gsm-text-preview` Hook Finder. | — | Low-latency Anki replay saves, replay-only toggles, OBS event listeners, profile reconfiguration, mining screenshots, standalone OBS launch. |
-| **OCR & overlay** | Native OCR tab (`ocr.rs`), overlay OCR (`overlay.rs`), `gsm-overlay` engines (OneOCR/portable, Meiki, ScreenAI, VOCR, MIDA, Lens, LiveText, Bing, Google Vision, composite), Win32 crop picker, `OverlayHost`, `DictionaryManager`. | OCR text/layout/spatial/overlay filters, coordinate projection, `SequenceMatcher` metrics (for Python/standalone paths). | Scene/window context & result ingestion, overlay translation/focus/pause callbacks, macOS/Linux portable OneOCR runtime, standalone `gsm_ocr.py`/`owocr`/`get_overlay_coords.py` fallbacks. |
-| **Live dialogue & TextFeed** | Fallback `text.classify` (`text_correlation.rs`); in-process preview (`gsm-text-preview`); speech settings/relay (`mining_workspace.rs`). | `classify_dialogue`, `compact_dialogue`, `DialogueSkipDetector`, `DialogueJournal`, repeated-char/line cleanup. | `AuthoritativeTextRuntime` (`TextCoordinatorActor`/`TextProjectionActor`), `TextRecord`/`IngressAck` creation, speech freeze timers, clipboard & external WS intake, live text processing, live stats, TextFeed v2/plaintext/overlay WS servers, Windows speech helper supervision. |
-| **SQLite history, search & analytics** | `gsm-history` serialized writer + read pool: dialogue capture, mined-line updates, game linking, daily/per-game rollups, Sudachi word/kanji index & backfill (`word_index.rs`), sentence & duplicate search, `games_list`, text deletion & deduplication preview/execute, dashboard/game/overview/today/heatmap/kanji/maturity/Anki-game/retention/earliest/note-kanji reports, all tokenization & word-novelty queries. | Batched `count_kanji` (Python fallback paths). | Flask HTTP server (`:7275`) & HTML templates; SQLite schema migrations & backups; **Goals & projections** (`goals_api.py`, `goals_projection_api.py`); **Game metadata CRUD & Jiten/IGDB linking** (`web/routes/*`); remaining DB mutations (`delete-sentence-lines`, `delete-games`, `merge_games`, `migrate-lines`, `delete-regex-in-game-lines`, archiving); imports/exports (`import_api.py`, `third_party_stats_api.py`, `stats_export_api.py`); Yomitan/frequency dict ZIP generation; custom advanced-regex rollup fallback. |
-| **Anki & card mining** | `anki_connect.rs`, `anki_poll.rs`, `anki_monitor.rs`, `anki_cards.rs`, `anki_edit.rs`, `anki_group.rs`, `anki_media.rs`, `anki_sync.rs`. | `rank_card_lines` (fuzzy card-to-line matcher). | High-level mining orchestration (`anki.py`), card object/field policy, media prefetch, Anki Beacon HTTP ingress (`/api/anki/events`), session review (`session_review.py`), standalone AnkiConnect fallback. |
-| **Replay, media, VAD, clips & longplay** | Recording/longplay start/stop (`obs/outputs.rs`). | — | **Almost entirely Python**: replay folder watchdog (`replay_handler.py`), FFmpeg audio/screenshot/WebP/AVIF extraction (`util/media/*`), Silero ONNX / faster-whisper VAD (`vad.py`), pause-gap handling, clip cards/API (`clip_cards.py`), longplay SRT (`longplay_handler.py`). |
-| **Cron scheduler** | `cron.rs` + `gsm-history::schedule` scheduler loop; executes `populate_games`, `tokenize_backfill`, and retired `anki_word_sync` directly in Rust. | — | Leased runners for `jiten_sync`, `jiten_upgrader`, `daily_goals_completion`, `tadoku_sync`, `kechimochi_sync`, `database_maintenance`, plus thin wrappers invoking native `daily_stats_rollup` and `anki_card_sync`. |
-| **AI, Cloud Sync & external APIs** | — | — | **Entirely Python**: AI providers & prompts (`ai/`), Encrypted Cloud Sync (`util/cloud_sync/`), Kechimochi & Tadoku sync, Jiten/VNDB/AniList/IGDB clients, Discord RPC. |
-| **Qt6 dialogs** | `gui_dialog.rs` typed `open_python_dialog` & one-shot host supervision. | — | All 14 PyQt6 windows (`ui/*_qt.py`: Settings, Anki confirmation, Field grouping, Screenshot selector, Session review, Sync, Prompt help, Anki setup, Furigana preview, OCR selectors, Text/Scene pickers). |
+| **Capture, OBS, hooks & Agent** | `gsm-capture` (WGC/xcap/OBS), `obs/*` (install, v5 client, scenes, switcher, game session/profile selection, recording/longplay outputs), `gsm-texthook`, `gsm-agent` + `gsm-agent-host`, `gsm-text-preview` Hook Finder. | — | Standalone OBS launch, standalone output control and recording listeners. |
+| **OCR & overlay** | Native OCR tab (`ocr.rs`), overlay OCR (`overlay.rs`), `gsm-overlay` engines (OneOCR/portable, Meiki, ScreenAI, VOCR, MIDA, Lens, LiveText, Bing, Google Vision, composite), Win32 crop picker, `OverlayHost`, `DictionaryManager`. | OCR text/layout/spatial/overlay filters, coordinate projection, `SequenceMatcher` metrics (for Python/standalone paths). | Scene/window context & result ingestion, overlay focus/pause callbacks, macOS/Linux portable OneOCR runtime, standalone `gsm_ocr.py`/`owocr`/`get_overlay_coords.py` fallbacks. |
+| **Live dialogue & TextFeed** | `gsm-intake` owns intake, revisions, replay retention and reader selection. The native gateway serves TextFeed, plaintext and overlay stats. Rust supervises the Windows speech helpers and submits partial and final observations to intake. The desktop schedules overlay scans, writes eligible lines to SQLite, updates Discord, supplies mining context and feeds finalized dialogue to the subtitle writer. [Reader benchmarks](benchmarks/reader-projection-2026-11-20.md) | Compatibility kernels used by standalone Python. | Goals, non-dialogue overlay commands, standalone speech and reader fallback. |
+| **SQLite history, search & analytics** | `gsm-history` serialized writer + read pool: dialogue capture, mined-line updates, game linking, daily/per-game rollups, Sudachi word/kanji index & backfill (`word_index.rs`), sentence & duplicate search, `games_list`, text deletion & deduplication preview/execute, dashboard/game/overview/today/heatmap/kanji/maturity/Anki-game/retention/earliest/note-kanji reports, all tokenization & word-novelty queries. The native HTTP gateway serves stats, current and historical goals, custom goal edits, streaks, daily goal completion, global projections, imported reading stats, manual entries, JSON batch replacement, deletion by entry or source, Anki and vocabulary reads, personal Yomitan frequency dictionaries, templates and packaged assets. `gsm-db` owns core, archive and optional vocabulary schema migrations, bundled frequency-source imports, profile relocation, daily backup retention, verified SQLite snapshots and batch-import commits. [Benchmarks](benchmarks/stats-web-2026-11-20.md) and [migration guide](../native/gsm-db/README.md). | Batched `count_kanji` (Python fallback paths). | Compatibility Flask routes and standalone Python serving; **Per-goal progress and scheduled completion** (`goals_api.py`); **Game metadata CRUD & Jiten/IGDB linking** (`web/routes/*`); remaining DB mutations (`delete-sentence-lines`, `delete-games`, `merge_games`, `migrate-lines`, `delete-regex-in-game-lines`, archiving); file imports/exports (including Mokuro JSON uploads and Kizuna CSV uploads); Yomitan character dictionary generation; custom advanced-regex rollup fallback. |
+| **Anki & card mining** | Beacon HTTP ingress, fallback polling, card field and tag policy, replay acquisition, media enhancement, uploads, AnkiConnect commit and incremental sync. Session review entries are persisted in Rust. | `rank_card_lines` (fuzzy card-to-line matcher). | Confirmation and session review Qt windows, compatibility callbacks and standalone mining. |
+| **Replay, media, VAD, clips & longplay** | OBS recording and replay control, FFmpeg audio, still, animated and video extraction, Silero/FireRed ONNX voice detection, pause-gap removal, Text Feed audio playback and HTTP streaming, trimmed MP4 export, screenshot selection, non-Anki media folders, clip capture, saved-clip browsing and folder actions, card matching, and longplay SRT writing. | — | Replay-folder watchdog and standalone media and subtitle workflows. |
+| **Cron scheduler** | The desktop starts the scheduler after database preparation, runs game linking, vocabulary backfill, daily statistics and Anki collection sync, and accepts manual sync requests. Old `anki_word_sync` rows complete as before. [Scheduled-job measurements](benchmarks/native-cron-2026-11-21.md) | — | Leased runners for `jiten_sync`, `jiten_upgrader`, `daily_goals_completion`, `tadoku_sync`, `kechimochi_sync` and `database_maintenance`. Rollups with unsupported custom text rules use the compatibility runner. |
+| **AI, Cloud Sync & external APIs** | Desktop mining prompt generation, provider requests and character summaries (`gsm-mining::ai`), Text Feed single-line and batch translation, overlay block translation, sentence analysis and reader Discord presence. | — | The AI settings Qt window, standalone AI providers, encrypted cloud sync, Kechimochi and Tadoku sync, remaining Jiten/VNDB/AniList/IGDB clients. |
+| **Qt6 dialogs** | `gui_dialog.rs` typed dialog interface and one-shot host supervision. The screenshot picker runs in the desktop WebView with a Rust FFmpeg worker. | — | Remaining PyQt6 windows (`ui/*_qt.py`: Settings, Anki confirmation, Field grouping, Session review, Sync, Prompt help, Anki setup, Furigana preview, OCR selectors, Text/Scene pickers). |
 
 ## Mining, reading history, and Qt compatibility
 
@@ -59,11 +66,40 @@ desktop serves these calculations behind the existing HTTP routes.
 
 The default cleaning rules use the native session, reading overview and dashboard-grid paths.
 Profiles with custom punctuation or repetition rules use the original Python
-calculations for those three reports. Flask still adds game metadata to sessions.
+calculations for those three reports. The native HTTP handler resolves session metadata inside the same SQLite read transaction.
 Separate imported databases, nested Python transactions, and payloads larger
 than the desktop transport permits use the local history path. Only the backend
 process owning the broker connection delegates work. A spawned tokenizer or
 cron worker can inherit the environment without owning that connection.
+
+The desktop gateway has a native path for each of the 12 routes declared in `stats_api.py` and the 10 explorer routes in `tokenization_api.py`, including the missing-word CSV download. Dashboard reports and daily rollups support literal alternatives, character classes, delimited speaker labels such as `【.*?】`, and repetition removal. Expressions outside that subset, unsupported legacy values, and uncommon file-request conditions can still reach Flask. The response header `X-GSM-Handler` identifies Rust reports and requests forwarded to Python. On a fresh profile the dashboard can open before the Python web server starts.
+
+Before opening a history reader, the desktop recovers a pending relocation, upgrades the core schema, registers eight built-in jobs and initializes the Tadoku export cursor. It preserves user-disabled jobs, overdue retries and completed exports. If an older schema needs an upgrade, the desktop runs the enabled daily backup policy first. For a current schema the backup runs in the background. Settings ZIP export and the existing manual backup HTTP endpoint both use verified native snapshots. Standalone Python still has its compatibility startup path. [Profile startup measurements](benchmarks/profile-files-2026-11-21.md)
+
+If database preparation fails, the desktop keeps Settings available for backup restore. The mining gateway and scene-history reader start after preparation succeeds. A backend retry runs the pending repair and checks the replacement profile before enabling those services.
+
+Settings ZIP creation can run without Python. The restore workflow still stops and restarts the supervised backend around file replacement.
+
+Enabling vocabulary creates its SQLite schema and registers the tokenization and Anki jobs in one transaction. The desktop repairs missing first-seen references and imports the bundled frequency dictionary in the background. Reading and sorting the source leaves the history writer available for dialogue. Upgrades compare old and new ranks and publish changes together with the cached ranks on existing words.
+
+Yomitan can download the personal frequency dictionary and check its update index over the native gateway. The export counts live and archived occurrences, preserves readings and splits the ZIP into banks of 10,000 terms. Both endpoints also work in a profile without Python. [Vocabulary benchmarks](benchmarks/vocabulary-setup-2026-11-21.md)
+
+The native gateway also serves the character dictionary and update index. The exporter preserves revision identifiers, spoiler filtering, portraits, and name and honorific variants. The main and overlay OCR settings now call the same Rust Meiki and VOCR model handlers. Desktop VOCR opens ONNX graphs for Small, Normal and Large, including when a profile still has the earlier C runtime installed. [Desktop port measurements](benchmarks/desktop-python-port-2026-11-21.md)
+
+Longplay writes finalized dialogue beside OBS recordings in Rust. It preserves cues across splits and handles the stop reply arriving after the next recording starts. The Text Feed also lists saved clips, opens their folders and sends selected clips to the operating system's trash through the native gateway. Saving a line waits for nearby dialogue, asks OBS for a replay, copies the requested video and audio streams, then publishes the clip manifest and notifies the Text Feed. A repeated request for the same line reuses its saved clip. [Recording and clip benchmarks](benchmarks/recording-2026-11-21.md)
+
+Text Feed translation and sentence analysis resolve live or saved dialogue and call the AI provider in Rust. Identical concurrent translations share a provider request. The desktop keeps edited translations separate from the original line, and a cancelled request can be retried. The AI configuration dialog still uses Qt. [Reader AI measurements](benchmarks/reader-ai-2026-11-21.md)
+
+The overlay uses the native AI service for flat text, screen blocks and sentence analysis, including when the Python backend is connected. Screen translation keeps the newest waiting screen while a provider request is active. [Overlay WebSocket measurements](benchmarks/reader-ai-2026-11-21.md#overlay-websocket)
+
+| Workflow | Rust ownership | Python ownership |
+| --- | --- | --- |
+| Reading goals | Global 30-day projections, reading pace, current settings, [custom goal edits](benchmarks/goal-edit-2026-11-21.md), latest historical goals, timezone-aware streaks and atomic daily completion | Per-goal progress, dashboard assembly and scheduling |
+| Anki charts | Earliest note, per-game statistics, retention and mining heatmap HTTP reads | Combined response, kanji coverage and reading impact assembly, sync-status HTTP |
+| Imported reading history | Entry list, per-source summary, manual and bulk JSON validation, source replacement, entry and source deletion, one-transaction batch and Mokuro writes | Other upload parsing, import orchestration, export generation |
+| Database maintenance | Core and optional-feature migrations, storage totals, per-game archive preview, daily backup scheduling and retention, manual snapshots | Game archive creation and restore, remaining game mutations |
+
+The schema migration guide describes adding a core or feature migration. The benchmark report includes the additional cost of maintaining the indexes during capture. [Schema migrations](../native/gsm-db/README.md) · [Measurements](benchmarks/stats-web-2026-11-20.md)
 
 The desktop queries AnkiConnect for recently added notes and retains the
 baseline for the mining session. Polling returns new IDs, and the next poll
@@ -188,6 +224,8 @@ including numeric strings in historical notes and a single field of 7 MiB.
 
 ### Anki polling and connectivity
 
+These measurements cover the earlier handoff from native polling to the Python card handler. The current desktop dispatches accepted notes to its Rust mining pipeline.
+
 The Tauri process also owns the Anki monitor's polling interval and failure
 backoff. While recording is off it checks AnkiConnect availability. When the
 replay buffer starts it seeds the set of recent notes, then polls for additions
@@ -290,7 +328,7 @@ of both processes' unique set sizes during separate repeats.
 
 The desktop history service now builds the daily word and kanji maturity chart,
 the weekly maturity series in Reading Impact, and the per-game Anki review
-breakdown. Flask serves the existing URLs. Standalone Python, older desktops,
+breakdown. The gateway serves the per-game report directly. The combined response still uses Flask. Standalone Python, older desktops,
 and separate imported databases retain the local calculation.
 
 Each Rust report opens a read-only SQLite snapshot. For maturity, the first
@@ -383,12 +421,12 @@ word ID, reading, part of speech, Anki links and first-seen line.
 Scheduled backfill uses the same worker. Rust pages pending lines in timestamp
 and ID order, removes orphan occurrences, preserves archived and Anki-linked
 IDs, repairs first-seen metadata and rebuilds counts when cleanup removes rows.
-At startup, schema setup schedules missing first-seen repairs after the
-backend connects to the desktop. Earlier profiles store occurrence word IDs as
+At startup the desktop schedules missing first-seen repairs as soon as the
+optional schema is ready. Earlier profiles store occurrence word IDs as
 text. The repair converts each outer word ID to text so SQLite can seek its
 occurrences by index.
-When the desktop dispatches backfill, Python requests the pages and applies
-the configured low-performance delay between them. Standalone Python, older
+When the desktop dispatches backfill, its Rust worker requests the pages and
+applies the configured low-performance delay between them. Standalone Python, older
 desktops and work inside an existing Python transaction retain their local implementation.
 
 Capture and import share a bounded queue of IDs. If the queue fills or a
@@ -766,35 +804,21 @@ Vision, macOS LiveText, and portable OneOCR orchestration.
 Even with those migrations in place, substantial backend work still lives in
 Python:
 
-- **Replay, media extraction, VAD, clips, and longplay**: `replay_handler.py`,
-  `vad.py` (Silero ONNX / faster-whisper), `util/media/*` (FFmpeg trimming,
-  screenshots, animated WebP/AVIF, pause gaps), `clip_cards.py`, and
-  `longplay_handler.py` (SRT generation).
-- **Anki mining orchestration and Beacon ingress**: card object construction and
-  field-name repair, field policy resolution, media prefetch, incoming Anki
-  Beacon HTTP payloads (`/api/anki/events`), `session_review.py`, and direct
-  low-latency OBS replay saves / event listeners / profile reconfiguration.
-- **Live text runtime and WebSocket servers**: `AuthoritativeTextRuntime`
-  (`TextCoordinatorActor`/`TextProjectionActor`), `TextRecord`/`IngressAck`
-  construction, speech freeze timers, clipboard and user-configured external
-  WebSocket intake, live text-processing execution, live stats tracking,
-  TextFeed v2 / plaintext / overlay WebSocket servers (`web/gsm_websocket.py`),
-  overlay callbacks (`web/overlay_handler.py`), and Windows speech helper
-  supervision (`windows_speech_recognition.py`).
-- **Flask HTTP server (`:7275`) and unmigrated routes**: HTML template serving,
-  runtime texthooker/media/translation endpoints (`texthooking_page.py`), all
-  **Goals** endpoints (`goals_api.py`, `goals_projection_api.py`), **Game
+- **Replay and media.** Text Feed playback, screenshot, video trimming and general media exports, the replay-folder watchdog, and standalone mining use Python. Desktop Anki mining, saved-clip capture and longplay subtitles run in Rust.
+- **Anki dialogs and standalone mining.** Confirmation, media editing and session review windows still use Qt. The desktop handles Beacon ingress, polling, note enhancement and session review persistence in Rust.
+- **Live text compatibility and auxiliary services.** The standalone Python launcher retains its text runtime and sockets. The desktop uses Python for per-goal progress and non-dialogue overlay controls.
+- **Flask compatibility server and unmigrated routes**: standalone serving,
+  Text Feed playback, screenshot, media export and reader control endpoints (`texthooking_page.py`),
+  custom goal editing and per-goal progress (`goals_api.py`), **Game
   management & Jiten/IGDB linking** (`web/routes/*`, `jiten_database_api.py`),
   remaining DB mutations (`delete-sentence-lines`, `delete-games`, `merge_games`,
-  `migrate-lines`, `delete-regex-in-game-lines`, backups, schema setup, and
+  `migrate-lines`, `delete-regex-in-game-lines`, and
   game/vocabulary archiving), imports/exports (`import_api.py`,
-  `third_party_stats_api.py`, `stats_export_api.py`), clips/onboarding/OCR-area
-  routes, and custom Yomitan/frequency dictionary ZIP generation
+  `third_party_stats_api.py`, `stats_export_api.py`), onboarding/OCR-area
+  routes, and custom Yomitan character dictionary ZIP generation
   (`yomitan_api.py`, `util/yomitan_dict/*`).
-- **AI translation, Cloud Sync, and external integrations**: `ai/` (Gemini,
-  OpenAI, Groq, Ollama, DeepL, Zai, prompt builder, character context, cache),
-  encrypted Cloud Sync (`util/cloud_sync/`), Kechimochi and Tadoku sync,
-  Jiten/VNDB/AniList/IGDB clients, and Discord RPC.
+- **AI, Cloud Sync, and external integrations.** Overlay translation still forwards through Python. Standalone launches use the Python AI providers. Other Python services include encrypted Cloud Sync (`util/cloud_sync/`), Kechimochi and Tadoku sync,
+  Jiten/VNDB/AniList/IGDB clients, and standalone Discord RPC.
 - **Leased cron runners**: `jiten_sync`, `jiten_upgrader`,
   `daily_goals_completion`, `tadoku_sync`, `kechimochi_sync`, and
   `database_maintenance` (plus thin wrappers that pass profile config into
@@ -891,6 +915,8 @@ about 13 MiB lower with Rust after the Python baseline had warmed its JSON cache
 
 ## OBS recording and automatic longplay
 
+The measurements below describe the initial migration of coupled replay and recording commands. The current desktop also owns focus policy, replay saves and subtitle writing. [Current recording and clip benchmarks](benchmarks/recording-2026-11-21.md)
+
 The Tauri desktop already launches and supervises OBS, owns a persistent OBS v5
 connection, and switches scenes for the foreground window. Mining recording
 start/stop now uses that same connection. With **Generate Longplay** enabled,
@@ -936,6 +962,8 @@ The fixture acknowledges OBS commands without encoding media.
 | Start longplay with replay, save a clip, stop both | 2.869 → 1.415 | 2.148 → 1.263 | 38.82 → 37.63 | 9 → 5 |
 
 ## Anki card matching for live history and saved clips
+
+The benchmarks below isolated the line matcher before the desktop took ownership of the entire note enhancement pipeline.
 
 Rust selects the original dialogue line for a mined Anki sentence. The same
 matcher serves live replay history, overlay mines, and saved clips. It scores

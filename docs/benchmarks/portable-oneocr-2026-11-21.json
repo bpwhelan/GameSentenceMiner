@@ -1,0 +1,10 @@
+{
+  "platform": "Ubuntu x86_64 on WSL",
+  "image": "GameSentenceMiner/test/GRlkYdonrE.png",
+  "method": "Three alternating fresh processes per implementation, reading the same PNG and prepared OneOCR model directory. Timed from launch to exit with GNU time. The OS file cache was shared. Rust used the release recognize example. The Python 3.13 reference used OcrEngine.recognize_pil and ONNX Runtime 1.32.0. Both requested four intra-op threads with spinning disabled. No network or model preparation was timed.",
+  "recognized_lines_equal": true,
+  "recognized_line_count": 2,
+  "units": ["wall_seconds", "user_cpu_seconds", "system_cpu_seconds", "peak_rss_KiB"],
+  "rust": [[0.30, 0.24, 0.08, 155708], [0.30, 0.21, 0.12, 155500], [0.31, 0.22, 0.11, 154416]],
+  "python_reference": [[0.97, 1.67, 1.19, 297424], [0.78, 1.72, 1.04, 295592], [0.84, 1.73, 1.17, 297272]]
+}

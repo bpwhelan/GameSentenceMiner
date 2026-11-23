@@ -64,6 +64,7 @@ try:
     from watchdog.observers import Observer
 
     from GameSentenceMiner import obs
+    from GameSentenceMiner.native.recycled_lines import desktop_owns_recycled_lines
     from GameSentenceMiner.obs import check_obs_folder_is_correct, desktop_session
     from GameSentenceMiner.profile_switcher import ProfileSwitcher, get_profile_switcher
     from GameSentenceMiner.util.clients.discord_rpc import discord_rpc_manager
@@ -110,7 +111,6 @@ try:
         TextSource,
         game_log,
         get_all_lines,
-        normalize_text_for_comparison,
     )
 
     try:
@@ -137,10 +137,6 @@ if os.name == "nt":
 
 
 _TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
-ASYNC_LOOP_STRESS_SECONDS = 0
-ASYNC_LOOP_STRESS_DELAY_SECONDS = 10.0
-ASYNC_LOOP_STRESS_REPEAT = 1
-ASYNC_LOOP_STRESS_MODE = "block"
 MANAGED_THREAD_JOIN_TIMEOUT_SECONDS = 0.25
 _instance_lock_handle = None
 
@@ -299,12 +295,6 @@ def _get_websocket_manager():
     return websocket_manager
 
 
-def _set_audio_callback(callback) -> None:
-    from GameSentenceMiner.web.service import set_get_audio_from_video_callback
-
-    set_get_audio_from_video_callback(callback)
-
-
 def _get_run_text_hooker_page():
     from GameSentenceMiner.web.texthooking_page import start_web_server
 
@@ -455,11 +445,26 @@ class GSMTray(threading.Thread):
         self.icon.stop()
 
 
+def _start_database_runtime(runtime: AsyncTransportRuntime) -> None:
+    from GameSentenceMiner.util.communication import bus_client
+
+    if (
+        os.environ.get("GSM_NATIVE_SCHEMA") == "1"
+        and os.environ.get("GSM_CLIENT_ID") == "backend"
+        and bus_client.is_bus_available()
+    ):
+        # The supervisor owns the active database writer. The regular command
+        # listener reuses this connection later, after its handlers are ready.
+        client = bus_client.start_bus(runtime=runtime)
+        if not client.wait_connected(timeout=5):
+            logger.warning("Desktop schema service unavailable at startup, using local database initialization.")
+    db.start_database_runtime()
+
+
 class GSMApplication:
     def __init__(self) -> None:
-        db.start_database_runtime()
         self.state = AppState()
-        self._replay_extractor = _get_replay_handler_module().ReplayAudioExtractor()
+        self._replay_extractor = None
         self._tray = GSMTray(self)
         self._threads: list[threading.Thread] = []
         self._obs_connect_task: Optional[asyncio.Task] = None
@@ -761,6 +766,11 @@ class GSMApplication:
         self.cleanup()
 
     def close_obs(self) -> None:
+        if desktop_session.enabled():
+            from GameSentenceMiner.util.communication import bus_client
+
+            bus_client.get_bus().request(bus_client.MAIN, "obs.lifecycle", {"action": "close"}, timeout=36)
+            return
         obs.disconnect_from_obs()
         if obs.obs_process_pid:
             if is_linux() or is_mac():
@@ -788,6 +798,9 @@ class GSMApplication:
             print("OBS is not running.")
 
     def restart_obs(self, *args) -> None:
+        if desktop_session.enabled():
+            obs.start_obs(force_restart=True)
+            return
         if obs.obs_process_pid:
             self.close_obs()
             time.sleep(1)
@@ -881,7 +894,8 @@ class GSMApplication:
                 obs.obs_connection_manager.join(timeout=6)
                 if obs.obs_connection_manager.is_alive():
                     logger.warning("OBS actor did not stop before shutdown")
-            obs.stop_replay_buffer()
+            if not desktop_session.enabled():
+                obs.stop_replay_buffer()
             obs.disconnect_from_obs()
 
             if get_config().obs.close_obs and not _is_running_under_electron():
@@ -1013,8 +1027,11 @@ class GSMApplication:
         watch_path = ensure_recording_directory()
 
         observer = Observer()
+        replay = _get_replay_handler_module()
+        if self._replay_extractor is None:
+            self._replay_extractor = replay.ReplayAudioExtractor()
         observer.schedule(
-            _get_replay_handler_module().ReplayFileWatcher(self._replay_extractor),
+            replay.ReplayFileWatcher(self._replay_extractor),
             watch_path,
             recursive=False,
         )
@@ -1024,10 +1041,13 @@ class GSMApplication:
         logger.background(f"File watcher started for: {watch_path}")
 
     def on_config_changed(self) -> None:
-        from GameSentenceMiner.native import anki_monitor
+        from GameSentenceMiner.native import anki_monitor, mining as native_mining
         from GameSentenceMiner.obs.outputs import native_replay_acquisition
 
-        anki_monitor.wake()
+        if native_mining.native_mining_enabled():
+            native_mining.notify_config_changed()
+        else:
+            anki_monitor.wake()
         new_path = get_config().paths.folder_to_watch
         if not native_replay_acquisition() and self.state.file_watcher_path != new_path:
             logger.info(
@@ -1035,10 +1055,12 @@ class GSMApplication:
             )
             self.start_file_watcher()
 
+        if desktop_owns_recycled_lines():
+            return
         if _is_overlay_previous_line_check_enabled():
-            if not game_log.previous_lines:
+            if not game_log.previous_line_count:
                 self.get_previous_lines_for_game()
-        elif game_log.previous_lines:
+        elif game_log.previous_line_count:
             game_log.clear_previous_lines()
             logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
 
@@ -1082,54 +1104,55 @@ class GSMApplication:
             if get_config().obs.open_obs:
                 self._launch_obs_early()
             if is_windows():
-                _emit_install_stage(
-                    "ffmpeg",
-                    "running",
-                    "indeterminate",
-                    0.05,
-                    "Checking FFmpeg runtime files...",
-                )
-                ffmpeg_result = download_ffmpeg_if_needed(stage_id="ffmpeg")
-                if ffmpeg_result == "skipped":
+                if os.environ.get("GSM_DESKTOP_TOOLS_READY") != "1":
                     _emit_install_stage(
                         "ffmpeg",
-                        "skipped",
+                        "running",
                         "indeterminate",
-                        1,
-                        "FFmpeg runtime already installed.",
+                        0.05,
+                        "Checking FFmpeg runtime files...",
                     )
-                else:
-                    _emit_install_stage(
-                        "ffmpeg",
-                        "completed",
-                        "estimated",
-                        1,
-                        "FFmpeg runtime is ready.",
-                    )
-                _emit_install_stage(
-                    "oneocr",
-                    "running",
-                    "indeterminate",
-                    0.05,
-                    "Checking OneOCR runtime files...",
-                )
-                oneocr_result = download_oneocr_dlls_if_needed(stage_id="oneocr")
-                if oneocr_result == "skipped":
+                    ffmpeg_result = download_ffmpeg_if_needed(stage_id="ffmpeg")
+                    if ffmpeg_result == "skipped":
+                        _emit_install_stage(
+                            "ffmpeg",
+                            "skipped",
+                            "indeterminate",
+                            1,
+                            "FFmpeg runtime already installed.",
+                        )
+                    else:
+                        _emit_install_stage(
+                            "ffmpeg",
+                            "completed",
+                            "estimated",
+                            1,
+                            "FFmpeg runtime is ready.",
+                        )
                     _emit_install_stage(
                         "oneocr",
-                        "skipped",
+                        "running",
                         "indeterminate",
-                        1,
-                        "OneOCR runtime already installed.",
+                        0.05,
+                        "Checking OneOCR runtime files...",
                     )
-                else:
-                    _emit_install_stage(
-                        "oneocr",
-                        "completed",
-                        "estimated",
-                        1,
-                        "OneOCR runtime is ready.",
-                    )
+                    oneocr_result = download_oneocr_dlls_if_needed(stage_id="oneocr")
+                    if oneocr_result == "skipped":
+                        _emit_install_stage(
+                            "oneocr",
+                            "skipped",
+                            "indeterminate",
+                            1,
+                            "OneOCR runtime already installed.",
+                        )
+                    else:
+                        _emit_install_stage(
+                            "oneocr",
+                            "completed",
+                            "estimated",
+                            1,
+                            "OneOCR runtime is ready.",
+                        )
                 if shutil.which("ffmpeg") is None:
                     os.environ["PATH"] += os.pathsep + os.path.dirname(get_ffmpeg_path())
             else:
@@ -1183,8 +1206,6 @@ class GSMApplication:
             except OSError as e:
                 logger.error(f"Could not prepare GSM's output folder: {e}")
 
-            _set_audio_callback(self._replay_extractor.get_audio)
-
         self.initial_checks()
         _emit_install_stage(
             "finalize",
@@ -1200,7 +1221,7 @@ class GSMApplication:
         self._start_foreground_window_hook()
 
     def _start_foreground_window_hook(self) -> None:
-        if not is_windows() or not _is_running_under_electron():
+        if desktop_session.enabled() or not is_windows() or not _is_running_under_electron():
             return
         try:
             from GameSentenceMiner.util.platform.foreground_window_hook import (
@@ -1481,13 +1502,14 @@ class GSMApplication:
             self._send_windows_speech_status("error", error=str(exc))
 
     def start_background_threads(self) -> None:
-        anki = _get_anki_module()
-        from GameSentenceMiner.native import anki_monitor
+        from GameSentenceMiner.native import anki_monitor, mining as native_mining
 
-        if not anki_monitor.start(anki):
-            self._start_thread(anki.start_monitoring_anki, "anki-monitor")
-        if get_config().paths.output_folder:
-            self._start_thread(anki.migrate_old_word_folders, "anki-migrate-old-folders")
+        if native_mining.native_mining_enabled():
+            logger.info("Native Rust mining active; skipping Python Anki monitor thread.")
+        else:
+            anki = _get_anki_module()
+            if not anki_monitor.start(anki):
+                self._start_thread(anki.start_monitoring_anki, "anki-monitor")
 
         if is_gsm_cloud_preview_enabled():
             gsm_cloud_auth_cache_service.start_background_loop()
@@ -1501,7 +1523,30 @@ class GSMApplication:
         logger.log(level, f"IPC Command Received: {cmd}")
         try:
             function = cmd.get("function")
-            if function == FunctionName.QUIT.value:
+            if function == "obs_record_event" and desktop_session.enabled():
+                record = cmd["data"]
+                event = record["data"]
+                if record["event"] == "RecordFileChanged":
+                    obs.longplay_handler.on_record_file_changed(event.get("newOutputPath"))
+                elif record["event"] == "RecordStateChanged":
+                    obs.longplay_handler.on_record_state_changed(
+                        output_active=event.get("outputActive"), output_path=event.get("outputPath")
+                    )
+            elif function == "stats_settings_changed":
+                configuration.reload_config()
+            elif function in ("reading_stats_changed", "game_library_changed"):
+                from GameSentenceMiner.web.game_profiles import invalidate_game_profiles_cache
+
+                invalidate_game_profiles_cache()
+                if function == "game_library_changed":
+                    from GameSentenceMiner.util.database.games_table import GamesTable
+
+                    GamesTable.clear_name_id_cache()
+            elif function == "anki_cache_updated":
+                from GameSentenceMiner.web.anki_api_endpoints import invalidate_anki_data_cache
+
+                invalidate_anki_data_cache()
+            elif function == FunctionName.QUIT.value:
                 self._request_shutdown()
             elif function == FunctionName.QUIT_OBS.value:
                 self.close_obs()
@@ -1736,23 +1781,19 @@ class GSMApplication:
             logger.background(f"Failed to schedule texthook line: {e}")
 
     def get_previous_lines_for_game(self) -> None:
+        if desktop_owns_recycled_lines():
+            return
         if not _is_overlay_previous_line_check_enabled():
-            if game_log.previous_lines:
+            if game_log.previous_line_count:
                 game_log.clear_previous_lines()
                 logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
             return
 
         try:
-            all_lines = db.GameLinesTable.get_all_lines_for_scene(
-                obs.get_current_scene(),
-                limit=MAX_PREVIOUS_LINES,
-            )
             game_log.replace_previous_lines(
-                normalized_line
-                for line in all_lines
-                if (normalized_line := normalize_text_for_comparison(getattr(line, "line_text", "")))
+                db.GameLinesTable.iter_recycled_line_texts(obs.get_current_scene(), limit=MAX_PREVIOUS_LINES)
             )
-            logger.info(f"Loaded {len(game_log.previous_lines)} previous lines for game '{obs.get_current_game()}'")
+            logger.info(f"Loaded {game_log.previous_line_count} previous lines for game '{obs.get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game: {e}")
 
@@ -1828,16 +1869,32 @@ class GSMApplication:
         scene = state["scene"]
         profile = state.get("profile")
         changed_profile = profile and previous.get("profile") != profile
+        new_connection = state.get("connected") and previous.get("connection") != state.get("connection")
+        gsm_status.obs_connected = bool(state.get("connected"))
+        if state.get("record_active") and (new_connection or previous.get("record_active") is None):
+            obs.longplay_handler.on_record_start_requested()
+        if state.get("replay_active") != previous.get("replay_active"):
+            from GameSentenceMiner.native import anki_monitor
+
+            gsm_state.replay_buffer_stopped_timestamp = time.time() if state.get("replay_active") is False else None
+            anki_monitor.wake(replay_changed=True)
         if changed_profile:
             configuration.reload_config()
             if self.state.settings_window:
                 self.state.settings_window.reload_settings(suppress_profile_change_hooks=True)
             self._broadcast_overlay_profile_state()
 
+        if directory := state.get("record_directory"):
+            if directory != previous.get("record_directory"):
+                from GameSentenceMiner.util.media_paths import set_gsm_recording_directory
+
+                set_gsm_recording_directory(directory)
+        if seconds := state.get("replay_seconds"):
+            gsm_state.replay_buffer_length = seconds
+        if new_connection or changed_profile:
+            self.on_config_changed()
+
         if previous["scene"] != scene:
-            service = obs.obs_service
-            if service:
-                service.apply_desktop_scene(scene)
             if scene:
                 self._scene_changed(scene)
             elif getattr(self, "_windows_speech_recognition_service", None):
@@ -1880,7 +1937,9 @@ class GSMApplication:
     async def post_init_async(self) -> None:
         logger.background("Post-Initialization started.")
 
-        if gsm_status.obs_connected:
+        if desktop_session.enabled():
+            self.on_config_changed()
+        elif gsm_status.obs_connected:
             await self.register_scene_switcher_callback()
             self._register_scene_observed_profile_check()
             self._register_recording_directory_watcher()
@@ -1892,12 +1951,19 @@ class GSMApplication:
 
         self.start_file_watcher()
 
-        if not gsm_status.obs_connected and (not self._obs_connect_task or self._obs_connect_task.done()):
+        if (
+            not desktop_session.enabled()
+            and not gsm_status.obs_connected
+            and (not self._obs_connect_task or self._obs_connect_task.done())
+        ):
             self._obs_connect_task = asyncio.create_task(self._connect_obs_when_available())
 
         await self.init_overlay_processor_async()
         _get_window_state_monitor_module().cleanup_suspended_processes()
-        _get_vad_processor().init()
+        from GameSentenceMiner.native import mining as native_mining
+
+        if not native_mining.native_mining_enabled():
+            _get_vad_processor().init()
 
         try:
             from GameSentenceMiner.util.yomitan_dict.sudachi_user_dict import (
@@ -1913,7 +1979,7 @@ class GSMApplication:
             logger.debug(f"Failed to queue Sudachi user dictionary startup export: {exc}")
 
     async def _connect_obs_when_available(self) -> None:
-        if gsm_status.obs_connected:
+        if desktop_session.enabled() or gsm_status.obs_connected:
             return
 
         await obs.wait_for_obs_ready(interval=0.5 if get_config().obs.open_obs else 2.0)
@@ -1962,49 +2028,6 @@ class GSMApplication:
             overlay_coords.init_overlay_processor,
         )
         await initialize_overlay()
-
-    async def async_loop_stress_test_task(self) -> None:
-        stress_seconds = max(0.0, float(ASYNC_LOOP_STRESS_SECONDS))
-        if stress_seconds <= 0:
-            return
-
-        delay_seconds = max(0.0, float(ASYNC_LOOP_STRESS_DELAY_SECONDS))
-        repeat_count = max(1, int(ASYNC_LOOP_STRESS_REPEAT))
-        mode = str(ASYNC_LOOP_STRESS_MODE).strip().lower()
-        if mode not in {"block", "yield"}:
-            logger.warning(f"Unknown ASYNC_LOOP_STRESS_MODE {mode!r}; using 'block'.")
-            mode = "block"
-
-        if delay_seconds:
-            await asyncio.sleep(delay_seconds)
-
-        for run_index in range(repeat_count):
-            started = time.monotonic()
-            deadline = started + stress_seconds
-            iterations = 0
-            logger.warning(
-                "Starting async loop stress test "
-                f"{run_index + 1}/{repeat_count}: mode={mode}, seconds={stress_seconds:g}"
-            )
-
-            if mode == "yield":
-                while time.monotonic() < deadline:
-                    chunk_deadline = min(deadline, time.monotonic() + 0.05)
-                    while time.monotonic() < chunk_deadline:
-                        iterations += 1
-                    await asyncio.sleep(0)
-            else:
-                while time.monotonic() < deadline:
-                    iterations += 1
-
-            elapsed = time.monotonic() - started
-            logger.warning(
-                "Finished async loop stress test "
-                f"{run_index + 1}/{repeat_count}: elapsed={elapsed:.3f}s, iterations={iterations}"
-            )
-
-            if run_index < repeat_count - 1 and delay_seconds:
-                await asyncio.sleep(delay_seconds)
 
     def _wait_for_startup_ready(self, timeout: float = 20.0, interval: float = 0.1) -> None:
         wait_for_obs = bool(get_config().obs.open_obs)
@@ -2057,6 +2080,16 @@ class GSMApplication:
         # The one process-wide asyncio loop must exist before transport adapters
         # (notably the Electron bus) are initialized.
         self.state.transport_runtime.start()
+        try:
+            _start_database_runtime(self.state.transport_runtime)
+        except Exception:
+            from GameSentenceMiner.util.communication import bus_client
+
+            if bus_client.owns_backend_connection():
+                bus_client.get_bus().stop()
+            self.state.transport_runtime.stop()
+            raise
+        _log_startup_stage("database and application ready")
         _get_websocket_manager().set_transport_runtime(self.state.transport_runtime)
         self.initialize(reloading)
         _log_startup_stage("core initialized")
@@ -2080,7 +2113,6 @@ class GSMApplication:
         _log_startup_stage("overlay processing ready")
         self.state.transport_runtime.submit(self.background_tasks_async())
         self.state.transport_runtime.submit(self.start_text_monitor_async())
-        self.state.transport_runtime.submit(self.async_loop_stress_test_task())
 
         signal.signal(signal.SIGTERM, self.handle_exit())
         signal.signal(signal.SIGINT, self.handle_exit())
@@ -2117,6 +2149,11 @@ class GSMApplication:
 
 
 def main() -> None:
+    # Auxiliary Python processes inherit credentials but need their own read-only identity.
+    if desktop_session.enabled() and os.environ.get("GSM_BROKER_PORT") and os.environ.get("GSM_BROKER_TOKEN"):
+        os.environ["GSM_OBS_BACKEND_PID"] = str(os.getpid())
+        os.environ["GSM_OBS_READER_PORT"] = os.environ["GSM_BROKER_PORT"]
+        os.environ["GSM_OBS_READER_TOKEN"] = os.environ["GSM_BROKER_TOKEN"]
     logger.info("Starting GSM")
     _log_startup_stage("imports complete")
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
@@ -2143,7 +2180,6 @@ For more information, see: https://github.com/bpwhelan/GameSentenceMiner
             logger.info("GSM is already running. Exiting duplicate startup.")
             return
         app = GSMApplication()
-        _log_startup_stage("database and application ready")
         if asyncio.run(app.check_if_script_is_running()):
             return
         asyncio.run(app.log_current_pid())

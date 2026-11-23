@@ -1,7 +1,7 @@
 //! Preview the submitted settings against the active profile's language.
-mod hook_ranking;
 #[path = "../../gsm-native/src/correlation.rs"]
 pub mod correlation;
+mod hook_ranking;
 pub use hook_ranking::HookFinder;
 mod language;
 mod replacements;
@@ -12,7 +12,7 @@ mod text_cleanup;
 
 use gsm_settings::workspace::text_defaults;
 use serde_json::Value;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use unicode_normalization::UnicodeNormalization;
 
@@ -35,22 +35,57 @@ pub fn process(payload: &Value, target_language: &str) -> Result<String, String>
     {
         return Err("Preview input exceeds the size limit.".into());
     }
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut text = text.to_owned();
-    let target = language::Target::new(target_language);
-    let processors = Processors::new(config, &target, deadline);
-    let mode = language_mode(config);
-    for processor in processor_order(config)? {
-        if text.is_empty() {
-            break;
+    LineFilters::new(Arc::new(config.clone()), target_language)?.process(text, &Value::Null)
+}
+
+/// A profile's ordered steps, compiled replacement expressions and language ranges.
+pub struct LineFilters {
+    config: Arc<Value>,
+    steps: Vec<(String, bool)>,
+    target: language::Target,
+    rules: replacements::Rules,
+}
+impl LineFilters {
+    pub fn new(config: Arc<Value>, language: &str) -> Result<Self, String> {
+        Ok(Self {
+            steps: processor_order(&config)?
+                .into_iter()
+                .map(|s| (s.to_owned(), processor_enabled(&config, s)))
+                .collect(),
+            target: language::Target::new(language),
+            rules: replacements::Rules::new(&config["string_replacement"]),
+            config,
+        })
+    }
+    pub fn matches(&self, config: &Arc<Value>, language: &str) -> bool {
+        Arc::ptr_eq(&self.config, config) && self.target.code() == language
+    }
+    pub fn process(&self, text: &str, overrides: &Value) -> Result<String, String> {
+        let config = &self.config;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut text = text.to_owned();
+        let processors = Processors {
+            config,
+            target: &self.target,
+            rules: &self.rules,
+            deadline,
+        };
+        let mode = overrides["language_filter_mode"]
+            .as_str()
+            .filter(|mode| matches!(*mode, "blocks" | "trim" | "strict"))
+            .unwrap_or_else(|| language_mode(config));
+        for (processor, enabled) in &self.steps {
+            if text.is_empty() {
+                break;
+            }
+            check_deadline(deadline)?;
+            if overrides[processor].as_bool().unwrap_or(*enabled) {
+                text = processors.apply(text, processor, mode)?;
+            }
         }
         check_deadline(deadline)?;
-        if processor_enabled(config, processor) {
-            text = processors.apply(text, processor, mode)?;
-        }
+        Ok(text)
     }
-    check_deadline(deadline)?;
-    Ok(text)
 }
 
 fn language_mode(config: &Value) -> &str {
@@ -70,24 +105,18 @@ fn processor_enabled(config: &Value, processor: &str) -> bool {
 struct Processors<'a> {
     config: &'a Value,
     target: &'a language::Target,
-    rules: replacements::Rules<'a>,
+    rules: &'a replacements::Rules,
     deadline: Instant,
 }
 
 impl<'a> Processors<'a> {
-    fn new(config: &'a Value, target: &'a language::Target, deadline: Instant) -> Self {
-        Self {
-            config,
-            target,
-            rules: replacements::Rules::new(&config["string_replacement"]),
-            deadline,
-        }
-    }
-
     fn apply(&self, text: String, processor: &str, mode: &str) -> Result<String, String> {
         let config = self.config;
         let result = match processor {
-            "string_replacement" => self.rules.apply(text, self.deadline)?,
+            "string_replacement" => {
+                self.rules
+                    .apply(&config["string_replacement"], text, self.deadline)?
+            }
             "remove_repeated_chars" => text_cleanup::remove_repeated_chars(
                 &text,
                 integer_setting(config, "remove_repeated_chars_config", "repeat_count")?,

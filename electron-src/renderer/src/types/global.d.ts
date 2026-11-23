@@ -34,6 +34,7 @@ declare global {
     gsmEnv: {
       platform: string;
       shell?: "electron" | "tauri";
+      pythonBackend?: boolean;
     };
   }
 }

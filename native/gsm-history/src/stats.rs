@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 type Heatmap = BTreeMap<i32, BTreeMap<NaiveDate, usize>>;
 
-pub(super) fn local_date(timestamp: f64) -> Result<NaiveDate> {
+pub fn local_date(timestamp: f64) -> Result<NaiveDate> {
     let instant = DateTime::from_timestamp(timestamp.floor() as i64, 0)
         .filter(|_| timestamp.is_finite())
         .ok_or("Invalid line timestamp")?;
@@ -65,10 +65,16 @@ struct ArchiveEvent(
     IgnoredAny,
 );
 
+pub(super) fn first_archive_event_in_range(blob: &[u8], start: f64, end: f64) -> Result<Option<f64>> {
+    let events: Vec<ArchiveEvent> = serde_json::from_reader(std::io::BufReader::new(ZlibDecoder::new(blob)))?;
+    Ok(events.into_iter().map(|e| e.0).find(|&t| (start..=end).contains(&t)))
+}
+
 pub(super) fn mining_heatmap(
     conn: &Connection,
     start: Option<f64>,
     end: Option<f64>,
+    live_only: bool,
 ) -> Result<Heatmap> {
     let mut counts = Heatmap::new();
     let mut add = |day: NaiveDate| {
@@ -101,12 +107,14 @@ pub(super) fn mining_heatmap(
             add(line_date(row.get_ref(0)?)?);
         }
     }
-    archive_events(conn, start, end, |time, _, cards, _, _| {
-        if cards > 0 {
-            add(local_date(time)?);
-        }
-        Ok(())
-    })?;
+    if !live_only {
+        archive_events(conn, start, end, |time, _, cards, _, _| {
+            if cards > 0 {
+                add(local_date(time)?);
+            }
+            Ok(())
+        })?;
+    }
     Ok(counts)
 }
 
@@ -116,6 +124,22 @@ pub(super) fn table_exists(conn: &Connection, name: &str) -> Result<bool> {
         [name],
         |r| r.get(0),
     )?)
+}
+
+pub(super) fn visit_archive_events(
+    blob: &[u8],
+    start: Option<f64>,
+    end: Option<f64>,
+    mut visit: impl FnMut(f64, usize, u64) -> Result<()>,
+) -> Result<()> {
+    let events: Vec<ArchiveEvent> =
+        serde_json::from_reader(std::io::BufReader::new(ZlibDecoder::new(blob)))?;
+    for ArchiveEvent(time, chars, cards, ..) in events {
+        if start.is_none_or(|s| time >= s) && end.is_none_or(|e| time <= e) {
+            visit(time, chars, cards)?;
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn archive_events(
@@ -142,15 +166,9 @@ pub(super) fn archive_events(
     let mut rows = stmt.query(params![lower, upper])?;
     while let Some(row) = rows.next()? {
         let blob = row.get_ref(0)?.as_blob()?;
-        let events: Vec<ArchiveEvent> =
-            serde_json::from_reader(std::io::BufReader::new(ZlibDecoder::new(blob)))?;
         let scene = row.get_ref(1)?.as_str()?;
         let game_id = row.get_ref(2)?.as_str()?;
-        for ArchiveEvent(time, chars, cards, ..) in events {
-            if start.is_none_or(|s| time >= s) && end.is_none_or(|e| time <= e) {
-                visit(time, chars, cards, scene, game_id)?;
-            }
-        }
+        visit_archive_events(blob,start,end,|time,chars,cards| visit(time,chars,cards,scene,game_id))?;
     }
     Ok(())
 }

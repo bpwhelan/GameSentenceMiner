@@ -107,7 +107,18 @@ def build_today_live_stats_payload(
 
     updated_at = time.time() if now is None else float(now)
     text_intake_paused = bool(gsm_state.text_input_paused)
-    game_name = tracker.game_name if game_name is None else str(game_name).strip()
+    from GameSentenceMiner.native import intake
+
+    if tracker is live_stats_tracker and intake.native_reader():
+        snapshot = intake.request("readerDaily")
+        tracker_game = snapshot["stats"]["game_name"]
+        tracker_start = snapshot["stats"]["session_start_time"]
+        live_lines = snapshot["lines"]
+    else:
+        tracker_game = tracker.game_name
+        tracker_start = tracker.session_start_time
+        live_lines = tracker.get_live_lines()
+    game_name = tracker_game if game_name is None else str(game_name).strip()
     config = get_stats_config()
     rollover_hour = max(0, min(23, int(getattr(config, "day_rollover_hour", 4))))
     local_now = datetime.fromtimestamp(updated_at, timezone.utc).astimezone()
@@ -143,7 +154,7 @@ def build_today_live_stats_payload(
         return line.game_name in game_names
 
     by_id = {line.id: line for line in lines if period_start <= line.timestamp < period_end}
-    for line_id, text, timestamp, line_game_name in tracker.get_live_lines():
+    for line_id, text, timestamp, line_game_name in live_lines:
         if not period_start <= timestamp < period_end or timestamp > updated_at:
             continue
         line = by_id.get(line_id)
@@ -225,7 +236,7 @@ def build_today_live_stats_payload(
         "period_start": period_start,
         "period_end": period_end,
         "session_active": session_active,
-        "session_start_time": tracker.session_start_time if tracker.game_name in game_names else None,
+        "session_start_time": tracker_start if tracker_game in game_names else None,
         "last_line_time": last_line_time,
         "session_expires_at": last_line_time + config.session_gap_seconds if session_active else None,
         "raw_time_gap_limit_seconds": DAILY_RAW_GAP_LIMIT_SECONDS,

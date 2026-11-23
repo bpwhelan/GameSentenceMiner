@@ -1,8 +1,6 @@
-name: Release native desktop preview
+name: Build portable Tauri preview ZIPs
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -10,14 +8,16 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  # GitHub validates the called workflow's publish job permission even for an
+  # artifact-only run. The build job declares contents: read.
   contents: write
   actions: read
   id-token: write
 
 jobs:
-  release:
+  preview:
     uses: ./.github/workflows/native_desktop.yml
     with:
-      publish: true
+      portable_preview: true
       prerelease: true
-    secrets: inherit
+      publish: false

@@ -1,6 +1,7 @@
 const MANUAL_HOTKEY_BACKEND_ELECTRON = "electron";
 const MANUAL_HOTKEY_BACKEND_INPUT_SERVER = "input_server";
 const MANUAL_HOTKEY_MODE_HOLD = "hold";
+const MANUAL_HOTKEY_MODE_HYBRID = "hybrid";
 const MANUAL_HOTKEY_MODE_TOGGLE = "toggle";
 const MANUAL_HOTKEY_ALLOWED_GAME_WINDOW_STATES = new Set(["active", "background"]);
 
@@ -51,9 +52,9 @@ function resolveManualHotkeyBackend(hotkey, options = {}) {
 }
 
 function normalizeManualHotkeyMode(mode) {
-  return String(mode || "").trim().toLowerCase() === MANUAL_HOTKEY_MODE_TOGGLE
-    ? MANUAL_HOTKEY_MODE_TOGGLE
-    : MANUAL_HOTKEY_MODE_HOLD;
+  const normalized = String(mode || "").trim().toLowerCase();
+  return [MANUAL_HOTKEY_MODE_HYBRID, MANUAL_HOTKEY_MODE_TOGGLE].includes(normalized)
+    ? normalized : MANUAL_HOTKEY_MODE_HOLD;
 }
 
 function createManualHotkeyController(options = {}) {
@@ -66,6 +67,7 @@ function createManualHotkeyController(options = {}) {
     : () => normalizeManualHotkeyMode(options.mode);
 
   let keyDown = false;
+  let pressId = 0;
   let holdActive = false;
   let toggleLatched = false;
   let electronReleaseTimer = null;
@@ -115,6 +117,7 @@ function createManualHotkeyController(options = {}) {
     }
 
     keyDown = true;
+    ++pressId;
     if (currentMode() === MANUAL_HOTKEY_MODE_TOGGLE) {
       toggleLatch(source);
       return getSnapshot();
@@ -128,7 +131,7 @@ function createManualHotkeyController(options = {}) {
   }
 
   function handleRelease(source = "input_server") {
-    if (!keyDown && !holdActive) {
+    if (!keyDown) {
       return getSnapshot();
     }
 
@@ -139,11 +142,27 @@ function createManualHotkeyController(options = {}) {
       return getSnapshot();
     }
 
-    if (holdActive) {
-      releaseHold(source);
+    if (currentMode() === MANUAL_HOTKEY_MODE_HYBRID) {
+      if (options.isPopupShowing?.()) return getSnapshot();
+      if (options.checkPopupShowing) {
+        void checkHybridRelease(pressId, source);
+        return getSnapshot();
+      }
     }
+    if (holdActive) releaseHold(source);
 
     return getSnapshot();
+  }
+
+  async function checkHybridRelease(id, source) {
+    let visible = false;
+    try {
+      visible = await options.checkPopupShowing();
+    } catch {
+      // A closed renderer has no popup to retain.
+    }
+    if (id === pressId && !keyDown && holdActive && currentMode() === MANUAL_HOTKEY_MODE_HYBRID
+        && !visible && !options.isPopupShowing?.()) releaseHold(source);
   }
 
   function handleElectronSignal(source = "electron") {
@@ -154,25 +173,17 @@ function createManualHotkeyController(options = {}) {
       return getSnapshot();
     }
 
-    if (!keyDown) {
-      keyDown = true;
-      if (!holdActive) {
-        holdActive = true;
-        emit(source, "hold-activated");
-      }
-    }
-
+    handlePress(source);
     clearElectronReleaseTimer();
-    electronReleaseTimer = setTimeout(() => {
-      electronReleaseTimer = null;
-      keyDown = false;
-
-      if (currentMode() === MANUAL_HOTKEY_MODE_HOLD && holdActive) {
-        releaseHold(source);
-      }
-    }, holdReleaseTimeoutMs);
+    electronReleaseTimer = setTimeout(() => handleRelease(source), holdReleaseTimeoutMs);
 
     return getSnapshot();
+  }
+
+  function handlePopupClosed() {
+    if (currentMode() !== MANUAL_HOTKEY_MODE_HYBRID || keyDown || !holdActive) return false;
+    releaseHold("popup-closed");
+    return true;
   }
 
   function reset(reason = "reset", options = {}) {
@@ -192,6 +203,7 @@ function createManualHotkeyController(options = {}) {
     handlePress,
     handleRelease,
     handleElectronSignal,
+    handlePopupClosed,
     reset,
   };
 }

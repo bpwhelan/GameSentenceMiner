@@ -57,6 +57,13 @@ def parse_block_translations(raw: str, blocks: list[dict]) -> list[dict]:
 
 def translate_overlay_blocks(lines, blocks: list[dict], game_title: str) -> list[dict]:
     blocks = validate_blocks(blocks)
+    from GameSentenceMiner.native import mining as native_mining
+
+    if native_mining.native_mining_enabled():
+        try:
+            return native_mining.ai_overlay_translate(lines, blocks, game_title)
+        except Exception as exc:
+            raise AIError(ai_error_message(exc)) from exc
     config = get_config()
     AIService, snapshot_config = _get_ai_service_components()
     service = AIService(config_snapshot=snapshot_config(config.ai, config.general), logger=logger)

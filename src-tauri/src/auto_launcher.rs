@@ -675,14 +675,17 @@ async fn run_texthook_automation_step(
         return;
     }
 
-    // Check Linux target sync if applicable
     #[cfg(target_os = "linux")]
-    let _ = crate::backend::post_json(
-        app,
-        "/linux/set_scene_target_process",
-        json!({ "scene": scene_name, "pid": pid, "exe": exe_name }),
-    )
-    .await;
+    {
+        let body = json!({"scene":scene_name,"target":exe_name});
+        if crate::app_lifecycle::native_session_requested() {
+            let _ = crate::obs::game_pause::linux_request(app,"/linux/set_scene_target_process",&body);
+        } else {
+            let url = gsm_settings::gsm_config::gsm_backend_url(&paths_for(app).active.join("config.json"),"/linux/set_scene_target_process");
+            let _ = app.state::<crate::desktop_state::DesktopState>().http.post(url).json(&body)
+                .timeout(std::time::Duration::from_secs(2)).send().await;
+        }
+    }
 
     let mut launch_opts = json!({
         "engine": engine,

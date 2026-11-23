@@ -190,7 +190,9 @@ def start_replay_buffer(client: obs.ReqClient, initial=False):
     logger.info("Replay buffer started.")
 
 
-@with_obs_client(default=None, error_msg="Error getting replay buffer status")
+@with_obs_client(
+    default=None, error_msg="Error getting replay buffer status", session_read=lambda state: state.get("replay_active")
+)
 def get_replay_buffer_status(client: obs.ReqClient):
     import GameSentenceMiner.obs as _obs_pkg
 
@@ -939,6 +941,8 @@ def get_current_game(sanitize=False, update=True):
 def is_game_capture_active() -> bool:
     import GameSentenceMiner.obs as _obs_pkg
 
+    if desktop_session.enabled():
+        return desktop_session.snapshot().get("replay_active") is not False
     svc = _obs_pkg.obs_service
     if not svc:
         return True
@@ -1230,6 +1234,11 @@ def apply_recording_fps(client: obs.ReqClient, config_override=None):
 
 def apply_obs_performance_settings(config_override=None):
     cfg = config_override or get_config()
+    if desktop_session.enabled():
+        from GameSentenceMiner.util.communication import bus_client
+
+        bus_client.get_bus().request(bus_client.MAIN, "obs.configure", {})
+        return
     ensure_replay_buffer_enabled(config_override=cfg)
     apply_recording_fps(config_override=cfg)
     apply_replay_buffer_duration(config_override=cfg)
@@ -1490,14 +1499,14 @@ def do_obs_call(method_name: str, from_dict=None, retry=3, **kwargs):
 
     from GameSentenceMiner.obs.service import connect_to_obs_sync as _connect_sync
 
-    if not _obs_pkg.connection_pool:
+    if not desktop_session.enabled() and not _obs_pkg.connection_pool:
         if _obs_pkg.obs_service:
             from GameSentenceMiner.obs.service import _recover_obs_service_clients_sync
 
             _recover_obs_service_clients_sync()
         elif not _obs_pkg.connecting:
             _connect_sync(retry=1)
-    if not _obs_pkg.connection_pool:
+    if not desktop_session.enabled() and not _obs_pkg.connection_pool:
         return None
 
     def _invoke(client):

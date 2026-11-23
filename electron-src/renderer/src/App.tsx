@@ -9,6 +9,7 @@ import type { OnboardingHomeAction, OnboardingSnapshot } from '../../shared/onbo
 import { InstallSessionModal } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import { AppUpdateNotice } from "./components/AppUpdateNotice";
+import { DictionaryTransferNotice } from "./components/DictionaryTransferNotice";
 import { GamePrivilegeNotice } from "./components/GamePrivilegeNotice";
 import { SeasonalDecorations } from "./components/SeasonalDecorations";
 import type { ControlledTab } from "./types/models";
@@ -753,9 +754,9 @@ export default function App() {
     const offNavigateToTab = window.ipcRenderer.on(
       "app.navigateToTab",
       (_event, requestedTab) => {
-        if (requestedTab === "python") {
+        if (requestedTab === "python" || requestedTab === "obs-settings") {
           setActiveTab("settings");
-          window.dispatchEvent(new Event("gsm-open-python-settings"));
+          window.dispatchEvent(new Event(requestedTab === "python" ? "gsm-open-python-settings" : "gsm-open-obs-settings"));
           return;
         }
         if (typeof requestedTab === "string" && TAB_IDS.has(requestedTab as TabId)) {
@@ -985,6 +986,7 @@ export default function App() {
         </div>
       </header>
 
+      <DictionaryTransferNotice />
       <GamePrivilegeNotice />
       {showWizard && !shouldShowInstallSessionModal && !desktopChangelog && (
         <SetupWizard key={wizardSession} onComplete={() => setShowWizard(false)} onAction={action => {
@@ -1010,7 +1012,7 @@ export default function App() {
         {isWindows ? <DeferredPanel active={activeTab === 'speech'}><SpeechRecognitionTab active={activeTab === "speech"} /></DeferredPanel> : null}
         <StatsPanel active={activeTab === "stats"} />
         <DeferredPanel active={activeTab === 'launcher'}><GameAutomationTab active={activeTab === "launcher"} /></DeferredPanel>
-        <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} onOpenSetup={() => {
+          <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} onOpenSetup={() => {
           setWizardSession(value => value + 1);
           setShowWizard(true);
         }} />

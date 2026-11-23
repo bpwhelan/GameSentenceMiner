@@ -5,7 +5,6 @@
 //! safe temporary-staging extraction (`gsm_packages::extract`) and throttled progress events.
 
 use gsm_packages::scripts::Scripts;
-use gsm_settings::gsm_config::get_gsm_profile_names;
 use gsm_settings::preferences::Preferences;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1143,7 +1142,7 @@ pub async fn handle_ipc(
         }
         "settings.listGSMProfiles" => {
             let config_path = paths.active.join("config.json");
-            tokio::task::spawn_blocking(move || Ok(get_gsm_profile_names(&config_path)))
+            tokio::task::spawn_blocking(move || gsm_settings::mining_scopes::base_profiles(&config_path))
                 .await
                 .map_err(|e| e.to_string())?
         }
@@ -1170,17 +1169,11 @@ pub async fn handle_ipc(
                 .or_else(|| payload.get("create_new"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            let data = crate::runtime::backend_command(
-                app,
-                "relate_scene_to_profile",
-                json!({
-                    "scene": scene_name,
-                    "profile_name": profile_name,
-                    "create_new": create_new,
-                }),
-            )
-            .await?;
-            Ok(json!({ "success": true, "result": data }))
+            let path = paths.active.join("config.json");
+            tokio::task::spawn_blocking(move || gsm_settings::mining_scopes::relate_scene(&path,&scene_name,&profile_name,create_new))
+                .await.map_err(|e|e.to_string())??;
+            crate::mining_settings::changed(app).await;
+            Ok(json!({"success":true,"result":null}))
         }
         "settings.selectAgentPath" => {
             pick_and_optionally_save_path(

@@ -34,7 +34,7 @@ app.whenReady().then(async()=>{
     await chrome.storage.local.set({options:{language:'ja',enabled:true,profiles:[],profileCurrent:0}});
   })().catch(error=>{throw Error(String(error)+' '+error.stack);})`);
   if(kind==='hachidori')await window.webContents.executeJavaScript(`(async()=>{
-    await chrome.storage.local.set({options:{language:'ja',enabled:true},dictionaryState:{dictionaries:[{id:'legacy-dictionary'}]}});
+    await chrome.storage.local.set({options:{language:'ja',enabled:true},dictionaryState:{schemaVersion:1,revision:0,dictionaries:[],groups:[]}});
     const root=await navigator.storage.getDirectory().catch(error=>{throw Error('OPFS root: '+String(error));});
     const folder=await root.getDirectoryHandle('.hdw-generation-fixture',{create:true});
     const dictionary=await folder.getDirectoryHandle('日本語',{create:true});

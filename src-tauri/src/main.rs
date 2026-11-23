@@ -8,6 +8,8 @@ mod app_lifecycle;
 mod assets;
 mod auto_launcher;
 mod backend;
+mod database_startup;
+mod longplay;
 #[cfg(windows)]
 mod browser_extensions;
 #[cfg(windows)]
@@ -20,19 +22,28 @@ mod desktop_services;
 mod desktop_state;
 #[cfg(all(windows, any(debug_assertions, feature = "local-build")))]
 mod dev_launch;
+mod browser_dictionary;
 mod dictionary_host;
 mod dictionary_service;
 mod game_background;
+mod game_metadata;
 mod game_launcher;
 mod game_privileges;
 mod hook_updates;
 mod input_server;
 mod install_session;
 mod launchers_ui;
+mod mining;
+mod mining_settings;
 mod mining_workspace;
+mod card_dialog;
 mod gui_dialog;
+mod native_dialog;
+mod recommended_anki;
+mod screenshot_selector;
 mod anki_cards;
 mod text_correlation;
+mod text_intake;
 mod anki_connect;
 mod anki_edit;
 mod anki_group;
@@ -40,6 +51,7 @@ mod anki_media;
 mod anki_poll;
 mod anki_sync;
 mod mining_history;
+mod recycled_lines;
 mod cron;
 mod word_index;
 mod memory;
@@ -49,6 +61,7 @@ mod obs;
 mod obs_service;
 mod ocr;
 mod ocr_coordinator;
+mod ocr_preview;
 mod ocr_selector;
 mod overlay;
 mod overlay_host;
@@ -68,6 +81,9 @@ mod reader_service;
 mod runtime;
 mod settings;
 mod settings_tools;
+mod live_status;
+#[cfg(windows)]
+mod startup_tools;
 mod smoke_test;
 mod sudachi_setup;
 mod texthook;
@@ -123,6 +139,8 @@ async fn desktop_call(
     match scope.as_deref() {
         Some("desktop") => {}
         Some("overlay") => {}
+        Some("card-dialog") if mode == "invoke" &&
+            (channel.starts_with("cardDialog.") || channel == "settings.getSettings") => {}
         Some("vn-guide") => {
             let allowed = matches!(
                 (mode.as_str(), channel.as_str()),
@@ -333,6 +351,7 @@ fn wait_for_relaunch_parent_pid(raw_args: &[String]) {
 }
 
 const LOCAL_BUILD: bool = cfg!(any(debug_assertions, feature = "local-build"));
+const PORTABLE_PREVIEW: bool = cfg!(feature = "portable-preview");
 
 fn app_root_override() -> Option<PathBuf> {
     std::env::var_os("GSM_APP_ROOT")
@@ -505,14 +524,26 @@ fn main() {
             app.manage(ocr::Ocr::new(app.handle().clone()));
             app.manage(notification_audio::NotificationAudio::default());
             app.manage(obs::Obs::default());
+            app.manage(obs::game_pause::GamePause::default());
+            app.manage(text_intake::hotkeys::Hotkeys::default());
+            app.manage(longplay::Service::default());
             app.manage(texthook::TextHook::default());
             app.manage(agent::Agent::default());
             app.manage(runtime::Runtime::default());
+            app.manage(text_intake::Intake::default());
             app.manage(backend::BackendState::default());
             app.manage(mining_workspace::MiningWorkspace::default());
             app.manage(gui_dialog::DialogHost::default());
+            app.manage(card_dialog::Windows::default());
+            app.manage(mining_settings::Navigation::default());
+            app.manage(anki_group::chooser::GroupingWindows::default());
+            app.manage(screenshot_selector::Selectors::default());
+            app.manage(recommended_anki::Windows::default());
+            app.manage(ocr_preview::Windows::default());
+            app.manage(ocr_coordinator::desktop_selector::Windows::default());
             let history = std::sync::Arc::new(gsm_history::History::default());
             app.manage(history.clone());
+            app.manage(database_startup::Vocabulary::default());
             app.manage(cron::Scheduler::default());
             app.manage(anki_poll::Notes::default());
             app.manage(anki_poll::monitor::Monitor::default());
@@ -521,6 +552,14 @@ fn main() {
             app.manage(python_install::PythonInstall::default());
             let paths = gsm_settings::paths::Paths::resolve().map_err(std::io::Error::other)?;
             desktop_log::init(paths.active.join("logs"));
+            if std::env::var_os("GSM_OVERLAY_DATA_PATH").is_none() {
+                match gsm_packages::overlay_directory::consolidate(&paths.active, paths.has_profile) {
+                    Ok(true) => desktop_log::info(app.handle(), "overlay", "Copied overlay data into the GSM data folder."),
+                    Ok(false) => {}
+                    Err(error) => desktop_log::warn(app.handle(), "overlay", format!("Kept the legacy overlay profile: {error}")),
+                }
+            }
+            recycled_lines::register(app.handle(), paths.active.join("gsm.db"));
             desktop_log::info(
                 app.handle(),
                 "startup",
@@ -548,13 +587,17 @@ fn main() {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let pkg_version = app.package_info().version.to_string();
+            let active_dir = paths.active.clone();
             app.manage(settings::Settings { paths });
-            app.manage(desktop_state::DesktopState::with_runtime(
+            let desktop_state = desktop_state::DesktopState::with_runtime(
                 root.clone(),
                 profile_dir,
                 assets.clone(),
                 setup_relaunch,
-            ));
+            );
+            let mining_http = desktop_state.http.clone();
+            app.manage(desktop_state);
+            app.manage(mining::MiningService::new(&root, active_dir, mining_http));
             app.manage(app_lifecycle::AppLifecycle::default());
             app.manage(app_identity::IconPresentation::new());
             app.manage(tray::TrayState::default());
@@ -577,8 +620,14 @@ fn main() {
             app.manage(overlay_host::OverlayHost::default());
             memory::start(app.handle());
             input_server::start_background(app.handle());
+            if app_lifecycle::native_session_requested() { text_intake::hotkeys::start(app.handle()); }
+            if let Err(error) = database_startup::prepare(app.handle()) {
+                app.state::<backend::BackendState>().invalidate_prepared_database();
+                desktop_log::error(app.handle(), "database", format!("Database startup failed. Settings and backup restore remain available. {error}"));
+            }
             app_lifecycle::init_startup(app.handle()).map_err(std::io::Error::other)?;
             if std::env::var_os("GSM_SMOKE_TEST").is_none() {
+                card_dialog::start(app.handle());
                 dictionary_service::start(app.handle());
                 // Presentation is allocated by OverlayHost::start on first use.
                 app.state::<hook_updates::HookUpdates>()
@@ -650,6 +699,10 @@ fn main() {
         }
         tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
         tauri::RunEvent::Exit => {
+            app.state::<obs::game_pause::GamePause>().release_all(app);
+            #[cfg(windows)]
+            obs::game_audio::shutdown(app);
+            if let Err(e)=tauri::async_runtime::block_on(text_intake::finish_desktop(app)){desktop_log::error(app,"text-intake",e);}
             auto_launcher::AutoLauncher::stop(app);
             app.state::<overlay_host::OverlayHost>().shutdown(app);
             app.state::<ocr_coordinator::OcrCoordinator>().shutdown(app);
@@ -658,10 +711,14 @@ fn main() {
             game_privileges::stop(app);
             input_server::stop(app);
             app.state::<hook_updates::HookUpdates>().shutdown();
+            app.state::<cron::Scheduler>().close();
             app.state::<agent::Agent>().shutdown();
             app.state::<texthook::TextHook>().shutdown();
             app.state::<overlay::Overlay>().shutdown();
             app.state::<ocr::Ocr>().shutdown();
+            if let Some(mining) = app.try_state::<Arc<mining::MiningService>>() {
+                mining.shutdown();
+            }
             app.state::<runtime::Runtime>().shutdown();
             app.state::<install_session::InstallSessions>().shutdown();
         }

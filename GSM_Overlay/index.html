@@ -284,19 +284,6 @@ background: rgba(202, 12, 12, 0.692);
     opacity: 0 !important;
   }
 
-  body.force-visible .text-box,
-  body:not(.magpie-active):hover .text-box {
-    background: rgba(15, 15, 15, 0.856);
-    color: white;
-    transition: opacity 0.3s ease;
-  }
-
-  body:not(.magpie-active) .text-box:hover {
-    background: rgba(15, 15, 15, 0.856);
-    color: white;
-    transition: opacity 0.3s ease;
-  }
-
   /* With text click-through disabled, Magpie needs a nontransparent pixel at
      the lookup surface to hand its captured cursor back to the overlay. */
   body.magpie-pointer-hover .text-box {
@@ -1024,7 +1011,6 @@ background: rgba(202, 12, 12, 0.692);
   let yomitanShowing = false;
   let dictionaryReader = 'yomitan';
   let autoHide = null;
-  let hideOnYomitanClose = false;
   // let currentX = 0;
   // let currentY = 0;
   let magpieController = null;
@@ -1262,8 +1248,6 @@ background: rgba(202, 12, 12, 0.692);
   async function closeDictionaryLookups(reason = 'manual-hide') {
     // Close through the loaded reader, including lookups that have not reported
     // a visible popup yet, so a late result cannot reopen it after deactivation.
-    hideOnYomitanClose = false;
-
     const isHachidori = dictionaryReader === 'hachidori';
     const readerName = isHachidori ? 'Hachidori' : 'Yomitan';
     const bridge = isHachidori ? window.gsmHachidoriBridge : window.gsmYomitanBridge;
@@ -1407,6 +1391,11 @@ background: rgba(202, 12, 12, 0.692);
     lastPopupChangeTime = Date.now();
     return true;
   }
+
+  // The native key listener can see key-up before it receives popup-shown over IPC.
+  function isManualLookupVisible() {
+    return yomitanShowing || (dictionaryReader === 'yomitan' && syncYomitanPopupStateFromDom('hotkey-release'));
+  }
   
   setInterval(() => {
     if (dictionaryReader === 'hachidori') {
@@ -1440,11 +1429,6 @@ background: rgba(202, 12, 12, 0.692);
       ipcRenderer.send('yomitan-event', false);
       if (isMagpieActive && !manualHotkeyPressed) {
         requestOverlayMouseRelease('stale-yomitan-reset');
-      }
-      
-      if (hideOnYomitanClose) {
-        hideOnYomitanClose = false;
-        applyManualInactivePresentation('yomitan-stale-reset');
       }
     }
   }, 5000); // Check every 5 seconds
@@ -1507,11 +1491,6 @@ background: rgba(202, 12, 12, 0.692);
       ipcRenderer.send('yomitan-event', false);
       if (isMagpieActive && !manualHotkeyPressed) {
         requestOverlayMouseRelease('dictionary-popup-hidden');
-      }
-
-      if (hideOnYomitanClose) {
-        hideOnYomitanClose = false;
-        applyManualInactivePresentation('dictionary-popup-hidden');
       }
     }
   }
@@ -1595,6 +1574,8 @@ background: rgba(202, 12, 12, 0.692);
 <script src="window_occlusion.js"></script>
 <script>
   const { ipcRenderer } = require("electron");
+  // Native input resets can arrive before the gamepad integration script loads.
+  let gamepadHandler = null;
   // Try to load OverlayUtils if available (since this is an Electron renderer process)
   let OverlayUtils;
   let FuriganaUtils;
@@ -1810,7 +1791,6 @@ background: rgba(202, 12, 12, 0.692);
   });
   let unHoverTimer = null;
   let manualMode = false;
-  let manualModeType = "hold";
   const MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY = "hide-overlay";
   const MANUAL_MODE_INACTIVE_BEHAVIOR_DISABLE_INTERACTION = "disable-interaction";
   let manualModeInactiveBehavior = MANUAL_MODE_INACTIVE_BEHAVIOR_HIDE_OVERLAY;
@@ -3683,7 +3663,7 @@ background: rgba(202, 12, 12, 0.692);
     });
   });
 
-  function applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, transparentText = false, verticalText = false) {
+  function applyTextBoxLayout(textBox, sentence, x1, y1, x2, y2, verticalText = false) {
     const text = sentence[0] == '\n' ? sentence.slice(1) : sentence;
     // Recalibration must keep the Text node alive: Yomitan may still hold a
     // Range into it while its asynchronous lookup is finishing.
@@ -3702,11 +3682,7 @@ background: rgba(202, 12, 12, 0.692);
     textBox.style.fontSize = '48px';
     textBox.style.letterSpacing = '';
     textBox.style.lineHeight = '1';
-    textBox.style.background = 'rgba(0,0,0,0)';
     textBox.style.border = 'none';
-    if (transparentText) {
-      textBox.style.color = 'rgba(255,255,255,0)';
-    }
 
     if (verticalText && /[^\u0000-\u007F]+/.test(sentence)) {
       textBox.style.writingMode = 'vertical-rl';
@@ -3717,7 +3693,7 @@ background: rgba(202, 12, 12, 0.692);
 
   function positionOverlayWordBox(wordBox, isVertical) {
     const { x1, y1, x3, y3 } = projectOverlayTextBounds(wordBox.sourceRect);
-    applyTextBoxLayout(wordBox.box, wordBox.text, x1, y1, x3, y3, true, isVertical);
+    applyTextBoxLayout(wordBox.box, wordBox.text, x1, y1, x3, y3, isVertical);
     Object.assign(wordBox, { x1, y1, y3, widthPercent: x3 - x1, heightPercent: y3 - y1 });
   }
 
@@ -4948,7 +4924,6 @@ background: rgba(202, 12, 12, 0.692);
     setupWebSocket(newsettings.weburl2, false)
     hideOnStartup = newsettings.hideOnStartup;
     manualMode = newsettings.manualMode;
-    manualModeType = String(newsettings.manualModeType || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
     manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(newsettings.manualModeInactiveBehavior);
     showHotkey = newsettings.showHotkey;
     pinned = newsettings.pinned;
@@ -5142,13 +5117,8 @@ background: rgba(202, 12, 12, 0.692);
     dismissedRecommendationGames = newsettings.dismissedFullscreenRecommendations || [];
     console.log("Loaded dismissed games:", dismissedRecommendationGames);
 
-    if (pinned) {
-      document.body.classList.add("force-visible");
-      document.getElementById("btn-pin").style.color = "#ddd2d2";
-    } else {
-      document.getElementById("btn-pin").style.color = "#ddd2d2a3";
-      document.body.classList.remove("force-visible");
-    }
+    document.body.classList.toggle('force-visible', pinned || manualHotkeyPressed);
+    document.getElementById("btn-pin").style.color = pinned ? "#ddd2d2" : "#ddd2d2a3";
 
     if (hideOnStartup) {
       mainBox.style.display = "none";
@@ -5244,9 +5214,6 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "manualMode":
           updateManualMode(value);
-          break;
-        case "manualModeType":
-          manualModeType = String(value || "hold").trim().toLowerCase() === "toggle" ? "toggle" : "hold";
           break;
         case "manualModeInactiveBehavior":
           manualModeInactiveBehavior = normalizeManualModeInactiveBehavior(value);
@@ -5380,10 +5347,10 @@ background: rgba(202, 12, 12, 0.692);
   });
 
   function updateManualMode(newValue) {
+    if (manualMode === newValue) return;
     manualMode = newValue;
     manualModeActivatedOnce = false;
     manualHotkeyPressed = false;
-    hideOnYomitanClose = false;
 
     if (manualMode) {
       applyManualInactivePresentation('manual-mode-enabled');
@@ -5398,13 +5365,8 @@ background: rgba(202, 12, 12, 0.692);
 
   function updatePinnedState(newValue) {
     pinned = newValue;
-    if (pinned) {
-      document.body.classList.add("force-visible");
-      document.getElementById("btn-pin").style.color = "#ddd2d2";
-    } else {
-      document.getElementById("btn-pin").style.color = "#ddd2d2a3";
-      document.body.classList.remove("force-visible");
-    }
+    document.body.classList.toggle('force-visible', pinned || manualHotkeyPressed);
+    document.getElementById("btn-pin").style.color = pinned ? "#ddd2d2" : "#ddd2d2a3";
     applyManualInactivePresentation('pinned-updated');
   }
 
@@ -5472,23 +5434,8 @@ background: rgba(202, 12, 12, 0.692);
     } else {
       cancelDeferredManualReveal();
       clearManualDesktopBackground();
-      const finishManualHotkeyRelease = () => {
-        applyManualInactivePresentation('manual-hotkey-release');
-      };
-
-      if (yomitanShowing && manualModeType === "hold") {
-        hideOnYomitanClose = true;
-        setManualInteractionSuppressed(true);
-        if (shouldHideOverlayWhenManualInactive() && !pinned) {
-          document.body.classList.remove('force-visible');
-        } else {
-          document.body.classList.add('force-visible');
-        }
-        return;
-      }
-      void closeDictionaryLookups('manual-hotkey-release').finally(() => {
-        finishManualHotkeyRelease();
-      });
+      applyManualInactivePresentation('manual-hotkey-release');
+      void closeDictionaryLookups('manual-hotkey-release');
     }
   });
 
@@ -5863,7 +5810,6 @@ background: rgba(202, 12, 12, 0.692);
   // gamepad input at the OS level, allowing it to work even when another window
   // (like a game) has focus. The browser Gamepad API doesn't work when unfocused.
   
-  let gamepadHandler = null;
   let overlayCaptureAvailable = false;
   let gamepadModuleLoadPromise = null;
   let gamepadInputSuppressed = false;

@@ -541,6 +541,12 @@ class SQLiteDB:
         # backup itself then uses this caller's query-only connection so copying
         # and verification do not occupy the sole writer for a large database.
         self._submit(lambda _conn: None, DB_PRIORITY_LOW).result()
+        from GameSentenceMiner.native.ocr import _extension
+
+        snapshot = getattr(_extension, "history_snapshot", None)
+        if snapshot is not None and self.db_path != ":memory:":
+            snapshot(self.db_path, backup_path)
+            return
         atomic_sqlite_backup(
             self._get_read_connection(),
             backup_path,

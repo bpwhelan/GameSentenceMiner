@@ -11,8 +11,12 @@ use tauri::{Emitter, Manager};
 pub struct BackendState {
     owner: Mutex<Option<Arc<Backend>>>,
     transition: tokio::sync::Mutex<()>,
+    recheck_database: std::sync::atomic::AtomicBool,
 }
 impl BackendState {
+    pub fn invalidate_prepared_database(&self) {
+        self.recheck_database.store(true, std::sync::atomic::Ordering::Release);
+    }
     pub fn get(&self, app: &tauri::AppHandle) -> Arc<Backend> {
         self.owner.lock().unwrap().get_or_insert_with(|| {
             let handle=app.clone();
@@ -59,6 +63,9 @@ pub fn snapshot(app: &tauri::AppHandle) -> Value {
 }
 
 pub async fn fetch_status(app: &tauri::AppHandle, timeout: Duration) -> Result<Value, String> {
+    if app.state::<Arc<crate::mining::MiningService>>().is_enabled() {
+        return Ok(crate::live_status::snapshot(app));
+    }
     let config_path = app
         .state::<crate::settings::Settings>()
         .paths
@@ -90,15 +97,16 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
     if action == "stop" {
         return owner.stop(params["params"]["runId"].as_str()).await;
     }
+    if !matches!(action, "start" | "restart") {
+        return Err("Unknown backend lifecycle action".into());
+    }
+    crate::python_install::require_legacy_session()?;
     let _transition = state
         .transition
         .try_lock()
         .map_err(|_| "A backend launch transition is already in progress")?;
     if action == "restart" {
         owner.stop(None).await?;
-    }
-    if !matches!(action, "start" | "restart") {
-        return Err("Unknown backend lifecycle action".into());
     }
     // Do not take over an unmanaged or separately launched backend.
     let live = crate::runtime::get(app)?
@@ -161,6 +169,8 @@ pub(crate) fn python_cwd(app: &tauri::AppHandle) -> std::path::PathBuf {
 async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<Value, String> {
     match action {
         "prepare" => {
+            #[cfg(windows)]
+            crate::startup_tools::prepare(app, serde_json::from_value(args["session"].clone()).ok()).await?;
             crate::python_install::dispatch(app, json!({"action":"prepare","params":args}))
                 .await
                 .map(|v| v["result"].clone())
@@ -199,6 +209,13 @@ async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<
                 .await;
             let root = app.state::<crate::desktop_state::DesktopState>().app_root.clone();
             let paths = &app.state::<crate::settings::Settings>().paths;
+            // The desktop already prepared the first session before intake. A
+            // subsequent launch may see restored files or a different backup day.
+            if app.state::<BackendState>().recheck_database.swap(true, std::sync::atomic::Ordering::AcqRel) {
+                let handle = app.clone();
+                tauri::async_runtime::spawn_blocking(move || crate::database_startup::prepare(&handle))
+                    .await.map_err(|e| e.to_string())??;
+            }
             let mut env = gsm_packages::python::environment();
             let input_app = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
@@ -207,9 +224,15 @@ async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<
             crate::input_server::apply_env(app, &mut env);
             env.insert("GSM_ELECTRON".into(), "1".into());
             env.insert("GSM_NATIVE_OVERLAY".into(), "1".into());
+            env.insert("GSM_NATIVE_RECYCLED_LINES".into(), "1".into());
             env.insert("GSM_NATIVE_OBS_OUTPUTS".into(), "1".into());
             env.insert("GSM_NATIVE_GAME_SESSION".into(), "1".into());
             env.insert("GSM_NATIVE_HISTORY".into(), "1".into());
+            #[cfg(windows)]
+            env.insert("GSM_DESKTOP_TOOLS_READY".into(), "1".into());
+            env.insert("GSM_NATIVE_SCHEMA".into(), "1".into());
+            env.insert("GSM_DESKTOP_DATABASE_READY".into(), paths.active.join("gsm.db").to_string_lossy().into_owned());
+            env.insert("GSM_DESKTOP_VOCABULARY_READY".into(), "1".into());
             env.insert("GSM_NATIVE_SEARCH".into(), "1".into());
             env.insert("GSM_NATIVE_MAINTENANCE".into(), "1".into());
             env.insert("GSM_NATIVE_TOKENIZATION".into(), "1".into());
@@ -227,7 +250,21 @@ async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<
             env.insert("GSM_NATIVE_ANKI_GROUPING".into(), "1".into());
             env.insert("GSM_NATIVE_ANKI_CARDS".into(), "1".into());
             env.insert("GSM_NATIVE_TEXT_CORRELATION".into(), "1".into());
+            env.insert("GSM_NATIVE_TEXT_INTAKE".into(), "1".into());
             env.insert("GSM_NATIVE_REPLAY_ACQUISITION".into(), "1".into());
+            if let Some(mining) = app.try_state::<Arc<crate::mining::MiningService>>() {
+                if mining.is_enabled() {
+                    env.insert("GSM_NATIVE_MINING".into(), "1".into());
+                    if let Some(port) = mining.bound_gateway_port() {
+                        env.insert("GSM_NATIVE_READER".into(), "1".into());
+                        env.insert("GSM_NATIVE_INTAKE_CONTROLS".into(), "1".into());
+                        env.insert("GSM_NATIVE_LONGPLAY".into(), "1".into());
+                        env.insert("GSM_EXTERNAL_GATEWAY_PORT".into(), port.to_string());
+                    }
+                } else {
+                    env.insert("GSM_NATIVE_MINING".into(), "python".into());
+                }
+            }
             env.insert(
                 "GSM_DATA_DIR".into(),
                 paths.active.to_string_lossy().into_owned(),

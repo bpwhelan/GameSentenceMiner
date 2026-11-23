@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { between } = require('./helpers/overlay-startup.cjs');
-const { createManualHotkeyController } = require('../manual_hotkey_controller');
+const { createManualHotkeyController, isManualHotkeyBlockedByGameWindowState, isModifierOnlyHotkey } = require('../manual_hotkey_controller');
 const { createVnGuideController } = require('../vn_guide_controller');
 const { validateRoute } = require('../vn_guide');
 
@@ -83,7 +83,7 @@ function setup(t, settings = {}) {
     isWindows: () => true, isLinux: () => false, isMac: () => false,
     normalizeManualModeType: value => value,
     createManualHotkeyController, MANUAL_HOTKEY_ELECTRON_RELEASE_TIMEOUT_MS: 650,
-    canStartManualHotkeyActivation: () => context.canUseOverlayCapture(),
+    isManualHotkeyBlockedByGameWindowState, isModifierOnlyHotkey,
     ensureMainWindowIsOnConnectedDisplay() {}, forceForegroundWindow() {},
     overlayPauseSourceActive: {}, shouldOverlayHotkeyRequestPause: () => true,
     sendOverlayPauseRequest: (action, source) => { pauseRequests.push([action, source]); return true; },
@@ -104,6 +104,8 @@ function setup(t, settings = {}) {
   });
   const functions = [
     'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
+    'hasFocusedManualActivation', 'isTrackedGameWindowVisibleForManualHotkey', 'isTexthookerDefinitelyVisible',
+    'getManualHotkeyTriggerBlockReason', 'canStartManualHotkeyActivation', 'handleManualHotkeyInputServerMessage',
     'canTrackMagpiePointer', 'canRouteTextHover',
     'attachMagpieSession',
     'setTrackedGameWindowState',
@@ -164,6 +166,89 @@ function setup(t, settings = {}) {
       send('gamepad-navigation-state', { active: false });
     },
   };
+}
+
+test('Push to Show checks game focus on press and accepts release after taking focus', t => {
+  const { context, state, send } = setup(t, { manualModeType: 'hold', showHotkey: 'Shift+Space' });
+  const signal = keyState => context.handleManualHotkeyInputServerMessage(JSON.stringify({
+    type: 'manual_hotkey_event', state: keyState,
+  }));
+  const tap = () => {
+    signal('pressed');
+    signal('released');
+  };
+
+  send('window-state-changed', { state: 'background' });
+  tap();
+  assert.equal(state.focusCalls, 0);
+  context.userSettings.requireGameFocusForPushToShow = false;
+  context.userSettings.showHotkey = 'Ctrl+Shift';
+  tap();
+  assert.equal(state.focusCalls, 0);
+  context.userSettings.showHotkey = 'Shift+Space';
+  tap();
+  assert.equal(state.focusCalls, 1);
+
+  context.userSettings.requireGameFocusForPushToShow = true;
+  send('window-state-changed', { state: 'active' });
+  signal('pressed');
+  assert.equal(state.focused, true);
+  send('window-state-changed', { state: 'obscured' });
+  assert.equal(context.manualHotkeyPressed, true);
+  signal('released');
+  assert.equal(context.manualHotkeyPressed, false);
+});
+
+test('a latched Push to Show can toggle off while the overlay has focus', t => {
+  const { context, state, send } = setup(t, { showHotkey: 'Shift' });
+  const tap = () => {
+    for (const state of ['pressed', 'released']) {
+      context.handleManualHotkeyInputServerMessage(JSON.stringify({ type: 'manual_hotkey_event', state }));
+    }
+  };
+  tap();
+  assert.equal(context.manualModeToggleState, true);
+  assert.equal(state.focused, true);
+
+  send('window-state-changed', { state: 'background' });
+  context.mainWindow.blur();
+  tap();
+  assert.equal(context.manualModeToggleState, true);
+  context.mainWindow.focus();
+  send('window-state-changed', { state: 'obscured' });
+  tap();
+  assert.equal(context.manualModeToggleState, false);
+});
+
+for (const backend of ['input_server', 'electron']) {
+  test(`hybrid keeps a lookup interactive through release, until the final popup closes (${backend})`, async t => {
+    const { context, state, rendererMessages, manualController, send } = setup(t, {
+      manualModeType: 'hybrid', manualModeInactiveBehavior: 'hide-overlay',
+    });
+    const press = () => backend === 'electron' ? manualController.handleElectronSignal() : manualController.handlePress();
+    const release = () => backend === 'electron' ? t.mock.timers.tick(651) : manualController.handleRelease();
+    const reveals = () => rendererMessages.filter(([channel]) => channel === 'show-overlay-hotkey').map(([, active]) => active);
+    let popupVisible = false;
+    context.mainWindow.webContents.executeJavaScript = async () => popupVisible;
+    press();
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(reveals(), [true, false]);
+    press();
+    popupVisible = true; // the open notification has not reached the host yet
+    release();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(context.isOverlayVisible, true);
+    assert.equal(state.ignoreMouseEvents, false);
+    press();
+    send('yomitan-event', false);
+    assert.equal(context.isOverlayVisible, true, 're-holding keeps the overlay active');
+    send('yomitan-event', true);
+    release();
+    send('yomitan-event', false);
+    assert.deepEqual(reveals(), [true, false, true, false]);
+    assert.equal(state.ignoreMouseEvents, true);
+  });
 }
 
 for (const manualMode of [false, true]) {

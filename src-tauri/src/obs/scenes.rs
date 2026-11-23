@@ -1,6 +1,10 @@
 use super::*;
 use base64::{engine::general_purpose::STANDARD, Engine};
 pub(super) const HELPER: &str = "GSM Helper - DONT TOUCH";
+pub(super) fn helper_source(scene: &str, source: &str) -> bool {
+    scene.trim().eq_ignore_ascii_case(HELPER) || ["window_getter", "game_window_getter", "capture_card_getter", "audio_input_getter"]
+        .iter().any(|name| source.trim().eq_ignore_ascii_case(name))
+}
 const PIPEWIRE: &[&str] = &[
     "pipewire-screen-capture-source",
     "pipewire-window-capture-source",
@@ -9,7 +13,7 @@ const PIPEWIRE: &[&str] = &[
 fn switchable(kind: &str) -> bool {
     matches!(kind, "window_capture" | "game_capture")
 }
-fn video(kind: &str) -> bool {
+pub(super) fn video(kind: &str) -> bool {
     switchable(kind)
         || matches!(kind, "monitor_capture" | "dshow_input" | "xcomposite_input")
         || PIPEWIRE.contains(&kind)
@@ -267,7 +271,7 @@ impl Obs {
             .map(|s| json!({"name":s["sceneName"],"id":s["sceneUuid"]}))
             .collect())
     }
-    pub(super) async fn current_scene(&self, app: &tauri::AppHandle) -> Result<Value, String> {
+    pub(crate) async fn current_scene(&self, app: &tauri::AppHandle) -> Result<Value, String> {
         let v = self.call(app, "GetCurrentProgramScene", json!({})).await?;
         Ok(json!({
             "name": v.get("currentProgramSceneName").unwrap_or(&v["sceneName"]),
@@ -347,14 +351,24 @@ impl Obs {
         }
         Ok(())
     }
-    async fn fit(&self, app: &tauri::AppHandle, id: &str) -> Result<Vec<Value>, String> {
+    pub(super) async fn fit(&self, app: &tauri::AppHandle, id: &str) -> Result<Vec<Value>, String> {
         let video = self.call(app, "GetVideoSettings", json!({})).await?;
         let items = self.items(app, id).await?;
         if video["baseWidth"].as_u64().unwrap_or(0) > 0
             && video["baseHeight"].as_u64().unwrap_or(0) > 0
         {
             for item in &items {
-                self.call(app,"SetSceneItemTransform",json!({"sceneUuid":id,"sceneItemId":item["sceneItemId"],"sceneItemTransform":{"boundsType":"OBS_BOUNDS_SCALE_INNER","alignment":5,"boundsWidth":video["baseWidth"],"boundsHeight":video["baseHeight"],"positionX":0,"positionY":0}})).await?;
+                let desired = json!({"boundsType":"OBS_BOUNDS_SCALE_INNER","alignment":5,"boundsWidth":video["baseWidth"],"boundsHeight":video["baseHeight"],"positionX":0,"positionY":0});
+                let current = &item["sceneItemTransform"];
+                if desired.as_object().unwrap().iter().all(|(key, value)| {
+                    current[key] == *value
+                        || value
+                            .as_f64()
+                            .is_some_and(|v| current[key].as_f64() == Some(v))
+                }) {
+                    continue;
+                }
+                self.call(app,"SetSceneItemTransform",json!({"sceneUuid":id,"sceneItemId":item["sceneItemId"],"sceneItemTransform":desired})).await?;
             }
         }
         Ok(items)

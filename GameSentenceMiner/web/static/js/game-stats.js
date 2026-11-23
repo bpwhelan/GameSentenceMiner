@@ -1656,6 +1656,7 @@
         document.getElementById('editCharacterCount').value = g.character_count || '';
         document.getElementById('editReleaseDate').value = g.release_date || '';
         document.getElementById('editCharacterSummary').value = g.character_summary || '';
+        window.setCharacterSummaryGame?.(gameId);
 
         // Links
         const links = g.links || [];

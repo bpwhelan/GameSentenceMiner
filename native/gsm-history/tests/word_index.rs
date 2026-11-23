@@ -3,6 +3,48 @@ use rusqlite::Connection;
 use serde_json::json;
 
 #[test]
+fn vocabulary_refresh_imports_ranks_even_if_first_seen_repair_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gsm.db");
+    let mut db = gsm_db::open_profile(&path, "ja").unwrap();
+    gsm_db::vocabulary::configure_desktop(&mut db, true).unwrap();
+    db.execute_batch(
+        "INSERT INTO words(id,word) VALUES(1,'猫');
+        CREATE TRIGGER refuse_repair BEFORE UPDATE OF first_seen ON words
+        BEGIN SELECT RAISE(ABORT,'fixture'); END;",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("source.json"),
+        r#"{"id":"test","entries":[["猫",1]]}"#,
+    )
+    .unwrap();
+    let history = History::default();
+    let generation = history.generation().unwrap();
+    assert!(history
+        .refresh_vocabulary(&path, dir.path(), generation)
+        .is_err());
+    assert_eq!(
+        db.query_row(
+            "SELECT rank FROM word_global_frequencies WHERE word='猫'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        1
+    );
+    history.close().unwrap();
+    drop(db);
+    std::fs::remove_file(&path).unwrap();
+    let error = history
+        .refresh_vocabulary(&path, dir.path(), generation)
+        .unwrap_err()
+        .to_string();
+    assert_eq!(error, "Job cancelled because the database closed");
+    assert!(!path.exists());
+}
+
+#[test]
 fn first_seen_matches_stored_text_foreign_keys_on_legacy_profiles() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("gsm.db");

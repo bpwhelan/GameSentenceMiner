@@ -60,11 +60,9 @@ def sample(data: Path) -> dict:
     config.advanced.localhost_bind_address = "127.0.0.1"
     config.paths.output_folder = str(data / "output")
     Path(config.paths.output_folder).mkdir()
-    with socket.socket() as listener, socket.socket() as legacy_listener:
+    with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
-        legacy_listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-        config.general.texthooker_port = legacy_listener.getsockname()[1]
     config.general.single_port = port
     gsm.hotkey_manager = SimpleNamespace(
         clear=lambda: None, register=lambda *args: None, register_gamepad=lambda *args: None

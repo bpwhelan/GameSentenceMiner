@@ -43,9 +43,22 @@ async function fingerprints() {
   return JSON.stringify(records);
 }
 
+const browserImport = process.argv.includes('--browser');
+if (browserImport) {
+  await fs.cp(upgraded, path.join(source.profile, 'Extensions', source.id, '1.0'), {recursive: true});
+}
 const before=await fingerprints();
 const executable=nativeExecutable();
-for(const phase of ['import','reopen']) {
+const overlayMove = process.argv.includes('--overlay-move');
+const phases = browserImport ? ['browser-import', 'browser-reopen']
+  : overlayMove ? ['overlay-move-import', 'overlay-move-reopen'] : ['import', 'reopen'];
+for(const phase of phases) {
+  if (phase === 'reopen') {
+    const moved = path.join(fixture, 'moved-extension');
+    await fs.cp(source.extensionPath, moved, {recursive: true});
+    source.extensionPath = moved;
+    await fs.writeFile(path.join(fixture, 'fixture.json'), JSON.stringify(source));
+  }
   const resultFile=path.join(fixture,`result-${phase}.json`);
   await run(executable,[],{...environment,GSM_SMOKE_PHASE:phase,GSM_TEST_RESULT:resultFile});
   const result=JSON.parse(await fs.readFile(resultFile,'utf8'));

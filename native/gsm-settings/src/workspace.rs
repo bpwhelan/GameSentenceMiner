@@ -14,15 +14,47 @@ impl Workspace {
     pub fn text(&self) -> Result<Value> {
         self.text_and_language().map(|(text, _)| text)
     }
+    pub fn named_text(&self) -> Result<Value> {
+        let doc = read_object(&self.base.join("config.json"))?;
+        let name = doc["current_profile"]
+            .as_str()
+            .ok_or("No active profile found")?;
+        Ok(json!({"name":name,"config":Self::text_settings(&doc).0}))
+    }
+
+    /// Flush a debounced edit to the profile that supplied the form, even if
+    /// OBS has switched games since. Only commit the edited leaves.
+    #[cfg(feature = "profile-upgrade")]
+    pub fn save_named_text(&self, name: &str, before: &Value, after: &Value) -> Result<()> {
+        if !before.is_object() || !after.is_object() {
+            return Err("Invalid text settings".into());
+        }
+        let file = self.base.join("config.json");
+        crate::mining_scopes::update(&file, |doc| {
+            let profile = doc["configs"]
+                .get_mut(name)
+                .ok_or("Profile no longer exists")?;
+            if profile["text_processing"].is_null() {
+                profile["text_processing"] = text_defaults();
+            }
+            crate::profile_editor::merge(&mut profile["text_processing"], before, after)
+        })
+    }
     /// Read both settings from one revision of the active mining profile.
     pub fn text_and_language(&self) -> Result<(Value, String)> {
         let document = read_object(&self.base.join("config.json"))?;
-        let text = crate::gsm_config::active_profile(&document)
+        Ok(Self::text_settings(&document))
+    }
+    pub fn text_settings(document: &Value) -> (Value, String) {
+        let text = crate::gsm_config::active_profile(document)
             .and_then(|p| p.get("text_processing"))
             .filter(|v| v.is_object())
             .cloned()
             .unwrap_or_else(text_defaults);
-        Ok((text, crate::gsm_config::target_language_from_config(&document)))
+        (
+            text,
+            crate::gsm_config::target_language_from_config(document),
+        )
     }
     pub fn target_language(&self) -> Result<String> {
         let document = read_object(&self.base.join("config.json"))?;
@@ -33,8 +65,7 @@ impl Workspace {
             return Err("Text processing settings must be an object".into());
         }
         let file = self.base.join("config.json");
-        with_lock(&file, || {
-            let mut document = read_object(&file)?;
+        crate::mining_scopes::update(&file, |document| {
             let name = document["current_profile"]
                 .as_str()
                 .ok_or("No active profile found")?
@@ -45,7 +76,7 @@ impl Workspace {
                 .filter(|p| p.is_object())
                 .ok_or("No active profile found")?;
             merge(&mut profile["text_processing"], patch);
-            write_atomic(&file, &document)
+            Ok(())
         })
     }
     pub fn speech_path(&self, scene: &Value) -> Result<PathBuf> {

@@ -6,12 +6,13 @@ use gsm_overlay::{
 fn main() -> anyhow::Result<()> {
     let args: Vec<_> = std::env::args().collect();
     anyhow::ensure!(args.len() == 3, "Usage: recognize ENGINE IMAGE");
+    let root = tempfile::tempdir()?;
     gsm_overlay::engines::vocr::set_asset_directory(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../GameSentenceMiner/assets/vocr"),
+        root.path().to_owned(),
     )?;
     let image = image::open(&args[2])?.to_rgba8();
-    let root = tempfile::tempdir()?;
     let mut engines = Engines::new(root.path());
     let result = engines.recognize(&image, &args[1], "ja")?;
     let projection = Projection {

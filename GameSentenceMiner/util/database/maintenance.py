@@ -5,18 +5,74 @@
 
 from __future__ import annotations
 
+import errno
+import os
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from GameSentenceMiner.util.database.db import GameLinesTable
 from GameSentenceMiner.util.database.game_archive import archive_game, archive_summary, ensure_archive_schema
 
-maintenance_lock = threading.Lock()
+
+class _MaintenanceLock:
+    """Hold the same profile lock as Rust from job acceptance through completion."""
+
+    def __init__(self):
+        self._local = threading.Lock()
+        self._file = None
+
+    def acquire(self, blocking=True):
+        if not self._local.acquire(blocking):
+            return False
+        try:
+            database = GameLinesTable._db.db_path
+            if database != ":memory:":
+                self._file = Path(database).with_suffix(".maintenance.lock").open("a+b")
+                self._file.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(self._file.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(self._file, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
+            return True
+        except BaseException as exc:
+            busy = self._file is not None and isinstance(exc, OSError) and exc.errno in (errno.EAGAIN, errno.EACCES)
+            self.release()
+            if not blocking and busy:
+                return False
+            raise
+
+    def release(self):
+        try:
+            if self._file is not None:
+                self._file.close()
+        finally:
+            self._file = None
+            self._local.release()
+
+    def locked(self):
+        return self._local.locked()
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *_):
+        self.release()
+
+
+maintenance_lock = _MaintenanceLock()
 DEFAULTS = {"vacuum_interval_days": 0, "archive_after_days": 0, "last_vacuum": None}
 
 
 def ensure_maintenance_schema(db):
+    if db.fetchone("PRAGMA user_version")[0] >= 3:
+        return
     ensure_archive_schema(db)
     db.execute(
         """CREATE TABLE IF NOT EXISTS database_maintenance (

@@ -1,11 +1,15 @@
-//! Native persistence boundary. Existing mining profiles keep their schema;
-//! workspace edits patch only the selected section, without migrating profiles.
+//! Native persistence for desktop preferences, mining profiles, and game overrides.
 pub mod gsm_config;
+pub mod mining_scopes;
+#[path = "profile_config/editor.rs"]
+pub mod profile_editor;
 pub mod notifications;
 pub mod onboarding;
 pub mod paths;
 pub mod preferences;
 pub mod profiles;
+#[cfg(feature = "profile-upgrade")]
+pub mod profile_config;
 pub mod runtime_state;
 pub mod workspace;
 use serde_json::Value;
@@ -15,6 +19,14 @@ use std::{
     path::Path,
 };
 pub type Result<T> = std::result::Result<T, String>;
+
+static MINING_DEFAULTS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+    serde_json::from_str(include_str!("../assets/mining-defaults.json")).expect("embedded mining defaults")
+});
+
+pub fn default_stats() -> &'static Value {
+    &MINING_DEFAULTS["stats"]
+}
 
 pub fn read_object(path: &Path) -> Result<Value> {
     match fs::read_to_string(path) {
@@ -64,15 +76,20 @@ pub fn write_atomic(path: &Path, value: &Value) -> Result<()> {
             .and_then(|_| file.sync_all())
             .map_err(|e| e.to_string())?;
         drop(file);
-        replace(&temporary, path)?;
-        #[cfg(unix)]
-        fs::File::open(directory)
-            .and_then(|file| file.sync_all())
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        publish_flushed(&temporary, path)
     })();
     let _ = fs::remove_file(temporary);
     result
+}
+
+/// Atomically publish a staged file whose contents have already been flushed.
+pub fn publish_flushed(from: &Path, to: &Path) -> Result<()> {
+    replace(from, to)?;
+    #[cfg(unix)]
+    fs::File::open(to.parent().ok_or("Missing destination directory")?)
+        .and_then(|file| file.sync_all())
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(not(windows))]

@@ -60,10 +60,12 @@ async function settle() {
 	await svelte.tick();
 }
 
-function checked(id: string) { return row(id).classList.contains('mining-selected'); }
+function checked(id: string) {
+	return row(id).classList.contains('mining-selected') && selector(id).getAttribute('aria-checked') === 'true';
+}
 function keyToggle(id: string, shiftKey = false) {
 	const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true, shiftKey });
-	row(id).dispatchEvent(event);
+	selector(id).dispatchEvent(event);
 	return event;
 }
 function commits() { return fetcher.mock.calls.filter(([url]) => String(url).endsWith('/update_checkboxes')); }
@@ -76,9 +78,19 @@ function pointer(target: EventTarget, type: string, options: MouseEventInit = {}
 
 function row(id: string) { return document.querySelector(`[data-line-id="${id}"]`)!; }
 function source(id: string) { return row(id).querySelector('.line-source')!; }
+function selector(id: string) { return row(id).querySelector('.mining-selector') as HTMLElement; }
 
-test.each(['text', 'padding'])('clicking row %s toggles mining', async (part) => {
-	const target = part === 'text' ? source('b') : row('b');
+test('clicking the right-side selection zone toggles mining while text and row padding do not', async () => {
+	for (const ignored of [source('b'), row('b')]) {
+		pointer(ignored, 'pointerdown');
+		pointer(window, 'pointerup');
+		ignored.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+		await settle();
+		expect(checked('b')).toBe(false);
+		expect(commits()).toHaveLength(0);
+	}
+
+	const target = selector('b');
 	pointer(target, 'pointerdown');
 	pointer(window, 'pointerup');
 	target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
@@ -90,46 +102,46 @@ test.each(['text', 'padding'])('clicking row %s toggles mining', async (part) =>
 	expect(checked('b')).toBe(false);
 });
 
-test('a drag within one row preserves native text selection without mining it', async () => {
+test('dragging across the text area preserves native text selection without mining lines', async () => {
 	const text = source('a');
 	expect(pointer(text, 'pointerdown', { clientX: 70 }).defaultPrevented).toBe(false);
-	hit = text;
+	hit = source('c');
 	const range = document.createRange();
 	range.selectNodeContents(text);
 	window.getSelection()!.addRange(range);
 	const selected = window.getSelection()!.toString();
-	expect(pointer(window, 'pointermove', { clientX: 140 }).defaultPrevented).toBe(false);
+	expect(pointer(window, 'pointermove', { clientX: 140, clientY: 300 }).defaultPrevented).toBe(false);
 	pointer(window, 'pointerup');
 	text.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 	await settle();
 	expect(window.getSelection()!.toString()).toBe(selected);
-	expect(checked('a')).toBe(false);
+	expect(['a', 'b', 'c'].map(checked)).toEqual([false, false, false]);
 	expect(commits()).toHaveLength(0);
 });
 
-test('a text drag crossing rows becomes a mining range and suppresses the trailing click', async () => {
-	pointer(source('a'), 'pointerdown', { clientX: 70 });
+test('dragging the right-side selection zone across rows selects the range and suppresses the trailing click', async () => {
+	expect(pointer(selector('a'), 'pointerdown', { clientX: 70 }).defaultPrevented).toBe(true);
 	await svelte.tick();
-	expect(checked('a')).toBe(false);
-	hit = source('c');
+	expect(checked('a')).toBe(true);
+	hit = selector('c');
 	expect(pointer(window, 'pointermove', { clientX: 140, clientY: 300 }).defaultPrevented).toBe(true);
 	await svelte.tick();
 	expect(['a', 'b', 'c'].map(checked)).toEqual([true, true, true]);
 	expect(commits()).toHaveLength(0);
 	pointer(window, 'pointerup');
-	source('a').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+	selector('a').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 	await settle();
 	expect(['a', 'b', 'c'].map(checked)).toEqual([true, true, true]);
 	expect(commits()).toHaveLength(1);
 });
 
-test('dragging from selected row text clears the crossed range', async () => {
+test('dragging from a selected line selector clears the crossed range', async () => {
 	keyToggle('a');
 	await settle();
 	keyToggle('c', true);
 	await settle();
-	pointer(source('c'), 'pointerdown', { clientX: 70 });
-	hit = source('a');
+	pointer(selector('c'), 'pointerdown', { clientX: 70 });
+	hit = selector('a');
 	pointer(window, 'pointermove', { clientX: 140, clientY: 300 });
 	pointer(window, 'pointerup');
 	await settle();
@@ -151,25 +163,32 @@ test('double-click editing leaves the original mining selection and buttons do n
 	expect(checked('b')).toBe(false);
 });
 
-test('rows have no checkboxes and support keyboard mining directly', async () => {
-	expect(document.querySelector('[role="checkbox"], .mining-selector')).toBeNull();
-	expect((row('a') as HTMLElement).tabIndex).toBe(0);
-	source('a').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+test('active rows render a right-side checkbox selector after the action buttons and support keyboard mining', async () => {
+	stores.newLine$.next(['期限切れ', LineType.SOCKET, 'expired', { streamSequence: 4, revision: 1, recordState: 'expired', gsmStatus: 'timed_out' }]);
 	await settle();
-	expect(row('a').classList.contains('mining-selected')).toBe(true);
+	expect(row('expired').querySelector('.mining-selector')).toBeNull();
+
+	const target = selector('a');
+	expect(target).not.toBeNull();
+	expect(target.getAttribute('role')).toBe('checkbox');
+	expect(target.tabIndex).toBe(0);
+	expect(row('a').lastElementChild).toBe(target);
+	target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+	await settle();
+	expect(checked('a')).toBe(true);
 	expect(keyToggle('a').defaultPrevented).toBe(true);
 	await settle();
-	expect(row('a').classList.contains('mining-selected')).toBe(false);
+	expect(checked('a')).toBe(false);
 });
 
 test('drag highlights a range, shrinks when moved back, and commits once on release', async () => {
-	pointer(source('a'), 'pointerdown', { clientX: 70 });
+	pointer(selector('a'), 'pointerdown', { clientX: 70 });
 	await svelte.tick();
-	hit = document.querySelector('[data-line-id="c"] .line-source');
+	hit = selector('c');
 	pointer(window, 'pointermove', { clientX: 140, clientY: 300 });
 	await svelte.tick();
 	expect(['a', 'b', 'c'].map(checked)).toEqual([true, true, true]);
-	hit = document.querySelector('[data-line-id="b"] .line-source');
+	hit = selector('b');
 	pointer(window, 'pointermove', { clientX: 140, clientY: 260 });
 	await svelte.tick();
 	expect(['a', 'b', 'c'].map(checked)).toEqual([true, true, false]);
@@ -184,7 +203,7 @@ test('drag highlights a range, shrinks when moved back, and commits once on rele
 
 test.each([1, 2])('the mining hint links to GSM Yomitan setup and shows %i selected lines', async (count) => {
 	for (const id of ['a', 'b'].slice(0, count)) {
-		source(id).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+		selector(id).dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 		await settle();
 	}
 	const hint = document.querySelector('.mining-summary')!;
@@ -233,8 +252,8 @@ test('Shift-click selects the anchored range and Escape clears it', async () => 
 });
 
 test('cancelled pointer gestures restore selection without touching mining state', async () => {
-	pointer(source('b'), 'pointerdown', { clientX: 70 });
-	hit = source('c');
+	pointer(selector('b'), 'pointerdown', { clientX: 70 });
+	hit = selector('c');
 	pointer(window, 'pointermove', { clientX: 140, clientY: 300 });
 	await svelte.tick();
 	expect(checked('b')).toBe(true);
@@ -266,8 +285,8 @@ test('retrying after a cancelled drag saves the restored selection', async () =>
 	fetcher.mockImplementation(() => new Promise((_resolve, fail) => { reject = fail; }));
 	keyToggle('a');
 	await svelte.tick();
-	pointer(source('a'), 'pointerdown', { clientX: 70 });
-	hit = source('b');
+	pointer(selector('a'), 'pointerdown', { clientX: 70 });
+	hit = selector('b');
 	pointer(window, 'pointermove', { clientX: 140, clientY: 300 });
 	await svelte.tick();
 	reject(new Error('offline'));

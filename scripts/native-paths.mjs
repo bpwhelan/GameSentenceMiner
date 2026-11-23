@@ -23,10 +23,10 @@ export function localBuildProfile(args, pointer = launchPointer) {
 
 // Cargo owns output-directory resolution, including .cargo/config.toml and
 // environment overrides. Builders, collectors and package checks must agree.
-export async function nativeTargetDirectory({projectRoot = root, env = process.env} = {}) {
+export async function nativeTargetDirectory({projectRoot = root, manifest = 'src-tauri/Cargo.toml', env = process.env} = {}) {
   const {stdout} = await promisify(execFile)('cargo', [
     'metadata', '--no-deps', '--format-version', '1',
-    '--manifest-path', path.join(projectRoot, 'src-tauri/Cargo.toml'),
+    '--manifest-path', path.resolve(projectRoot, manifest),
   ], {cwd: projectRoot, env, windowsHide: true, maxBuffer: 8 * 1024 * 1024});
   const target = JSON.parse(stdout).target_directory;
   if (typeof target !== 'string' || !path.isAbsolute(target)) throw Error('Cargo did not report an absolute target directory');

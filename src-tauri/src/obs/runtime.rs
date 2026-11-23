@@ -72,14 +72,15 @@ pub fn read_version(executable: &Path) -> Result<Option<String>, String> {
             .as_bool()
                 || len < (std::mem::size_of::<VS_FIXEDFILEINFO>() as u32)
             {
-                return Err("OBS executable has no product version".into());
+                return Err("OBS executable has no fixed version info".into());
             }
             let info = &*(info as *const VS_FIXEDFILEINFO);
+            // OBS sets FILEVERSION in its Windows resource and leaves PRODUCTVERSION unset.
             return Ok(Some(format!(
                 "{}.{}.{}",
-                info.dwProductVersionMS >> 16,
-                info.dwProductVersionMS & 65535,
-                info.dwProductVersionLS >> 16
+                info.dwFileVersionMS >> 16,
+                info.dwFileVersionMS & 65535,
+                info.dwFileVersionLS >> 16
             )));
         }
     }

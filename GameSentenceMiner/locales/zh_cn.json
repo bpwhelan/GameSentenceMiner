@@ -106,10 +106,6 @@
             "tooltip": "是否在 GSM 启动时打开文本流页面。以管理员身份运行 GSM 时禁用此功能，以避免浏览器以管理员权限启动。此设置会保留，并在正常启动时生效。",
             "disabled_admin": "以管理员身份运行 GSM 时禁用。"
           },
-          "texthooker_port": {
-            "label": "GSM 文本评送端口:",
-            "tooltip": "文本评送运行的端口。如果您不清楚，请勿更改。"
-          },
           "current_version": {
             "label": "当前版本:",
             "tooltip": "应用程序的当前版本。"
@@ -731,6 +727,10 @@
           }
         },
         "ai": {
+          "auto_generate_character_summary": {
+            "label": "自动生成角色简介",
+            "tooltip": "游戏缺少角色简介时，使用你的 AI 服务根据角色元数据生成简介。关闭后仍会使用已保存和手写的简介。"
+          },
           "title": "AI / Translation",
           "openai_reasoning_effort": {
             "label": "推理级别",

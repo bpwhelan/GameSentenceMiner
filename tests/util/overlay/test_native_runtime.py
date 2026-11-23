@@ -1,6 +1,6 @@
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from GameSentenceMiner.util.overlay import get_overlay_coords as overlay
 from GameSentenceMiner.util.overlay import native_runtime
@@ -125,3 +125,14 @@ def test_window_movement_reprojects_native_results_without_requesting_ocr(monkey
     asyncio.run(processor.reprocess_and_send_last_results())
 
     send.assert_awaited_once_with(processor, "reproject")
+
+
+def test_desktop_owned_scan_sends_no_python_recycled_verdict(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_OVERLAY", "1")
+    monkeypatch.setenv("GSM_NATIVE_RECYCLED_LINES", "1")
+    processor = overlay.OverlayProcessor()
+    send = AsyncMock()
+    monkeypatch.setattr(native_runtime, "send", send)
+    monkeypatch.setattr(processor, "_is_sentence_recycled", Mock(side_effect=AssertionError("Python checked the line")))
+    asyncio.run(processor.find_box_and_send_to_overlay(SimpleNamespace(id="line", text="some dialogue")))
+    assert "is_sentence_recycled" not in send.await_args.kwargs

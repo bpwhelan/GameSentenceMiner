@@ -7,7 +7,7 @@ from PIL import Image
 from GameSentenceMiner.ocr import vocr_onnx
 
 
-def test_backend_selection_keeps_native_available(monkeypatch, tmp_path):
+def test_old_backend_override_uses_onnx(monkeypatch, tmp_path):
     monkeypatch.setenv("GSM_VOCR_BACKEND", "auto")
     monkeypatch.setenv("GSM_VITA_OCR_DIR", str(tmp_path))
     assets = tmp_path / "onnx"
@@ -15,7 +15,7 @@ def test_backend_selection_keeps_native_available(monkeypatch, tmp_path):
     (assets / "manifest.json").write_text("{}", encoding="utf-8")
     assert vocr_onnx.selected_directory() == vocr_onnx.bundled_directory()
     monkeypatch.setenv("GSM_VOCR_BACKEND", "c")
-    assert vocr_onnx.selected_directory() is None
+    assert vocr_onnx.selected_directory() == vocr_onnx.bundled_directory()
 
 
 def test_explicit_onnx_request_does_not_silently_load_c(monkeypatch, tmp_path):

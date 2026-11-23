@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::{
     collections::VecDeque,
     fs::{self, OpenOptions},
-    io::Write,
+    io::{IsTerminal, Write},
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
 };
@@ -284,7 +284,11 @@ pub fn emit_rust(app: Option<&tauri::AppHandle>, component: &str, level: &str, m
         std::process::id()
     );
 
-    eprintln!("{console_line}");
+    if normalized == "TEXT_RECEIVED" && std::io::stderr().is_terminal() {
+        eprintln!("\x1b[36m{console_line}\x1b[0m");
+    } else {
+        eprintln!("{console_line}");
+    }
 
     let stream = if matches!(normalized, "ERROR" | "CRITICAL") {
         "stderr"

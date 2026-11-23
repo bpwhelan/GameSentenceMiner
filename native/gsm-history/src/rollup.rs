@@ -3,11 +3,11 @@
 //! as soon as its characters and kanji have been counted.
 use crate::{
     kanji::is_kanji,
-    sessions::{reading_breaks, reading_seconds, with_clean_text, PUNCTUATION_PATTERN},
+    sessions::{reading_breaks, reading_seconds, visit_normalized, PunctuationRegex},
     stats::table_exists,
     Result,
 };
-use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeZone, Timelike};
+use chrono::{DateTime, Local, NaiveDate, NaiveTime, Timelike};
 use flate2::read::ZlibDecoder;
 use indexmap::IndexMap;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
@@ -22,20 +22,19 @@ use std::{
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(from = "String")]
-struct Punctuation(Option<Arc<regex::Regex>>);
+enum Punctuation {
+    #[default]
+    Default,
+    Custom(Arc<PunctuationRegex>),
+    Unsupported,
+}
 
 impl From<String> for Punctuation {
     fn from(pattern: String) -> Self {
-        if pattern.is_empty() {
-            return Self::default();
+        match crate::ReportCleaner::compile(&pattern, false) {
+            Some(cleaner) => cleaner.extra.map_or(Self::Default, Self::Custom),
+            None => Self::Unsupported,
         }
-        // The backend passes the shared literal/class syntax. An invalid
-        // range uses the default cleaner, matching get_punctuation_regex.
-        Self(
-            regex::Regex::new(&format!("(?:{pattern})|{PUNCTUATION_PATTERN}"))
-                .ok()
-                .map(Arc::new),
-        )
     }
 }
 
@@ -90,25 +89,94 @@ fn midnight(date: NaiveDate) -> Result<f64> {
     local_timestamp(date.and_time(NaiveTime::MIN))
 }
 
-pub(crate) fn local_timestamp(local: chrono::NaiveDateTime) -> Result<f64> {
-    let fraction = f64::from(local.and_utc().timestamp_subsec_micros()) / 1e6;
-    if let Some(instant) = Local.from_local_datetime(&local).earliest() {
-        return Ok(instant.timestamp() as f64 + fraction);
+pub(crate) use gsm_db::local_timestamp;
+
+pub(super) fn replace_dates(
+    tx: &rusqlite::Transaction<'_>,
+    dates: impl IntoIterator<Item = NaiveDate>,
+    cleaner: &crate::ReportCleaner,
+    gap: f64,
+    tokenized: bool,
+) -> Result<()> {
+    let today = Local::now().date_naive();
+    for date in dates {
+        let day = Day {
+            date,
+            today,
+            start: midnight(date)?,
+            end: midnight(date.succ_opt().ok_or("Invalid rollup date")?)?,
+            session_gap: gap,
+            tokenized,
+            reduce_repetitions: cleaner.repeat,
+            extra_punctuation: cleaner.extra.clone().map_or(Punctuation::Default, Punctuation::Custom),
+        };
+        day.replace_in(tx)?;
     }
-    // For a skipped local midnight Python's fold=0 uses the offset before
-    // the gap. This also handles whole skipped dates after a dateline change.
-    for hours in 1..=48 {
-        let before = local
-            .checked_sub_signed(chrono::Duration::hours(hours))
-            .ok_or("Invalid local midnight")?;
-        if let Some(instant) = Local.from_local_datetime(&before).latest() {
-            return Ok(
-                (local.and_utc().timestamp() - i64::from(instant.offset().local_minus_utc()))
-                    as f64 + fraction,
-            );
+    Ok(())
+}
+
+impl crate::History {
+    /// A changed reading day and its source rows become visible to other
+    /// connections together. A failed regex or write rolls back every change.
+    pub fn remove_lines(
+        &self,
+        path: &std::path::Path,
+        removal: crate::reports::LineRemoval,
+        cleaner: &crate::ReportCleaner,
+        gap: f64,
+        tokenized: bool,
+    ) -> Result<Option<crate::reports::RemovalSummary>> {
+        self.with_writer(path, |conn| {
+            let mut tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let Some(deleted) = removal.apply(&mut tx)? else {
+                return Ok(None);
+            };
+            replace_dates(&tx, deleted.dates, cleaner, gap, tokenized)?;
+            tx.commit()?;
+            Ok(Some(crate::reports::RemovalSummary {
+                deleted_count: deleted.count,
+                failed_ids: deleted.failed_ids,
+            }))
+        })
+    }
+    /// A false result leaves the deadline intact for a compatibility worker.
+    /// Each day commits independently and checks the restore generation.
+    pub fn try_scheduled_rollup(
+        &self,
+        path: &std::path::Path,
+        generation: u64,
+        job: &crate::schedule::Job,
+        stats: &Value,
+        tokenized: bool,
+    ) -> Result<bool> {
+        if !self.scheduled_job_current(path, generation, job)? {
+            return Ok(true);
         }
+        let reduce_repetitions = stats["regex_out_repetitions"] == true;
+        let cleaner = crate::ReportCleaner::from_saved(
+            stats["extra_punctuation_regex"].as_str().unwrap_or(""),
+            reduce_repetitions,
+        );
+        let result = Rebuild {
+            generation,
+            today: Local::now().date_naive(),
+            session_gap: stats["session_gap_seconds"].as_f64().unwrap_or(1800.0),
+            tokenized,
+            reduce_repetitions,
+            extra_punctuation: cleaner
+                .extra
+                .map_or(Punctuation::Default, Punctuation::Custom),
+        }
+        .run(self, path)?;
+        if result["fallback_dates"]
+            .as_array()
+            .is_some_and(|days| !days.is_empty())
+        {
+            return Ok(false);
+        }
+        self.finish_scheduled_job(path, generation, job, None)?;
+        Ok(true)
     }
-    Err("Cannot resolve local midnight".into())
 }
 
 impl Rebuild {
@@ -272,7 +340,7 @@ fn text_column<'a>(row: &'a rusqlite::Row<'_>, index: usize) -> rusqlite::Result
     Ok(row.get_ref(index)?.as_str_or_null()?.unwrap_or(""))
 }
 
-fn count_cards(notes: &str, flags: u8) -> Result<usize> {
+pub(super) fn count_cards(notes: &str, flags: u8) -> Result<usize> {
     let fallback = usize::from(flags & 3 != 0);
     if matches!(notes.trim(), "" | "[]" | "null") {
         return Ok(fallback);
@@ -354,6 +422,11 @@ impl Day {
     }
 
     fn activity(&self, conn: &Connection) -> Result<(Activity, Frequencies)> {
+        let punctuation = match &self.extra_punctuation {
+            Punctuation::Custom(regex) => Some(regex.as_ref()),
+            Punctuation::Default => None,
+            Punctuation::Unsupported => return Err("Unsupported punctuation rule".into()),
+        };
         let mut day = Activity::default();
         let (archives, events) = self.archives(conn)?;
         let mut select = conn.prepare_cached("SELECT CAST(timestamp AS REAL),line_text,game_id,game_name,note_ids,screenshot_in_anki,audio_in_anki,translation
@@ -388,25 +461,17 @@ impl Day {
                     add_archive(&mut day, line)?;
                 }
             }
-            let chars = with_clean_text(
+            let chars = visit_normalized(
                 text_column(row, 1)?,
-                self.extra_punctuation.0.as_deref(),
-                |clean| -> Result<usize> {
-                    let normalized = if self.reduce_repetitions {
-                        static REPETITIONS: std::sync::LazyLock<fancy_regex::Regex> =
-                            std::sync::LazyLock::new(|| {
-                                fancy_regex::Regex::new(r"(.+?)\1{2,}").unwrap()
-                            });
-                        REPETITIONS.try_replacen(clean, 0, "$1$1$1")?
-                    } else {
-                        std::borrow::Cow::Borrowed(clean)
-                    };
+                punctuation,
+                self.reduce_repetitions,
+                |normalized| {
                     if !indexed_kanji {
                         for c in normalized.chars().filter(is_kanji) {
                             add_count(&mut day.kanji, c.encode_utf8(&mut utf8), 1);
                         }
                     }
-                    Ok(normalized.chars().count())
+                    normalized.chars().count()
                 },
             )?;
             let mut flags = 0;
@@ -475,7 +540,7 @@ impl Day {
     }
 }
 
-fn python_space(c: char) -> bool {
+pub(super) fn python_space(c: char) -> bool {
     c.is_whitespace() || ('\u{1c}'..='\u{1f}').contains(&c)
 }
 
@@ -672,11 +737,23 @@ impl Day {
     }
 
     pub(super) fn calculate(&self, conn: &Connection) -> Result<Value> {
+        if matches!(self.extra_punctuation, Punctuation::Unsupported) {
+            return Ok(Value::Null);
+        }
         Ok(serde_json::to_value(self.compute(conn)?)?)
     }
 
     pub(super) fn replace(&self, conn: &mut Connection) -> Result<Value> {
+        if matches!(self.extra_punctuation, Punctuation::Unsupported) {
+            return Ok(Value::Null);
+        }
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let result = self.replace_in(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    fn replace_in(&self, tx: &rusqlite::Transaction<'_>) -> Result<Value> {
         let date = self.date.to_string();
         let existing: Option<i64> = tx
             .query_row(
@@ -713,7 +790,6 @@ impl Day {
                 } else {
                     "created"
                 }] = Value::Bool(true);
-                tx.commit()?;
                 return Ok(result);
             }
         }
@@ -721,7 +797,6 @@ impl Day {
             tx.execute("DELETE FROM daily_stats_rollup WHERE date=?", [&date])?;
             result["deleted"] = Value::Bool(true);
         }
-        tx.commit()?;
         Ok(result)
     }
 }

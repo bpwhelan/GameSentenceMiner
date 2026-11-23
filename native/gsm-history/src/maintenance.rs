@@ -11,6 +11,243 @@ use std::{
 const DELETE_CHUNK_SIZE: usize = 500;
 const PREVIEW_SAMPLE_LIMIT: usize = 10;
 
+#[derive(Default)]
+pub(super) struct Deleted {
+    pub count: usize,
+    pub dates: BTreeSet<chrono::NaiveDate>,
+    pub failed_ids: Vec<String>,
+}
+
+pub struct RemovalSummary {
+    pub deleted_count: usize,
+    pub failed_ids: Vec<String>,
+}
+
+pub enum LineRemoval {
+    Text(TextDeletionQuery),
+    StripRegex { pattern: String, case_sensitive: bool },
+    Duplicates(DeduplicateQuery),
+    Ids(Vec<String>),
+}
+
+impl LineRemoval {
+    pub(super) fn apply(self, tx: &mut Transaction<'_>) -> Result<Option<Deleted>> {
+        match self {
+            Self::Text(query) => query.delete_in(tx),
+            Self::StripRegex {pattern,case_sensitive} => strip_regex(tx,&pattern,case_sensitive),
+            Self::Duplicates(query) => Ok(Some(query.execute_in(tx)?)),
+            Self::Ids(ids) => Ok(Some(delete_selected(tx, ids)?)),
+        }
+    }
+}
+
+fn strip_regex(tx: &Transaction<'_>, pattern: &str, case_sensitive: bool) -> Result<Option<Deleted>> {
+    use crate::sessions::PunctuationRegex;
+    let Ok(regex) = pcre2::bytes::RegexBuilder::new().caseless(!case_sensitive)
+        .utf(true).ucp(true).jit_if_available(true).build(&format!("(*NOTEMPTY)(?:{pattern})")) else {return Ok(None)};
+    let matcher = PunctuationRegex::Perl(regex);
+    let mut result = Deleted::default();
+    tx.execute_batch("CREATE TEMP TABLE gsm_rewritten_lines(id TEXT PRIMARY KEY, text TEXT NOT NULL) WITHOUT ROWID")?;
+    {
+        let mut select = tx.prepare("SELECT CAST(id AS TEXT),line_text,timestamp FROM game_lines WHERE line_text IS NOT NULL AND line_text!=''")?;
+        let mut rows = select.query([])?;
+        let mut insert = tx.prepare("INSERT INTO gsm_rewritten_lines VALUES (?1,?2)")?;
+        while let Some(row) = rows.next()? {
+            let original = row.get_ref(1)?.as_str()?;
+            if let Cow::Owned(text) = matcher.strip(original)? {
+                if text!=original {
+                    insert.execute(rusqlite::params![row.get_ref(0)?.as_str()?,text])?;
+                    if let Some(date) = opt_f64(row.get_ref(2)?).and_then(|ts| local_date(ts).ok()) {
+                        result.dates.insert(date);
+                    }
+                    result.count+=1;
+                }
+            }
+        }
+    }
+    if result.count>0 {
+        let tokenized:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('game_lines') WHERE name='tokenized')",[],|r|r.get(0))?;
+        let reset=if tokenized {",tokenized=0"} else {""};
+        tx.execute(&format!("UPDATE game_lines SET line_text=t.text{reset} FROM gsm_rewritten_lines t WHERE game_lines.id=t.id"),[])?;
+        for table in ["word_occurrences","kanji_occurrences"] {
+            if crate::stats::table_exists(tx,table)? {
+                tx.execute(&format!("DELETE FROM {table} WHERE line_id IN (SELECT id FROM gsm_rewritten_lines)"),[])?;
+            }
+        }
+    }
+    tx.execute_batch("DROP TABLE gsm_rewritten_lines")?;
+    Ok(Some(result))
+}
+
+fn maintenance_settings(conn: &Connection) -> Result<Value> {
+    Ok(conn.query_row("SELECT vacuum_interval_days,archive_after_days,last_vacuum FROM database_maintenance WHERE id=1",[],|r|Ok(json!({
+        "vacuum_interval_days":r.get::<_,i64>(0)?,"archive_after_days":r.get::<_,i64>(1)?,"last_vacuum":r.get::<_,Option<f64>>(2)?
+    })))?)
+}
+
+pub(super) fn database_status(conn: &Connection) -> Result<Value> {
+    let settings = maintenance_settings(conn)?;
+    let storage=conn.query_row("SELECT page_count*page_size,freelist_count*page_size,
+        (SELECT count(*) FROM game_lines),(SELECT coalesce(sum(line_count),0) FROM archived_game_days)
+        FROM pragma_page_count,pragma_page_size,pragma_freelist_count",[],|r|Ok(json!({
+            "database_bytes":r.get::<_,i64>(0)?,"reclaimable_bytes":r.get::<_,i64>(1)?,
+            "raw_lines":r.get::<_,i64>(2)?,"archived_lines":r.get::<_,i64>(3)?
+        })))?;
+    Ok(json!({"settings":settings,"storage":storage}))
+}
+
+#[derive(Debug)]
+pub struct ArchiveCandidate {
+    pub id: String,
+    pub name: String,
+    pub raw_lines: i64,
+}
+
+pub struct MaintenancePlan {
+    pub cutoff: Option<f64>,
+    pub games: Vec<String>,
+    pub vacuum: bool,
+}
+
+/// Dropping the file releases this profile's lock, including after a worker
+/// fails. The Python scheduler takes an overlapping lock on the same file.
+pub struct MaintenancePermit {
+    _file: std::fs::File,
+    pub(super) generation: u64,
+    pub(super) database: std::path::PathBuf,
+}
+
+impl MaintenancePermit {
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+}
+
+impl crate::History {
+    pub fn scheduled_maintenance_plan(
+        &self,
+        path: &std::path::Path,
+        now: f64,
+    ) -> Result<MaintenancePlan> {
+        self.with_reader(path,|conn|{
+            let tx=conn.transaction()?;
+            let (interval,age,last):(i64,i64,Option<f64>)=tx.query_row("SELECT vacuum_interval_days,archive_after_days,last_vacuum FROM database_maintenance WHERE id=1",[],
+                |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+            let mut plan=MaintenancePlan{cutoff:None,games:Vec::new(),vacuum:interval>0 && last.is_none_or(|last|now-last>=interval as f64*86400.0)};
+            if age>0{
+                let instant=chrono::DateTime::from_timestamp_micros((now*1e6) as i64).ok_or("Invalid maintenance timestamp")?;
+                let local=instant.with_timezone(&chrono::Local).naive_local().checked_sub_days(chrono::Days::new(age as u64)).ok_or("Invalid retention period")?;
+                let cutoff=gsm_db::local_timestamp(local)?;
+                let mut q=tx.prepare("SELECT g.id FROM games g JOIN game_lines gl ON gl.game_id=g.id
+                    WHERE g.status='completed' OR (coalesce(g.status,'')='' AND g.completed=1)
+                    GROUP BY g.id HAVING max(CAST(gl.timestamp AS REAL))<?")?;
+                let rows=q.query_map([cutoff],|r|r.get(0))?;
+                plan.games=rows.collect::<rusqlite::Result<_>>()?;
+                plan.cutoff=Some(cutoff);
+            }
+            Ok(plan)
+        })
+    }
+    pub fn pending_archive_lines(
+        &self,
+        permit: &MaintenancePermit,
+        game: &str,
+        after: Option<&str>,
+    ) -> Result<Vec<String>> {
+        self.with_writer_generation(&permit.database, Some(permit.generation), |conn| {
+            let mut q = conn.prepare_cached(
+                "SELECT id FROM game_lines WHERE game_id=?1 AND coalesce(tokenized,0)=0
+                AND (?2 IS NULL OR id>?2) ORDER BY id LIMIT 256",
+            )?;
+            let rows = q.query_map(rusqlite::params![game, after], |r| r.get(0))?;
+            Ok(rows.collect::<rusqlite::Result<_>>()?)
+        })
+    }
+    pub fn try_maintenance(&self, path: &std::path::Path) -> Result<Option<MaintenancePermit>> {
+        use std::fs::{OpenOptions, TryLockError};
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path.with_extension("maintenance.lock"))?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(MaintenancePermit {
+                _file: file,
+                database: path.to_owned(),
+                generation: self.generation()?,
+            })),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(error)) => Err(error.into()),
+        }
+    }
+
+    pub fn vacuum(&self, permit: &MaintenancePermit) -> Result<Value> {
+        self.with_writer_generation(&permit.database, Some(permit.generation), |conn| {
+            let logical_size = |conn: &Connection| conn.query_row(
+                "SELECT page_count * page_size FROM pragma_page_count, pragma_page_size", [], |r| r.get::<_, i64>(0)
+            );
+            let before = logical_size(conn)?;
+            conn.execute_batch("VACUUM")?;
+            let after = logical_size(conn)?;
+            conn.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(()))?;
+            conn.execute("INSERT INTO database_maintenance(id,last_vacuum) VALUES(1,unixepoch('subsec'))
+                ON CONFLICT(id) DO UPDATE SET last_vacuum=excluded.last_vacuum", [])?;
+            Ok(json!({"before_bytes":before,"after_bytes":after,"reclaimed_bytes":(before-after).max(0)}))
+        })
+    }
+    pub fn save_maintenance_settings(
+        &self,
+        path: &std::path::Path,
+        vacuum: Option<i64>,
+        archive: Option<i64>,
+    ) -> Result<Value> {
+        self.with_writer(path,|conn|{
+            let tx=conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            tx.execute("INSERT OR IGNORE INTO database_maintenance(id) VALUES(1)",[])?;
+            tx.execute("UPDATE database_maintenance SET vacuum_interval_days=coalesce(?1,vacuum_interval_days),
+                archive_after_days=coalesce(?2,archive_after_days) WHERE id=1",rusqlite::params![vacuum,archive])?;
+            let settings=maintenance_settings(&tx)?;
+            tx.commit()?;
+            Ok(settings)
+        })
+    }
+
+    pub fn selected_archive_games(
+        &self,
+        path: &std::path::Path,
+        ids: &[&str],
+    ) -> Result<Option<Vec<ArchiveCandidate>>> {
+        self.with_reader(path,|conn|{
+            // json_each preserves selection order and uses the primary-key and
+            // line-owner indexes without a query per 200 selected games.
+            let mut query=conn.prepare_cached("SELECT g.id,coalesce(nullif(g.title_original,''),g.id),
+                (SELECT count(*) FROM game_lines WHERE game_id=g.id)
+                FROM json_each(?) selection JOIN games g ON g.id=selection.value ORDER BY selection.key")?;
+            let rows=query.query_map([serde_json::to_string(ids)?],|r|Ok(ArchiveCandidate{id:r.get(0)?,name:r.get(1)?,raw_lines:r.get(2)?}))?;
+            let games=rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok((games.len()==ids.len()).then_some(games))
+        })
+    }
+}
+
+pub(super) fn archive_preview(conn: &Connection, game_id: &str) -> Result<Value> {
+    if !conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM games WHERE id=?)",
+        [game_id],
+        |r| r.get::<_, bool>(0),
+    )? {
+        return Ok(json!({"not_found":true}));
+    }
+    Ok(conn.query_row("SELECT (SELECT count(*) FROM game_lines WHERE game_id=?1),
+        coalesce(sum(line_count),0),coalesce(sum(character_count),0),min(first_timestamp),max(last_timestamp),
+        max(archived_at),coalesce(sum(tokenized_lines),0) FROM archived_game_days WHERE game_id=?1",[game_id],|r|Ok(json!({
+            "raw_lines":r.get::<_,i64>(0)?,"archived_lines":r.get::<_,i64>(1)?,"archived_characters":r.get::<_,i64>(2)?,
+            "first_timestamp":r.get::<_,Option<f64>>(3)?,"last_timestamp":r.get::<_,Option<f64>>(4)?,
+            "archived_at":r.get::<_,Option<f64>>(5)?,"tokenized_lines":r.get::<_,i64>(6)?
+        })))?)
+}
+
 #[derive(Debug, Serialize)]
 pub struct GameListEntry {
     pub name: String,
@@ -100,11 +337,7 @@ impl TextFilter {
             let targets = if query.case_sensitive {
                 query.exact_text.clone()
             } else {
-                query
-                    .exact_text
-                    .iter()
-                    .map(|t| t.to_lowercase())
-                    .collect()
+                query.exact_text.iter().map(|t| t.to_lowercase()).collect()
             };
             return Some(Self::Exact {
                 case_sensitive: query.case_sensitive,
@@ -115,9 +348,9 @@ impl TextFilter {
     }
 
     #[inline]
-    fn matches(&self, text: &str) -> bool {
-        match self {
-            Self::Regex(matcher) => matcher.is_match(text),
+    fn matches(&self, text: &str) -> Result<bool> {
+        Ok(match self {
+            Self::Regex(matcher) => matcher.try_is_match(text)?,
             Self::Exact {
                 case_sensitive,
                 targets,
@@ -130,7 +363,7 @@ impl TextFilter {
                 }
             }
             Self::Empty => false,
-        }
+        })
     }
 }
 
@@ -142,8 +375,9 @@ impl TextDeletionQuery {
         if matches!(filter, TextFilter::Empty) {
             return Ok(json!({ "count": 0, "samples": [] }));
         }
-        let mut stmt =
-            tx.prepare("SELECT line_text FROM game_lines WHERE line_text IS NOT NULL AND line_text != ''")?;
+        let mut stmt = tx.prepare(
+            "SELECT line_text FROM game_lines WHERE line_text IS NOT NULL AND line_text != ''",
+        )?;
         let mut rows = stmt.query([])?;
         let mut seen: HashSet<String> = HashSet::new();
         let mut samples: Vec<String> = Vec::with_capacity(PREVIEW_SAMPLE_LIMIT);
@@ -154,7 +388,7 @@ impl TextDeletionQuery {
             let Ok(text) = std::str::from_utf8(bytes) else {
                 continue;
             };
-            if text.is_empty() || !filter.matches(text) {
+            if text.is_empty() || !filter.matches(text)? {
                 continue;
             }
             if !seen.contains(text) {
@@ -172,22 +406,28 @@ impl TextDeletionQuery {
     }
 
     pub fn delete(&self, conn: &mut Connection) -> Result<Value> {
+        let tx = conn.transaction()?;
+        let deleted = self.delete_in(&tx)?;
+        tx.commit()?;
+        Ok(match deleted {
+            Some(result) => {
+                json!({"deleted_count": result.count, "affected_dates": result.dates, "failed_ids":[]})
+            }
+            None => json!({"fallback":"invalidRegex"}),
+        })
+    }
+
+    fn delete_in(&self, tx: &Transaction<'_>) -> Result<Option<Deleted>> {
         let Some(filter) = TextFilter::compile(self) else {
-            return Ok(json!({ "fallback": "invalidRegex" }));
+            return Ok(None);
         };
         if matches!(filter, TextFilter::Empty) {
-            return Ok(json!({
-                "deleted_count": 0,
-                "failed_ids": [],
-                "affected_dates": [],
-            }));
+            return Ok(Some(Deleted::default()));
         }
-        let tx = conn.transaction()?;
         let mut rowids: Vec<i64> = Vec::new();
-        let mut affected_dates: BTreeSet<String> = BTreeSet::new();
         {
             let mut stmt = tx.prepare(
-                "SELECT rowid, line_text, timestamp \
+                "SELECT rowid, line_text \
                  FROM game_lines WHERE line_text IS NOT NULL AND line_text != ''",
             )?;
             let mut rows = stmt.query([])?;
@@ -198,24 +438,13 @@ impl TextDeletionQuery {
                 let Ok(text) = std::str::from_utf8(bytes) else {
                     continue;
                 };
-                if text.is_empty() || !filter.matches(text) {
+                if text.is_empty() || !filter.matches(text)? {
                     continue;
                 }
                 rowids.push(row.get(0)?);
-                if let Some(ts) = opt_f64(row.get_ref(2)?) {
-                    if let Ok(date) = local_date(ts) {
-                        affected_dates.insert(date.format("%Y-%m-%d").to_string());
-                    }
-                }
             }
         }
-        let deleted_count = delete_rowids(&tx, &rowids)?;
-        tx.commit()?;
-        Ok(json!({
-            "deleted_count": deleted_count,
-            "failed_ids": [],
-            "affected_dates": affected_dates.into_iter().collect::<Vec<_>>(),
-        }))
+        Ok(Some(delete_rowids(tx, &rowids)?))
     }
 }
 
@@ -387,13 +616,19 @@ impl DeduplicateQuery {
     }
 
     pub fn execute(&self, conn: &mut Connection) -> Result<DeduplicateResponse> {
-        if self.games.is_empty() {
-            return Ok(DeduplicateResponse {
-                deleted_count: 0,
-                failed_ids: Vec::new(),
-            });
-        }
         let tx = conn.transaction()?;
+        let result = self.execute_in(&tx)?;
+        tx.commit()?;
+        Ok(DeduplicateResponse {
+            deleted_count: result.count,
+            failed_ids: Vec::new(),
+        })
+    }
+
+    fn execute_in(&self, tx: &Transaction<'_>) -> Result<Deleted> {
+        if self.games.is_empty() {
+            return Ok(Deleted::default());
+        }
         let (sql, params) = build_dedup_select(&self.games);
         let time_window_seconds = self.time_window_minutes * 60.0;
         let mut to_delete: Vec<i64> = Vec::new();
@@ -463,20 +698,13 @@ impl DeduplicateQuery {
                 }
             }
         }
-        let deleted_count = delete_rowids(&tx, &to_delete)?;
-        tx.commit()?;
-        Ok(DeduplicateResponse {
-            deleted_count,
-            failed_ids: Vec::new(),
-        })
+        delete_rowids(tx, &to_delete)
     }
 }
 
-fn delete_rowids(tx: &Transaction<'_>, rowids: &[i64]) -> Result<usize> {
-    if rowids.is_empty() {
-        return Ok(0);
-    }
+fn delete_rowids(tx: &Transaction<'_>, rowids: &[i64]) -> Result<Deleted> {
     let mut deleted = 0usize;
+    let mut dates = BTreeSet::new();
     for chunk in rowids.chunks(DELETE_CHUNK_SIZE) {
         let mut sql = String::from("DELETE FROM game_lines WHERE rowid IN (");
         for i in 0..chunk.len() {
@@ -485,10 +713,74 @@ fn delete_rowids(tx: &Transaction<'_>, rowids: &[i64]) -> Result<usize> {
             }
             sql.push('?');
         }
-        sql.push(')');
-        deleted += tx.execute(&sql, params_from_iter(chunk.iter().copied()))?;
+        sql.push_str(") RETURNING timestamp");
+        let mut stmt = tx.prepare_cached(&sql)?;
+        let mut rows = stmt.query(params_from_iter(chunk.iter()))?;
+        while let Some(row) = rows.next()? {
+            deleted += 1;
+            if let Some(date) = opt_f64(row.get_ref(0)?).and_then(|ts| local_date(ts).ok()) {
+                dates.insert(date);
+            }
+        }
     }
-    Ok(deleted)
+    Ok(Deleted {
+        count: deleted,
+        dates,
+        failed_ids: Vec::new(),
+    })
+}
+
+fn delete_selected(tx: &mut Transaction<'_>, ids: Vec<String>) -> Result<Deleted> {
+    let mut unique = HashSet::new();
+    let ids: Vec<_> = ids
+        .iter()
+        .map(String::as_str)
+        .filter(|id| !id.is_empty() && unique.insert(*id))
+        .collect();
+    let mut result = Deleted::default();
+    for chunk in ids.chunks(DELETE_CHUNK_SIZE) {
+        match delete_selected_chunk(tx, chunk) {
+            Ok(dates) => {
+                // Successful statements count the requested unique IDs, including
+                // rows already removed by a previous request.
+                result.count += chunk.len();
+                result.dates.extend(dates);
+            }
+            Err(_) if !tx.is_autocommit() => {
+                for id in chunk {
+                    match delete_selected_chunk(tx, std::slice::from_ref(id)) {
+                        Ok(dates) => {
+                            result.count += 1;
+                            result.dates.extend(dates);
+                        }
+                        Err(_) if !tx.is_autocommit() => result.failed_ids.push((*id).into()),
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(result)
+}
+
+fn delete_selected_chunk(
+    tx: &mut Transaction<'_>,
+    ids: &[&str],
+) -> Result<BTreeSet<chrono::NaiveDate>> {
+    let savepoint = tx.savepoint()?;
+    let mut dates = BTreeSet::new();
+    {
+        let mut stmt = savepoint.prepare_cached("DELETE FROM game_lines WHERE id IN (SELECT value FROM json_each(?)) RETURNING timestamp")?;
+        let mut rows = stmt.query([serde_json::to_string(ids)?])?;
+        while let Some(row) = rows.next()? {
+            if let Some(date) = opt_f64(row.get_ref(0)?).and_then(|ts| local_date(ts).ok()) {
+                dates.insert(date);
+            }
+        }
+    }
+    savepoint.commit()?;
+    Ok(dates)
 }
 
 fn opt_f64(val: ValueRef<'_>) -> Option<f64> {

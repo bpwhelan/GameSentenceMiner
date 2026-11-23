@@ -1,0 +1,181 @@
+method,flask_rule,registration_module,gateway_dispatch_on_fixture,http_status_on_fixture
+GET,/,GameSentenceMiner.web.texthooking_page,answered locally,302
+GET,/<path:filename>,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+POST,/ai/open-settings,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/analyze-line,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/anki/events,GameSentenceMiner.web.anki_api_endpoints,answered locally,400
+GET,/anki_stats,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/api/anki-reading-impact,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+POST,/api/anki/events,GameSentenceMiner.web.anki_api_endpoints,answered locally,400
+GET,/api/anki_earliest_date,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_game_stats,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_kanji_stats,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_mining_heatmap,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_nsfw_sfw_retention,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_stats_combined,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+POST,/api/anki_sync_now,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/anki_sync_status,GameSentenceMiner.web.anki_api_endpoints,answered locally,200
+GET,/api/clips,GameSentenceMiner.web.clips_api,answered locally,200
+POST,/api/clips/open,GameSentenceMiner.web.clips_api,answered locally,200
+POST,/api/clips/trash,GameSentenceMiner.web.clips_api,answered locally,200
+POST,/api/cloud-sync/queue-existing,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+DELETE,/api/cloud-sync/relay,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+POST,/api/cloud-sync/reset-cursor,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+POST,/api/cloud-sync/run,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+POST,/api/cloud-sync/settings,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+GET,/api/cloud-sync/status,GameSentenceMiner.web.cloud_sync_api,needs HTTP upstream,503
+POST,/api/cron/jiten-upgrader/run,GameSentenceMiner.web.routes.cron_routes,needs HTTP upstream,503
+GET,/api/daily-activity,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/database/archive-files,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+POST,/api/database/archive-files/<file_id>/<action>,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+GET,/api/database/archive-files/<file_id>/download,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+GET,/api/database/maintenance,GameSentenceMiner.web.database_maintenance_api,answered locally,200
+PUT,/api/database/maintenance,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+GET,/api/database/maintenance/jobs/<job_id>,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+POST,/api/database/vacuum,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+POST,/api/database_backup,GameSentenceMiner.web.database_api,answered locally,200
+GET,/api/debug-db,GameSentenceMiner.web.routes.debug_routes,needs HTTP upstream,503
+POST,/api/deduplicate,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/deduplicate-entire-game,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/delete-games,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/delete-regex-in-game-lines,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/delete-sentence-lines,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/delete-text-lines,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+GET,/api/docs,flasgger.base,needs HTTP upstream,503
+GET,/api/game/<game_id>/kanji-grid,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/game/<game_id>/stats,GameSentenceMiner.web.stats_api,answered locally,200
+POST,/api/games,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+GET,/api/games-list,GameSentenceMiner.web.database_api,answered locally,200
+GET,/api/games-management,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+DELETE,/api/games/<game_id>,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+PUT,/api/games/<game_id>,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+GET,/api/games/<game_id>/archive,GameSentenceMiner.web.database_maintenance_api,answered locally,200
+POST,/api/games/<game_id>/archive,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+DELETE,/api/games/<game_id>/delete-lines,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+GET,/api/games/<game_id>/image,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+POST,/api/games/<game_id>/link-igdb,GameSentenceMiner.web.routes.jiten_linking_routes,needs HTTP upstream,503
+POST,/api/games/<game_id>/link-jiten,GameSentenceMiner.web.routes.jiten_linking_routes,needs HTTP upstream,503
+POST,/api/games/<game_id>/mark-complete,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+POST,/api/games/<game_id>/repull-jiten,GameSentenceMiner.web.routes.jiten_linking_routes,needs HTTP upstream,503
+POST,/api/games/archive,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+POST,/api/games/archive/preview,GameSentenceMiner.web.database_maintenance_api,needs HTTP upstream,503
+GET,/api/goals-projection,GameSentenceMiner.web.goals_projection_api,answered locally,200
+GET,/api/goals/achieved,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+GET,/api/goals/active,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+POST,/api/goals/complete_todays_dailies,GameSentenceMiner.web.goals_api,answered locally,400
+GET,/api/goals/current,GameSentenceMiner.web.goals_api,answered locally,200
+GET,/api/goals/current_streak,GameSentenceMiner.web.goals_api,answered locally,200
+GET,/api/goals/dashboard,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+GET,/api/goals/latest_goals,GameSentenceMiner.web.goals_api,answered locally,200
+POST,/api/goals/progress,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+POST,/api/goals/projection,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+GET,/api/goals/reading-pace,GameSentenceMiner.web.goals_api,answered locally,200
+GET,/api/goals/today,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+POST,/api/goals/today-progress,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+POST,/api/goals/tomorrow-requirements,GameSentenceMiner.web.goals_api,needs HTTP upstream,503
+POST,/api/goals/update,GameSentenceMiner.web.goals_api,answered locally,400
+POST,/api/import-exstatic,GameSentenceMiner.web.import_api,needs HTTP upstream,503
+POST,/api/import-kizuna,GameSentenceMiner.web.third_party_stats_api,needs HTTP upstream,503
+POST,/api/import-mokuro,GameSentenceMiner.web.third_party_stats_api,needs HTTP upstream,503
+POST,/api/import-stats,GameSentenceMiner.web.third_party_stats_api,answered locally,400
+GET,/api/jiten-search,GameSentenceMiner.web.routes.search_routes,needs HTTP upstream,503
+GET,/api/kanji-frequency,GameSentenceMiner.web.stats_api,answered locally,400
+GET,/api/kanji-sorting-config/<filename>,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/kanji-sorting-configs,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/kechimochi/preview,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+GET,/api/kechimochi/settings,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+POST,/api/kechimochi/settings,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+GET,/api/kechimochi/status,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+POST,/api/kechimochi/sync,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+POST,/api/kechimochi/test,GameSentenceMiner.web.kechimochi_api,needs HTTP upstream,503
+POST,/api/merge_games,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/migrate-lines,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+GET,/api/mining_heatmap,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/ocr-area-selector/config,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+POST,/api/ocr-area-selector/config,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+GET,/api/ocr-area-selector/configs,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+GET,/api/ocr-area-selector/current-config,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+GET,/api/ocr-area-selector/screenshot,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+GET,/api/ocr/meiki-model,GameSentenceMiner.web.meiki_ocr_api,answered locally,200
+POST,/api/ocr/meiki-model,GameSentenceMiner.web.meiki_ocr_api,answered locally,200
+GET,/api/ocr/vita-model,GameSentenceMiner.web.vita_ocr_api,answered locally,200
+POST,/api/ocr/vita-model,GameSentenceMiner.web.vita_ocr_api,answered locally,200
+POST,/api/onboarding/dictionary,GameSentenceMiner.web.onboarding_api,needs HTTP upstream,503
+POST,/api/onboarding/language,GameSentenceMiner.web.onboarding_api,needs HTTP upstream,503
+POST,/api/onboarding/sudachi,GameSentenceMiner.web.onboarding_api,needs HTTP upstream,503
+GET,/api/orphaned-games,GameSentenceMiner.web.routes.game_management_routes,needs HTTP upstream,503
+POST,/api/preview-deduplication,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/preview-text-deletion,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/search-duplicates,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+GET,/api/search-sentences,GameSentenceMiner.web.database_api,answered locally,400
+GET,/api/search/unified,GameSentenceMiner.web.routes.search_routes,needs HTTP upstream,503
+GET,/api/settings,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+POST,/api/settings,GameSentenceMiner.web.database_api,needs HTTP upstream,503
+GET,/api/stats,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/stats-export/formats,GameSentenceMiner.web.stats_export_api,needs HTTP upstream,503
+POST,/api/stats-export/jobs,GameSentenceMiner.web.stats_export_api,needs HTTP upstream,503
+GET,/api/stats-export/jobs/<job_id>,GameSentenceMiner.web.stats_export_api,needs HTTP upstream,503
+GET,/api/stats-export/jobs/<job_id>/download,GameSentenceMiner.web.stats_export_api,needs HTTP upstream,503
+GET,/api/stats/all-lines-data,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/stats/game-milestones,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/stats/kanji-grid,GameSentenceMiner.web.stats_api,answered locally,200
+POST,/api/tadoku/auth/refresh,GameSentenceMiner.web.tadoku_api,needs HTTP upstream,503
+GET,/api/tadoku/jobs/<job_id>,GameSentenceMiner.web.tadoku_api,needs HTTP upstream,503
+GET,/api/tadoku/preview,GameSentenceMiner.web.tadoku_api,needs HTTP upstream,503
+POST,/api/tadoku/sync,GameSentenceMiner.web.tadoku_api,needs HTTP upstream,503
+GET,/api/third-party-stats,GameSentenceMiner.web.third_party_stats_api,answered locally,200
+POST,/api/third-party-stats,GameSentenceMiner.web.third_party_stats_api,answered locally,400
+DELETE,/api/third-party-stats/<int:entry_id>,GameSentenceMiner.web.third_party_stats_api,answered locally,404
+DELETE,/api/third-party-stats/source/<source>,GameSentenceMiner.web.third_party_stats_api,answered locally,200
+GET,/api/third-party-stats/summary,GameSentenceMiner.web.third_party_stats_api,answered locally,200
+GET,/api/today-stats,GameSentenceMiner.web.stats_api,answered locally,200
+GET,/api/tokenization/kanji,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/maturity-history,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/search,GameSentenceMiner.web.tokenization_api,answered locally,400
+GET,/api/tokenization/status,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/word/<path:word>,GameSentenceMiner.web.tokenization_api,answered locally,404
+GET,/api/tokenization/words,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/words/by-game,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/words/card-data,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/words/not-in-anki,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/tokenization/words/not-in-anki/export,GameSentenceMiner.web.tokenization_api,answered locally,200
+GET,/api/yomitan-dict,GameSentenceMiner.web.yomitan_api,answered locally,404
+GET,/api/yomitan-freq-dict,GameSentenceMiner.web.yomitan_api,answered locally,404
+GET,/api/yomitan-freq-index,GameSentenceMiner.web.yomitan_api,answered locally,200
+GET,/api/yomitan-index,GameSentenceMiner.web.yomitan_api,answered locally,200
+GET,/apidocs/index.html,flasgger.base,needs HTTP upstream,503
+GET,/apispec.json,flasgger.base,needs HTTP upstream,503
+POST,/clear_history,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+POST,/create-media,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/data,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/database,GameSentenceMiner.web.texthooking_page,answered locally,302
+GET,/favicon.ico,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/flasgger_static/<path:filename>,flask.blueprints,needs HTTP upstream,503
+GET,/game/<game_id>,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/games,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/get-screenshot,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/get_ids,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/get_status,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+GET,/get_websocket_port,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/goals,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/linux/detect_game_exe,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+POST,/linux/set_scene_target_process,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+POST,/linux/set_target_process,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+GET,/oauth2-redirect.html,flasgger.base,needs HTTP upstream,503
+GET,/overview,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/play-audio,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/save-clip,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/search,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/select_areas,GameSentenceMiner.web.ocr_area_selector_api,needs HTTP upstream,503
+POST,/set_stats_gathering_enabled,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+POST,/set_text_intake_paused,GameSentenceMiner.web.texthooking_page,needs HTTP upstream,503
+GET,/static/<path:filename>,flask.app,answered locally,200
+GET,/stats,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/texthooker,GameSentenceMiner.web.texthooking_page,answered locally,200
+GET,/texthooker/audio/<token>,GameSentenceMiner.web.texthooking_page,answered locally,404
+GET,/tools,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/translate-line,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/translate-multiple,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/trim-video,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/update_checkbox,GameSentenceMiner.web.texthooking_page,answered locally,200
+POST,/update_checkboxes,GameSentenceMiner.web.texthooking_page,answered locally,200

@@ -5,7 +5,7 @@
 //! server or a Python process.
 
 use crate::pipeline::Recognition;
-use anyhow::{Result, bail};
+use anyhow::Result;
 use image::RgbaImage;
 use std::{
     borrow::Cow,
@@ -23,11 +23,10 @@ use windows_impl::Engine;
 mod windows_impl {
     use super::*;
     use crate::pipeline::TextBox;
-    use anyhow::Context;
+    use anyhow::{bail, Context};
     use libloading::Library;
 
     use std::ffi::{CStr, CString, c_char};
-    use std::path::PathBuf;
 
     const DLL_NAME: &str = "oneocr.dll";
     const MODEL_NAME: &str = "oneocr.onemodel";
@@ -140,15 +139,8 @@ mod windows_impl {
 
     impl Engine {
         pub(super) fn new() -> Result<Self> {
-            let directory = oneocr_directory()?;
-            for required in [DLL_NAME, MODEL_NAME] {
-                if !directory.join(required).is_file() {
-                    bail!(
-                        "OneOCR file not found: {}",
-                        directory.join(required).display()
-                    );
-                }
-            }
+            let directory = crate::models::oneocr::directory()?;
+            crate::models::oneocr::prepare(&directory, &|_, _| {})?;
 
             let api = Api::load(&directory)?;
             let mut init_options = 0_i64;
@@ -349,14 +341,6 @@ mod windows_impl {
         } else {
             bail!("{operation} failed (OneOCR code {code})")
         }
-    }
-
-    fn oneocr_directory() -> Result<PathBuf> {
-        let home = std::env::var_os("USERPROFILE")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-            .context("find the user profile directory")?;
-        Ok(home.join(".config").join("oneocr"))
     }
 
     #[cfg(test)]

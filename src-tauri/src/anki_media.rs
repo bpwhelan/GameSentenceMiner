@@ -24,6 +24,45 @@ pub struct Upload {
     modified_ns: u64,
 }
 
+pub async fn store_file(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+    path: &std::path::Path,
+    filename: &str,
+) -> Result<String, String> {
+    let metadata = tokio::fs::metadata(path)
+        .await
+        .map_err(|e| format!("stat {}: {e}", path.display()))?;
+    if !metadata.is_file() {
+        return Err(format!("not a file: {}", path.display()));
+    }
+    let modified = metadata
+        .modified()
+        .map_err(|e| format!("mtime {}: {e}", path.display()))?;
+    let modified_ns = modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_nanos() as u64;
+    let upload = Upload {
+        path: path.to_path_buf(),
+        filename: filename.to_string(),
+        url: url.clone(),
+        size: metadata.len(),
+        modified_ns,
+    };
+    let reply = store(client, upload).await?;
+    if !reply["error"].is_null() {
+        return Err(reply["error"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_else(|| reply["error"].to_string()));
+    }
+    Ok(reply["result"]
+        .as_str()
+        .unwrap_or(filename)
+        .to_string())
+}
+
 pub async fn store(client: &reqwest::Client, upload: Upload) -> Result<Value, String> {
     let mut url = upload.url.clone();
     for _ in 0..=10 {

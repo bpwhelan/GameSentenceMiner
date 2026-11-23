@@ -30,7 +30,9 @@ def _get_current_game_sanitized() -> str:
 
 
 longplay_handler = LongPlayHandler(
-    feature_enabled_getter=lambda: bool(get_config().features.generate_longplay),
+    feature_enabled_getter=lambda: (
+        os.environ.get("GSM_NATIVE_LONGPLAY") != "1" and bool(get_config().features.generate_longplay)
+    ),
     game_name_getter=_get_current_game_sanitized,
 )
 

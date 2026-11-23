@@ -20,6 +20,11 @@ fn empty(scene: &str, id: &str) -> Value {
 #[derive(Default)]
 struct Control {
     generation: u64,
+    connection: Option<String>,
+    replay_active: Option<bool>,
+    recording: Option<bool>,
+    directory: Option<String>,
+    replay_seconds: Option<u32>,
     profiles: Profiles,
     #[cfg(windows)]
     smoke_fixture: bool,
@@ -28,7 +33,11 @@ struct Control {
 pub(super) struct Session {
     control: Mutex<Control>,
     state: watch::Sender<Value>,
+    recycled: watch::Sender<crate::recycled_lines::Context>,
     wake: Notify,
+    #[cfg(windows)]
+    pub(super) window_hooks: std::sync::atomic::AtomicBool,
+    pub(super) window_dirty: Notify,
 }
 
 impl Default for Session {
@@ -41,16 +50,88 @@ impl Default for Session {
         Self {
             control: Mutex::new(Control::default()),
             state: watch::channel(state).0,
+            recycled: watch::channel(Default::default()).0,
             wake: Notify::new(),
+            #[cfg(windows)]
+            window_hooks: Default::default(),
+            window_dirty: Notify::new(),
         }
     }
 }
 
 impl Session {
+    pub(super) fn has_window_hooks(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.window_hooks.load(std::sync::atomic::Ordering::Relaxed)
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+    pub(super) fn with_state<T>(&self, read: impl FnOnce(&Value) -> T) -> T {
+        read(&self.state.borrow())
+    }
+    pub(super) fn is_connection(&self, id: &str) -> bool {
+        self.control.lock().unwrap().connection.as_deref() == Some(id)
+    }
+    pub(super) fn connection(&self, id: Option<&str>, active: Option<bool>) {
+        let mut control = self.control.lock().unwrap();
+        if control.connection.as_deref() != id {
+            control.directory = None;
+            control.replay_seconds = None;
+            control.recording = None;
+        }
+        control.connection = id.map(str::to_owned);
+        control.replay_active = active;
+        let state = self.state.borrow().clone();
+        self.publish(state, &control);
+    }
+    pub(super) fn record_state(&self, id: &str, active: bool, initial: bool) -> bool {
+        let mut control = self.control.lock().unwrap();
+        if control.connection.as_deref() != Some(id)
+            || (initial && control.recording.is_some())
+            || control.recording == Some(active)
+        {
+            return false;
+        }
+        control.recording = Some(active);
+        let state = self.state.borrow().clone();
+        self.publish(state, &control);
+        true
+    }
+    pub(super) fn media_settings(&self, id: &str, directory: Option<String>, seconds: Option<u32>) {
+        let mut control = self.control.lock().unwrap();
+        if control.connection.as_deref() != Some(id) {
+            return;
+        }
+        if let Some(d) = directory {
+            control.directory = Some(d);
+        }
+        if let Some(s) = seconds {
+            control.replay_seconds = Some(s);
+        }
+        let state = self.state.borrow().clone();
+        self.publish(state, &control);
+    }
     fn publish(&self, mut next: Value, control: &Control) -> bool {
+        self.recycled.send_if_modified(|context| {
+            context.update(
+                text(&next, "scene"),
+                &control.profiles.name,
+                control.profiles.recycled_lines,
+            )
+        });
         self.state.send_if_modified(|old| {
             let changed = next["scene"] != old["scene"] || next["scene_id"] != old["scene_id"];
             next["revision"] = old["revision"].clone();
+            next["connected"] = json!(control.connection.is_some());
+            next["connection"] = json!(control.connection);
+            next["replay_active"] = json!(control.replay_active);
+            next["record_active"] = json!(control.recording);
+            next["record_directory"] = json!(control.directory);
+            next["replay_seconds"] = json!(control.replay_seconds);
             next["scene_epoch"] =
                 json!(old["scene_epoch"].as_u64().unwrap_or(0) + u64::from(changed));
             next["profile"] = json!(control.profiles.name);
@@ -138,22 +219,26 @@ fn nonblank(data: &Value) -> Option<bool> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data.as_str()?.split_once(',')?.1)
         .ok()?;
-    let image = image::load_from_memory(&bytes).ok()?.to_rgb8();
+    let image = image::load_from_memory(&bytes).ok()?.into_rgb8();
+    Some(nonblank_pixels(&image, 1))
+}
+
+pub(super) fn nonblank_pixels(image: &image::RgbImage, step: usize) -> bool {
     let mut lo = [255u8; 3];
     let mut hi = [0u8; 3];
-    for pixel in image.pixels() {
+    for pixel in image.rows().step_by(step).flat_map(|row| row.step_by(step)) {
         for c in 0..3 {
             lo[c] = lo[c].min(pixel[c]);
             hi[c] = hi[c].max(pixel[c])
         }
     }
-    let range = (0..3).map(|i| hi[i] - lo[i]).max()?;
-    Some(range > 5 && (range > 15 || *hi.iter().max()? > 30))
+    let range = (0..3).map(|i| hi[i].saturating_sub(lo[i])).max().unwrap();
+    range > 5 && (range > 15 || *hi.iter().max().unwrap() > 30)
 }
 
 impl Obs {
     #[cfg(windows)]
-    pub(crate) fn set_ocr_smoke_target(&self, scene: &str, hwnd: u64) {
+    pub(crate) fn set_smoke_target(&self, scene: &str, hwnd: u64) {
         let session = &self.0.session;
         let mut control = session.control.lock().unwrap();
         control.smoke_fixture = true;
@@ -165,8 +250,18 @@ impl Obs {
         session.publish(state, &control);
     }
 
+    pub fn recycled_context(&self) -> watch::Receiver<crate::recycled_lines::Context> {
+        self.0.session.recycled.subscribe()
+    }
+
     pub fn game_session(&self) -> Value {
         self.0.session.state.borrow().clone()
+    }
+    pub(crate) fn subscribe_game_session(&self) -> watch::Receiver<Value> {
+        self.0.session.state.subscribe()
+    }
+    pub fn refresh_session(&self) {
+        self.0.session.wake.notify_one();
     }
     pub async fn wait_game_session(&self, after: Option<u64>) -> Value {
         let mut rx = self.0.session.state.subscribe();
@@ -191,7 +286,7 @@ impl Obs {
         }
         control
             .profiles
-            .reconcile(&path, text(&state, "scene"), Some((name, epoch.is_none())))?;
+            .reconcile(&path, text(&state, "scene"), text(&state,"scene_id"), Some((name, epoch.is_none())))?;
         session.publish(state, &control);
         session.wake.notify_one();
         Ok(self.game_session())
@@ -215,10 +310,27 @@ impl Obs {
         } else {
             json!({"sceneUuid":id})
         };
-        let Ok(items) = self.items_by_selector(app, scene_selector).await else {
+        let Ok(items) = self.items_by_selector(app, scene_selector.clone()).await else {
             return Ok(source);
         };
-        let mut sources = items.iter().filter(|i| visual(i)).collect::<Vec<_>>();
+        let is_helper = |item: &Value| super::scenes::helper_source(name, text(item, "sourceName"));
+        for item in items
+            .iter()
+            .filter(|item| is_helper(item) && item["sceneItemEnabled"] == true)
+        {
+            // A temporary device probe may be using the helper scene this tick.
+            let Ok(_probe) = self.0.probe.try_lock() else {
+                break;
+            };
+            let mut request = scene_selector.clone();
+            request["sceneItemId"] = item["sceneItemId"].clone();
+            request["sceneItemEnabled"] = json!(false);
+            self.call(app, "SetSceneItemEnabled", request).await?;
+        }
+        let mut sources = items
+            .iter()
+            .filter(|i| visual(i) && !is_helper(i))
+            .collect::<Vec<_>>();
         sources.sort_by_key(|i| match text(i, "inputKind") {
             "game_capture" => 0,
             "window_capture" | "xcomposite_input" => 1,
@@ -250,6 +362,8 @@ impl Obs {
 
     pub(super) async fn sample_session(self, app: tauri::AppHandle) {
         let session = &self.0.session;
+        let (settings_tx, settings_rx) = watch::channel(None);
+        tauri::async_runtime::spawn(self.clone().apply_settings(app.clone(), settings_rx));
         let path = self
             .paths()
             .expect("initialized OBS")
@@ -262,12 +376,22 @@ impl Obs {
         let mut target: Option<Target> = None;
         let mut tracked = false;
         let mut empty_since = None;
+        let mut fit_scene = None;
+        let mut dictionary_scene = String::new();
+        let mut fit_at = None;
+        let present_native_window = cfg!(windows) || crate::app_lifecycle::native_session_requested();
+        #[cfg(windows)]
+        let mut window_state = super::window_state::Sampler::default();
+        #[cfg(windows)]
+        let mut audio = super::game_audio::Monitor::default();
+        #[cfg(windows)]
+        let mut displays = super::window_state::Displays::default();
         loop {
             let (current, epoch) = {
                 let control = session.control.lock().unwrap();
                 (
                     control.generation,
-                    self.game_session()["scene_epoch"].as_u64(),
+                    session.state.borrow()["scene_epoch"].as_u64(),
                 )
             };
             let connection = self.0.client.primary_id();
@@ -314,6 +438,15 @@ impl Obs {
                         state["available"] = json!(t.visible);
                         state["active"] = json!(true);
                         state["process_path"] = json!(t.path);
+                        #[cfg(windows)]
+                        {
+                            let frame = window_state.sample(t, &window.title, displays.bounds());
+                            state["window_inactive"] = json!(matches!(
+                                frame["data"].as_str(),
+                                Some("minimized" | "obscured" | "background")
+                            ));
+                            state["window_state"] = frame;
+                        }
                     } else if tracked {
                         state["active"] = json!(false);
                     }
@@ -347,6 +480,26 @@ impl Obs {
                     }
                 }
             }
+            #[cfg(windows)]
+            {
+                state["displays"] = json!(displays.bounds());
+            }
+            if present_native_window && state["window_state"].is_null() {
+                let available =
+                    state["available"] == true || state["obs_fallback_available"] == true;
+                let status = if available {
+                    "background"
+                } else if tracked || !connected || state["active"] == false {
+                    "closed"
+                } else {
+                    "unknown"
+                };
+                state["window_state"] = json!({"type":"window_state","data":status,"game":state["scene"],"target_hwnd":state["target_id"],"magpie_info":null,
+                    "target_window_rect":null,"target_client_rect":null,"occlusion_rects":[],"is_fullscreen":false,"is_exclusive_fullscreen":false,
+                    "recommend_manual_mode":false,"obs_output_active":available});
+            }
+            #[cfg(windows)]
+            let audio_target;
             let (changed, profile_changed) = {
                 let mut control = session.control.lock().unwrap();
                 #[cfg(windows)]
@@ -359,18 +512,76 @@ impl Obs {
                 let previous_profile = control.profiles.name.clone();
                 let _ = control
                     .profiles
-                    .reconcile(&path, text(&state, "scene"), None);
-                let changed = session.publish(state, &control);
-                last_epoch = self.game_session()["scene_epoch"].as_u64();
+                    .reconcile(&path, text(&state, "scene"), text(&state,"scene_id"), None);
+                let desired = control.connection.clone().zip(control.profiles.settings);
+                settings_tx.send_if_modified(|previous| {
+                    if *previous == desired {
+                        return false;
+                    }
+                    *previous = desired;
+                    true
+                });
+                let changed = session.with_state(|old| {
+                    ["scene", "scene_id", "active", "target_pid"]
+                        .iter()
+                        .any(|key| old[*key] != state[*key])
+                });
+                #[cfg(windows)]
+                {
+                    let identity = target.as_ref()
+                        .filter(|t| connected && t.pid > 1 && t.pid != std::process::id())
+                        .map(|t| (t.id, t.pid));
+                    audio_target = audio.policy.desired(identity, text(&state["window_state"], "data"),
+                        control.profiles.audio, Instant::now());
+                }
+                session.publish(state, &control);
+                last_epoch = session.state.borrow()["scene_epoch"].as_u64();
                 (changed, previous_profile != control.profiles.name)
             };
-            if changed {
+            #[cfg(windows)]
+            if crate::app_lifecycle::native_session_requested() {
+                audio.update(&app, audio_target).await;
+            }
+            if changed || profile_changed {
                 crate::auto_launcher::notify_signal(&app);
             }
-            if profile_changed {
-                let _ = crate::tray::refresh_menu(&app);
+            let scene_name = source.as_ref().map_or("", |source| source.scene.as_str());
+            if scene_name != dictionary_scene {
+                dictionary_scene.clear();
+                dictionary_scene.push_str(scene_name);
+                crate::game_metadata::dictionary::queue(
+                    &app, crate::game_metadata::dictionary::Selection::Scene(scene_name),
+                );
             }
-            tokio::select! { _=session.wake.notified()=>{}, _=tokio::time::sleep(Duration::from_secs(1))=>{} }
+            if let Some(host) = tauri::Manager::try_state::<crate::overlay_host::OverlayHost>(&app) {
+                if present_native_window && host.is_running() {
+                    host.present_session(&app, &self.game_session()).await;
+                }
+            }
+            if profile_changed {
+                crate::mining_settings::changed(&app).await;
+            }
+            self.manage_replay(&app).await;
+            let scene = source.as_ref().filter(|s| !s.id.is_empty()).map(|s| &s.id);
+            if fit_scene.as_ref() != scene {
+                fit_scene = scene.cloned();
+                fit_at = scene.map(|_| Instant::now() + Duration::from_secs(2));
+            }
+            if fit_at.is_some_and(|at| Instant::now() >= at) {
+                fit_at = None;
+                if let Some(scene) = &fit_scene {
+                    if let Err(error) = self.fit(&app, scene).await {
+                        crate::desktop_log::warn(&app, "obs", error);
+                    }
+                }
+            }
+            tokio::select! {
+                _=session.wake.notified()=>{},
+                _=session.window_dirty.notified(), if target.is_some()=>{
+                    tokio::time::sleep(Duration::from_millis(65)).await;
+                },
+                _=tokio::time::sleep(Duration::from_secs(1))=>{}
+            }
         }
     }
 }

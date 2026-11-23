@@ -434,6 +434,6 @@ try:
 
     if getattr(_db_mod, "_pending_tokenization_schema_sync", False):
         _db_mod._pending_tokenization_schema_sync = False
-        _db_mod.sync_tokenization_schema_state(_db_mod.gsm_db)
+        _db_mod.sync_tokenization_schema_state(_db_mod.gsm_db, startup=True)
 except Exception:
     pass

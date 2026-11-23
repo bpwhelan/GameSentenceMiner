@@ -38,7 +38,7 @@ pub fn sync_python_display_locale(electron_locale: &str, config_path: &Path) -> 
     })
 }
 
-pub(crate) fn active_profile(config: &Value) -> Option<&Map<String, Value>> {
+pub fn active_profile(config: &Value) -> Option<&Map<String, Value>> {
     let root = config.as_object()?;
     let Some(configs) = root.get("configs").and_then(Value::as_object) else {
         return Some(root);
@@ -73,19 +73,48 @@ fn parse_port(value: &Value) -> Option<u16> {
 }
 
 pub fn resolve_single_port_from_config_data(config_data: &Value) -> u16 {
-    let Some(profile) = active_profile(config_data) else {
-        return DEFAULT_GSM_SINGLE_PORT;
-    };
-    let Some(general) = profile.get("general").and_then(Value::as_object) else {
-        return DEFAULT_GSM_SINGLE_PORT;
-    };
-    if let Some(single_port) = general.get("single_port") {
-        return parse_port(single_port).unwrap_or(DEFAULT_GSM_SINGLE_PORT);
-    }
-    general
-        .get("texthooker_port")
+    active_profile(config_data).and_then(|p| p.get("general")).and_then(Value::as_object)
+        .map(primary_port).unwrap_or(DEFAULT_GSM_SINGLE_PORT)
+}
+
+pub fn primary_port(general: &Map<String, Value>) -> u16 {
+    general.get("single_port").or_else(|| general.get("texthooker_port"))
         .and_then(parse_port)
+        .filter(|&port| port != 55000)
         .unwrap_or(DEFAULT_GSM_SINGLE_PORT)
+}
+
+fn migrate_ports(root: &mut Value) -> bool {
+    fn migrate(profile: &mut Value) -> bool {
+        let Some(general) = profile.get_mut("general").and_then(Value::as_object_mut) else { return false };
+        if !general.contains_key("texthooker_port") && general.get("single_port").and_then(parse_port) != Some(55000) {
+            return false;
+        }
+        let port = primary_port(general);
+        general.insert("single_port".into(), json!(port));
+        general.remove("texthooker_port");
+        true
+    }
+    if let Some(profiles) = root.get_mut("configs").and_then(Value::as_object_mut) {
+        let mut changed = false;
+        for profile in profiles.values_mut() {
+            changed |= migrate(profile);
+        }
+        changed
+    } else {
+        migrate(root)
+    }
+}
+
+pub fn migrate_texthooker_ports(path: &Path) -> Result<()> {
+    if migrate_ports(&mut read_object(path)?) {
+        with_lock(path, || {
+            let mut latest = read_object(path)?;
+            if migrate_ports(&mut latest) { write_atomic(path, &latest)?; }
+            Ok(())
+        })?;
+    }
+    Ok(())
 }
 
 pub fn get_configured_single_port(config_path: &Path) -> u16 {
@@ -111,24 +140,27 @@ pub fn resolve_hachidori_enabled_from_config_data(config_data: &Value) -> bool {
 }
 
 // Same accepted values as CommonLanguages in the mining profile schema.
-pub fn is_learning_language(code: &str) -> bool {
+pub fn learning_languages() -> impl Iterator<Item = &'static str> {
     const CODES: &str = "af ak am apd ar arq ary arz as azb be bg bgc bho bm bn bo brx bs ca ceb cnr crs cs ctg cy da \
         dcc de doi dz ee el en es et eu fa fi fj fo fr ga gan gd gl gu ha hak he hi hns hr ht hu hy \
         id ig is it ja jam jv ka kea kg kk kl km kmr kn ko kok ks lb ln lo lt lua lv mad mag mai mfe \
         mg mi min mk ml mn mni mr mt my nan ne nl no nr or pap pbu pcm pl pnb ps pt ro ru rw sat sd \
         si sk skr sl sm sn so sq sr ss st su sv sw syl ta te th ti tl tn to ts twi ug uk ur uz ve vi \
         wo wuu xh yo yue zh zu";
-    CODES.split_ascii_whitespace().any(|entry| entry == code)
+    CODES.split_ascii_whitespace()
+}
+
+pub fn is_learning_language(code: &str) -> bool {
+    learning_languages().any(|entry| entry == code)
 }
 
 pub fn save_target_language(path: &Path, language: &str) -> Result<()> {
     if !is_learning_language(language) {
         return Err("Unsupported learning language.".into());
     }
-    with_lock(path, || {
-        let mut doc = read_object(path)?;
+    crate::mining_scopes::update(path, |doc| {
         if !path.try_exists().map_err(|e| e.to_string())? {
-            doc = json!({"current_profile":"Default","configs":{"Default":{}}});
+            *doc = json!({"current_profile":"Default","configs":{"Default":{}}});
         }
         let profile = if doc.get("configs").is_some() || doc.get("current_profile").is_some() {
             let current = doc["current_profile"].as_str().unwrap_or("Default").to_owned();
@@ -137,13 +169,13 @@ pub fn save_target_language(path: &Path, language: &str) -> Result<()> {
             profiles.get_mut(name).ok_or("No active profile found")?
         } else {
             // Profile-less files keep their original shape until the backend migrates them.
-            &mut doc
+            doc
         };
         let profile = profile.as_object_mut().ok_or("Invalid active profile")?;
         let general = profile.entry("general").or_insert_with(|| json!({}));
         let fields = general.as_object_mut().ok_or("Invalid general settings")?;
         fields.insert("target_language".into(), json!(language));
-        write_atomic(path, &doc)
+        Ok(())
     })
 }
 
@@ -154,7 +186,7 @@ pub fn get_configured_target_language(config_path: &Path) -> String {
     target_language_from_config(&config)
 }
 
-pub(crate) fn target_language_from_config(config: &Value) -> String {
+pub fn target_language_from_config(config: &Value) -> String {
     active_profile(config)
         .and_then(|profile| profile.get("general"))
         .and_then(|general| general.get("target_language"))
@@ -162,6 +194,20 @@ pub(crate) fn target_language_from_config(config: &Value) -> String {
         .map(|s| s.trim().to_ascii_lowercase())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "ja".into())
+}
+
+pub fn dictionary_edition(document: &Value) -> &'static str {
+    let value = document["experimental"]["tokenization_sudachi_dictionary"]
+        .as_str()
+        .unwrap_or("")
+        .trim();
+    if value.eq_ignore_ascii_case("full") {
+        "full"
+    } else if value.eq_ignore_ascii_case("core") {
+        "core"
+    } else {
+        "small"
+    }
 }
 
 pub fn get_legacy_notification_features(config_path: &Path) -> Value {
@@ -310,10 +356,39 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
+    fn retires_the_old_listener_in_every_saved_profile() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("config.json");
+        migrate_texthooker_ports(&path).unwrap();
+        assert!(!path.exists());
+        let profiles = json!({"current_profile":"modern","configs":{
+            "old":{"general":{"texthooker_port":"55000","unknown":true}},
+            "migrated":{"general":{"single_port":"55000","texthooker_port":9999}},
+            "custom":{"general":{"texthooker_port":6002}},
+            "modern":{"general":{"single_port":8123,"texthooker_port":55000}}
+        }});
+        write_atomic(&path, &profiles).unwrap();
+        migrate_texthooker_ports(&path).unwrap();
+        let mut saved = read_object(&path).unwrap();
+        for (name, port) in [("old",7275),("migrated",7275),("custom",6002),("modern",8123)] {
+            assert_eq!(saved["configs"][name]["general"]["single_port"], port);
+            assert!(saved["configs"][name]["general"].get("texthooker_port").is_none());
+        }
+        assert_eq!(saved["configs"]["old"]["general"]["unknown"], true);
+        assert!(!migrate_ports(&mut saved));
+        let mut flat = json!({"general":{"texthooker_port":55000}});
+        assert!(migrate_ports(&mut flat));
+        assert_eq!(flat, json!({"general":{"single_port":7275}}));
+    }
+
+    #[test]
     fn resolves_single_port_profiles_and_target_language() {
         let dir = tempdir().unwrap();
         let config_path = dir.path().join("config.json");
         assert_eq!(get_configured_single_port(&config_path), 7275);
+        for general in [json!({"texthooker_port": "55000"}), json!({"single_port":55000})] {
+            assert_eq!(resolve_single_port_from_config_data(&json!({"general":general})),7275);
+        }
         assert_eq!(get_configured_target_language(&config_path), "ja");
 
         fs::write(

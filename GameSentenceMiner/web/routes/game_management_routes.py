@@ -10,6 +10,7 @@ Routes for game CRUD operations:
 """
 
 import base64
+import json
 
 from flask import Blueprint, request, jsonify
 
@@ -304,6 +305,40 @@ def api_game_image(game_id):
     except Exception as e:
         logger.error(f"Error serving game image for {game_id}: {e}")
         return Response(status=500)
+
+
+@game_management_bp.route("/ai/game-character-summary", methods=["POST"])
+def api_generate_game_character_summary():
+    from GameSentenceMiner.ai.ai_prompting import generate_character_summary
+    from GameSentenceMiner.util.config.configuration import AI_DEEPL, get_config
+    from GameSentenceMiner.util.database.games_table import GamesTable
+
+    body = request.get_json(silent=True)
+    game_id = body.get("game_id") if isinstance(body, dict) else None
+    if not isinstance(game_id, str) or not game_id.strip():
+        return jsonify({"error": "Choose a game to summarize."}), 400
+    game = GamesTable.get(game_id.strip())
+    if not game:
+        return jsonify({"error": "Game not found."}), 404
+    data = game.vndb_character_data
+    try:
+        if isinstance(data, str):
+            data = json.loads(data)
+    except ValueError:
+        data = None
+    if not data:
+        return jsonify({"error": "No character metadata is available. Link a game and refresh its metadata."}), 400
+    ai = get_config().ai
+    if not ai.is_configured():
+        return jsonify({"error": "Configure an AI provider in AI / Translation settings, then retry."}), 400
+    if ai.provider == AI_DEEPL:
+        return jsonify(
+            {"error": "DeepL only translates text. Choose a generative AI provider to create a summary."}
+        ), 400
+    summary = generate_character_summary(data)
+    if not summary:
+        return jsonify({"error": "Could not generate a summary. Check the character metadata and AI settings."}), 502
+    return jsonify({"summary": summary})
 
 
 @game_management_bp.route("/api/games/<game_id>", methods=["PUT"])

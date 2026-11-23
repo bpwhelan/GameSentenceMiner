@@ -199,20 +199,25 @@ pub fn is_legacy_database_migration_pending(
     data_dir: &Path,
     has_profile: bool,
 ) -> Result<bool> {
-    if has_profile || !pointer.exists() {
+    if has_profile {
         return Ok(false);
     }
     let value = read_object(pointer)?;
-    let Some(legacy) = value.get("legacyDatabaseDir").and_then(|v| v.as_str()) else {
+    let Some(legacy) = value.get("legacyDatabaseDir").filter(|v| !v.is_null()) else {
         return Ok(false);
     };
-    if legacy.is_empty() {
+    if legacy.as_str().ok_or("Invalid legacyDatabaseDir")?.is_empty() {
         return Ok(false);
     }
     let Some(pointer_dir) = value.get("dataDir").and_then(|v| v.as_str()) else {
         return Ok(false);
     };
-    Ok(normalize_data_dir(pointer_dir).ok() == normalize_data_dir(&data_dir.to_string_lossy()).ok())
+    let selected = normalize_data_dir(pointer_dir)?;
+    Ok(same_directory(&selected, &normalize_data_dir(&data_dir.to_string_lossy())?))
+}
+
+pub fn same_directory(a: &Path, b: &Path) -> bool {
+    a == b || a.canonicalize().ok().zip(b.canonicalize().ok()).is_some_and(|(a,b)| a == b)
 }
 
 #[cfg(test)]

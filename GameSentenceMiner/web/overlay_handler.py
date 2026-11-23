@@ -11,6 +11,7 @@ from GameSentenceMiner.ai.overlay_translation import translate_overlay_blocks, v
 from GameSentenceMiner.ai.prompts.presets import STUDY_TASKS
 from GameSentenceMiner.ai.prompts.templates import build_translation_prompt
 from GameSentenceMiner.ai.setup import ai_error_message, ai_setup_required
+from GameSentenceMiner.native.recycled_lines import desktop_owns_recycled_lines
 from GameSentenceMiner.obs import get_current_game, get_current_scene
 from GameSentenceMiner.util.config.configuration import (
     AI_DEEPL,
@@ -27,7 +28,6 @@ from GameSentenceMiner.util.text_log import (
     TextSource,
     game_log,
     get_all_lines,
-    normalize_text_for_comparison,
 )
 from GameSentenceMiner.web.gsm_websocket import (
     ID_OVERLAY,
@@ -250,19 +250,18 @@ class OverlayRequestHandler:
                 await self.send_translation({"request_id": request_id, "blocks": translation})
                 return
 
-            # Get the overlay processor instance
-            overlay_processor = get_overlay_processor()
+            from GameSentenceMiner.native import intake
 
-            # Get the last OCR result text
-            last_oneocr_result = overlay_processor.last_oneocr_result
-            last_lens_result = overlay_processor.last_lens_result
-
-            # Use whichever result is available (prefer oneocr, then lens)
-            sentence = last_oneocr_result or last_lens_result
             if message is not None and "blocks" in message:
                 sentence = "\n".join(block["text"] for block in validate_blocks(message["blocks"]))
             elif message is not None and isinstance(message.get("text"), str) and message["text"].strip():
                 sentence = message["text"]
+            elif intake.native_reader():
+                scan = await asyncio.to_thread(intake.overlay_scan)
+                sentence = scan.text if scan else None
+            else:
+                overlay_processor = get_overlay_processor()
+                sentence = overlay_processor.last_oneocr_result or overlay_processor.last_lens_result
 
             if not sentence or not sentence.strip():
                 await self.send_error("No OCR text available to translate", request_id)
@@ -703,21 +702,18 @@ class OverlayRequestHandler:
             logger.exception(f"Failed to open OCR area selector from overlay: {e}")
 
     def _sync_recycled_line_cache(self, enabled: bool) -> None:
+        if desktop_owns_recycled_lines():
+            return
         if not enabled:
-            if game_log.previous_lines:
-                game_log.clear_previous_lines()
-                logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
+            game_log.clear_previous_lines()
+            logger.info("Cleared previous line recycle cache because overlay previous-line checking is disabled.")
             return
 
         try:
             from GameSentenceMiner.util.database.db import GameLinesTable
 
-            game_log.replace_previous_lines(
-                normalized_line
-                for line in GameLinesTable.get_all_lines_for_scene(get_current_scene())
-                if (normalized_line := normalize_text_for_comparison(getattr(line, "line_text", "")))
-            )
-            logger.info(f"Loaded {len(game_log.previous_lines)} previous lines for game '{get_current_game()}'")
+            game_log.replace_previous_lines(GameLinesTable.iter_recycled_line_texts(get_current_scene()))
+            logger.info(f"Loaded {game_log.previous_line_count} previous lines for game '{get_current_game()}'")
         except Exception as e:
             logger.debug(f"Error getting previous lines for game after overlay config change: {e}")
 

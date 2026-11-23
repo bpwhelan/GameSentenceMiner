@@ -1,6 +1,5 @@
 """Shared model selection for main and overlay OCR; never rebuilds the runtime."""
 
-import hashlib
 import threading
 
 from GameSentenceMiner.ocr import vocr_runtime
@@ -9,16 +8,11 @@ from GameSentenceMiner.ocr.vita_ocr import (
     RELEASE,
     UPSTREAM_REVISION,
     get_install_directory,
-    read_installation,
     read_model_selection,
 )
 
 MODEL_TOPIC = "ocr.vita_model"
 _selection_lock = threading.Lock()
-
-
-def _verified(path, digest):
-    return path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == digest
 
 
 def get_model_status():
@@ -35,30 +29,13 @@ def get_model_status():
     try:
         from GameSentenceMiner.ocr.vocr_onnx import installed_models, selected_directory
 
-        assets = selected_directory()
-        if assets is not None:
-            status["backend"] = "onnx"
-            status["model"] = read_model_selection(directory)
-            status["installed"] = installed_models(assets)
-            status["available"] = status["model"] in status["installed"]
-        else:
-            status["backend"] = "c"
-            status["supported"] = (
-                vocr_runtime.platform_key() in vocr_runtime.RUNTIME_ASSETS or vocr_runtime.runtime_installed(directory)
-            )
-            try:
-                status["model"] = read_installation(directory)["model"]
-            except FileNotFoundError:
-                pass  # Explicit native backend installs on first use.
-            status["installed"] = [
-                tier for tier, (name, digest) in MODELS.items() if _verified(directory / name, digest)
-            ]
-            status["available"] = vocr_runtime.runtime_installed(directory) and status["model"] in status["installed"]
+        status["backend"] = "onnx"
+        status["model"] = read_model_selection(directory)
+        status["installed"] = installed_models(selected_directory())
+        status["available"] = status["model"] in status["installed"]
     except (OSError, ValueError, TypeError) as error:
         status["error"] = str(error)
     status["busy"] = status["busy"] or vocr_runtime.is_installing()
-    if not status["supported"]:
-        status["error"] = f"A prebuilt VOCR runtime is not available for {vocr_runtime.platform_key()}."
     return status
 
 

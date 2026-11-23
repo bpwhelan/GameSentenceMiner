@@ -33,18 +33,26 @@ document.querySelectorAll("[data-doc-key]").forEach((button) => {
 });
 
 let mainBoxStartupWarningAcknowledged = false;
+const dictionarySettingsInDesktop = window.gsmEnv?.shell === "tauri";
+if (dictionarySettingsInDesktop) {
+  document.querySelector('[data-page="system-dictionary"]')?.remove();
+  document.getElementById("openYomitanSettings")?.remove();
+  document.getElementById("openJitenReaderSettings")?.closest("label")?.remove();
+}
+
 function syncDictionaryReaderUi() {
-  const reader = document.getElementById("dictionaryReaderSelection").value === "hachidori" ? "Hachidori" : "Yomitan";
+  const reader = document.getElementById("dictionaryReaderSelection")?.value === "hachidori" ? "Hachidori" : "Yomitan";
   document.querySelectorAll("[data-dictionary-settings-label]").forEach((label) => {
     label.textContent = `${reader} Settings${label.dataset.dictionarySettingsLabel}`;
   });
 }
 
 ipcRenderer.on("select-settings-tab", (_event, tab) => {
-  const aliases = { system: "system-dictionary", lookup: "reading-jiten", hotkeys: "interaction-hotkeys", general: "overview-start" };
+  const aliases = { system: dictionarySettingsInDesktop ? "system-tokenizer" : "system-dictionary", lookup: "reading-jiten", hotkeys: "interaction-hotkeys", general: "overview-start" };
   if (typeof tab === "string" && tab) updateSettingsTabVisibility(aliases[tab] || tab);
 });
 ipcRenderer.on("dictionary-reader-switching", (_event, switching) => {
+  if (dictionarySettingsInDesktop) return;
   document.getElementById("dictionaryReaderSelection").disabled = switching;
   document.getElementById("openDictionarySettings").disabled = switching;
   document.getElementById("openYomitanSettings").disabled = switching;
@@ -53,9 +61,10 @@ ipcRenderer.on("dictionary-reader-switching", (_event, switching) => {
     : "Manage dictionaries, appearance, and lookup behavior for the selected reader.";
 });
 ipcRenderer.on("dictionary-reader-error", (_event, message) => {
+  if (dictionarySettingsInDesktop) return;
   document.getElementById("dictionaryReaderStatus").textContent = String(message || "Could not switch dictionary reader.");
 });
-document.getElementById("openDictionarySettings").addEventListener("click", () => {
+document.getElementById("openDictionarySettings")?.addEventListener("click", () => {
   ipcRenderer.send("open-yomitan-settings");
 });
 let overlayProfileState = {

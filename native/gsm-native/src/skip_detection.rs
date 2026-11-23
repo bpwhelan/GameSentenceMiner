@@ -2,6 +2,9 @@
 use std::collections::VecDeque;
 
 const WINDOW: i128 = 1_500_000_000;
+const SUSTAINED_WINDOW: i128 = 3_500_000_000;
+const FAST_WINDOW: i128 = 750_000_000;
+const CONFIRMED_QUIET_MIN: i128 = 2_000_000_000;
 const MAX_QUIET: i128 = 2_500_000_000;
 const OVERLAP: usize = 512;
 
@@ -77,10 +80,18 @@ struct Sample {
     control: bool,
 }
 
-fn quiet_interval(samples: &VecDeque<Sample>, gaps: &mut Vec<i128>) -> Option<i128> {
+fn quiet_interval(
+    samples: &VecDeque<Sample>,
+    now: i128,
+    floor: i128,
+    gaps: &mut Vec<i128>,
+) -> Option<i128> {
     gaps.clear();
     let mut last = None;
-    for sample in samples.iter().filter(|s| s.novel >= 12) {
+    for sample in samples
+        .iter()
+        .filter(|s| now.saturating_sub(s.at) <= WINDOW && s.novel >= 12)
+    {
         if let Some(previous) = last {
             if sample.at > previous {
                 gaps.push(sample.at.saturating_sub(previous));
@@ -100,7 +111,7 @@ fn quiet_interval(samples: &VecDeque<Sample>, gaps: &mut Vec<i128>) -> Option<i1
     } else {
         *pivot
     });
-    Some((twice.saturating_mul(3) / 2).clamp(WINDOW, MAX_QUIET))
+    Some((twice.saturating_mul(3) / 2).clamp(floor, MAX_QUIET))
 }
 
 #[derive(Default)]
@@ -190,53 +201,104 @@ impl Detector {
         });
         while samples
             .front()
-            .is_some_and(|s| now.saturating_sub(s.at) > WINDOW)
+            .is_some_and(|s| now.saturating_sub(s.at) > SUSTAINED_WINDOW)
         {
             samples.pop_front();
         }
         self.last_activity = now;
-        let span = now.saturating_sub(samples.front().unwrap().at);
-        let (mut total, mut max, mut recent, mut recent_len, mut controlled, mut controlled_len) =
-            (0, 0, 0, 0, 0, 0);
+        let sustained_span = now.saturating_sub(samples.front().unwrap().at);
+        let mut first_short = None;
+        let mut first_fast = None;
+        let (mut total, mut max) = (0usize, 0usize);
+        let (mut fast_total, mut fast_max) = (0usize, 0usize);
+        let (mut recent, mut recent_len, mut recent_max) = (0usize, 0usize, 0usize);
+        let (mut controlled, mut controlled_len) = (0usize, 0usize);
+        let (mut sustained_total, mut sustained_max, mut sustained_repl) = (0usize, 0usize, 0usize);
         for sample in samples.iter() {
-            total += sample.novel;
-            max = max.max(sample.novel);
+            sustained_total += sample.novel;
+            sustained_max = sustained_max.max(sample.novel);
             if sample.novel >= 12 && sample.replacement {
-                if now.saturating_sub(sample.at) <= 750_000_000 {
-                    recent += 1;
-                    recent_len += sample.novel;
-                }
-                if sample.control {
+                sustained_repl += 1;
+            }
+            let age = now.saturating_sub(sample.at);
+            if age <= WINDOW {
+                first_short.get_or_insert(sample.at);
+                total += sample.novel;
+                max = max.max(sample.novel);
+                if sample.novel >= 12 && sample.replacement && sample.control {
                     controlled += 1;
                     controlled_len += sample.novel;
                 }
             }
-        }
-        let other = total - max;
-        if span >= 150_000_000 {
-            let reason = if total >= 300 && other >= 180 {
-                Some("text volume")
-            } else if controlled >= 2 && controlled_len >= 48 {
-                Some("Ctrl with changing dialogue")
-            } else if recent >= 4 && recent_len >= 100 {
-                Some("rapid dialogue replacements")
-            } else {
-                None
-            };
-            if let Some(reason) = reason {
-                self.confirmed = true;
-                self.reason = reason;
-                self.last_confirmation = now;
+            if age <= FAST_WINDOW {
+                first_fast.get_or_insert(sample.at);
+                fast_total += sample.novel;
+                fast_max = fast_max.max(sample.novel);
+                if sample.novel >= 12 && sample.replacement {
+                    recent += 1;
+                    recent_len += sample.novel;
+                    recent_max = recent_max.max(sample.novel);
+                }
             }
         }
-        let suspect = other >= 48 && total >= 100 && (100_000_000..=750_000_000).contains(&span);
+        let span = now.saturating_sub(first_short.unwrap_or(now));
+        let fast_span = now.saturating_sub(first_fast.unwrap_or(now));
+        let other = total - max;
+        let fast_other = fast_total - fast_max;
+        let recent_other = recent_len - recent_max;
+        let sustained_other = sustained_total - sustained_max;
+
+        let volume = (total >= 200 && other >= 80 && span >= 150_000_000)
+            || (fast_total >= 300 && fast_other >= 55 && fast_span >= 150_000_000);
+        let control_burst = controlled >= 2 && controlled_len >= 48 && span >= 150_000_000;
+        let rapid = fast_span >= 150_000_000
+            && ((recent >= 4 && recent_len >= 100)
+                || (recent >= 3 && recent_len >= 120 && recent_other >= 45));
+        let sustained = sustained_span >= 150_000_000
+            && sustained_total >= 240
+            && sustained_other >= 130
+            && sustained_repl >= 3;
+
+        let reason = if volume {
+            Some("text volume")
+        } else if control_burst {
+            Some("Ctrl with changing dialogue")
+        } else if rapid {
+            Some("rapid dialogue replacements")
+        } else if sustained {
+            Some("sustained text volume")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            self.confirmed = true;
+            self.reason = reason;
+            self.last_confirmation = now;
+        } else if self.confirmed
+            && ((total >= 120 && other >= 50 && span >= 150_000_000)
+                || (recent >= 2 && recent_len >= 75 && fast_span >= 150_000_000))
+        {
+            self.last_confirmation = now;
+        }
+        let suspect = (other >= 48 && total >= 100 && (100_000_000..=FAST_WINDOW).contains(&span))
+            || (novel >= 30
+                && other >= 80
+                && total >= 150
+                && (100_000_000..=WINDOW).contains(&span));
         if suspect {
             self.last_suspicion = now;
         }
         self.suspended |= suspect || self.confirmed;
         if self.suspended {
-            if let Some(interval) = quiet_interval(samples, &mut self.gaps) {
+            let floor = if self.confirmed {
+                CONFIRMED_QUIET_MIN
+            } else {
+                WINDOW
+            };
+            if let Some(interval) = quiet_interval(samples, now, floor, &mut self.gaps) {
                 self.quiet_ns = interval;
+            } else {
+                self.quiet_ns = self.quiet_ns.max(floor);
             }
         }
         if self.sources.len() > 32 {

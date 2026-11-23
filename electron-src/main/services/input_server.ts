@@ -250,7 +250,7 @@ export async function startInputServer(): Promise<boolean> {
                 stdio: ['ignore', 'pipe', 'pipe'],
                 env: {
                     ...process.env,
-                    GSM_OVERLAY_DATA_PATH: path.join(getBaseDir(), 'gsm_overlay'),
+                    GSM_OVERLAY_DATA_PATH: getOverlayDataPath(),
                     GSM_SUDACHI_DATA_PATH: getBaseDir(),
                     GSM_SUDACHI_USER_DICTS_PATH: path.join(getBaseDir(), 'dictionaries', 'sudachi'),
                     // Tokenizer data uses the service directory above, but the

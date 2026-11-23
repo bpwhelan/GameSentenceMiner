@@ -69,6 +69,11 @@ function writeTempConfig(data: unknown): string {
 }
 
 describe('GSM config port helpers', () => {
+    it('resolves the retired Text Feed port to the unified port', () => {
+        for (const general of [{ single_port: 55000 }, { texthooker_port: '55000' }]) {
+            expect(resolveSinglePortFromConfigData({ general })).toBe(7275);
+        }
+    });
     it('reads single_port from the current profile', () => {
         expect(
             resolveSinglePortFromConfigData({

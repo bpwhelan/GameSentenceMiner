@@ -18,6 +18,70 @@ pub struct Cache {
     pub generation: u64,
 }
 
+pub fn collection_query(field: &str, note_type: &str) -> Option<String> {
+    let field = field.trim();
+    if field.is_empty() { return None; }
+    let mut query = format!("{field}:_*");
+    let note_type = note_type.trim();
+    if !note_type.is_empty() {
+        query.push_str(&format!(" note:\"{}\"", note_type.replace('"', "\\\"")));
+    }
+    Some(query)
+}
+
+#[derive(Default, Serialize)]
+pub struct SyncStatus {
+    last_synced: Option<String>,
+    pub cache_populated: bool,
+    pub anki_connect_available: bool,
+    note_count: i64,
+    card_count: i64,
+    auto_sync_enabled: bool,
+    auto_sync_schedule: Option<String>,
+    next_auto_sync: Option<String>,
+}
+
+fn utc_iso(seconds: f64) -> Option<String> {
+    let micros = (seconds * 1e6).round_ties_even();
+    if !micros.is_finite() || micros.abs() > i64::MAX as f64 {
+        return None;
+    }
+    let timestamp = chrono::DateTime::from_timestamp_micros(micros as i64)?;
+    let precision = if timestamp.timestamp_subsec_micros() == 0 {
+        chrono::SecondsFormat::Secs
+    } else {
+        chrono::SecondsFormat::Micros
+    };
+    Some(timestamp.to_rfc3339_opts(precision, false))
+}
+
+impl History {
+    pub fn anki_sync_status(&self, path: &std::path::Path) -> Result<SyncStatus> {
+        self.with_reader(path, |conn| {
+            let tx = conn.transaction()?;
+            let (note_count, last, card_count): (i64, Option<String>, i64) = tx.query_row(
+                "SELECT count(*), CAST(max(synced_at) AS TEXT), (SELECT count(*) FROM anki_cards) FROM anki_notes",
+                [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
+            )?;
+            let last_synced = last.map(|s| -> Result<_> {
+                utc_iso(s.parse()?).ok_or_else(|| "Invalid Anki sync timestamp".into())
+            }).transpose()?;
+            let mut status = SyncStatus { last_synced, note_count, card_count, cache_populated: note_count > 0, ..Default::default() };
+            // Old profiles can have an Anki cache without an automatic sync job.
+            if let Some((enabled, schedule, next)) = tx.query_row(
+                "SELECT coalesce(enabled=1,0),coalesce(schedule,''),next_run
+                 FROM cron_table WHERE name='anki_card_sync' ORDER BY id LIMIT 1", [],
+                |r| Ok((r.get::<_,bool>(0)?,r.get::<_,String>(1)?,r.get(2)?)),
+            ).optional().unwrap_or_default() {
+                status.auto_sync_enabled = enabled;
+                status.auto_sync_schedule = Some(schedule);
+                status.next_auto_sync = crate::legacy_timestamp(&next).and_then(utc_iso);
+            }
+            Ok(status)
+        })
+    }
+}
+
 pub struct Note {
     pub id: i64,
     pub model: String,

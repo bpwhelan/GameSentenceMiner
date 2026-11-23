@@ -81,9 +81,9 @@ fn setup_db() -> (TempDir, std::path::PathBuf, Connection) {
         CREATE TABLE game_daily_rollup (
             date TEXT NOT NULL,
             game_id TEXT NOT NULL,
-            total_characters INTEGER DEFAULT 0,
-            total_lines INTEGER DEFAULT 0,
-            total_cards_mined INTEGER DEFAULT 0,
+            total_characters TEXT DEFAULT '0',
+            total_lines TEXT DEFAULT '0',
+            total_cards_mined TEXT DEFAULT '0',
             total_reading_time_seconds REAL DEFAULT 0,
             PRIMARY KEY (date, game_id)
         );
@@ -116,6 +116,85 @@ fn local_ts(date: &str, hour: u32, min: u32) -> f64 {
 fn run(history: &History, path: &std::path::Path, payload: Value) -> Value {
     let req: Request = serde_json::from_value(payload).unwrap();
     history.run(path, req).unwrap()
+}
+
+#[test]
+fn migrated_and_legacy_timestamp_queries_choose_the_same_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("gsm.db");
+    gsm_history::create_profile_if_missing(&path).unwrap();
+    let db = Connection::open(&path).unwrap();
+    db.execute_batch(
+        "INSERT INTO games(id,title_original) VALUES('first','First'),('second','Second');
+         INSERT INTO game_lines(id,game_id,game_name,timestamp,line_text)
+         VALUES('a','first','First',1700000000,'abc'),('b','second','Second',1700000000,'def');
+         INSERT INTO daily_stats_rollup(date,total_lines,total_characters) VALUES('2023-11-14',2,6);
+         INSERT INTO game_daily_rollup(date,game_id,total_lines,total_characters)
+         VALUES('2023-11-14','first',1,3),('2023-11-14','second',1,3);",
+    )
+    .unwrap();
+    let history = History::default();
+    let current = || {
+        run(
+            &history,
+            &path,
+            json!({
+                "operation":"dashboardStats", "today":"2026-11-19", "session_gap":300,
+                "include_tokenization":false, "tokenization_enabled":false
+            }),
+        )["currentGameStats"]["game_id"]
+            .clone()
+    };
+    assert_eq!(current(), "first");
+    // SQLite retains unparseable legacy TEXT in a REAL column. It must not
+    // precede a recent numeric timestamp in descending numeric order.
+    db.execute_batch(
+        "INSERT INTO game_lines(id,game_id,game_name,timestamp,line_text)
+        VALUES('old','second','Second','2001-02-01','ghi')",
+    )
+    .unwrap();
+    assert_eq!(current(), "first");
+}
+
+#[test]
+fn dashboard_preserves_legacy_chart_order_and_excludes_paused_intervals() {
+    let (_dir, path, db) = setup_db();
+    db.execute_batch(
+        r#"
+        INSERT INTO daily_stats_rollup(date, game_activity_data) VALUES ('2026-11-18',
+            '{"z":{"title":"Same","lines":1,"chars":5},"a":{"title":"Same","lines":2,"chars":8}}');
+        CREATE TABLE stats_reading_breaks(timestamp REAL);
+    "#,
+    )
+    .unwrap();
+    let start = local_ts("2026-11-19", 10, 0);
+    for (id, offset) in [("one", 0.), ("two", 10.), ("three", 50.)] {
+        db.execute(
+            "INSERT INTO game_lines(id,game_name,line_text,timestamp) VALUES(?1,'Live','12345',?2)",
+            rusqlite::params![id, start + offset],
+        )
+        .unwrap();
+    }
+    db.execute("INSERT INTO stats_reading_breaks VALUES(?)", [start + 25.])
+        .unwrap();
+    let dash = run(
+        &History::default(),
+        &path,
+        json!({
+            "operation":"dashboardStats","today":"2026-11-19","session_gap":300.0,
+            "include_tokenization":false,"tokenization_enabled":false
+        }),
+    );
+    assert_eq!(dash["allGamesStats"]["sessions"], 1);
+    assert_eq!(dash["allGamesStats"]["total_time_hours"], 10. / 3600.);
+    let chart = dash["datasets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["label"] == "Same" && v["for"] == "Lines Received")
+        .unwrap();
+    assert_eq!(chart["data"][0], 2);
+    assert_eq!(dash["totalCharsPerGame"]["totals"], json!([5, 8]));
 }
 
 #[test]
@@ -205,7 +284,10 @@ fn game_stats_word_novelty_and_dashboard_stats_produce_consistent_aggregates() {
     assert_eq!(gs["stats"]["total_cards_mined"], 2);
     assert_eq!(gs["vocabulary"]["uniqueWordsInGame"], 2);
     assert_eq!(gs["vocabulary"]["globallyNewWordsFromGame"], 2);
-    assert_eq!(gs["vocabulary"]["newWordCharacterPositions"], json!([7, 18]));
+    assert_eq!(
+        gs["vocabulary"]["newWordCharacterPositions"],
+        json!([7, 18])
+    );
 
     // Missing game returns not_found
     let missing = run(
@@ -240,6 +322,9 @@ fn game_stats_word_novelty_and_dashboard_stats_produce_consistent_aggregates() {
     assert_eq!(dash["vocabularyStats"]["uniqueWordsSeen"], 2);
     assert_eq!(dash["vocabularyStats"]["newWordsFirstSeen"], 2);
     assert_eq!(dash["newWordsByGame"]["labels"], json!(["魔法少女"]));
-    assert_eq!(dash["difficultySpeedData"]["labels"], json!(["Difficulty 2"]));
+    assert_eq!(
+        dash["difficultySpeedData"]["labels"],
+        json!(["Difficulty 2"])
+    );
     assert_eq!(dash["gameTypeData"]["labels"], json!(["Visual Novel"]));
 }

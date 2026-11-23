@@ -40,6 +40,6 @@ export interface ReaderDictionaryResult {
 
 export interface ReaderDictionaryTransfer {
   name: string;
-  phase: 'reading' | 'importing' | 'failed';
+  phase: 'reading' | 'exporting' | 'importing' | 'failed';
   records: number;
 }

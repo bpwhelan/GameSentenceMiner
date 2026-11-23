@@ -220,7 +220,7 @@ impl UpdateManager {
         app: &tauri::AppHandle,
         force: bool,
     ) -> AppUpdateStatus {
-        if self.0.is_downloading_app.load(Ordering::Acquire) {
+        if crate::PORTABLE_PREVIEW || self.0.is_downloading_app.load(Ordering::Acquire) {
             return self.get_app_update_status(app);
         }
 
@@ -373,6 +373,9 @@ impl UpdateManager {
     }
 
     async fn download_and_install_update(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        if crate::PORTABLE_PREVIEW {
+            return Err("Desktop updates are disabled in GSM Preview.".into());
+        }
         let mut update = self
             .0
             .state
@@ -441,6 +444,7 @@ impl UpdateManager {
             let _backend_guard = self.0.backend_update_lock.lock().await;
             crate::python_ops::close_all_for_app_update(app).await?;
 
+            if !crate::app_lifecycle::native_session_requested() {
             let flag_path = app
                 .state::<crate::settings::Settings>()
                 .paths
@@ -448,6 +452,7 @@ impl UpdateManager {
                 .join("update_python.flag");
             std::fs::write(&flag_path, b"")
                 .map_err(|e| format!("Failed to write backend update marker: {e}"))?;
+            }
 
             update.install(bytes).map_err(|e| e.to_string())?;
             Ok(())
@@ -473,6 +478,14 @@ impl UpdateManager {
         &self,
         app: &tauri::AppHandle,
     ) -> Result<UpdateStatusSnapshot, String> {
+        if crate::app_lifecycle::native_session_requested() {
+            let version = app.package_info().version.to_string();
+            return Ok(UpdateStatusSnapshot {
+                backend: BackendUpdateStatus {current_version:Some(version.clone()),latest_version:Some(version),
+                    update_available:false,checked_at:None,error:None,checking:false},
+                app:self.get_app_update_status(app),any_update_in_progress:self.any_update_in_progress(),
+            });
+        }
         let python_path = resolve_configured_python_path(app);
         let backend_current = match python_path {
             Some(path) => query_installed_backend_version(app, &path).await,
@@ -497,7 +510,7 @@ impl UpdateManager {
         app: &tauri::AppHandle,
         force_dev: bool,
     ) -> Result<UpdateStatusSnapshot, String> {
-        self.check_backend_update_status(app).await;
+        if !crate::app_lifecycle::native_session_requested() { self.check_backend_update_status(app).await; }
         let _ = self.check_app_update_status(app, force_dev).await;
         self.get_update_status(app).await
     }
@@ -576,6 +589,10 @@ impl UpdateManager {
 
     /// Synchronize/update the Python backend package inside `InstallSessions`.
     pub async fn update_gsm(&self, app: &tauri::AppHandle, should_restart: bool, force: bool) {
+        if crate::app_lifecycle::native_session_requested() {
+            self.run_interactive_update_check(app,force).await;
+            return;
+        }
         let _guard = self.0.backend_update_lock.lock().await;
         let sessions = app.state::<crate::install_session::InstallSessions>();
         let _ = sessions.model.call(

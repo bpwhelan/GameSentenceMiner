@@ -2,7 +2,7 @@
 //! runs have no row and therefore cannot change a recurring job's deadline.
 use crate::{capture, rollup::local_timestamp, History, Result};
 use chrono::{Duration, Local, NaiveDateTime};
-use rusqlite::{params, Connection, TransactionBehavior};
+use rusqlite::{params, types::Value, Connection, TransactionBehavior};
 use serde::Serialize;
 use std::path::Path;
 
@@ -12,6 +12,8 @@ pub struct Job {
     pub name: String,
     pub deadline: f64,
     pub schedule: String,
+    #[serde(skip)]
+    stored_deadline: Value,
 }
 
 impl Job {
@@ -21,6 +23,7 @@ impl Job {
             name,
             deadline: 0.0,
             schedule: String::new(),
+            stored_deadline: Value::Null,
         }
     }
 
@@ -32,9 +35,9 @@ impl Job {
         let Some(id) = self.id else { return Ok(true) };
         let mut stmt = conn.prepare_cached(
             "SELECT 1 FROM cron_table WHERE id=? AND name=? AND enabled=1
-            AND coalesce(CAST(next_run AS REAL),0)=? AND coalesce(schedule,'once')=?",
+            AND next_run IS ? AND coalesce(schedule,'once')=?",
         )?;
-        Ok(stmt.exists(params![id, self.name, self.deadline, self.schedule])?)
+        Ok(stmt.exists(params![id, self.name, self.stored_deadline, self.schedule])?)
     }
 
     fn finish(&self, conn: &Connection, override_time: Option<f64>) -> Result<()> {
@@ -46,18 +49,30 @@ impl Job {
         } else {
             recurrence(&self.schedule, last, now.naive_local())?
         };
-        let mut stmt = conn.prepare_cached("UPDATE cron_table SET last_run=?,next_run=?,enabled=?
-            WHERE id=? AND name=? AND enabled=1 AND coalesce(CAST(next_run AS REAL),0)=? AND coalesce(schedule,'once')=?")?;
+        let mut stmt = conn.prepare_cached(
+            "UPDATE cron_table SET last_run=?,next_run=?,enabled=?
+            WHERE id=? AND name=? AND enabled=1 AND next_run IS ? AND coalesce(schedule,'once')=?",
+        )?;
         stmt.execute(params![
             last,
             next,
             enabled,
             id,
             self.name,
-            self.deadline,
+            self.stored_deadline,
             self.schedule
         ])?;
         Ok(())
+    }
+}
+
+impl History {
+    pub fn configure_tadoku(&self, path: &Path, stats: &serde_json::Value) -> Result<()> {
+        self.with_writer(path, |conn| {
+            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            gsm_db::startup_jobs::configure_tadoku(&tx, stats, Local::now())?;
+            Ok(tx.commit()?)
+        })
     }
 }
 
@@ -86,15 +101,26 @@ fn recurrence(schedule: &str, now: f64, local: NaiveDateTime) -> Result<(f64, bo
 impl History {
     pub fn scheduled_jobs(&self, path: &Path, generation: u64) -> Result<Vec<Job>> {
         self.with_writer_generation(path, Some(generation), |conn| {
-            let mut stmt = conn.prepare_cached("SELECT id,coalesce(name,''),coalesce(CAST(next_run AS REAL),0) AS deadline,coalesce(schedule,'once')
-                FROM cron_table WHERE enabled=1 ORDER BY deadline,id")?;
-            let rows = stmt.query_map([], |r| Ok(Job {
-                id: Some(r.get(0)?),
-                name: r.get(1)?,
-                deadline:r.get(2)?,
-                schedule:r.get(3)?,
-            }))?;
-            Ok(rows.collect::<rusqlite::Result<_>>()?)
+            let mut stmt = conn.prepare_cached(
+                "SELECT id,coalesce(name,''),next_run,coalesce(schedule,'once')
+                FROM cron_table WHERE enabled=1 AND next_run IS NOT NULL",
+            )?;
+            let mut rows = stmt.query([])?;
+            let mut jobs = Vec::new();
+            while let Some(row) = rows.next()? {
+                let stored_deadline = row.get(2)?;
+                if let Some(deadline) = crate::legacy_timestamp(&stored_deadline) {
+                    jobs.push(Job {
+                        id: Some(row.get(0)?),
+                        name: row.get(1)?,
+                        deadline,
+                        schedule: row.get(3)?,
+                        stored_deadline,
+                    });
+                }
+            }
+            jobs.sort_unstable_by(|a, b| a.deadline.total_cmp(&b.deadline).then(a.id.cmp(&b.id)));
+            Ok(jobs)
         })
     }
 

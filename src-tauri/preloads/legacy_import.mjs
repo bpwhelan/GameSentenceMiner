@@ -1,6 +1,6 @@
 // Runs inside the destination dictionary origin before its background starts.
 // Every batch and its checkpoint commit in the same IndexedDB transaction.
-export async function importLegacyDictionary(base) {
+export async function importLegacyDictionary(base, browserFilesystem = false) {
   const manifest = await (await fetch(`${base}/manifest.json`)).json();
   if (manifest.format !== 1) throw Error('Unsupported dictionary transfer format');
   const request = value => new Promise((resolve, reject) => {
@@ -11,7 +11,28 @@ export async function importLegacyDictionary(base) {
     transaction.oncomplete = resolve;
     transaction.onerror = transaction.onabort = () => reject(transaction.error || Error('Dictionary transfer was interrupted'));
   });
-  async function decode(value) {
+  function hasBinary(value) {
+    if (value === null || typeof value !== 'object') return false;
+    switch (value.$gsm) {
+      case 'binary': return true;
+      case 'array': return value.value.some(hasBinary);
+      case 'object': return value.value.some(([, item]) => hasBinary(item));
+      default: return false;
+    }
+  }
+  function decodeSync(value) {
+    if (value === null || typeof value !== 'object') return value;
+    switch (value.$gsm) {
+      case 'undefined': return undefined;
+      case 'date': return new Date(value.value);
+      case 'number': return Number(value.value);
+      case 'bigint': return BigInt(value.value);
+      case 'array': return value.value.map(decodeSync);
+      case 'object': return Object.fromEntries(value.value.map(([key, item]) => [key, decodeSync(item)]));
+      default: throw Error('Invalid dictionary transfer record');
+    }
+  }
+  async function decodeAsync(value) {
     if (value === null || typeof value !== 'object') return value;
     switch (value.$gsm) {
       case 'undefined': return undefined;
@@ -34,12 +55,78 @@ export async function importLegacyDictionary(base) {
       default: throw Error('Invalid dictionary transfer record');
     }
   }
+  function decode(value) {
+    return hasBinary(value) ? decodeAsync(value) : decodeSync(value);
+  }
   const existing = await indexedDB.databases();
   const checkpointStore = '__gsm_transfer_checkpoint__';
   const skipped = new Set();
   let transferred = 0;
   const advance = count => {transferred+=count;if(globalThis.__GSM_TRANSFER__?.status==='running')globalThis.__GSM_TRANSFER__.records=transferred;};
+  let filesystemRoot;
+  if (browserFilesystem && manifest.databases.some(schema => schema.name === '/dicts') && await supportsDirectOpfs()) {
+    filesystemRoot = await navigator.storage.getDirectory();
+  }
+  async function supportsDirectOpfs() {
+    if (!globalThis.crossOriginIsolated || typeof Worker !== 'function' || !navigator.storage?.getDirectory) return false;
+    let worker;
+    try {
+      const memory = new WebAssembly.Memory({initial:1, maximum:1, shared:true});
+      if (!(memory.buffer instanceof SharedArrayBuffer)) return false;
+      worker = new Worker('./opfs-capability-worker.js', {type:'module'});
+      return await new Promise(resolve => {
+        const timer = setTimeout(() => resolve(false), 4000);
+        const finish = ok => { clearTimeout(timer); resolve(ok); };
+        worker.onmessage = ({data}) => finish(data?.channel === 'opfs-capability-result' && data.ok === true);
+        worker.onerror = () => finish(false);
+        worker.postMessage({channel:'opfs-capability-probe'});
+      });
+    } catch {
+      return false;
+    } finally {
+      worker?.terminate();
+    }
+  }
+  async function restoreFile(entry) {
+    if (typeof entry.key !== 'string' || !entry.key.startsWith('/dicts/')) throw Error('Invalid dictionary file path');
+    const parts = entry.key.slice('/dicts/'.length).split('/');
+    if (parts.some(part => !part || part === '.' || part === '..' || part.includes('\\') || part.includes('\0'))) {
+      throw Error('Invalid dictionary file path');
+    }
+    const fields = Object.fromEntries(entry.value.value);
+    const filename = parts.pop();
+    let folder = filesystemRoot;
+    for (const part of parts) folder = await folder.getDirectoryHandle(part, {create:true});
+    if ((fields.mode & 0o170000) === 0o040000) {
+      await folder.getDirectoryHandle(filename, {create:true});
+      return;
+    }
+    const file = await folder.getFileHandle(filename, {create:true});
+    if (fields.contents?.$gsm === 'binary' && /^blobs\/[a-f0-9]{64}\.bin$/.test(fields.contents.file)) {
+      const response = await fetch(`${base}/${fields.contents.file}`);
+      if (!response.ok || !response.body) throw Error('Dictionary file could not be read');
+      await response.body.pipeTo(await file.createWritable());
+    } else {
+      const contents = await decode(fields.contents);
+      const writer = await file.createWritable();
+      try {
+        await writer.write(contents);
+        await writer.close();
+      } catch (error) {
+        await writer.abort();
+        throw error;
+      }
+    }
+  }
   for (const schema of manifest.databases) {
+    if (filesystemRoot && schema.name === '/dicts') {
+      for (const batch of manifest.batches.filter(batch => batch.database === schema.name)) {
+        const entries = await (await fetch(`${base}/${batch.file}`)).json();
+        for (const entry of entries) await restoreFile(entry);
+        advance(batch.count);
+      }
+      continue;
+    }
     // Never replace a database created by the new application. A transfer can
     // resume only when this importer owns the destination checkpoint store.
     if (existing.some(item => item.name === schema.name)) {
@@ -73,7 +160,9 @@ export async function importLegacyDictionary(base) {
         const prior = await request(database.transaction(checkpointStore).objectStore(checkpointStore).get(checkpoint));
         if (prior) {advance(batch.count);continue;}
         const entries = await (await fetch(`${base}/${batch.file}`)).json();
-        const decoded = await Promise.all(entries.map(async entry => ({key:await decode(entry.key), value:await decode(entry.value)})));
+        const decoded = entries.some(entry => hasBinary(entry.key) || hasBinary(entry.value))
+          ? await Promise.all(entries.map(async entry => ({key:await decode(entry.key), value:await decode(entry.value)})))
+          : entries.map(entry => ({key:decodeSync(entry.key), value:decodeSync(entry.value)}));
         const transaction = database.transaction([batch.store, checkpointStore], 'readwrite');
         const done = committed(transaction), store = transaction.objectStore(batch.store);
         for (const entry of decoded) store.keyPath === null ? store.put(entry.value, entry.key) : store.put(entry.value);
@@ -98,5 +187,10 @@ export async function importLegacyDictionary(base) {
       }
     } finally { database.close(); }
   }
-  return {databases:manifest.databases.length-skipped.size, records:manifest.batches.filter(batch=>!skipped.has(batch.database)).reduce((sum,batch)=>sum+batch.count,0), preservedNativeDatabases:[...skipped]};
+  return {
+    databases: manifest.databases.length - skipped.size,
+    records: transferred,
+    preservedNativeDatabases: [...skipped],
+    ...(browserFilesystem && {filesystemBackend: filesystemRoot ? 'opfs' : 'idbfs'}),
+  };
 }

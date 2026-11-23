@@ -1,4 +1,5 @@
 {
+  "mining": { "fields": { "ai_auto_generate_character_summary": "自动生成角色简介" } },
   "gameLauncher": {
     "mode": "启动方式",
     "modeExecutable": "游戏可执行文件",
@@ -709,6 +710,7 @@
       "description": "从此处检查后端包和桌面应用的更新。",
       "backend": "GameSentenceMiner 后端",
       "electronApp": "Electron 应用",
+      "desktopApp": "桌面应用",
       "current": "当前：{version}",
       "latest": "最新：{version}",
       "channel": "渠道：{channel}",

@@ -1,4 +1,5 @@
 //! Search for older exact matches and merge into the current version of the chosen note.
+pub(crate) mod chooser;
 mod markup;
 
 use crate::anki_connect::Collection;
@@ -356,6 +357,79 @@ fn build(spec: &Merge, target: &Note) -> Result<Option<Value>, String> {
         return Err("No configured context fields contained data to merge.".into());
     }
     Ok(Some(json!({"id":spec.target,"fields":fields})))
+}
+
+pub(crate) async fn find_candidates(
+    app: &AppHandle,
+    url: &reqwest::Url,
+    source: u64,
+    word: &str,
+    word_field: &str,
+    model: &str,
+    sentence_field: &str,
+    oldest_only: bool,
+) -> Result<Value, String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Invalid AnkiConnect URL".into());
+    }
+    let desktop = app.state::<crate::desktop_state::DesktopState>();
+    let anki = Collection {
+        client: &desktop.http,
+        url,
+    };
+    anki.search(Search {
+        source,
+        word: word.to_string(),
+        word_field: word_field.to_string(),
+        model: model.to_string(),
+        sentence_field: sentence_field.to_string(),
+        oldest_only,
+    })
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn merge_into(
+    app: &AppHandle,
+    url: &reqwest::Url,
+    source: u64,
+    target: u64,
+    fields: Vec<(String, String, bool, bool)>,
+    tags: Vec<String>,
+    back: bool,
+    overwrite: bool,
+    remove_overlay: bool,
+    delete_duplicate: bool,
+) -> Result<Value, String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Invalid AnkiConnect URL".into());
+    }
+    let desktop = app.state::<crate::desktop_state::DesktopState>();
+    let anki = Collection {
+        client: &desktop.http,
+        url,
+    };
+    let lane = app.state::<MergeLane>();
+    let _guard = lane.0.lock().await;
+    anki.merge(Merge {
+        source,
+        target,
+        fields: fields
+            .into_iter()
+            .map(|(name, value, image, line_breaks)| Field {
+                name,
+                value,
+                image,
+                line_breaks,
+            })
+            .collect(),
+        tags,
+        back,
+        overwrite,
+        remove_overlay,
+        delete_duplicate,
+    })
+    .await
 }
 
 pub async fn request(app: &AppHandle, epoch: u64, data: Value) -> Result<Value, String> {

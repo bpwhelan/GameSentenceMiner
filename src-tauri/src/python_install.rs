@@ -7,6 +7,14 @@ use tauri::{Emitter, Manager};
 pub struct PythonInstall {
     pub gate: Arc<tokio::sync::Mutex<()>>,
 }
+
+pub(crate) fn require_legacy_session() -> Result<(), String> {
+    if crate::app_lifecycle::native_session_requested() {
+        return Err("The managed Python environment is disabled in this desktop session.".into());
+    }
+    Ok(())
+}
+
 pub fn project_root(app:&tauri::AppHandle)->std::path::PathBuf {
     // Isolated integration fixtures never touch the installed project or user environment.
     if crate::LOCAL_BUILD && std::env::var_os("GSM_SMOKE_TEST").is_some() {
@@ -72,6 +80,7 @@ impl PythonInstall {
     }
 }
 pub async fn dispatch(app: &tauri::AppHandle, mut params: Value) -> Result<Value, String> {
+    require_legacy_session()?;
     let sessions = app
         .state::<crate::install_session::InstallSessions>()
         .model

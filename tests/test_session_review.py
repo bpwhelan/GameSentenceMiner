@@ -300,7 +300,6 @@ def mock_note_api(monkeypatch, entry, *, fail_update=False):
 def saved_media(entry, config):
     config.anki.previous_image_field = "PreviousPicture"
     config.anki.video_field = "Video"
-    config.anki.field_grouping_enabled = True
     entry.data["anki_config"] = config.anki.to_dict()
     entry.data["translation_field"] = "Meaning"
     entry.data["fields"].update(
@@ -360,6 +359,126 @@ def test_unchanged_confirmation_only_removes_local_queue_entry(saved_review, mon
     monkeypatch.setattr(session_review, "cleanup_unused_media", lambda *args: pytest.fail("Unchanged media cleanup"))
     session_review.apply_review(entry, prepared, unchanged_result(entry, prepared, voice=with_audio))
     assert not entry.folder.exists()
+
+
+@pytest.mark.parametrize("mode", ["automatic", "manual", "overwrite", "separate", "retry_delete"])
+def test_review_applies_field_grouping_to_the_confirmed_context(saved_review, monkeypatch, mode):
+    from GameSentenceMiner.ui import qt_main
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    entry, config, *_ = saved_review
+    saved_media(entry, config)
+    config.anki.field_grouping_enabled = True
+    automatic = mode in ("automatic", "retry_delete")
+    config.anki.field_grouping_auto_merge = automatic
+    config.anki.field_grouping_order = "back"
+    config.anki.field_grouping_delete_duplicate = automatic
+    config.anki.field_grouping_additional_fields = ["Meaning"]
+    entry.data["anki_config"] = config.anki.to_dict()
+    fields, calls = mock_note_api(monkeypatch, entry)
+    invoke_source = anki.invoke
+    original = {"Expression": "Expression", "Sentence": "Original", "Picture": "", "SentenceAudio": "", "Meaning": ""}
+    history, synced, choices = [], [], []
+    source_deleted = False
+    delete_attempts = 0
+    monkeypatch.setattr(GameLinesTable, "update", lambda **kwargs: history.append(kwargs))
+    monkeypatch.setattr(anki, "_trigger_incremental_anki_cache_sync", lambda ids: synced.extend(ids))
+
+    def invoke(action, **kwargs):
+        nonlocal source_deleted, delete_attempts
+        if action == "findNotes":
+            return [100, 123]
+        if action == "notesInfo" and kwargs["notes"] == [100]:
+            return [
+                {
+                    "noteId": 100,
+                    "modelName": "Basic",
+                    "fields": {
+                        name: {"value": value, "order": index} for index, (name, value) in enumerate(original.items())
+                    },
+                }
+            ]
+        if action == "updateNoteFields" and kwargs["note"]["id"] == 100:
+            calls.append((action, kwargs))
+            original.update(kwargs["note"]["fields"])
+            return
+        if action == "deleteNotes":
+            assert kwargs["notes"] == [123]
+            delete_attempts += 1
+            if mode == "retry_delete" and delete_attempts == 1:
+                raise RuntimeError("Anki is busy")
+            source_deleted = True
+        if action == "notesInfo" and kwargs["notes"] == [123] and source_deleted:
+            return []
+        return invoke_source(action, **kwargs)
+
+    def choose(expression, candidates, *, default_order, default_delete_duplicate):
+        choices.append((expression, [candidate["note_id"] for candidate in candidates]))
+        assert (default_order, default_delete_duplicate) == ("back", False)
+        if mode != "separate":
+            return {
+                "target_note_id": 100,
+                "order": "front",
+                "delete_duplicate": False,
+                "overwrite": mode == "overwrite",
+            }
+
+    monkeypatch.setattr(anki, "invoke", invoke)
+    monkeypatch.setattr(qt_main, "launch_anki_field_grouping", choose)
+    forbid_media_work(monkeypatch, except_processors=("_resolve_field_grouping_decision",))
+    prepared = session_review.load_review(entry)
+    changes = {} if automatic else {"sentence": "Reviewed sentence", "translation": "Reviewed meaning"}
+    if mode == "retry_delete":
+        with pytest.raises(RuntimeError, match="The context was merged.*Anki is busy"):
+            session_review.apply_review(entry, prepared, unchanged_result(entry, prepared))
+        (entry,) = session_review.list_pending_reviews(config)
+        prepared = session_review.load_review(entry)
+        changes = {"voice": False}  # The merged review only needs its duplicate deletion retried.
+    session_review.apply_review(entry, prepared, unchanged_result(entry, prepared, **changes))
+
+    assert choices == ([] if automatic else [("Expression", [100])])
+    assert not entry.folder.exists()
+    if mode == "separate":
+        assert original["Sentence"] == "Original"
+        assert fields["Sentence"] == "Reviewed sentence"
+        assert synced == [123]
+        return
+
+    assert 100 in synced
+    assert any(write.get("note_id") == "100" for write in history)
+    assert source_deleted == automatic
+    assert delete_attempts == (2 if mode == "retry_delete" else int(automatic))
+    assert sum(action == "updateNoteFields" and args["note"]["id"] == 100 for action, args in calls) == 1
+    if mode == "overwrite":
+        assert original["Sentence"] == "Reviewed sentence"
+        assert original["Meaning"] == "Reviewed meaning"
+    else:
+        new_context = "Sentence" if automatic else "Reviewed sentence"
+        new_group = 99 if automatic else 123
+        assert f'data-group-id="{new_group}">{new_context}<' in original["Sentence"]
+        assert 'data-group-id="100">Original<' in original["Sentence"]
+        assert (original["Sentence"].index("Original") < original["Sentence"].index(new_context)) == automatic
+        assert f'data-group-id="{new_group}"' in original["Picture"]
+        assert f'data-group-id="{new_group}">[sound:old.opus]<' in original["SentenceAudio"]
+
+
+def test_grouping_search_failure_keeps_confirmed_review_pending(saved_review, monkeypatch):
+    entry, config, *_ = saved_review
+    config.anki.field_grouping_enabled = True
+    entry.data["anki_config"] = config.anki.to_dict()
+    fields, _ = mock_note_api(monkeypatch, entry)
+    prepared = session_review.load_review(entry)
+
+    def unavailable(_source):
+        raise RuntimeError("Could not search Anki")
+
+    monkeypatch.setattr(anki, "_find_field_grouping_candidates", unavailable)
+    with pytest.raises(RuntimeError, match="Could not search Anki"):
+        session_review.apply_review(entry, prepared, unchanged_result(entry, prepared, voice=False, sentence="Edited"))
+
+    (pending,) = session_review.list_pending_reviews(config)
+    assert pending.id == entry.id
+    assert pending.data["sentence"] == fields["Sentence"] == "Edited"
 
 
 @pytest.mark.parametrize(("changed", "field"), [("sentence", "Sentence"), ("translation", "Meaning")])
@@ -603,6 +722,7 @@ def test_live_pipeline_queues_review_without_blocking_for_confirmation(saved_rev
     from GameSentenceMiner.ui import qt_main
 
     entry, config, replay, audio = saved_review
+    config.anki.field_grouping_enabled = True
     prepared = session_review.load_review(entry)
     line = prepared.context.mined_line
     line.excluded_from_stats = True
@@ -613,6 +733,9 @@ def test_live_pipeline_queues_review_without_blocking_for_confirmation(saved_rev
     monkeypatch.setattr(anki, "_handle_file_management", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         qt_main, "launch_anki_confirmation", lambda *args, **kwargs: pytest.fail("Immediate confirmation opened")
+    )
+    monkeypatch.setattr(
+        anki, "_resolve_field_grouping_decision", lambda *args: pytest.fail("Grouping ran before session review")
     )
     workers = []
     monkeypatch.setattr(anki, "submit_background_work", workers.append)

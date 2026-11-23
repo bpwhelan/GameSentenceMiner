@@ -170,6 +170,9 @@
       if ("manualMode" in updates) {
         cardController.applyValues({ manualMode: updates.manualMode });
       }
+      if ("requireGameFocusForPushToShow" in updates) {
+        cardController.applyValues({ requireGameFocusForPushToShow: updates.requireGameFocusForPushToShow });
+      }
     });
 
     document.getElementById("btn-dismiss").addEventListener("click", () => {

@@ -83,8 +83,7 @@
                     <input type="date" id="editReleaseDate" class="form-input">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Character Summary (for AI Translation)</label>
-                    <textarea id="editCharacterSummary" class="form-textarea" rows="8" placeholder="Character list for translation context..."></textarea>
+                    {% include 'components/character-summary-editor.html' %}
                 </div>
                 <div class="form-group" style="display: none;">
                     <label class="form-label">Links (JSON Array)</label>

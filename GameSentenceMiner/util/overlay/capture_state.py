@@ -19,6 +19,7 @@ def get_overlay_capture_state(monitor):
             window_state = getattr(monitor, "last_state", window_state)
         return {
             "type": "capture_status",
+            **({"desktop_projection": True} if is_windows() else {}),
             "available": available,
             "scene_name": state["scene"],
             "window_state": window_state,

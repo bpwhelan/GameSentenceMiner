@@ -87,11 +87,7 @@ impl Engines {
         language: &str,
     ) -> Result<Recognition> {
         match engine {
-            "oneocr" => {
-                #[cfg(windows)]
-                crate::models::ensure_oneocr()?;
-                oneocr::ocr_image(image)
-            }
+            "oneocr" => oneocr::ocr_image(image),
             "screenai" => screenai::ocr_image(image),
             "lens" | "glens" => {
                 if self.lens.is_none() {
@@ -141,8 +137,7 @@ impl Engines {
                     self.vocr = Some(vocr::Vocr::new(selected)?);
                 }
                 let mut result = self.vocr.as_mut().unwrap().recognize(image)?;
-                result.model =
-                    serde_json::json!({"size":selected,"revision":vocr::selection::REVISION});
+                result.model = serde_json::json!({"size":selected,"revision":vocr::selection::REVISION,"backend":"onnx"});
                 Ok(result)
             }
             "vocr_detector" => {

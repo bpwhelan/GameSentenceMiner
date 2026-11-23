@@ -9,7 +9,9 @@ use crate::settings_tools::{get_game_exe_path_for_scene, set_game_exe_path_for_s
 use gsm_settings::gsm_config::get_configured_target_language;
 use gsm_settings::preferences::Preferences;
 use gsm_settings::profiles::Profiles;
-use gsm_settings::{read_object, write_atomic};
+use gsm_settings::read_object;
+#[cfg(test)]
+use gsm_settings::write_atomic;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -207,7 +209,6 @@ struct State {
     discovery: Option<HookDiscovery>,
     pending_hook_save: Option<PendingHookSave>,
     max_buffer_size: Option<usize>,
-    last_reported_backend_active: Option<bool>,
 }
 
 pub struct TexthookCoordinator {
@@ -229,6 +230,9 @@ impl Default for TexthookCoordinator {
 }
 
 impl TexthookCoordinator {
+    pub(crate) fn invalidate_buffer_size(&self) {
+        self.state.lock().unwrap().max_buffer_size = None;
+    }
     pub fn automation_status(&self) -> Value {
         let g = self.state.lock().unwrap();
         json!({"running":g.last_status["running"], "source":g.source,
@@ -292,33 +296,50 @@ fn load_max_buffer_size(gsm_config_path: &Path) -> usize {
     )
 }
 
+pub(crate) async fn apply_buffer_size(app: &tauri::AppHandle, max_buffer: usize) {
+    if let Some(coord) = app.try_state::<TexthookCoordinator>() {
+        coord.state.lock().unwrap().max_buffer_size = Some(max_buffer);
+    }
+    let _ = crate::texthook::dispatch(
+        app,
+        json!({ "action": "configure", "params": { "maxBufferSize": max_buffer } }),
+    )
+    .await;
+    let _ = crate::agent::dispatch(
+        app,
+        json!({ "action": "setMaxBufferSize", "params": { "value": max_buffer } }),
+    )
+    .await;
+}
+
 fn save_max_buffer_size(gsm_config_path: &Path, value: usize) -> Result<(), String> {
-    let mut root = read_object(gsm_config_path).unwrap_or_else(|_| json!({}));
-    let Some(obj) = root.as_object_mut() else {
-        return Err("Invalid GSM config object".into());
-    };
-    let mut updated = false;
-    if let Some(configs) = obj.get_mut("configs").and_then(Value::as_object_mut) {
-        for profile in configs.values_mut() {
-            let Some(profile_obj) = profile.as_object_mut() else {
-                continue;
-            };
-            let general = profile_obj
-                .entry("general".to_owned())
-                .or_insert_with(|| json!({}));
-            if let Some(gen_obj) = general.as_object_mut() {
-                gen_obj.insert("texthook_max_buffer_size".into(), json!(value));
-                updated = true;
+    gsm_settings::mining_scopes::update(gsm_config_path, |root| {
+        let Some(obj) = root.as_object_mut() else {
+            return Err("Invalid GSM config object".into());
+        };
+        let mut updated = false;
+        if let Some(configs) = obj.get_mut("configs").and_then(Value::as_object_mut) {
+            for profile in configs.values_mut() {
+                let Some(profile_obj) = profile.as_object_mut() else {
+                    continue;
+                };
+                let general = profile_obj
+                    .entry("general".to_owned())
+                    .or_insert_with(|| json!({}));
+                if let Some(gen_obj) = general.as_object_mut() {
+                    gen_obj.insert("texthook_max_buffer_size".into(), json!(value));
+                    updated = true;
+                }
             }
         }
-    }
-    if !updated {
-        let general = obj.entry("general".to_owned()).or_insert_with(|| json!({}));
-        if let Some(gen_obj) = general.as_object_mut() {
-            gen_obj.insert("texthook_max_buffer_size".into(), json!(value));
+        if !updated {
+            let general = obj.entry("general".to_owned()).or_insert_with(|| json!({}));
+            if let Some(gen_obj) = general.as_object_mut() {
+                gen_obj.insert("texthook_max_buffer_size".into(), json!(value));
+            }
         }
-    }
-    write_atomic(gsm_config_path, &root)
+        Ok(())
+    })
 }
 
 pub fn engine_cli_path(shared_dir: &Path, engine: &str, arch: &str) -> PathBuf {
@@ -359,28 +380,11 @@ fn resolve_cli_for_pid(shared_dir: &Path, engine: &str, pid: u32) -> (String, Op
     (primary_arch.to_owned(), None)
 }
 
-fn sync_backend_texthook_status(app: &AppHandle, active: bool) {
-    let should_send = {
-        let Some(coord) = app.try_state::<TexthookCoordinator>() else {
-            return;
-        };
-        let mut g = coord.state.lock().unwrap();
-        if g.last_reported_backend_active == Some(active) {
-            return;
-        }
-        g.last_reported_backend_active = Some(active);
-        true
-    };
-    if should_send {
-        let app_clone = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let _ = crate::runtime::backend_command(
-                &app_clone,
-                "texthook_status",
-                json!({ "active": active }),
-            )
-            .await;
-        });
+fn sync_intake_activity(app: &AppHandle) {
+    // The inactive engine may emit a stop while the selected engine is still running.
+    if let Some(coordinator) = app.try_state::<TexthookCoordinator>() {
+        let active = coordinator.state.lock().unwrap().last_status["running"] == true;
+        crate::text_intake::producer_activity(app, crate::text_intake::Producer::Texthook, active);
     }
 }
 
@@ -459,7 +463,7 @@ pub fn on_texthook_event(app: &AppHandle, event: &str, mut data: Value) {
 
     if event == "texthook.status" {
         let running = data["running"] == true;
-        sync_backend_texthook_status(app, running);
+        sync_intake_activity(app);
         if !running {
             crate::game_privileges::set_target(app, "texthook", None);
             crate::auto_launcher::notify_signal(app);
@@ -526,7 +530,7 @@ pub fn on_agent_event(app: &AppHandle, event: &str, mut data: Value, detached: b
 
     if event == "texthook.status" {
         let running = data["running"] == true;
-        sync_backend_texthook_status(app, running);
+        sync_intake_activity(app);
         if !running {
             crate::game_privileges::set_target(app, "texthook", None);
             crate::auto_launcher::notify_signal(app);
@@ -873,7 +877,7 @@ pub async fn start_session(
             if !internal {
                 crate::auto_launcher::notify_texthook_user_start(app);
             }
-            sync_backend_texthook_status(app, true);
+            sync_intake_activity(app);
             Ok(json!({ "success": true, "status": get_status_snapshot(app), "raw": val }))
         }
         Ok(val) => {
@@ -935,7 +939,7 @@ pub async fn stop_session(app: &AppHandle, internal: bool) -> Result<Value, Stri
     }
 
     crate::game_privileges::set_target(app, "texthook", None);
-    sync_backend_texthook_status(app, false);
+    sync_intake_activity(app);
     if !internal {
         crate::auto_launcher::notify_texthook_user_stop(app);
     }
@@ -1152,19 +1156,7 @@ async fn try_invoke_inner(
                     .and_then(|r| r);
             match save_res {
                 Ok(()) => {
-                    if let Some(coord) = app.try_state::<TexthookCoordinator>() {
-                        coord.state.lock().unwrap().max_buffer_size = Some(max_buffer);
-                    }
-                    let _ = crate::texthook::dispatch(
-                        app,
-                        json!({ "action": "configure", "params": { "maxBufferSize": max_buffer } }),
-                    )
-                    .await;
-                    let _ = crate::agent::dispatch(
-                        app,
-                        json!({ "action": "setMaxBufferSize", "params": { "value": max_buffer } }),
-                    )
-                    .await;
+                    apply_buffer_size(app,max_buffer).await;
                     Ok(json!({ "success": true, "maxBufferSize": max_buffer }))
                 }
                 Err(error) => Ok(json!({ "success": false, "error": error })),

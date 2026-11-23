@@ -29,7 +29,7 @@ const FRAME_LIMIT: usize = 8 * 1024 * 1024;
 
 /// Count serialized bytes without duplicating the payload. Leave room for the
 /// envelope. Null tells callers with a local read implementation to use it.
-pub fn bounded_reply(result: Value) -> Result<Value, String> {
+pub fn serialized_size(result: &Value) -> Result<usize, String> {
     #[derive(Default)]
     struct Size(usize);
     impl std::io::Write for Size {
@@ -41,12 +41,16 @@ pub fn bounded_reply(result: Value) -> Result<Value, String> {
             Ok(())
         }
     }
-    if result.is_object() || result.is_array() {
-        let mut bytes = Size::default();
-        serde_json::to_writer(&mut bytes, &result).map_err(|e| e.to_string())?;
-        if bytes.0 > FRAME_LIMIT - 1024 * 1024 {
-            return Ok(Value::Null);
-        }
+    let mut bytes = Size::default();
+    serde_json::to_writer(&mut bytes, result).map_err(|e| e.to_string())?;
+    Ok(bytes.0)
+}
+
+pub fn bounded_reply(result: Value) -> Result<Value, String> {
+    if (result.is_object() || result.is_array())
+        && serialized_size(&result)? > FRAME_LIMIT - 1024 * 1024
+    {
+        return Ok(Value::Null);
     }
     Ok(result)
 }
@@ -141,7 +145,11 @@ impl Runtime {
                         .unwrap_or_else(|| format!("{}{}", id(), id()));
                     let info = json!({"port":port,"token":token});
                     let _ = started.send(Ok(info.clone()));
-                    Actor::new(info, commands, sink).run(listener, rx).await;
+                    let mut actor = Actor::new(info, commands, sink);
+                    if options["nativeTextIntake"] == true {
+                        actor.text_route = TextRoute::StandaloneDesktop;
+                    }
+                    actor.run(listener, rx).await;
                 });
             })
             .map_err(|e| e.to_string())?;
@@ -230,6 +238,13 @@ struct Managed {
     stop_replies: Vec<Reply>,
     cleanup_failed: bool,
 }
+#[derive(PartialEq, Eq)]
+enum TextRoute {
+    Backend,
+    DesktopForBackend,
+    StandaloneDesktop,
+}
+
 struct Actor {
     info: Value,
     tx: mpsc::Sender<Command>,
@@ -238,6 +253,7 @@ struct Actor {
     pending: HashMap<String, Pending>,
     observations: HashMap<String, Observation>,
     observation_sequence: u64,
+    text_route: TextRoute,
     processes: HashMap<String, Managed>,
 }
 impl Actor {
@@ -250,6 +266,7 @@ impl Actor {
             pending: HashMap::new(),
             observations: HashMap::new(),
             observation_sequence: 0,
+            text_route: TextRoute::Backend,
             processes: HashMap::new(),
         }
     }
@@ -341,6 +358,9 @@ impl Actor {
             return;
         }
         self.clients.remove(client);
+        if client == "backend" && self.text_route == TextRoute::DesktopForBackend {
+            self.text_route = TextRoute::Backend;
+        }
         self.emit("bus.disconnected", json!({"id":client}));
         let requests: Vec<_> = self
             .pending
@@ -380,6 +400,12 @@ impl Actor {
         let mut until = Some(Instant::now() + timeout);
         if let Destination::Relay { client, epoch } = &destination {
             if client == "backend" && dst == "main" {
+                if message["topic"] == "text.intake" {
+                    message["connectionEpoch"] = json!(epoch);
+                    if message["data"]["action"] == "start" && self.text_route == TextRoute::Backend {
+                        self.text_route = TextRoute::DesktopForBackend;
+                    }
+                }
                 if matches!(
                     message["topic"].as_str(),
                     Some("mining.cron" | "anki.monitor")
@@ -527,6 +553,9 @@ impl Actor {
                             "text.ack",
                             json!({"id":observation,"ack":ack,"payload":payload}),
                         );
+                        if self.text_route != TextRoute::Backend {
+                            self.deliver_text(Instant::now());
+                        }
                         return;
                     }
                 }
@@ -621,6 +650,9 @@ impl Actor {
                             attempts: 0,
                         },
                     );
+                    if self.text_route != TextRoute::Backend {
+                        self.deliver_text(Instant::now());
+                    }
                     Ok(json!(observation))
                 }
             }
@@ -795,6 +827,31 @@ impl Actor {
         }
         self.processes.insert(name.into(), process);
     }
+    fn deliver_text(&mut self, now: Instant) {
+        if self.text_route == TextRoute::Backend && !self.clients.contains_key("backend") {
+            return;
+        }
+        // Only the oldest receipt may advance. Retry deadlines keep its place.
+        let Some((id, item)) = self
+            .observations
+            .iter_mut()
+            .min_by_key(|(_, item)| item.order)
+        else {
+            return;
+        };
+        if item.request.is_some() || item.due > now {
+            return;
+        }
+        let (dst, topic) = if self.text_route != TextRoute::Backend {
+            ("main", "text.intake.hook")
+        } else {
+            ("backend", "text.ingress.v2")
+        };
+        let message = envelope(dst, topic, "request", item.payload.clone());
+        item.request = Some(string(&message, "id").to_owned());
+        let destination = Destination::Text(id.clone());
+        self.request(message, destination, Duration::from_millis(350));
+    }
     fn tick(&mut self) {
         let now = Instant::now();
         let expired: Vec<_> = self
@@ -806,33 +863,7 @@ impl Actor {
         for id in expired {
             self.complete(&id, Err("Request timed out".into()));
         }
-        if self.clients.contains_key("backend") {
-            // One acknowledged observation at a time preserves capture order,
-            // including while the first line is backpressured or retried.
-            let due: Vec<_> = self
-                .observations
-                .iter()
-                .min_by_key(|(_, item)| item.order)
-                .filter(|(_, item)| item.request.is_none() && item.due <= now)
-                .map(|(id, _)| id.clone())
-                .into_iter()
-                .collect();
-            for observation in due {
-                let item = self.observations.get_mut(&observation).unwrap();
-                let message = envelope(
-                    "backend",
-                    "text.ingress.v2",
-                    "request",
-                    item.payload.clone(),
-                );
-                item.request = Some(string(&message, "id").into());
-                self.request(
-                    message,
-                    Destination::Text(observation),
-                    Duration::from_millis(350),
-                );
-            }
-        }
+        self.deliver_text(now);
         let names: Vec<_> = self.processes.keys().cloned().collect();
         for name in names {
             let mut process = self.processes.remove(&name).unwrap();

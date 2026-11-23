@@ -452,10 +452,16 @@ catch {
 
 $overlayDataDirectory = [string][Environment]::GetEnvironmentVariable("GSM_OVERLAY_DATA_PATH", "Process")
 if ([string]::IsNullOrWhiteSpace($overlayDataDirectory)) {
-    if ($activeGsmDirectory -eq $defaultGsmDirectory) {
-        $overlayDataDirectory = Join-Path $appData "gsm_overlay"
+    $consolidated = Join-Path $activeGsmDirectory "Overlay"
+    $legacy = if ($activeGsmDirectory -eq $defaultGsmDirectory) {
+        Join-Path $appData "gsm_overlay"
     } else {
-        $overlayDataDirectory = Join-Path $activeGsmDirectory "gsm_overlay"
+        Join-Path $activeGsmDirectory "gsm_overlay"
+    }
+    $overlayDataDirectory = if ((Test-Path -LiteralPath $consolidated) -or !(Test-Path -LiteralPath $legacy)) {
+        $consolidated
+    } else {
+        $legacy
     }
 }
 $oneOcrDirectory = Join-Path $userProfile ".config\oneocr"

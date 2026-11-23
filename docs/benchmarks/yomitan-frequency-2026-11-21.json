@@ -1,0 +1,271 @@
+{
+  "rounds": 5,
+  "platform": "Windows-11-10.0.26300-SP0",
+  "worker_sha256": "17648d8da02d42a033488d0a6b14811e554cfd8a66faa07cd6be6495c9c04ef8",
+  "workloads": {
+    "small": {
+      "word_count": 100,
+      "calls": 80,
+      "term_sha256": "a7411dc2da528dfc77b1b77f42e12965ba81db47a02cea7b00a99cfa7e7e13ce",
+      "samples": {
+        "rust": [
+          {
+            "bytes": 969,
+            "ms": 0.44716374999999997,
+            "result": null,
+            "cpu_ms": 0.390625,
+            "resident_mib": 6.73828125
+          },
+          {
+            "bytes": 969,
+            "ms": 0.49250625000000003,
+            "result": null,
+            "cpu_ms": 0.5859375,
+            "resident_mib": 6.73828125
+          },
+          {
+            "bytes": 969,
+            "ms": 0.40300375,
+            "result": null,
+            "cpu_ms": 0.390625,
+            "resident_mib": 6.73828125
+          },
+          {
+            "bytes": 969,
+            "ms": 0.40527499999999994,
+            "result": null,
+            "cpu_ms": 0.390625,
+            "resident_mib": 6.73828125
+          },
+          {
+            "bytes": 969,
+            "ms": 0.38024,
+            "result": null,
+            "cpu_ms": 0.390625,
+            "resident_mib": 6.73828125
+          }
+        ],
+        "python": [
+          {
+            "ms": 0.5209237504459452,
+            "bytes": 989,
+            "cpu_ms": 0.5859375,
+            "resident_mib": 48.2890625
+          },
+          {
+            "ms": 0.4818987494218163,
+            "bytes": 989,
+            "cpu_ms": 0.390625,
+            "resident_mib": 48.29296875
+          },
+          {
+            "ms": 0.4783662501722574,
+            "bytes": 989,
+            "cpu_ms": 0.390625,
+            "resident_mib": 48.296875
+          },
+          {
+            "ms": 0.46351874989341013,
+            "bytes": 989,
+            "cpu_ms": 0.5859375,
+            "resident_mib": 48.296875
+          },
+          {
+            "ms": 0.44691750008496456,
+            "bytes": 989,
+            "cpu_ms": 0.390625,
+            "resident_mib": 48.296875
+          }
+        ]
+      },
+      "rust": {
+        "ms": 0.4053,
+        "cpu_ms": 0.3906,
+        "resident_mib": 6.7383,
+        "bytes": 969
+      },
+      "python": {
+        "ms": 0.4784,
+        "cpu_ms": 0.3906,
+        "resident_mib": 48.2969,
+        "bytes": 989
+      }
+    },
+    "multiple_banks": {
+      "word_count": 25000,
+      "calls": 3,
+      "term_sha256": "89f05d637981a13709a8ce11ddfb2d8534ad4d4992dd8472502c4a75607685cf",
+      "samples": {
+        "rust": [
+          {
+            "bytes": 112005,
+            "ms": 32.99966666666667,
+            "result": null,
+            "cpu_ms": 31.25,
+            "resident_mib": 10.79296875
+          },
+          {
+            "bytes": 112005,
+            "ms": 32.9162,
+            "result": null,
+            "cpu_ms": 31.25,
+            "resident_mib": 10.97265625
+          },
+          {
+            "bytes": 112006,
+            "ms": 31.147000000000002,
+            "result": null,
+            "cpu_ms": 26.041666666666668,
+            "resident_mib": 11.09375
+          },
+          {
+            "bytes": 112006,
+            "ms": 31.985433333333333,
+            "result": null,
+            "cpu_ms": 36.458333333333336,
+            "resident_mib": 11.09375
+          },
+          {
+            "bytes": 112006,
+            "ms": 31.326499999999996,
+            "result": null,
+            "cpu_ms": 31.25,
+            "resident_mib": 11.09375
+          }
+        ],
+        "python": [
+          {
+            "ms": 52.697066663919635,
+            "bytes": 123626,
+            "cpu_ms": 52.083333333333336,
+            "resident_mib": 63.14453125
+          },
+          {
+            "ms": 55.23979999513055,
+            "bytes": 123626,
+            "cpu_ms": 57.291666666666664,
+            "resident_mib": 63.15234375
+          },
+          {
+            "ms": 51.8385999991248,
+            "bytes": 123626,
+            "cpu_ms": 52.083333333333336,
+            "resident_mib": 63.17578125
+          },
+          {
+            "ms": 54.1598333317476,
+            "bytes": 123626,
+            "cpu_ms": 52.083333333333336,
+            "resident_mib": 63.3203125
+          },
+          {
+            "ms": 50.931700000849865,
+            "bytes": 123626,
+            "cpu_ms": 46.875,
+            "resident_mib": 64.8984375
+          }
+        ]
+      },
+      "rust": {
+        "ms": 31.9854,
+        "cpu_ms": 31.25,
+        "resident_mib": 11.0938,
+        "bytes": 112006
+      },
+      "python": {
+        "ms": 52.6971,
+        "cpu_ms": 52.0833,
+        "resident_mib": 63.1758,
+        "bytes": 123626
+      }
+    },
+    "archived": {
+      "word_count": 25000,
+      "calls": 3,
+      "term_sha256": "1f10adb8afe94aeebc472b49568312f9453730dc2c722e34e4d05c72313bf0fd",
+      "samples": {
+        "rust": [
+          {
+            "bytes": 118818,
+            "ms": 39.16833333333333,
+            "result": null,
+            "cpu_ms": 31.25,
+            "resident_mib": 11.3125
+          },
+          {
+            "bytes": 118818,
+            "ms": 36.84626666666667,
+            "result": null,
+            "cpu_ms": 36.458333333333336,
+            "resident_mib": 11.4609375
+          },
+          {
+            "bytes": 118818,
+            "ms": 36.2836,
+            "result": null,
+            "cpu_ms": 36.458333333333336,
+            "resident_mib": 11.4609375
+          },
+          {
+            "bytes": 118818,
+            "ms": 39.021966666666664,
+            "result": null,
+            "cpu_ms": 31.25,
+            "resident_mib": 11.4609375
+          },
+          {
+            "bytes": 118818,
+            "ms": 38.1001,
+            "result": null,
+            "cpu_ms": 36.458333333333336,
+            "resident_mib": 11.4609375
+          }
+        ],
+        "python": [
+          {
+            "ms": 59.86116667433331,
+            "bytes": 121445,
+            "cpu_ms": 57.291666666666664,
+            "resident_mib": 64.25
+          },
+          {
+            "ms": 61.53060001088306,
+            "bytes": 121445,
+            "cpu_ms": 62.5,
+            "resident_mib": 64.28515625
+          },
+          {
+            "ms": 63.582833332475275,
+            "bytes": 121445,
+            "cpu_ms": 57.291666666666664,
+            "resident_mib": 64.40234375
+          },
+          {
+            "ms": 63.65563334353889,
+            "bytes": 121445,
+            "cpu_ms": 57.291666666666664,
+            "resident_mib": 64.9375
+          },
+          {
+            "ms": 58.76293332160761,
+            "bytes": 121445,
+            "cpu_ms": 57.291666666666664,
+            "resident_mib": 65.45703125
+          }
+        ]
+      },
+      "rust": {
+        "ms": 38.1001,
+        "cpu_ms": 36.4583,
+        "resident_mib": 11.4609,
+        "bytes": 118818
+      },
+      "python": {
+        "ms": 61.5306,
+        "cpu_ms": 57.2917,
+        "resident_mib": 64.4023,
+        "bytes": 121445
+      }
+    }
+  }
+}

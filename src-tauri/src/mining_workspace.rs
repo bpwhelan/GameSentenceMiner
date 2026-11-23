@@ -1,4 +1,5 @@
 //! Desktop commands for text processing and Windows Speech.
+mod speech;
 
 use gsm_settings::workspace::{normalize_scene, speech_settings, Workspace};
 use serde_json::{json, Value};
@@ -6,12 +7,14 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 
 pub struct MiningWorkspace {
+    pub(crate) speech: speech::Service,
     latest: Mutex<Value>,
     previews: Arc<tokio::sync::Semaphore>,
 }
 impl Default for MiningWorkspace {
     fn default() -> Self {
         Self {
+            speech: Default::default(),
             latest: Mutex::new(Value::Null),
             previews: Arc::new(tokio::sync::Semaphore::new(2)),
         }
@@ -46,19 +49,14 @@ pub fn observe(app: &tauri::AppHandle, event: &str, message: &Value) {
                     latest[key] = data[key].clone();
                 }
             }
-            *app.state::<MiningWorkspace>().latest.lock().unwrap() = latest.clone();
-            emit(app, "textprocess-latest-text", latest);
-        }
-        "windows_speech_status" => emit(app, "speech-recognition.status", data.clone()),
-        "windows_speech_log" => {
-            let mut payload = data.clone();
-            if let Some(msg) = payload["message"].as_str() {
-                payload["message"] = json!(crate::desktop_log::ensure_origin("py:speech", msg));
-            }
-            emit(app, "speech-recognition.log", payload);
+            publish_latest(app, latest);
         }
         _ => {}
     }
+}
+pub fn publish_latest(app: &tauri::AppHandle, latest: Value) {
+    *app.state::<MiningWorkspace>().latest.lock().unwrap() = latest.clone();
+    emit(app, "textprocess-latest-text", latest);
 }
 async fn preview(app: &tauri::AppHandle, payload: Value) -> Result<Value, String> {
     if !payload["text"].is_string() || !payload["config"].is_object() {
@@ -102,14 +100,13 @@ pub async fn invoke(
         channel,
         "speech-recognition.stop" | "speech-recognition.getStatus"
     ) {
-        let function = if channel.ends_with(".stop") {
-            "windows_speech_stop"
+        let workspace = app.state::<MiningWorkspace>();
+        if channel.ends_with(".stop") {
+            workspace.speech.stop(app, "stopped from the Speech Recognition tab").await;
         } else {
-            "windows_speech_get_status"
-        };
-        return Ok(
-            json!({"success":true,"backendConnected":crate::runtime::backend_command(app,function,Value::Null).await?}),
-        );
+            workspace.speech.publish(app);
+        }
+        return Ok(json!({"success":true,"backendConnected":true}));
     }
     let base = app
         .state::<crate::settings::Settings>()
@@ -122,6 +119,10 @@ pub async fn invoke(
         let settings = Workspace::new(&base);
         match operation.as_str() {
             "textprocess.load" => settings.text(),
+            "textprocess.loadProfile" => settings.named_text(),
+            "textprocess.saveProfile" => settings.save_named_text(
+                input["name"].as_str().ok_or("Missing profile name")?,&input["before"],&input["after"]
+            ).map(|_|json!({"success":true})),
             "textprocess.save" => settings.save_text(&input).map(|_| json!({"success":true})),
             "textprocess.exclusions.list" => settings
                 .exclusions()
@@ -146,18 +147,22 @@ pub async fn invoke(
         Ok(value) => value,
         // Loading must reject: showing defaults after a failed read could cause
         // an autosave to overwrite the user's existing profile.
-        Err(error) if channel == "textprocess.load" => return Err(error),
+        Err(error) if matches!(channel,"textprocess.load"|"textprocess.loadProfile") => return Err(error),
         Err(error) => return Ok(json!({"success":false,"error":error})),
     };
-    if channel == "textprocess.save" {
-        let _ = crate::runtime::backend_command(app, "reload_settings", Value::Null).await;
+    if matches!(channel,"textprocess.save"|"textprocess.saveProfile") {
+        crate::mining_settings::changed(app).await;
     }
     if channel.starts_with("textprocess.exclusions.") && channel != "textprocess.exclusions.list" {
         emit(app, "textprocess-exclusions-changed", result.clone());
     }
     if channel == "speech-recognition.start" {
         let scene = normalize_scene(&payload["scene"])?;
-        result["backendConnected"]=json!(crate::runtime::backend_command(app,"windows_speech_start",json!({"sceneId":scene["id"],"sceneName":scene["name"],"settings":speech_settings(&payload["settings"])})).await?);
+        let workspace = app.state::<MiningWorkspace>();
+        if let Err(error) = workspace.speech.start(app, scene, speech_settings(&payload["settings"])).await {
+            return Ok(json!({"success":false,"error":error}));
+        }
+        result["backendConnected"] = json!(true);
     }
     Ok(result)
 }

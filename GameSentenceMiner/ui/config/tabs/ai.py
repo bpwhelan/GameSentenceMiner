@@ -330,6 +330,10 @@ def build_ai_tab(window: ConfigWindow, i18n: dict) -> QWidget:
         window.ai_dialogue_context_length_edit,
     )
     layout.addRow(
+        window._create_labeled_widget(tabs_i18n, "ai", "auto_generate_character_summary"),
+        window.ai_auto_generate_character_summary_check,
+    )
+    layout.addRow(
         window._create_labeled_widget(
             tabs_i18n,
             "ai",

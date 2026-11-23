@@ -763,7 +763,6 @@ class ConfigWindow(QWidget):
             return any(
                 [
                     int(previous_config.general.single_port) != int(new_config.general.single_port),
-                    int(previous_config.general.texthooker_port) != int(new_config.general.texthooker_port),
                     int(previous_config.advanced.direct_websocket_port)
                     != int(new_config.advanced.direct_websocket_port),
                 ]
@@ -1132,6 +1131,7 @@ class ConfigWindow(QWidget):
                 ),
                 ai=Ai(
                     add_to_anki=self.ai_enabled_check.isChecked(),
+                    auto_generate_character_summary=self.ai_auto_generate_character_summary_check.isChecked(),
                     provider=self.ai_provider_combo.currentText(),
                     gemini_model=self.gemini_model_combo.currentText(),
                     gemini_backup_model=(
@@ -1578,7 +1578,6 @@ class ConfigWindow(QWidget):
         self.open_multimine_on_startup_check = QCheckBox()
         self.single_port_edit = QLineEdit()
         self.single_port_edit.setValidator(QTGui.QIntValidator(1, 65535))
-        self.texthooker_port_edit = QLineEdit()
         self.native_language_combo = QComboBox()
         self.locale_combo = QComboBox()
 
@@ -1789,6 +1788,7 @@ class ConfigWindow(QWidget):
 
         # AI
         self.ai_enabled_check = QCheckBox()
+        self.ai_auto_generate_character_summary_check = QCheckBox()
         self.ai_provider_combo = QComboBox()
         self.gemini_model_combo = QComboBox()
         self.gemini_backup_model_combo = QComboBox()
@@ -2742,7 +2742,7 @@ class ConfigWindow(QWidget):
         button_layout.addStretch(1)
         self.sync_changes_check = None
 
-        if len(self.master_config.configs) > 1:
+        if len(self.master_config.configs) > 1 and not hasattr(self.master_config, "_desktop_editor_base"):
             sync_btn_i18n = buttons_i18n.get("sync_changes", {})
             self.sync_changes_check = QCheckBox(sync_btn_i18n.get("label", "Sync Changes to Profiles"))
             self.sync_changes_check.setToolTip(sync_btn_i18n.get("tooltip", "Syncs CHANGED SETTINGS to all profiles."))
@@ -3527,6 +3527,7 @@ class ConfigWindow(QWidget):
 
         # AI
         self.ai_enabled_check.setChecked(s.ai.add_to_anki)
+        self.ai_auto_generate_character_summary_check.setChecked(s.ai.auto_generate_character_summary)
         self._update_gemini_model_combos(preserve_selection=False)
         self._set_text_value(self.gemini_api_key_edit, s.ai.gemini_api_key)
         groq_models = list(RECOMMENDED_GROQ_MODELS)

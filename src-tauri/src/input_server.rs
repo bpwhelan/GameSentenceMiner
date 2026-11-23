@@ -166,7 +166,7 @@ pub fn start_background(app: &tauri::AppHandle) {
     let paths = &app.state::<crate::settings::Settings>().paths;
     let env = service_environment(
         &paths.active,
-        &gsm_packages::settings_backup::get_overlay_data_dir(&paths.active, paths.has_profile),
+        &crate::dictionary_host::overlay_data_path(app),
     );
     {
         let mut guard = shared.state.lock().unwrap();
@@ -274,7 +274,7 @@ fn stop_shared(shared: &Arc<Shared>) {
 
 fn service_environment(data: &Path, overlay: &Path) -> HashMap<String, String> {
     [
-        ("GSM_OVERLAY_DATA_PATH", data.join("gsm_overlay")),
+        ("GSM_OVERLAY_DATA_PATH", overlay.to_path_buf()),
         ("GSM_SUDACHI_DATA_PATH", data.to_path_buf()),
         (
             "GSM_SUDACHI_USER_DICTS_PATH",

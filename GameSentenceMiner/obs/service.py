@@ -1304,10 +1304,15 @@ def _call_with_obs_client(
                 pass
         return default
 
-    if not pool:
+    managed = desktop_session.enabled()
+    if not pool and not managed:
         return _resolve_default()
 
     try:
+        if managed:
+            from GameSentenceMiner.obs.desktop_client import client
+
+            return operation(client)
         effective_retries = max(0, int(retries if retryable else 0))
         return pool.call(operation, retries=effective_retries, retryable=bool(retryable))
     except Exception as e:
@@ -1481,7 +1486,10 @@ async def connect_to_obs(
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
-    if _obs_pkg.obs_service or _obs_pkg.connecting:
+    if desktop_session.reader_enabled():
+        await asyncio.to_thread(desktop_session.reader_bus)
+        return
+    if desktop_session.enabled() or _obs_pkg.obs_service or _obs_pkg.connecting:
         return
 
     if is_windows():
@@ -1556,7 +1564,10 @@ def connect_to_obs_sync(
 ):
     import GameSentenceMiner.obs as _obs_pkg
 
-    if _obs_pkg.obs_service or _obs_pkg.connecting:
+    if desktop_session.reader_enabled():
+        desktop_session.reader_bus()
+        return
+    if desktop_session.enabled() or _obs_pkg.obs_service or _obs_pkg.connecting:
         return
 
     if is_windows():
@@ -1623,6 +1634,11 @@ def connect_to_obs_sync(
 def disconnect_from_obs():
     import GameSentenceMiner.obs as _obs_pkg
 
+    if desktop_session.reader_enabled():
+        desktop_session.stop_reader()
+        return
+    if desktop_session.enabled() and _obs_pkg.obs_service is None:
+        return
     if _obs_pkg.obs_service:
         _obs_pkg.obs_service.disconnect()
         _obs_pkg.obs_service = None
@@ -1635,6 +1651,8 @@ def disconnect_from_obs():
 async def wait_for_obs_connected():
     import GameSentenceMiner.obs as _obs_pkg
 
+    if desktop_session.enabled():
+        return gsm_status.obs_connected
     pool = _obs_pkg.connection_pool
     if not pool:
         return False

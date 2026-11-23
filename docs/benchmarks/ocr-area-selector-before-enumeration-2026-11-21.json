@@ -1,0 +1,69 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 20,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Persistent loopback HTTP to independent Rust desktop and Flask processes. The profile contains 32 legacy OCR area files with pixel coordinates. Reads check the complete browser response. Saves check the original geometry and metadata. The screenshot request traverses an OBS v5 WebSocket fixture returning a 1280x720 JPEG, and checks the decoded image and cache headers.",
+  "medians": {
+    "/api/ocr-area-selector/config?name=areas-00": {
+      "python": {
+        "ms": 2.031,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 77.543
+      },
+      "rust": {
+        "ms": 0.7944,
+        "server_cpu_ms": 0.7812,
+        "server_resident_mib": 30.2891
+      }
+    },
+    "/api/ocr-area-selector/configs": {
+      "python": {
+        "ms": 7.8569,
+        "server_cpu_ms": 7.0312,
+        "server_resident_mib": 77.6328
+      },
+      "rust": {
+        "ms": 8.1793,
+        "server_cpu_ms": 7.8125,
+        "server_resident_mib": 30.3359
+      }
+    },
+    "/api/ocr-area-selector/current-config": {
+      "python": {
+        "ms": 2.7748,
+        "server_cpu_ms": 2.3438,
+        "server_resident_mib": 78.3047
+      },
+      "rust": {
+        "ms": 0.8108,
+        "server_cpu_ms": 0.7812,
+        "server_resident_mib": 30.4102
+      }
+    },
+    "/api/ocr-area-selector/config": {
+      "python": {
+        "ms": 4.6162,
+        "server_cpu_ms": 3.9062,
+        "server_resident_mib": 90.4609
+      },
+      "rust": {
+        "ms": 4.237,
+        "server_cpu_ms": 3.125,
+        "server_resident_mib": 31.3008
+      }
+    },
+    "/api/ocr-area-selector/screenshot": {
+      "python": {
+        "ms": 13.6793,
+        "server_cpu_ms": 12.5,
+        "server_resident_mib": 92.1602
+      },
+      "rust": {
+        "ms": 0.7888,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.3359
+      }
+    }
+  }
+}

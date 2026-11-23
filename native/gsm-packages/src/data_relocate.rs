@@ -148,12 +148,12 @@ fn existing_relocation_entries(
         }
     }
     let old_overlay = get_overlay_data_dir(old_dir, has_profile).join("settings.json");
-    let new_overlay = get_overlay_data_dir(new_dir, has_profile).join("settings.json");
+    let new_overlay = crate::overlay_directory::destination(new_dir, has_profile).join("settings.json");
     if canonicalize_or_lexical(&old_overlay) != canonicalize_or_lexical(&new_overlay)
         && path_exists_no_follow(&old_overlay)?
     {
         entries.push(RelocationEntry {
-            label: "gsm_overlay/settings.json",
+            label: "overlay settings",
             source: old_overlay,
             destination: new_overlay,
         });

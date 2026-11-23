@@ -322,6 +322,15 @@ def is_process_running(pid):
 
 def start_obs(force_restart=False):
     import GameSentenceMiner.obs as _obs_pkg
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        from GameSentenceMiner.util.communication import bus_client
+
+        result = bus_client.get_bus().request(
+            bus_client.MAIN, "obs.lifecycle", {"action": "restart" if force_restart else "start"}, timeout=60
+        )
+        return result.get("pid")
 
     if gsm_status.obs_connected and not force_restart:
         logger.debug("OBS is already connected; skipping launch request.")
@@ -405,6 +414,10 @@ def _probe_obs_ready(
     password: Optional[str] = None,
 ):
     import obsws_python as obs
+    from GameSentenceMiner.obs import desktop_session
+
+    if desktop_session.enabled():
+        return bool(desktop_session.snapshot().get("connected"))
 
     # Electron may choose a free port while Python is already starting. Refresh
     # defaults on each attempt instead of waiting forever on the old port.

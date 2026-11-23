@@ -8,7 +8,6 @@ use crate::desktop_state::emit_to_desktop_windows;
 use crate::native::dialog_open;
 use crate::obs::Obs;
 use crate::ocr_coordinator::ocr_config_paths;
-use crate::runtime;
 use crate::settings_tools::resolve_agent_scripts_dir;
 use crate::texthook_coordinator;
 use gsm_settings::preferences::Preferences;
@@ -24,6 +23,14 @@ use std::os::windows::process::CommandExt;
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+pub async fn open_text_feed(app: &AppHandle) -> Result<(), String> {
+    let config = paths_for(app).active.join("config.json");
+    let port = app.state::<std::sync::Arc<crate::mining::MiningService>>().bound_gateway_port()
+        .unwrap_or_else(|| gsm_settings::gsm_config::get_configured_single_port(&config));
+    tauri::async_runtime::spawn_blocking(move || crate::native::shell_open_external(&format!("http://localhost:{port}")))
+        .await.map_err(|e| e.to_string())?
+}
 
 fn electron_config_path(app: &AppHandle) -> PathBuf {
     paths_for(app).active.join("electron/config.json")
@@ -456,8 +463,7 @@ pub async fn try_invoke(
             Some(Ok(Value::Array(out)))
         }
         "openTexthooker" => {
-            let _ = runtime::backend_command(app, "open_texthooker", json!({})).await;
-            Some(Ok(Value::Null))
+            Some(open_text_feed(app).await.map(|_| Value::Null))
         }
 
         // --- Steam ---

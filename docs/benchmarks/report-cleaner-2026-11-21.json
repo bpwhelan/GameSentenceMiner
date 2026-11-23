@@ -1,0 +1,67 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "method": "Warm workers. Milliseconds per six-line corpus, 500 iterations per round. Includes Unicode character counting. Replacement output checked against Python. Lifetime peak working set on Windows; imports and regex compilation excluded.",
+  "medians": {
+    "(default)": {
+      "python": {
+        "ms": 0.02031,
+        "cpu_ms": 0.03125,
+        "resident_mib": 38.07812
+      },
+      "rust": {
+        "ms": 0.00434,
+        "cpu_ms": 0.0,
+        "resident_mib": 5.98047
+      }
+    },
+    "【.*?】": {
+      "python": {
+        "ms": 0.02509,
+        "cpu_ms": 0.03125,
+        "resident_mib": 38.12109
+      },
+      "rust": {
+        "ms": 0.00428,
+        "cpu_ms": 0.0,
+        "resident_mib": 8.92188
+      }
+    },
+    "(?<=。)犬": {
+      "python": {
+        "ms": 0.08973,
+        "cpu_ms": 0.09375,
+        "resident_mib": 38.15234
+      },
+      "rust": {
+        "ms": 0.05551,
+        "cpu_ms": 0.0625,
+        "resident_mib": 8.92188
+      }
+    },
+    "字(?=文)": {
+      "python": {
+        "ms": 0.02501,
+        "cpu_ms": 0.03125,
+        "resident_mib": 38.15234
+      },
+      "rust": {
+        "ms": 0.02446,
+        "cpu_ms": 0.03125,
+        "resident_mib": 8.92188
+      }
+    },
+    "(猫|犬)\\1": {
+      "python": {
+        "ms": 0.06833,
+        "cpu_ms": 0.0625,
+        "resident_mib": 38.16406
+      },
+      "rust": {
+        "ms": 0.05659,
+        "cpu_ms": 0.0625,
+        "resident_mib": 8.92188
+      }
+    }
+  }
+}

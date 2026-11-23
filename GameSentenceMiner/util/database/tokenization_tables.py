@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 from typing import List, Optional
 
 from GameSentenceMiner.util.config.configuration import logger
@@ -731,6 +732,38 @@ def drop_tokenization_trigger(db: SQLiteDB):
         commit=True,
     )
     db.execute("DROP TRIGGER IF EXISTS trg_words_stats_cache_delete", commit=True)
+
+
+def bind_vocabulary_models(db: SQLiteDB, enabled: bool) -> None:
+    from GameSentenceMiner.util.database import anki_tables
+
+    for model in (
+        WordsTable,
+        KanjiTable,
+        WordOccurrencesTable,
+        KanjiOccurrencesTable,
+        *anki_tables._ANKI_TABLE_CLASSES,
+    ):
+        model.set_db(db, ensure_schema=False)
+    if not enabled:
+        endpoints = sys.modules.get("GameSentenceMiner.web.anki_api_endpoints")
+        if (invalidate := getattr(endpoints, "invalidate_anki_data_cache", None)) is not None:
+            invalidate()
+
+
+def bind_native_vocabulary(db: SQLiteDB, enabled: bool) -> None:
+    from GameSentenceMiner.util.database import anki_tables
+
+    bind_vocabulary_models(db, enabled)
+    if enabled:
+        _schedule_first_seen_backfill(db)
+        _migrate_tokenize_backfill_cron_job()
+        anki_tables._migrate_anki_card_sync_cron()
+        start_global_frequency_source_sync(db)
+    else:
+        _disable_tokenize_backfill_cron()
+        _disable_anki_word_sync_cron()
+        anki_tables._disable_anki_card_sync_cron()
 
 
 def setup_tokenization(db: SQLiteDB):

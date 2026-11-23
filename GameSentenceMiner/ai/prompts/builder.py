@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from GameSentenceMiner.ai.features.character_filter import CharacterContext
 from GameSentenceMiner.ai.prompts.presets import build_study_prompt
 from GameSentenceMiner.ai.prompts.templates import (
     DIALOGUE_CONTEXT_TEMPLATE,
@@ -27,9 +28,9 @@ class PromptSelection:
 
 class DialogueContextBuilder:
     @staticmethod
-    def build(lines: list[GameLine], current_line: GameLine, context_length: int) -> str:
+    def select(lines: list[GameLine], current_line: GameLine, context_length: int) -> str | None:
         if context_length == 0 or not lines:
-            return "No dialogue context available."
+            return None
 
         if context_length == -1:
             start_index = 0
@@ -48,7 +49,15 @@ class DialogueContextBuilder:
             if i < len(lines):
                 context_lines_text.append(lines[i].text)
 
-        return DIALOGUE_CONTEXT_TEMPLATE.format("\n".join(context_lines_text))
+        return "\n".join(context_lines_text)
+
+    @staticmethod
+    def build(lines: list[GameLine], current_line: GameLine, context_length: int) -> str:
+        return DialogueContextBuilder.format(DialogueContextBuilder.select(lines, current_line, context_length))
+
+    @staticmethod
+    def format(dialogue: str | None) -> str:
+        return "No dialogue context available." if dialogue is None else DIALOGUE_CONTEXT_TEMPLATE.format(dialogue)
 
 
 class PromptSelector:
@@ -100,6 +109,8 @@ class FullPromptRenderer:
         }
         values["prompt_to_use"] = expand_prompt_variables(prompt_to_use, values)
         template = custom_full_prompt.strip() or FULL_PROMPT_TEMPLATE
+        if not custom_full_prompt.strip() and not character_context:
+            template = template.replace("Character Context:\n{character_context}\n\n", "")
         if "{sentence}" not in template:
             raise ValueError("The full prompt template must include {sentence}.")
         return expand_prompt_variables(template, values)
@@ -120,11 +131,11 @@ class PromptBuilder:
         use_canned_context_prompt: bool,
         custom_prompt: str,
         custom_prompt_override: str | None = None,
-        character_context: str = "",
+        character_context: str | CharacterContext = "",
         prompt_preset: str = "",
         custom_full_prompt: str = "",
     ) -> tuple[str, str]:
-        dialogue_context = DialogueContextBuilder.build(lines, current_line, dialogue_context_length)
+        dialogue = DialogueContextBuilder.select(lines, current_line, dialogue_context_length)
         selection = PromptSelector.select(
             use_canned_translation_prompt=use_canned_translation_prompt,
             use_canned_context_prompt=use_canned_context_prompt,
@@ -133,10 +144,15 @@ class PromptBuilder:
             custom_prompt_override=custom_prompt_override,
             prompt_preset=prompt_preset,
         )
+        template = custom_full_prompt.strip() or FULL_PROMPT_TEMPLATE
+        surrounding_is_sent = "{dialogue_context}" in template or (
+            "{prompt_to_use}" in template and "{dialogue_context}" in selection.prompt_text
+        )
+        cast = CharacterContext(character_context) if isinstance(character_context, str) else character_context
         full_prompt = FullPromptRenderer.render(
             game_title=game_title,
-            character_context=character_context,
-            dialogue_context=dialogue_context,
+            character_context=cast.relevant_to(sentence, (dialogue or "") if surrounding_is_sent else ""),
+            dialogue_context=DialogueContextBuilder.format(dialogue),
             prompt_to_use=selection.prompt_text,
             sentence=sentence,
             custom_full_prompt=custom_full_prompt,

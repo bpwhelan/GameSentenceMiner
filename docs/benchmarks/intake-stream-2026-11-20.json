@@ -1,0 +1,231 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cycles_per_sample": 48,
+  "cases": {
+    "mixed": {
+      "observations": 216,
+      "samples": {
+        "python": [
+          {
+            "wall_us": 18.93478973911835,
+            "cpu_us": 18.08449074074074,
+            "baseline_private_mib": 18.24609375,
+            "peak_private_mib": 18.265625
+          },
+          {
+            "wall_us": 18.97417052285523,
+            "cpu_us": 18.08449074074074,
+            "baseline_private_mib": 18.21484375,
+            "peak_private_mib": 18.234375
+          },
+          {
+            "wall_us": 18.009538967974404,
+            "cpu_us": 18.08449074074074,
+            "baseline_private_mib": 18.0078125,
+            "peak_private_mib": 18.01953125
+          }
+        ],
+        "rust": [
+          {
+            "wall_us": 3.106963734567901,
+            "cpu_us": 3.014081790123457,
+            "baseline_private_mib": 1.01953125,
+            "peak_private_mib": 1.01953125
+          },
+          {
+            "wall_us": 3.1844328703703706,
+            "cpu_us": 3.014081790123457,
+            "baseline_private_mib": 1.015625,
+            "peak_private_mib": 1.04296875
+          },
+          {
+            "wall_us": 3.006172839506173,
+            "cpu_us": 3.014081790123457,
+            "baseline_private_mib": 1.015625,
+            "peak_private_mib": 1.0234375
+          }
+        ]
+      },
+      "median": {
+        "python": {
+          "wall_us": 18.935,
+          "cpu_us": 18.084,
+          "baseline_private_mib": 18.215,
+          "peak_private_mib": 18.234
+        },
+        "rust": {
+          "wall_us": 3.107,
+          "cpu_us": 3.014,
+          "baseline_private_mib": 1.016,
+          "peak_private_mib": 1.023
+        }
+      },
+      "verified_sha256": "0057c5718002bdc3f49e6b8b1b47a947d5d877942fd04e7e269beeb1234c4432"
+    },
+    "long": {
+      "observations": 216,
+      "samples": {
+        "python": [
+          {
+            "wall_us": 43.666792054055904,
+            "cpu_us": 43.70418595679013,
+            "baseline_private_mib": 19.5859375,
+            "peak_private_mib": 19.60546875
+          },
+          {
+            "wall_us": 48.97391010425413,
+            "cpu_us": 48.22530864197531,
+            "baseline_private_mib": 19.90625,
+            "peak_private_mib": 19.90625
+          },
+          {
+            "wall_us": 46.673138501914146,
+            "cpu_us": 42.19714506172839,
+            "baseline_private_mib": 19.828125,
+            "peak_private_mib": 19.84765625
+          }
+        ],
+        "rust": [
+          {
+            "wall_us": 42.21039737654321,
+            "cpu_us": 42.19714506172839,
+            "baseline_private_mib": 1.77734375,
+            "peak_private_mib": 2.3984375
+          },
+          {
+            "wall_us": 40.984297839506176,
+            "cpu_us": 42.19714506172839,
+            "baseline_private_mib": 1.765625,
+            "peak_private_mib": 2.3515625
+          },
+          {
+            "wall_us": 41.29296875,
+            "cpu_us": 36.16898148148148,
+            "baseline_private_mib": 1.76953125,
+            "peak_private_mib": 2.37109375
+          }
+        ]
+      },
+      "median": {
+        "python": {
+          "wall_us": 46.673,
+          "cpu_us": 43.704,
+          "baseline_private_mib": 19.828,
+          "peak_private_mib": 19.848
+        },
+        "rust": {
+          "wall_us": 41.293,
+          "cpu_us": 42.197,
+          "baseline_private_mib": 1.77,
+          "peak_private_mib": 2.371
+        }
+      },
+      "verified_sha256": "7b9a06ddeb8a409110aa8d1bc31eea093062d789f93d4094a3384973acc95c18"
+    },
+    "burst": {
+      "observations": 216,
+      "samples": {
+        "python": [
+          {
+            "wall_us": 26.981452546026027,
+            "cpu_us": 27.12673611111111,
+            "baseline_private_mib": 19.40234375,
+            "peak_private_mib": 19.4296875
+          },
+          {
+            "wall_us": 26.03940972367576,
+            "cpu_us": 25.619695216049383,
+            "baseline_private_mib": 18.41015625,
+            "peak_private_mib": 18.546875
+          },
+          {
+            "wall_us": 25.733854171347858,
+            "cpu_us": 25.619695216049383,
+            "baseline_private_mib": 19.1796875,
+            "peak_private_mib": 19.2421875
+          }
+        ],
+        "rust": [
+          {
+            "wall_us": 10.046132330246913,
+            "cpu_us": 9.04224537037037,
+            "baseline_private_mib": 1.45703125,
+            "peak_private_mib": 2.03125
+          },
+          {
+            "wall_us": 10.012779706790123,
+            "cpu_us": 9.04224537037037,
+            "baseline_private_mib": 1.46484375,
+            "peak_private_mib": 2.06640625
+          },
+          {
+            "wall_us": 10.213966049382718,
+            "cpu_us": 10.549286265432098,
+            "baseline_private_mib": 1.453125,
+            "peak_private_mib": 2.01953125
+          }
+        ]
+      },
+      "median": {
+        "python": {
+          "wall_us": 26.039,
+          "cpu_us": 25.62,
+          "baseline_private_mib": 19.18,
+          "peak_private_mib": 19.242
+        },
+        "rust": {
+          "wall_us": 10.046,
+          "cpu_us": 9.042,
+          "baseline_private_mib": 1.457,
+          "peak_private_mib": 2.031
+        }
+      },
+      "verified_sha256": "bd0b50db299df92559bf2c6993559d224779eebe422b521d9c36df27f008d1e2"
+    }
+  },
+  "replacement_filters": [
+    {
+      "recompile_us": 55.859326171875,
+      "reuse_us": 0.9063476562499999
+    },
+    {
+      "recompile_us": 51.586572265625,
+      "reuse_us": 0.9627929687500001
+    },
+    {
+      "recompile_us": 55.489550781249996,
+      "reuse_us": 0.737158203125
+    }
+  ],
+  "clipboard_notification": {
+    "python": [
+      {
+        "p50_us": 62.5,
+        "p95_us": 133.3
+      },
+      {
+        "p50_us": 90.3,
+        "p95_us": 357.9
+      },
+      {
+        "p50_us": 71.9,
+        "p95_us": 204.5
+      }
+    ],
+    "rust": [
+      {
+        "p50_us": 12.1,
+        "p95_us": 40.4
+      },
+      {
+        "p50_us": 12.1,
+        "p95_us": 40.7
+      },
+      {
+        "p50_us": 12.6,
+        "p95_us": 35.1
+      }
+    ]
+  }
+}

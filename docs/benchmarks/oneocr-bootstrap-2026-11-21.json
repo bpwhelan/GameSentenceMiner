@@ -1,0 +1,30 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "medians": {
+    "system_install": {
+      "python": {
+        "ms": 2381.956,
+        "cpu_ms": 31.25,
+        "resident_mib": 46.863
+      },
+      "rust": {
+        "ms": 37.659,
+        "cpu_ms": 31.25,
+        "resident_mib": 13.031
+      }
+    },
+    "reopen": {
+      "python": {
+        "ms": 0.261,
+        "cpu_ms": 0.156,
+        "resident_mib": 46.863
+      },
+      "rust": {
+        "ms": 0.178,
+        "cpu_ms": 0.156,
+        "resident_mib": 13.039
+      }
+    }
+  }
+}

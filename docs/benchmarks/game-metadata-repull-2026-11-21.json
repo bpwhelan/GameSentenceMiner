@@ -1,0 +1,33 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Repull one game from four local metadata providers. Compare priority rules, manual field overrides, a full JPEG cover and VNDB portraits, and the response when all metadata fields are locked.",
+  "medians": {
+    "four_sources": {
+      "rust": {
+        "ms": 4.8608,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.6133
+      },
+      "python": {
+        "ms": 23.3283,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 89.5508
+      }
+    },
+    "all_overridden": {
+      "rust": {
+        "ms": 4.6649,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.582
+      },
+      "python": {
+        "ms": 42.9044,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 89.5508
+      }
+    }
+  }
+}

@@ -1,0 +1,20 @@
+[package]
+name = "gsm-intake"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+gsm-text-preview = { path = "../gsm-text-preview" }
+chrono = { version = "0.4", features = ["serde"] }
+hashlink = "0.9"
+smallvec = { version = "1", features = ["const_generics", "union"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+unicode-normalization = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+
+[target.'cfg(windows)'.dev-dependencies]
+tokio = { version = "1", features = ["rt", "sync", "time"] }
+windows = { version = "0.62", features = ["Win32_System_DataExchange", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }

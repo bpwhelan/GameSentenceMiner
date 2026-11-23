@@ -87,6 +87,36 @@ class ThirdPartyStatsTable(SQLiteDBTable):
         return entry
 
     @classmethod
+    def import_batch(cls, rows, clear_source=None) -> int:
+        from GameSentenceMiner.native import history
+        from GameSentenceMiner.native.ocr import _extension
+
+        db = cls._db
+        cleared = history.import_reading_stats(db, rows, clear_source)
+        if cleared is not None:
+            cls.invalidate_profiles()
+            return cleared
+        ingest = getattr(_extension, "import_reading_stats", None)
+        if ingest is not None and db.db_path != ":memory:" and not db._on_writer_thread():
+            cleared = db.run_external_write(lambda: ingest(db.db_path, rows, clear_source))
+        else:
+
+            def write(conn):
+                cleared = 0
+                if clear_source is not None:
+                    cleared = conn.execute("DELETE FROM third_party_stats WHERE source=?", (clear_source,)).rowcount
+                created = time.time()
+                conn.executemany(
+                    "INSERT INTO third_party_stats(date,characters_read,time_read_seconds,source,label,created_at,game_id,lines_read,source_id) VALUES(?,?,?,?,?,?,'',0,'')",
+                    ((*row, created) for row in rows),
+                )
+                return cleared
+
+            cleared = db.run_transaction(write)
+        cls.invalidate_profiles()
+        return cleared
+
+    @classmethod
     def get_first_date(cls) -> Optional[str]:
         """Get the earliest date with third-party stats data."""
         row = cls._db.fetchone(f"SELECT date FROM {cls._table} ORDER BY date ASC LIMIT 1")

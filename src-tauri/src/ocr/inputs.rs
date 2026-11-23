@@ -46,12 +46,15 @@ fn binding(value: &Value) -> HashSet<u8> {
         .collect()
 }
 #[derive(Default)]
-struct Dispatcher {
+pub(crate) struct Dispatcher {
     pressed: HashMap<String, HashSet<u8>>,
     active: HashSet<(String, usize)>,
 }
 impl Dispatcher {
     fn receive(&mut self, message: &Value, settings: &Value) -> Vec<&'static str> {
+        self.receive_with(message,settings,&BINDINGS)
+    }
+    pub(crate) fn receive_with(&mut self, message: &Value, settings: &Value, bindings: &[(&str,&'static str)]) -> Vec<&'static str> {
         let Some(device) = message["device"].as_str() else {
             return vec![];
         };
@@ -89,7 +92,7 @@ impl Dispatcher {
             _ => return vec![],
         }
         let mut actions = Vec::new();
-        for (index, (key, action)) in BINDINGS.iter().enumerate() {
+        for (index, (key, action)) in bindings.iter().enumerate() {
             let buttons = binding(&settings[*key]);
             let key = (device.into(), index);
             if !buttons.is_empty() && buttons.is_subset(pressed) {
@@ -179,7 +182,7 @@ fn run(app: tauri::AppHandle, worker: Ocr) {
         let listen = pad || !keys.is_empty();
         let clip = state.running
             && !state.paused
-            && settings["advancedMode"] == true
+            && (settings["advancedMode"] == true || state.config["screenshot_only"] == true)
             && settings["ocr_screenshots"] == true;
         if !state.running
             || (!listen && !clip)

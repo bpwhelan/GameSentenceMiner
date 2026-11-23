@@ -1,0 +1,109 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "calls_per_round": 2,
+  "worker_sha256": "f1666323030ce126714329199729586d03c26f93fb747c1847e49e25f6c2db64",
+  "ffmpeg_version": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "summary": {
+    "python": {
+      "ms": 410.9851,
+      "cpu_ms": 70.3125,
+      "resident_mib": 92.0312,
+      "tree_cpu_ms": 539.0625,
+      "peak_tree_commit_mib": 105.3359
+    },
+    "rust": {
+      "ms": 401.678,
+      "cpu_ms": 46.875,
+      "resident_mib": 19.7227,
+      "tree_cpu_ms": 445.3125,
+      "peak_tree_commit_mib": 57.1367
+    }
+  },
+  "samples": {
+    "python": [
+      {
+        "ms": 403.55854999506846,
+        "cpu_ms": 62.5,
+        "resident_mib": 92.01171875,
+        "tree_cpu_ms": 531.25,
+        "peak_tree_commit_mib": 104.79296875
+      },
+      {
+        "ms": 448.15025001298636,
+        "cpu_ms": 101.5625,
+        "resident_mib": 92.015625,
+        "tree_cpu_ms": 500.0,
+        "peak_tree_commit_mib": 104.79296875
+      },
+      {
+        "ms": 465.8340500027407,
+        "cpu_ms": 62.5,
+        "resident_mib": 92.03125,
+        "tree_cpu_ms": 554.6875,
+        "peak_tree_commit_mib": 105.3359375
+      },
+      {
+        "ms": 410.29770000022836,
+        "cpu_ms": 70.3125,
+        "resident_mib": 92.0390625,
+        "tree_cpu_ms": 539.0625,
+        "peak_tree_commit_mib": 105.3359375
+      },
+      {
+        "ms": 410.9850999957416,
+        "cpu_ms": 117.1875,
+        "resident_mib": 92.0546875,
+        "tree_cpu_ms": 609.375,
+        "peak_tree_commit_mib": 105.3359375
+      }
+    ],
+    "rust": [
+      {
+        "ms": 401.67805,
+        "cpu_ms": 46.875,
+        "resident_mib": 19.6796875,
+        "tree_cpu_ms": 406.25,
+        "peak_tree_commit_mib": 57.13671875
+      },
+      {
+        "ms": 392.0756,
+        "cpu_ms": 46.875,
+        "resident_mib": 19.6796875,
+        "tree_cpu_ms": 539.0625,
+        "peak_tree_commit_mib": 57.13671875
+      },
+      {
+        "ms": 412.9589,
+        "cpu_ms": 46.875,
+        "resident_mib": 19.72265625,
+        "tree_cpu_ms": 460.9375,
+        "peak_tree_commit_mib": 57.13671875
+      },
+      {
+        "ms": 397.45355,
+        "cpu_ms": 39.0625,
+        "resident_mib": 19.72265625,
+        "tree_cpu_ms": 414.0625,
+        "peak_tree_commit_mib": 57.13671875
+      },
+      {
+        "ms": 405.85065,
+        "cpu_ms": 54.6875,
+        "resident_mib": 20.2890625,
+        "tree_cpu_ms": 445.3125,
+        "peak_tree_commit_mib": 57.4765625
+      }
+    ]
+  },
+  "folder": {
+    "text": "台詞2台詞3",
+    "audio": {
+      "channels": 1,
+      "sample_rate": 44100,
+      "frames": 154351
+    },
+    "video_packets": 111
+  },
+  "media_sha256": "c1e293e660e5d0a33d21a7489849bcf59f833c0f48ab01db1f5b0930d62906bd"
+}

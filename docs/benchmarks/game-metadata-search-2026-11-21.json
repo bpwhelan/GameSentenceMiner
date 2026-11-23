@@ -1,0 +1,45 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 10,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Four loopback provider fixtures return Jiten, VNDB, GSM Cloud IGDB, and AniList search results. Each unified request issues five HTTP requests including both AniList media types. Compare every normalized field and raw record, treating provider completion order as variable. One warmup per operation and server. Remote network latency is excluded.",
+  "medians": {
+    "/api/jiten-search?title=Game": {
+      "python": {
+        "ms": 4.0371,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 85.6719
+      },
+      "rust": {
+        "ms": 0.6351,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 30.4414
+      }
+    },
+    "/api/search/unified?q=Game": {
+      "python": {
+        "ms": 11.3824,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 87.7578
+      },
+      "rust": {
+        "ms": 2.4765,
+        "server_cpu_ms": 3.125,
+        "server_resident_mib": 31.5469
+      }
+    },
+    "/api/search/unified?q=outage&sources=vndb,jiten,missing": {
+      "python": {
+        "ms": 6.5682,
+        "server_cpu_ms": 4.6875,
+        "server_resident_mib": 86.8984
+      },
+      "rust": {
+        "ms": 1.2939,
+        "server_cpu_ms": 1.5625,
+        "server_resident_mib": 32.0195
+      }
+    }
+  }
+}

@@ -11,6 +11,29 @@ def enabled():
     return os.environ.get("GSM_NATIVE_GAME_SESSION") == "1" and os.environ.get("GSM_CLIENT_ID") == "backend"
 
 
+def is_settings_worker():
+    return os.environ.get("GSM_CLIENT_ID") == "qt-settings"
+
+
+def save_editor_changes(config):
+    previous = getattr(config, "_desktop_editor_base", None)
+    if previous is None:
+        raise RuntimeError("Reopen settings to load the current mining profile.")
+    edited = config.to_dict()
+    if edited == previous:
+        return
+    if is_settings_worker() or enabled():
+        from GameSentenceMiner.util.communication import bus_client
+
+        bus_client.get_bus().request("main", "settings.profile.save", {"before": previous, "after": edited})
+    else:
+        from GameSentenceMiner import _native
+        from GameSentenceMiner.util.config.configuration import get_config_path
+
+        _native.save_layered_settings(get_config_path(), json.dumps(previous), json.dumps(edited))
+    config._desktop_editor_base = edited
+
+
 @contextmanager
 def _settings_lock(path):
     # Same file and overlapping byte range as gsm_settings::with_lock.

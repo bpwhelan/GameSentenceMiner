@@ -28,7 +28,7 @@ from .models import (
     normalize_utc,
     utc_now,
 )
-from .skip_detection import AUTOMATIC_SOURCES, WINDOW_NS, compact_text, make_detector
+from .skip_detection import AUTOMATIC_SOURCES, COMMIT_WINDOW_NS, compact_text, make_detector
 
 
 @dataclass
@@ -109,8 +109,9 @@ class TextCoordinatorState:
                     self._landing_record_id = last.line_id
                     self._landing_deadline_ns = now_ns + 10_000_000_000
             detector.reset()
-        for record in self._journal.ready(now_ns, WINDOW_NS):
-            events.append(self._classify_stats(record, False))
+        if not detector.suspended:
+            for record in self._journal.ready(now_ns, COMMIT_WINDOW_NS):
+                events.append(self._classify_stats(record, False))
         return tuple(events)
 
     def finish_stats(self) -> tuple[TextDomainEvent, ...]:

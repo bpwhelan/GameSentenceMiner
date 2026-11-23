@@ -9,7 +9,6 @@ The routes are organized by functionality:
 - jiten_linking_routes: Linking games to external databases (Jiten, VNDB, AniList)
 - search_routes: Search operations across Jiten, VNDB, and AniList
 - cron_routes: Background job operations
-- debug_routes: Debugging and utility endpoints
 """
 
 from .routes import register_all_routes

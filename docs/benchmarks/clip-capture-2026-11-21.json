@@ -1,0 +1,159 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "rounds": 5,
+  "calls_per_round": 2,
+  "worker_sha256": "0ecb142b67f3415805c654059bcdb68972cc0d7c37b2fad144ccac72147ed2dc",
+  "ffmpeg_version": "ffmpeg version 8.1.1-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+  "summary": {
+    "python": {
+      "ms": 244.651,
+      "cpu_ms": 39.0625,
+      "resident_mib": 49.3164,
+      "tree_cpu_ms": 296.875,
+      "peak_tree_commit_mib": 61.3477
+    },
+    "rust": {
+      "ms": 264.1377,
+      "cpu_ms": 39.0625,
+      "resident_mib": 9.8516,
+      "tree_cpu_ms": 312.5,
+      "peak_tree_commit_mib": 37.0938
+    }
+  },
+  "samples": {
+    "python": [
+      {
+        "ms": 239.16800000006333,
+        "cpu_ms": 46.875,
+        "resident_mib": 49.2890625,
+        "tree_cpu_ms": 257.8125,
+        "peak_tree_commit_mib": 61.34765625
+      },
+      {
+        "ms": 244.6510000154376,
+        "cpu_ms": 23.4375,
+        "resident_mib": 49.3046875,
+        "tree_cpu_ms": 304.6875,
+        "peak_tree_commit_mib": 61.34765625
+      },
+      {
+        "ms": 239.8442999983672,
+        "cpu_ms": 23.4375,
+        "resident_mib": 49.31640625,
+        "tree_cpu_ms": 343.75,
+        "peak_tree_commit_mib": 61.34765625
+      },
+      {
+        "ms": 246.14475000998937,
+        "cpu_ms": 39.0625,
+        "resident_mib": 49.33203125,
+        "tree_cpu_ms": 289.0625,
+        "peak_tree_commit_mib": 69.3984375
+      },
+      {
+        "ms": 246.69359999825247,
+        "cpu_ms": 62.5,
+        "resident_mib": 49.33203125,
+        "tree_cpu_ms": 296.875,
+        "peak_tree_commit_mib": 84.49609375
+      }
+    ],
+    "rust": [
+      {
+        "ms": 264.13765,
+        "cpu_ms": 31.25,
+        "resident_mib": 9.82421875,
+        "tree_cpu_ms": 335.9375,
+        "peak_tree_commit_mib": 37.09375
+      },
+      {
+        "ms": 260.9929,
+        "cpu_ms": 39.0625,
+        "resident_mib": 9.82421875,
+        "tree_cpu_ms": 257.8125,
+        "peak_tree_commit_mib": 37.09375
+      },
+      {
+        "ms": 268.28025,
+        "cpu_ms": 62.5,
+        "resident_mib": 9.8515625,
+        "tree_cpu_ms": 312.5,
+        "peak_tree_commit_mib": 37.09375
+      },
+      {
+        "ms": 266.12944999999996,
+        "cpu_ms": 39.0625,
+        "resident_mib": 9.8515625,
+        "tree_cpu_ms": 281.25,
+        "peak_tree_commit_mib": 37.09375
+      },
+      {
+        "ms": 260.7319,
+        "cpu_ms": 31.25,
+        "resident_mib": 9.9453125,
+        "tree_cpu_ms": 320.3125,
+        "peak_tree_commit_mib": 37.09375
+      }
+    ]
+  },
+  "manifest": {
+    "lines": [
+      {
+        "id": "line-0",
+        "text": "台詞0",
+        "time": "2026-11-21T03:37:21.500000",
+        "role": "previous",
+        "scene": "ゲーム",
+        "source": "manual",
+        "source_padding": 0.0
+      },
+      {
+        "id": "line-1",
+        "text": "台詞1",
+        "time": "2026-11-21T03:37:23.000000",
+        "role": "previous",
+        "scene": "ゲーム",
+        "source": "manual",
+        "source_padding": 0.0
+      },
+      {
+        "id": "line-2",
+        "text": "台詞2",
+        "time": "2026-11-21T03:37:24.500000",
+        "role": "selected",
+        "scene": "ゲーム",
+        "source": "manual",
+        "source_padding": 0.0
+      },
+      {
+        "id": "line-3",
+        "text": "台詞3",
+        "time": "2026-11-21T03:37:26.000000",
+        "role": "next",
+        "scene": "ゲーム",
+        "source": "manual",
+        "source_padding": 0.0
+      },
+      {
+        "id": "line-4",
+        "text": "台詞4",
+        "time": "2026-11-21T03:37:27.500000",
+        "role": "next",
+        "scene": "ゲーム",
+        "source": "manual",
+        "source_padding": 0.0
+      }
+    ],
+    "clip": {
+      "file": "clip.mkv",
+      "end_time": "2026-11-21T03:37:29.560000"
+    },
+    "pauses": [
+      [
+        1795250245.0,
+        1795250245.25
+      ]
+    ]
+  },
+  "packet_stream_sha256": "c1ecc7ff938e653a62348f07ff06d432adee0a150f1dea3b0033eb33b05b454d"
+}

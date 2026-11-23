@@ -46,6 +46,9 @@ pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     } else {
         let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
         let manifest = gsm_packages::agent_runtime::Manifest::read(&root.join("native/agent-runtime.json"))?;
+        if crate::PORTABLE_PREVIEW {
+            return runtime.ensure_from_archive(&manifest, &root.join("native/agent-runtime.zip"));
+        }
         let progress = std::sync::atomic::AtomicU64::new(u64::MAX);
         runtime.ensure(&manifest, &|bytes, total| {
             let percent = total.filter(|n| *n > 0).map(|n| bytes.saturating_mul(100) / n).unwrap_or(0).min(100);

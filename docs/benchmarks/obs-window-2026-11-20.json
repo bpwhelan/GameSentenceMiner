@@ -1,0 +1,256 @@
+{
+  "before": [
+    {
+      "idle_cpu_ms_per_s": 6.249988812525788,
+      "idle_cpu_by_process": {
+        "python": 4.687491609394341,
+        "desktop": 1.562497203131447
+      },
+      "private_mib": 72.53515625,
+      "threads": 53,
+      "screenshot_128k_ms": 21.552799999999998,
+      "screenshot_7m_ms": 1147.6857,
+      "scene_list_p50_ms": 0.47395,
+      "replay_status_us": 3.1085000000000003,
+      "move_p50_ms": 1008.53145,
+      "move_max_ms": 1012.1496,
+      "drag_cpu_ms_per_s": 41.95821359331946,
+      "drag_cpu_by_process": {
+        "python": 37.76239223398752,
+        "desktop": 4.195821359331947
+      },
+      "drag_positions_seen": 3,
+      "obs_connections": 5,
+      "obs_requests": {
+        "GetVersion": 11,
+        "GetRecordDirectory": 4,
+        "GetOutputList": 5,
+        "GetReplayBufferStatus": 9,
+        "GetOutputSettings": 5,
+        "GetProfileParameter": 4,
+        "GetVideoSettings": 3,
+        "GetSceneItemList": 18,
+        "GetSceneCollectionList": 1,
+        "GetSceneList": 237,
+        "GetCurrentProgramScene": 4,
+        "GetInputSettings": 4,
+        "SetSceneItemTransform": 2,
+        "GetSourceScreenshot": 28
+      },
+      "worker_seconds": 42.149696699983906
+    },
+    {
+      "idle_cpu_ms_per_s": 10.937155971749476,
+      "idle_cpu_by_process": {
+        "python": 6.249803412428272,
+        "desktop": 4.687352559321204
+      },
+      "private_mib": 72.7265625,
+      "threads": 53,
+      "screenshot_128k_ms": 20.697049999999997,
+      "screenshot_7m_ms": 1377.64795,
+      "scene_list_p50_ms": 0.44895,
+      "replay_status_us": 3.194,
+      "move_p50_ms": 1009.9718499999999,
+      "move_max_ms": 1012.1665,
+      "drag_cpu_ms_per_s": 25.159083906580513,
+      "drag_cpu_by_process": {
+        "python": 12.579541953290256,
+        "desktop": 12.579541953290256
+      },
+      "drag_positions_seen": 3,
+      "obs_connections": 5,
+      "obs_requests": {
+        "GetVersion": 10,
+        "GetRecordDirectory": 4,
+        "GetOutputList": 5,
+        "GetReplayBufferStatus": 9,
+        "GetOutputSettings": 5,
+        "GetProfileParameter": 4,
+        "GetVideoSettings": 3,
+        "GetSceneItemList": 17,
+        "GetSceneCollectionList": 1,
+        "GetSceneList": 238,
+        "GetCurrentProgramScene": 4,
+        "GetInputSettings": 4,
+        "SetSceneItemTransform": 2,
+        "GetSourceScreenshot": 28
+      },
+      "worker_seconds": 42.53130929998588
+    },
+    {
+      "idle_cpu_ms_per_s": 17.968591517018847,
+      "idle_cpu_by_process": {
+        "python": 10.156160422662827,
+        "desktop": 7.812431094356021
+      },
+      "private_mib": 73.015625,
+      "threads": 53,
+      "screenshot_128k_ms": 21.3421,
+      "screenshot_7m_ms": 1159.2188,
+      "scene_list_p50_ms": 0.45089999999999997,
+      "replay_status_us": 3.7755,
+      "move_p50_ms": 1009.4396,
+      "move_max_ms": 1011.6502,
+      "drag_cpu_ms_per_s": 49.983151013507396,
+      "drag_cpu_by_process": {
+        "python": 45.817888429048445,
+        "desktop": 4.16526258445895
+      },
+      "drag_positions_seen": 3,
+      "obs_connections": 5,
+      "obs_requests": {
+        "GetVersion": 11,
+        "GetRecordDirectory": 4,
+        "GetOutputList": 5,
+        "GetReplayBufferStatus": 9,
+        "GetOutputSettings": 5,
+        "GetProfileParameter": 4,
+        "GetVideoSettings": 3,
+        "GetSceneItemList": 18,
+        "GetSceneCollectionList": 1,
+        "GetSceneList": 238,
+        "GetCurrentProgramScene": 4,
+        "GetInputSettings": 4,
+        "SetSceneItemTransform": 2,
+        "GetSourceScreenshot": 28
+      },
+      "worker_seconds": 42.435300299956
+    }
+  ],
+  "after": [
+    {
+      "idle_cpu_ms_per_s": 16.40588209810966,
+      "idle_cpu_by_process": {
+        "python": 7.812324808623647,
+        "desktop": 8.593557289486013
+      },
+      "private_mib": 71.40234375,
+      "threads": 45,
+      "screenshot_128k_ms": 1.3641999999999999,
+      "screenshot_7m_ms": 65.7548,
+      "scene_list_p50_ms": 0.7752,
+      "replay_status_us": 0.9544999999999999,
+      "move_p50_ms": 108.6522,
+      "move_max_ms": 111.2466,
+      "drag_cpu_ms_per_s": 50.33324770858073,
+      "drag_cpu_by_process": {
+        "python": 37.749935781435546,
+        "desktop": 12.583311927145182
+      },
+      "drag_positions_seen": 47,
+      "obs_connections": 1,
+      "obs_requests": {
+        "GetSceneItemList": 5,
+        "GetReplayBufferStatus": 1,
+        "GetRecordStatus": 1,
+        "GetSceneCollectionList": 1,
+        "GetCurrentProgramScene": 3,
+        "GetInputSettings": 3,
+        "GetRecordDirectory": 2,
+        "GetProfileParameter": 3,
+        "GetVideoSettings": 2,
+        "GetOutputList": 1,
+        "GetOutputSettings": 1,
+        "SetSceneItemTransform": 1,
+        "GetSceneList": 200,
+        "GetSourceScreenshot": 24
+      },
+      "worker_seconds": 30.25129599997308
+    },
+    {
+      "idle_cpu_ms_per_s": 3.906183106616522,
+      "idle_cpu_by_process": {
+        "python": 1.5624732426466088,
+        "desktop": 2.343709863969913
+      },
+      "private_mib": 71.5078125,
+      "threads": 45,
+      "screenshot_128k_ms": 1.9814,
+      "screenshot_7m_ms": 90.62385,
+      "scene_list_p50_ms": 0.7797000000000001,
+      "replay_status_us": 1.1564999999999999,
+      "move_p50_ms": 108.4217,
+      "move_max_ms": 113.2027,
+      "drag_cpu_ms_per_s": 71.26203433008193,
+      "drag_cpu_by_process": {
+        "python": 54.49449684065089,
+        "desktop": 16.767537489431042
+      },
+      "drag_positions_seen": 47,
+      "obs_connections": 1,
+      "obs_requests": {
+        "GetSceneItemList": 5,
+        "GetReplayBufferStatus": 1,
+        "GetSceneCollectionList": 1,
+        "GetRecordStatus": 1,
+        "GetCurrentProgramScene": 3,
+        "GetInputSettings": 3,
+        "GetRecordDirectory": 2,
+        "GetProfileParameter": 3,
+        "GetVideoSettings": 2,
+        "GetOutputList": 1,
+        "GetOutputSettings": 1,
+        "SetSceneItemTransform": 1,
+        "GetSceneList": 200,
+        "GetSourceScreenshot": 24
+      },
+      "worker_seconds": 30.50954300002195
+    },
+    {
+      "idle_cpu_ms_per_s": 9.374894719949177,
+      "idle_cpu_by_process": {
+        "python": 5.46868858663702,
+        "desktop": 3.906206133312157
+      },
+      "private_mib": 71.42578125,
+      "threads": 45,
+      "screenshot_128k_ms": 1.4627500000000002,
+      "screenshot_7m_ms": 74.80625,
+      "scene_list_p50_ms": 0.77625,
+      "replay_status_us": 0.9604999999999999,
+      "move_p50_ms": 107.81855,
+      "move_max_ms": 113.8214,
+      "drag_cpu_ms_per_s": 117.63128713645557,
+      "drag_cpu_by_process": {
+        "python": 96.62570014780279,
+        "desktop": 21.00558698865278
+      },
+      "drag_positions_seen": 47,
+      "obs_connections": 1,
+      "obs_requests": {
+        "GetSceneItemList": 5,
+        "GetReplayBufferStatus": 1,
+        "GetSceneCollectionList": 1,
+        "GetRecordStatus": 1,
+        "GetCurrentProgramScene": 3,
+        "GetInputSettings": 3,
+        "GetRecordDirectory": 2,
+        "GetProfileParameter": 3,
+        "GetVideoSettings": 2,
+        "GetOutputList": 1,
+        "GetOutputSettings": 1,
+        "SetSceneItemTransform": 1,
+        "GetSceneList": 200,
+        "GetSourceScreenshot": 24
+      },
+      "worker_seconds": 30.30509430001257
+    }
+  ],
+  "environment": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.13.2",
+    "logical_cpus": 16,
+    "reference": "4fea8c90",
+    "rounds": 3,
+    "idle_seconds": 20.0,
+    "moves": 8,
+    "scene_requests_per_worker": 200,
+    "drag_positions": 120,
+    "drag_hz": 60,
+    "binary_sha256": {
+      "before": "f55fba330add3d1bbb5a0bc63abc856c0d77af113172daf11c87f70700409c64",
+      "after": "d7ee925b8af9bec9ff416ff86b7da4c61187b3fba0a17860ddaf851b1ddad730"
+    }
+  }
+}

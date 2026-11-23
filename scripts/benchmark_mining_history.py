@@ -74,6 +74,7 @@ def memory_probe(worker_pid, desktop_pid):
 
 
 ITERATIONS = {
+    "dialogue-intake-sources": 512,
     "dialogue-mixed": 36,
     "dialogue-journal-mixed": 48,
     "dialogue-journal-live": 12,
@@ -100,6 +101,7 @@ ITERATIONS = {
     "sync-incremental": 16,
     "cron-scheduler": 24,
     "cron-rollup": 1,
+    "cron-anki-sync": 1,
     "heatmap": 4,
     "daily": 50,
     "today": 15,
@@ -255,12 +257,13 @@ class AnkiFixture(BaseHTTPRequestHandler):
         pass
 
 
-def setup_worker(profile):
+def setup_worker(profile, *, real_logging=False):
     from scripts.benchmark_stats import _configure_bootstrap_environment, _install_noop_logging_module
 
     _configure_bootstrap_environment(profile / "bootstrap")
     os.environ["GSM_TEST_DATA_ROOT"] = str(profile)
-    _install_noop_logging_module()
+    if not real_logging:
+        _install_noop_logging_module()
     from GameSentenceMiner.util.database.db import (
         GameLinesTable,
         GamesTable,
@@ -378,7 +381,7 @@ def maturity_cycle(db, case):
 
 def run_worker(args):
     profile = Path(os.environ["GSM_PROFILE_DIR"])
-    db = setup_worker(profile)
+    db = setup_worker(profile, real_logging=args.case == "dialogue-intake-sources")
     from GameSentenceMiner.native import history
     from GameSentenceMiner.util.communication import bus_client
     from GameSentenceMiner.util.database.db import GameLinesTable
@@ -399,6 +402,15 @@ def run_worker(args):
     assert history.managed(db) == (args.worker == "rust")
     case = args.case
     if case.startswith("dialogue-"):
+        if case == "dialogue-intake-sources":
+            from scripts.benchmark_desktop_intake import measure
+
+            try:
+                print(json.dumps(measure(args.worker, endpoint["pid"], ITERATIONS[case])))
+            finally:
+                bus.stop()
+                db.close()
+            return
         if case.startswith("dialogue-journal-"):
             from scripts.benchmark_dialogue_journal import measure
         else:
@@ -439,16 +451,18 @@ def run_worker(args):
             db.close()
             bus.stop()
         return
-    if case in ("cron-scheduler", "cron-rollup"):
-        from scripts.benchmark_cron_scheduler import measure, measure_rollup
+    if case in ("cron-scheduler", "cron-rollup", "cron-anki-sync"):
+        from scripts.benchmark_cron_scheduler import measure, measure_scheduled
 
         # The previous desktop already used the Rust game linker. Hold it
         # constant and measure the change in scheduling ownership.
-        os.environ["GSM_NATIVE_DAILY_ROLLUP"] = os.environ["GSM_NATIVE_HISTORY"] = "1"
+        os.environ["GSM_NATIVE_DAILY_ROLLUP"] = os.environ["GSM_NATIVE_ANKI_SYNC"] = os.environ[
+            "GSM_NATIVE_HISTORY"
+        ] = "1"
         os.environ["GSM_NATIVE_CRON"] = "1" if args.worker == "rust" else "0"
         try:
-            if case == "cron-rollup":
-                print(json.dumps(measure_rollup(db, bus, endpoint["pid"], args.worker)))
+            if case != "cron-scheduler":
+                print(json.dumps(measure_scheduled(db, bus, endpoint["pid"], args)))
             else:
                 print(json.dumps(measure(db, bus, endpoint["pid"], ITERATIONS[case], args.worker)))
         finally:
@@ -1065,7 +1079,7 @@ def main():
                         samples[mode].append(sample(desktop.resolve(), mode, case, server.server_port))
                     assert samples["python"][-1]["result"] == samples["rust"][-1]["result"]
                 measured = {"iterations_per_run": ITERATIONS[case]}
-                if case.startswith("rollup-") or case == "cron-rollup":
+                if case.startswith("rollup-") or case in ("cron-rollup", "cron-anki-sync"):
                     measured["result_sha256"] = samples["rust"][0]["result"]
                     assert all(run["result"] == measured["result_sha256"] for runs in samples.values() for run in runs)
                 elif case in (

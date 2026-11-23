@@ -1,0 +1,33 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. 1,000 Kizuna sessions across four existing game aliases with fractional durations, offset timestamps, UTF-8 titles, and an in-file duplicate. Each round replaces a prior import, retries it, compares the complete HTTP response and SQLite rows, and independently calculates all source IDs with Python json.dumps and SHA-256. The timed games have no remote metadata links.",
+  "medians": {
+    "replace": {
+      "python": {
+        "ms": 37.4936,
+        "server_cpu_ms": 31.25,
+        "server_resident_mib": 88.5625
+      },
+      "rust": {
+        "ms": 9.5048,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 30.8477
+      }
+    },
+    "retry": {
+      "python": {
+        "ms": 22.687,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 88.6172
+      },
+      "rust": {
+        "ms": 3.7253,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 30.8633
+      }
+    }
+  }
+}

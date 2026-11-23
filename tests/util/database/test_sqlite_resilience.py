@@ -217,17 +217,22 @@ def test_close_from_writer_callback_is_rejected_without_poisoning_database(datab
 def test_backup_validation_failure_preserves_existing_destination(
     database: SQLiteDB,
     tmp_path: Path,
-    monkeypatch,
 ):
     destination = tmp_path / "existing-backup.db"
     destination.write_bytes(b"previous-good-backup")
-    monkeypatch.setattr(
-        sqlite_core,
-        "verify_connection_integrity",
-        lambda _conn: (_ for _ in ()).throw(sqlite_core.DatabaseIntegrityError("damaged snapshot")),
-    )
+    # Create a real quick_check failure in the source. Both backup engines
+    # must detect it before publishing the destination.
+    database.execute("CREATE TABLE damaged (value INTEGER CHECK(value > 0))", commit=True)
 
-    with pytest.raises(sqlite_core.DatabaseIntegrityError, match="damaged snapshot"):
+    def violate_constraint(conn):
+        conn.execute("PRAGMA ignore_check_constraints=ON")
+        try:
+            conn.execute("INSERT INTO damaged VALUES(-1)")
+        finally:
+            conn.execute("PRAGMA ignore_check_constraints=OFF")
+
+    database.run_transaction(violate_constraint)
+    with pytest.raises(sqlite_core.DatabaseIntegrityError, match="CHECK constraint failed"):
         database.backup(str(destination))
 
     assert destination.read_bytes() == b"previous-good-backup"
@@ -245,6 +250,10 @@ def test_online_backup_does_not_occupy_the_writer(database: SQLiteDB, tmp_path: 
         assert release_backup.wait(timeout=5)
 
     monkeypatch.setattr(sqlite_core, "atomic_sqlite_backup", slow_backup)
+    from GameSentenceMiner.native.ocr import _extension
+
+    if _extension is not None and hasattr(_extension, "history_snapshot"):
+        monkeypatch.setattr(_extension, "history_snapshot", slow_backup)
     backup_thread = threading.Thread(target=database.backup, args=(str(tmp_path / "snapshot.db"),))
     backup_thread.start()
     assert backup_started.wait(timeout=5)

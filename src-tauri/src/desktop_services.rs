@@ -6,7 +6,7 @@ use gsm_packages::{
     log_archive::{create_anonymized_logs_archive, list_log_files},
     log_redaction::LogRedactor,
     settings_backup::{
-        create_backup_archive, get_default_backup_file_name, get_overlay_data_dir,
+        create_backup_archive, get_default_backup_file_name,
         normalize_settings_backup_categories, resolve_owocr_config_path, restore_backup_archive,
         BackupArchiveOptions, BackupProgressEvent, RestoreArchiveOptions,
     },
@@ -26,7 +26,7 @@ use gsm_settings::{
 };
 use serde_json::{json, Value};
 use std::{
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
 use tauri::Manager;
@@ -84,6 +84,30 @@ pub async fn invoke(
     channel: &str,
     args: &[Value],
 ) -> Option<Result<Value, String>> {
+    let input = args.first().unwrap_or(&Value::Null);
+    if channel.starts_with("ocrPreview.") {
+        return Some(crate::ocr_preview::invoke(app, label, channel, input).await);
+    }
+    if channel.starts_with("ocrArea.") {
+        return Some(
+            crate::ocr_coordinator::desktop_selector::invoke(app, label, channel, input).await,
+        );
+    }
+    if channel.starts_with("recommendedAnki.") {
+        return Some(crate::recommended_anki::invoke(app, label, channel, input).await);
+    }
+    if channel.starts_with("cardDialog.") {
+        return Some(crate::card_dialog::invoke(app, label, channel, args.first().unwrap_or(&Value::Null)).await);
+    }
+    if channel == "sessionReview.open" {
+        return Some(crate::card_dialog::open_review(app).await);
+    }
+    if channel.starts_with("screenshotSelector.") {
+        return Some(crate::screenshot_selector::invoke(app,label,channel,args).await);
+    }
+    if channel.starts_with("ankiGrouping.") {
+        return Some(app.state::<crate::anki_group::chooser::GroupingWindows>().invoke(label, channel, args));
+    }
     let scope = app
         .state::<crate::desktop_state::DesktopState>()
         .window_scope(label);
@@ -232,6 +256,8 @@ pub async fn invoke(
         | "settings.onboarding.language" => Some(handle_onboarding(app, channel, args).await),
         "settings.gpu" => Some(crate::python_ops::handle_gpu_settings(app, args).await),
         "settings.getSettings" => Some(handle_get_settings(app).await),
+        channel if channel.starts_with("settings.mining.") => Some(crate::mining_settings::invoke(
+            app, label, channel, args.first().cloned().unwrap_or(Value::Null)).await),
         "settings.getTheme" => Some(handle_get_theme(app).await),
         "settings.getUpdateStatus" => {
             let mgr = app
@@ -732,6 +758,24 @@ async fn handle_notifications(
     }
 }
 
+pub(crate) async fn onboarding_http(
+    app: &tauri::AppHandle,
+    request: gsm_mining::gateway::Setup,
+) -> (gsm_mining::gateway::StatusCode, Value) {
+    use gsm_mining::gateway::{Setup, StatusCode};
+    let (channel, payload, on_error) = match request {
+        Setup::Language(language) => ("settings.onboarding.language", json!(language), StatusCode::INTERNAL_SERVER_ERROR),
+        Setup::Sudachi { install, edition } => ("settings.onboarding.sudachi",
+            json!({"action":if install {"install"} else {"status"}, "dictionary":edition}), StatusCode::INTERNAL_SERVER_ERROR),
+        Setup::Dictionary { action, reader } => ("settings.onboarding.dictionary",
+            json!({"action":action,"reader":reader}), StatusCode::BAD_GATEWAY),
+    };
+    match handle_onboarding(app, channel, &[payload]).await {
+        Ok(value) => (StatusCode::OK, value),
+        Err(error) => (on_error, json!({"error":error})),
+    }
+}
+
 async fn handle_onboarding(
     app: &tauri::AppHandle,
     channel: &str,
@@ -811,8 +855,7 @@ async fn handle_onboarding(
                 save_target_language(&paths.active.join("config.json"), &language)?;
                 Ok::<_, String>(json!({"success": true, "language": language}))
             }).await.map_err(|e| e.to_string())??;
-            // A running backend picks up the saved profile. Offline startup reads it from disk.
-            let _ = crate::runtime::backend_command(app, "reload_settings", Value::Null).await;
+            crate::mining_settings::changed(app).await;
             Ok(result)
         }
         _ => Err(format!("Unsupported onboarding channel: {channel}")),
@@ -1101,7 +1144,7 @@ struct SaveOutcome {
     did_sync_locale: bool,
 }
 
-fn focus_hub_and_navigate(app: &tauri::AppHandle, tab: &str) -> Value {
+pub(crate) fn focus_hub_and_navigate(app: &tauri::AppHandle, tab: &str) -> Value {
     let Some(hub) = crate::desktop_state::find_hub_window(app) else {
         return json!({ "success": false });
     };
@@ -1193,25 +1236,6 @@ fn emit_backup_progress(app: &tauri::AppHandle, label: &str, progress: &BackupPr
     }
 }
 
-fn path_within_backup_root(candidate: &Path, backup_root: &Path) -> bool {
-    let lex_norm = |p: &Path| -> PathBuf {
-        let mut out = PathBuf::new();
-        for c in p.components() {
-            match c {
-                Component::CurDir => {}
-                Component::ParentDir => {
-                    out.pop();
-                }
-                other => out.push(other.as_os_str()),
-            }
-        }
-        out
-    };
-    let norm_cand = std::fs::canonicalize(candidate).unwrap_or_else(|_| lex_norm(candidate));
-    let norm_root = std::fs::canonicalize(backup_root).unwrap_or_else(|_| lex_norm(backup_root));
-    norm_cand.starts_with(&norm_root)
-}
-
 async fn handle_create_backup(app: &tauri::AppHandle, label: &str, args: &[Value]) -> Value {
     let mut database_snapshot_path: Option<PathBuf> = None;
     let outcome = create_backup_inner(app, label, args.first(), &mut database_snapshot_path).await;
@@ -1279,45 +1303,20 @@ async fn create_backup_inner(
 
     let paths = paths_for(app);
     if categories.iter().any(|c| c == "database") {
-        let port = get_configured_single_port(&paths.active.join("config.json"));
-        let client = app
-            .state::<crate::desktop_state::DesktopState>()
-            .http
-            .clone();
-        let resp = client
-            .post(format!("http://127.0.0.1:{port}/api/database_backup"))
-            .timeout(Duration::from_secs(120))
-            .json(&json!({}))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let status = resp.status();
-        let body = resp.json::<Value>().await.map_err(|e| e.to_string())?;
-        if !status.is_success() {
-            return Err(format!("Database backup failed (HTTP {status})"));
-        }
-        let candidate = body
-            .get("backup_path")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                "The GSM backend did not return a verified database snapshot.".to_string()
-            })?;
-        let candidate_path = PathBuf::from(candidate);
-        let backup_root = paths.active.join("backup");
-        if !path_within_backup_root(&candidate_path, &backup_root) {
-            return Err(
-                "The GSM backend returned a database snapshot outside the backup folder.".into(),
-            );
-        }
+        let database = paths.active.join("gsm.db");
+        let history = app.state::<std::sync::Arc<gsm_history::History>>().inner().clone();
+        let (candidate_path, _) =
+            tokio::task::spawn_blocking(move || history.manual_backup(&database))
+                .await
+                .map_err(|e| e.to_string())?
+                .map_err(|e| e.to_string())?;
         *database_snapshot_path = Some(candidate_path);
     }
 
     let options = BackupArchiveOptions {
         output_path,
         base_dir: paths.active.clone(),
-        overlay_dir: get_overlay_data_dir(&paths.active, paths.has_profile),
+        overlay_dir: crate::dictionary_host::overlay_data_path(app),
         home_config_path: resolve_owocr_config_path(&paths.active, paths.has_profile)?,
         database_snapshot_path: database_snapshot_path.clone(),
         categories: Some(categories),
@@ -1458,6 +1457,8 @@ async fn restore_backup_inner(
         },
     );
     *stopped_python = true;
+    app.state::<crate::cron::Scheduler>().drain().await;
+    app.state::<crate::backend::BackendState>().invalidate_prepared_database();
     crate::python_ops::close_all_python_processes(app, true).await?;
 
     emit_backup_progress(
@@ -1495,7 +1496,7 @@ async fn restore_backup_inner(
     let options = RestoreArchiveOptions {
         archive_path,
         base_dir: paths.active.clone(),
-        overlay_dir: get_overlay_data_dir(&paths.active, paths.has_profile),
+        overlay_dir: crate::dictionary_host::overlay_data_path(app),
         home_config_path: resolve_owocr_config_path(&paths.active, paths.has_profile)?,
         categories: Some(categories),
     };
@@ -1542,7 +1543,7 @@ async fn restore_backup_inner(
         "type": "info",
         "title": "Backup Restored",
         "message": "GSM settings backup restored successfully.",
-        "detail": "The GSM Python backend has been restarted. Restart the desktop app now so restored desktop settings are loaded.",
+        "detail": "GSM has reopened the restored profile. Restart the desktop app now to load the restored desktop settings.",
         "buttons": ["Restart Now", "Later"],
         "defaultId": 0,
         "cancelId": 1,

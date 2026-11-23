@@ -6,11 +6,29 @@ const workflow=(name:string)=>load(fs.readFileSync('.github/workflows/'+name,'ut
 const native=workflow('native_desktop.yml');
 
 describe('coordinated native release',()=>{
-    it('uses one build pipeline for stable and preview releases',()=>{
-        for(const file of ['release_exe.yml','dev_release_exe.yml']) {
-            expect(workflow(file).jobs.release.uses).toBe('./.github/workflows/native_desktop.yml');
-            expect(workflow(file).jobs.release.with.publish).toBe(true);
-        }
+    it('shares the native build between the stable release and the manual portable preview',()=>{
+        const stable = workflow('release_exe.yml').jobs.release;
+        const preview = workflow('dev_release_exe.yml');
+        expect(stable.uses).toBe('./.github/workflows/native_desktop.yml');
+        expect(stable.with.publish).toBe(true);
+        expect(Object.keys(preview.on)).toEqual(['workflow_dispatch']);
+        expect(preview.jobs.preview.uses).toBe(stable.uses);
+        expect(preview.jobs.preview.with).toEqual({portable_preview: true, prerelease: true, publish: false});
+        expect(preview.permissions.contents).toBe(native.jobs.publish.permissions.contents);
+        expect(native.jobs.build.permissions.contents).toBe('read');
+        expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
+            if: 'inputs.portable_preview',
+            uses: 'actions/upload-artifact@v4',
+            with: expect.objectContaining({path: 'dist/native-preview/*.zip'}),
+        }));
+        expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
+            if: 'inputs.portable_preview',
+            run: expect.stringContaining('scripts/package-native-portable.test.mjs'),
+        }));
+        expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
+            if: '${{ !inputs.portable_preview }}',
+            run: expect.stringContaining('cargo test --locked --manifest-path src-tauri/Cargo.toml'),
+        }));
     });
     it('builds the input server from the same checkout on every target',()=>{
         expect(native.jobs.build.strategy.matrix.include.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);

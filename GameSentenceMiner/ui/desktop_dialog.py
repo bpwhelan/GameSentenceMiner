@@ -3,6 +3,7 @@
 import asyncio
 import dataclasses
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +63,154 @@ def _when_hidden(window, completed):
     watcher = FinishOnHide(window)
     window.installEventFilter(watcher)
     return watcher
+
+
+@dataclasses.dataclass
+class _HydratedVadSegment:
+    start: float
+    end: float
+
+
+def _hydrate_vad_result(data):
+    if not isinstance(data, dict):
+        return None
+    from GameSentenceMiner.util.models.model import VADResult
+
+    segments = [
+        _HydratedVadSegment(start=float(s.get("start", 0.0)), end=float(s.get("end", 0.0)))
+        for s in (data.get("segments") or [])
+        if isinstance(s, dict)
+    ]
+    return VADResult(
+        success=bool(data.get("success", False)),
+        start=float(data.get("start", 0.0)),
+        end=float(data.get("end", 0.0)),
+        model=str(data.get("model", "")),
+        output_audio=str(data.get("output_audio", "") or ""),
+        segments=segments,
+        trimmed_audio_path=str(data.get("trimmed_audio_path", "") or ""),
+        tts_used=bool(data.get("tts_used", False)),
+    )
+
+
+def _hydrate_audio_edit_context(data):
+    if not isinstance(data, dict):
+        return None
+    from GameSentenceMiner.replay_handler import AudioEditContext
+    from GameSentenceMiner.util.media.pause_gaps import AudioTimeline
+
+    timeline = None
+    tl = data.get("timeline")
+    if isinstance(tl, dict) and tl.get("cuts"):
+        timeline = AudioTimeline(
+            cuts=tuple((float(c[0]), float(c[1])) for c in tl["cuts"] if isinstance(c, (list, tuple)) and len(c) == 2),
+        )
+    return AudioEditContext(
+        source_audio_path=str(data.get("source_audio_path", "") or ""),
+        source_duration=float(data.get("source_duration", 0.0)),
+        range_start=float(data.get("range_start", 0.0)),
+        range_end=float(data.get("range_end", 0.0)),
+        rebase_on_selection_trim=bool(data.get("rebase_on_selection_trim", False)),
+        timeline=timeline,
+        timing_fallback=bool(data.get("timing_fallback", False)),
+    )
+
+
+def _hydrate_game_line(data):
+    if not isinstance(data, dict):
+        return None
+    from GameSentenceMiner.util.text_log import GameLine, get_line_by_id
+
+    line_id = str(data.get("id") or "")
+    if line_id:
+        existing = get_line_by_id(line_id)
+        if existing is not None:
+            return existing
+    raw_time = data.get("time")
+    parsed_time = datetime.now()
+    if isinstance(raw_time, str) and raw_time:
+        try:
+            parsed_time = datetime.fromisoformat(raw_time)
+        except ValueError:
+            pass
+    elif isinstance(data.get("time_epoch"), (int, float)):
+        parsed_time = datetime.fromtimestamp(float(data["time_epoch"]))
+    return GameLine(
+        id=line_id or uuid4().hex,
+        text=str(data.get("text") or ""),
+        time=parsed_time,
+        prev=None,
+        next=None,
+        scene=str(data.get("scene") or ""),
+        source=data.get("source"),
+    )
+
+
+def _run_anki_confirmation_with_context(qt_main, args):
+    """Hydrate Rust-supplied replay/audio-edit context into gsm_state for the Qt confirmation dialog."""
+    from GameSentenceMiner.replay_handler import ReplayAudioResult, ReplayProcessingContext
+    from GameSentenceMiner.util.config.configuration import gsm_state
+
+    video_path = args.pop("video_path", None)
+    start_time = args.pop("start_time", None)
+    end_time = args.pop("end_time", None)
+    vad_raw = args.pop("vad_result", None)
+    edit_raw = args.pop("audio_edit_context", None)
+    mined_raw = args.pop("mined_line", None)
+    selected_raw = args.pop("selected_lines", None)
+    created_raw = args.pop("anki_card_creation_time", None)
+
+    has_context = any(
+        v is not None for v in (video_path, vad_raw, edit_raw, mined_raw, selected_raw, start_time, end_time)
+    )
+    if not has_context:
+        return qt_main.launch_anki_confirmation(**args)
+
+    prev_replay = getattr(gsm_state, "current_replay", None)
+    prev_vad = getattr(gsm_state, "vad_result", None)
+    prev_context = getattr(gsm_state, "current_replay_context", None)
+    prev_edit = getattr(gsm_state, "audio_edit_context", None)
+    try:
+        vad_obj = _hydrate_vad_result(vad_raw)
+        edit_obj = _hydrate_audio_edit_context(edit_raw)
+        mined_line = _hydrate_game_line(mined_raw)
+        selected_lines = [
+            hydrated for item in (selected_raw or []) if (hydrated := _hydrate_game_line(item)) is not None
+        ]
+        created_at = None
+        if isinstance(created_raw, str) and created_raw:
+            try:
+                created_at = datetime.fromisoformat(created_raw)
+            except ValueError:
+                created_at = None
+
+        if video_path:
+            gsm_state.current_replay = str(video_path)
+        if vad_obj is not None:
+            gsm_state.vad_result = vad_obj
+        gsm_state.audio_edit_context = edit_obj
+        audio_res = ReplayAudioResult(
+            final_audio_output=str(args.get("audio_path") or ""),
+            vad_result=vad_obj,
+            vad_trimmed_audio=str((vad_obj.trimmed_audio_path if vad_obj else "") or args.get("audio_path") or ""),
+            start_time=float(start_time or 0.0),
+            end_time=float(end_time or 0.0),
+            audio_edit_context=edit_obj,
+        )
+        gsm_state.current_replay_context = ReplayProcessingContext(
+            video_path=str(video_path or ""),
+            selected_lines=selected_lines,
+            anki_card_creation_time=created_at,
+            mined_line=mined_line,
+            audio_result=audio_res,
+            ss_timing=float(args.get("screenshot_timestamp", 0.0) or 0.0),
+        )
+        return qt_main.launch_anki_confirmation(**args)
+    finally:
+        gsm_state.current_replay = prev_replay
+        gsm_state.vad_result = prev_vad
+        gsm_state.current_replay_context = prev_context
+        gsm_state.audio_edit_context = prev_edit
 
 
 def open_dialog(request, complete, *, standalone):
@@ -142,6 +291,9 @@ def open_dialog(request, complete, *, standalone):
         sensitivity = args["current_sensitivity"] if name == "furiganaPreview" else args["current_size"]
         complete(show_furigana_filter_preview(image=image, current_sensitivity=sensitivity))
         return None
+    if name == "ankiConfirmation":
+        complete(_run_anki_confirmation_with_context(qt_main, args))
+        return None
     functions = {
         "ankiConfirmation": qt_main.launch_anki_confirmation,
         "ankiFieldGrouping": qt_main.launch_anki_field_grouping,
@@ -212,14 +364,21 @@ def run_worker(request_path, result_path):
     from GameSentenceMiner.ui.qt_main import get_qt_app
 
     request = json.loads(Path(request_path).read_text(encoding="utf-8"))
-    # Area saves can take effect while the selector is still open. Other
-    # one-shot windows never need their own broker connection.
+    # Selectors apply live area saves. An open settings window accepts tab changes.
     bus = None
-    if request["dialog"] in ("areaSelector", "monitorSelector"):
+    if request["dialog"] in ("areaSelector", "monitorSelector", "settings"):
         from GameSentenceMiner.util.communication import bus_client
 
         if bus_client.is_bus_available():
             bus = bus_client.start_bus()
+            if request["dialog"] == "settings":
+
+                async def focus_settings(message):
+                    if message.get("data", {}).get("dialog") != "settings":
+                        raise ValueError("Expected a settings window request")
+                    return await handle_dialog(message)
+
+                bus.handle("gui.settings", focus_settings, concurrent=True)
     app = get_qt_app(track_sessions=False)
     widgets = []
     result = {}
@@ -234,6 +393,10 @@ def run_worker(request_path, result_path):
     def show():
         try:
             widgets.append(open_dialog(request, complete, standalone=True))
+            if request["dialog"] == "settings" and bus and (window_id := os.environ.get("GSM_QT_WINDOW_ID")):
+                if not bus.wait_connected(timeout=5):
+                    raise RuntimeError("Could not connect the settings window to the desktop")
+                bus.publish("main", "gui.settings.shown", window_id)
         except Exception as exc:  # noqa: BLE001 - report widget failures before exiting Qt.
             result["error"] = str(exc)
             app.quit()

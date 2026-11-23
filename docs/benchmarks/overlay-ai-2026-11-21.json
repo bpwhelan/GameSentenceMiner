@@ -1,0 +1,235 @@
+{
+  "lines": 128,
+  "rounds": 5,
+  "calls_per_batch": 32,
+  "platform": "Windows-11-10.0.26300-SP0",
+  "desktop_sha256": "996c753a5588600b23e27e3f9e1ac0ae40300559ebb9822087ccf429cc35962d",
+  "summary": {
+    "rust": {
+      "blocks": {
+        "ms": 0.9711,
+        "cpu_ms": 0.4883,
+        "private_mib": 8.9727
+      },
+      "analysis": {
+        "ms": 0.965,
+        "cpu_ms": 0.4883,
+        "private_mib": 9.0312
+      },
+      "flat_cached": {
+        "ms": 0.3805,
+        "cpu_ms": 0.4883,
+        "private_mib": 9.043
+      }
+    },
+    "python_bridge": {
+      "blocks": {
+        "ms": 8.3404,
+        "cpu_ms": 9.7656,
+        "private_mib": 88.4609
+      },
+      "analysis": {
+        "ms": 8.3786,
+        "cpu_ms": 10.2539,
+        "private_mib": 88.1875
+      },
+      "flat_cached": {
+        "ms": 7.9176,
+        "cpu_ms": 10.2539,
+        "private_mib": 88.7891
+      }
+    }
+  },
+  "responses": {
+    "blocks": {
+      "blocks": [
+        {
+          "id": "left",
+          "translation": "0bd02ad9f892e88cfe733ac0acf185087139e6a3ae5ecfb16164c705f7eee317"
+        },
+        {
+          "id": "right",
+          "translation": "0bd02ad9f892e88cfe733ac0acf185087139e6a3ae5ecfb16164c705f7eee317"
+        }
+      ],
+      "request_id": "blocks"
+    },
+    "analysis": {
+      "mode": "custom",
+      "request_id": "analysis",
+      "text": "83e72d39f0ca4f8ecbe6764cefa2038d203600ef093bc052f8122c09c08c6efa"
+    },
+    "flat_cached": {
+      "request_id": "flat",
+      "text": "05bc4c1cce90a4290b7d7360435e10ead065d7c265487193b9288d24ed450379"
+    }
+  },
+  "samples": {
+    "rust": {
+      "blocks": [
+        {
+          "ms": 0.9739187498780666,
+          "cpu_ms": 0.9765625,
+          "private_mib": 8.890625
+        },
+        {
+          "ms": 0.9469687502132729,
+          "cpu_ms": 0.0,
+          "private_mib": 8.97265625
+        },
+        {
+          "ms": 0.9395062497787876,
+          "cpu_ms": 0.0,
+          "private_mib": 8.97265625
+        },
+        {
+          "ms": 0.9711437505757203,
+          "cpu_ms": 0.9765625,
+          "private_mib": 9.14453125
+        },
+        {
+          "ms": 0.989903124718694,
+          "cpu_ms": 0.48828125,
+          "private_mib": 9.14453125
+        }
+      ],
+      "analysis": [
+        {
+          "ms": 0.9467187501286389,
+          "cpu_ms": 0.9765625,
+          "private_mib": 8.90234375
+        },
+        {
+          "ms": 0.96504062639724,
+          "cpu_ms": 0.48828125,
+          "private_mib": 8.96484375
+        },
+        {
+          "ms": 0.8989437501440989,
+          "cpu_ms": 0.48828125,
+          "private_mib": 9.03125
+        },
+        {
+          "ms": 0.9814843742788071,
+          "cpu_ms": 0.9765625,
+          "private_mib": 9.1328125
+        },
+        {
+          "ms": 0.9818906255532056,
+          "cpu_ms": 0.0,
+          "private_mib": 9.1484375
+        }
+      ],
+      "flat_cached": [
+        {
+          "ms": 0.3804781263170298,
+          "cpu_ms": 0.48828125,
+          "private_mib": 8.90625
+        },
+        {
+          "ms": 0.38045937617425807,
+          "cpu_ms": 0.48828125,
+          "private_mib": 8.90625
+        },
+        {
+          "ms": 0.37619062641169876,
+          "cpu_ms": 0.48828125,
+          "private_mib": 9.04296875
+        },
+        {
+          "ms": 0.3879718751704786,
+          "cpu_ms": 0.48828125,
+          "private_mib": 9.04296875
+        },
+        {
+          "ms": 0.3787781242863275,
+          "cpu_ms": 0.48828125,
+          "private_mib": 9.1796875
+        }
+      ]
+    },
+    "python_bridge": {
+      "blocks": [
+        {
+          "ms": 9.333374999187072,
+          "cpu_ms": 11.23046875,
+          "private_mib": 85.70703125
+        },
+        {
+          "ms": 9.079631248823716,
+          "cpu_ms": 11.23046875,
+          "private_mib": 88.4609375
+        },
+        {
+          "ms": 8.340381249581696,
+          "cpu_ms": 9.27734375,
+          "private_mib": 87.01953125
+        },
+        {
+          "ms": 8.269193749583792,
+          "cpu_ms": 9.27734375,
+          "private_mib": 88.7890625
+        },
+        {
+          "ms": 8.052699999097968,
+          "cpu_ms": 9.765625,
+          "private_mib": 88.7890625
+        }
+      ],
+      "analysis": [
+        {
+          "ms": 9.206956248817733,
+          "cpu_ms": 11.71875,
+          "private_mib": 85.6015625
+        },
+        {
+          "ms": 9.333756248452119,
+          "cpu_ms": 11.71875,
+          "private_mib": 88.1875
+        },
+        {
+          "ms": 8.031631250560167,
+          "cpu_ms": 8.7890625,
+          "private_mib": 87.390625
+        },
+        {
+          "ms": 8.378571874345653,
+          "cpu_ms": 8.7890625,
+          "private_mib": 88.77734375
+        },
+        {
+          "ms": 7.839918749596109,
+          "cpu_ms": 10.25390625,
+          "private_mib": 88.7734375
+        }
+      ],
+      "flat_cached": [
+        {
+          "ms": 8.909246875191457,
+          "cpu_ms": 12.20703125,
+          "private_mib": 86.20703125
+        },
+        {
+          "ms": 8.593218750320375,
+          "cpu_ms": 10.7421875,
+          "private_mib": 86.39453125
+        },
+        {
+          "ms": 7.5974124993081205,
+          "cpu_ms": 8.30078125,
+          "private_mib": 88.80078125
+        },
+        {
+          "ms": 7.917640623418265,
+          "cpu_ms": 9.27734375,
+          "private_mib": 88.8359375
+        },
+        {
+          "ms": 7.563428125649807,
+          "cpu_ms": 10.25390625,
+          "private_mib": 88.7890625
+        }
+      ]
+    }
+  }
+}

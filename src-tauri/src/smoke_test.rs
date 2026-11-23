@@ -18,6 +18,29 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 #[path = "smoke/memory.rs"]
 mod memory;
+#[path = "smoke/archive_files.rs"]
+mod archive_files;
+
+#[path = "smoke/longplay.rs"]
+mod longplay;
+#[path = "smoke/pythonless.rs"]
+mod pythonless;
+#[path = "smoke/qt_settings.rs"]
+mod qt_settings;
+
+#[path = "smoke/model_settings.rs"]
+mod model_settings;
+#[path = "smoke/anki_grouping.rs"]
+mod anki_grouping;
+#[path = "smoke/card_review.rs"]
+mod card_review;
+
+#[cfg(windows)]
+#[path = "smoke/speech.rs"]
+mod speech;
+
+#[path = "smoke/frame_selector.rs"]
+mod frame_selector;
 
 #[cfg(windows)]
 pub fn own_process_tree() -> windows::core::Result<()> {
@@ -206,6 +229,26 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
     Ok(())
 }
 
+async fn wait_for_jobs(app: &AppHandle, names: &'static [&'static str]) -> Result<(), String> {
+    let database = app.state::<crate::settings::Settings>().paths.active.join("gsm.db");
+    let history = app.state::<std::sync::Arc<gsm_history::History>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let generation = history.generation().map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let now = chrono::Local::now().timestamp() as f64;
+        loop {
+            let jobs = history.scheduled_jobs(&database, generation).map_err(|e| e.to_string())?;
+            if names.iter().all(|&name| jobs.iter().any(|job| job.name == name && job.deadline > now)) {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err(format!("Scheduled jobs did not finish: {names:?}"));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }).await.map_err(|e| e.to_string())?
+}
+
 async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
     if std::env::var_os("GSM_PROFILE_DIR").is_none() {
         return Err("Native smoke tests require an isolated GSM_PROFILE_DIR".into());
@@ -213,6 +256,230 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
     #[cfg(windows)]
     if std::env::var_os("GSM_FIXTURE_RESULT").is_some() {
         return run_capture_fixture(app).await;
+    }
+    let suite = std::env::var("GSM_SMOKE_SUITE")
+        .or_else(|_| std::env::var("GSM_SMOKE_SCENARIO"))
+        .unwrap_or_else(|_| "foundation".into());
+    if suite == "longplay" { return longplay::run(app).await; }
+    if suite == "mining-settings" {
+        let timeout = Duration::from_secs(25);
+        let label = crate::mining_settings::WINDOW_LABEL;
+        crate::app_lifecycle::create_hub_window(app)?;
+        let hub = wait_window_ready(app, crate::app_lifecycle::HUB_WINDOW_LABEL, timeout).await?;
+        evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"audio"})"#).await?;
+        let editor = wait_window_ready(app, label, timeout).await?;
+        let result = evaluate_raw(app, &editor, include_str!("../smoke/mining_settings.js")).await?;
+        if evaluate_raw(app, &hub, "!!document.querySelector('.mining-editor')").await? == true {
+            return Err("Settings mounted inside the hub".into());
+        }
+        editor.close().map_err(|e| e.to_string())?;
+        tokio::time::timeout(timeout, async {
+            while app.get_webview_window(label).is_some() {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+            }
+        }).await.map_err(|_| "Settings window did not close")?;
+        evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"audio"})"#).await?;
+        let reopened = wait_window_ready(app, label, timeout).await?;
+        let value = evaluate_raw(app, &reopened, r#"(async () => {
+            for(let i=0; i<150; i++) {
+                const field=document.getElementById('mining-field-audio.enabled');
+                if (field) return field.checked;
+                await new Promise(r => setTimeout(r,60));
+            }
+            throw Error('No audio setting after reopening');
+        })()"#).await?;
+        if value != result["audio"] {return Err("Saved audio setting changed after reopening".into());}
+        evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"obs"})"#).await?;
+        evaluate_raw(app, &hub, r#"(async () => {
+            for (let i=0; i<150; i++) {
+                const pane=document.querySelector('#settings-view-obs:not([hidden]) .mining-obs');
+                if (pane && document.getElementById('mining-field-obs.host')) {
+                    const tabs = pane.querySelectorAll('[role=tab]');
+                    tabs[tabs.length-1].click();
+                    await new Promise(r => setTimeout(r,60));
+                    if (document.getElementById('mining-field-obs.recording_fps')) return true;
+                }
+                await new Promise(r => setTimeout(r,60));
+            }
+            throw Error('OBS connection and recording settings did not open in the hub');
+        })()"#).await?;
+        return Ok(result);
+    }
+    if suite == "pythonless" { return pythonless::run(app).await; }
+    if suite == "ocr-model-settings" { return model_settings::run(app).await; }
+    if suite == "anki-grouping" { return anki_grouping::run(app).await; }
+    if suite == "card-review" { return card_review::run(app).await; }
+    #[cfg(windows)]
+    if suite == "speech" { return speech::run(app).await; }
+    if suite == "clip-capture" { return longplay::clip_capture(app).await; }
+    if matches!(suite.as_str(), "database" | "database-recovery" | "vocabulary") {
+        let service = app.state::<std::sync::Arc<crate::mining::MiningService>>();
+        if suite == "vocabulary" {
+            wait_for_jobs(app, &["anki_card_sync"]).await?;
+            let port = service.bound_gateway_port().ok_or("Vocabulary gateway failed to bind")?;
+            let url = format!("http://127.0.0.1:{port}/api/tokenization/words/not-in-anki");
+            let deadline = Instant::now() + Duration::from_secs(90);
+            loop {
+                let report: Value = app.state::<DesktopState>().http.get(&url).send().await
+                    .and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?
+                    .json().await.map_err(|e| e.to_string())?;
+                if report["global_rank_source"]["id"] == "jiten-global" {break;}
+                if Instant::now() >= deadline {
+                    return Err(format!("Vocabulary report did not load its frequency source: {report}"));
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            let http = &app.state::<DesktopState>().http;
+            let status_url = format!("http://127.0.0.1:{port}/api/anki_sync_status");
+            let read_status = || async {
+                let response = http.get(&status_url).send().await.map_err(|e|e.to_string())?;
+                if response.headers().get("x-gsm-handler").and_then(|v|v.to_str().ok()) != Some("rust") {
+                    return Err("Anki sync status did not reach the native handler".to_owned());
+                }
+                response.json::<Value>().await.map_err(|e|e.to_string())
+            };
+            let empty = read_status().await?;
+            if empty["cache_populated"] != false || empty["anki_connect_available"] != true || empty["auto_sync_enabled"] != true {
+                return Err(format!("Unexpected empty Anki status: {empty}"));
+            }
+            let chart = |path: &'static str| async move {
+                let response = http.get(format!("http://127.0.0.1:{port}/api/{path}")).send().await.map_err(|e|e.to_string())?;
+                if response.headers().get("x-gsm-handler").and_then(|v|v.to_str().ok()) != Some("rust") {
+                    return Err("Anki charts did not reach the native handler".to_owned());
+                }
+                response.json::<Value>().await.map_err(|e|e.to_string())
+            };
+            let coverage = chart("anki_kanji_stats?start_timestamp=100&end_timestamp=600").await?;
+            if coverage["anki_kanji_count"] != 2 {return Err(format!("Live Anki coverage failed: {coverage}"));}
+            let queued = http.post(format!("http://127.0.0.1:{port}/api/anki_sync_now")).send().await.map_err(|e|e.to_string())?;
+            if queued.status().as_u16() != 202 || queued.json::<Value>().await.map_err(|e|e.to_string())?["status"] != "queued" {
+                return Err("Manual Anki sync was not queued".into());
+            }
+            let deadline = Instant::now() + Duration::from_secs(20);
+            loop {
+                let filled = read_status().await?;
+                if filled["note_count"] == 1 && filled["card_count"] == 1 && filled["last_synced"].is_string()
+                    && filled["next_auto_sync"] == empty["next_auto_sync"] && filled["anki_connect_available"] == false { break; }
+                if Instant::now() >= deadline { return Err(format!("Manual Anki sync did not finish: {filled}")); }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let charts = chart("anki_stats_combined").await?;
+            if charts.as_object().map(|s|s.len()) != Some(6) || charts["kanji_stats"]["anki_kanji_count"] != 2
+                || charts["earliest_date"] != 0.101 || charts["reading_impact"]["tokenization_enabled"] != true {
+                return Err(format!("Unexpected combined Anki report: {charts}"));
+            }
+            let index: Value = http.get(format!("http://127.0.0.1:{port}/api/yomitan-freq-index")).send().await
+                .and_then(|r| r.error_for_status()).map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())?;
+            let url = format!("http://127.0.0.1:{port}/api/yomitan-freq-dict");
+            if index["downloadUrl"] != url { return Err(format!("Unexpected dictionary index: {index}")); }
+            let archive = http.get(&url).send().await.and_then(|r| r.error_for_status()).map_err(|e| e.to_string())?;
+            if archive.headers().get("Content-Type").and_then(|v| v.to_str().ok()) != Some("application/zip")
+                || archive.headers().get("Access-Control-Allow-Origin").and_then(|v| v.to_str().ok()) != Some("*") {
+                return Err("Unexpected dictionary download headers".into());
+            }
+            let bytes = archive.bytes().await.map_err(|e|e.to_string())?;
+            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|e|e.to_string())?;
+            let terms: Value = serde_json::from_reader(zip.by_name("term_meta_bank_1.json").map_err(|e|e.to_string())?)
+                .map_err(|e|e.to_string())?;
+            if terms.as_array().map(Vec::len) != Some(1) || terms[0][1] != "freq" || terms[0][2] != 1 {
+                return Err(format!("Unexpected personal dictionary terms: {terms}"));
+            }
+        }
+        if suite == "database-recovery" {
+            service_call(app, "settings.getTheme", &[]).await?;
+            let handle = app.clone();
+            tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
+                let paths = &handle.state::<crate::settings::Settings>().paths;
+                if handle.state::<crate::recycled_lines::Recycled>().started()
+                    || crate::database_startup::prepare(&handle).is_ok() {
+                    return Err("A damaged profile started its database services".into());
+                }
+                let database = paths.active.join("gsm.db");
+                if std::fs::read(&database).map_err(|e| e.to_string())? != b"damaged profile" {
+                    return Err("Failed startup changed the original database".into());
+                }
+                std::fs::copy(paths.active.join("replacement.db"), database).map_err(|e| e.to_string())?;
+                crate::database_startup::prepare(&handle)
+            }).await.map_err(|e| e.to_string())??;
+        }
+        let port = service.bound_gateway_port().ok_or("Native gateway failed to bind")?;
+        if suite == "database" {
+            wait_for_jobs(app, &["daily_stats_rollup", "populate_games"]).await?;
+            let http = &app.state::<DesktopState>().http;
+            let tools = format!("http://127.0.0.1:{port}/api");
+            let check = |name:&str, payload:Value| {
+                let request = http.post(format!("{tools}/{name}")).json(&payload);
+                async move {
+                    let reply = request.send().await.map_err(|e|e.to_string())?;
+                    if reply.headers().get("x-gsm-handler").and_then(|v|v.to_str().ok()) != Some("rust") {
+                        return Err("Database maintenance request needed the compatibility server".to_owned());
+                    }
+                    reply.error_for_status().map_err(|e|e.to_string())?.json::<Value>().await.map_err(|e|e.to_string())
+                }
+            };
+            for (route, payload, key,expected) in [
+                ("preview-text-deletion",json!({"exact_text":"absent-smoke-sentence"}),"count",0),
+                ("search-duplicates",json!({"game":"absent-smoke-game"}),"duplicates_found",0),
+                ("preview-deduplication",json!({"games":["absent-smoke-game"]}),"duplicates_count",0),
+                ("deduplicate",json!({"games":["absent-smoke-game"]}),"deleted_count",0),
+                ("delete-text-lines",json!({"exact_text":"absent-smoke-sentence"}),"deleted_count",0),
+                ("delete-sentence-lines",json!({"line_ids":["absent-smoke-id"]}),"deleted_count",1),
+            ] {
+                let reply = check(route,payload).await?;
+                if reply[key] != expected {return Err(format!("Unexpected {route} reply: {reply}")); }
+            }
+            let saved = check("settings",json!({"tadoku_username":"smoke", "tadoku_password":"test value", "tadoku_daily_sync_enabled":false, "easy_days_friday":75})).await?;
+            let view:Value = http.get(format!("http://127.0.0.1:{port}/api/settings")).send().await.and_then(|r|r.error_for_status())
+                .map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())?;
+            if saved["tadoku_configured"]!=true || view["easy_days_friday"]!=75 || view.get("tadoku_password").is_some() || saved.get("tadoku_password").is_some() {
+                return Err("Statistics settings failed the save and read check".into());
+            }
+            let game = check("games",json!({"title_original":"Library smoke","image":"R0lGODlh"})).await?;
+            let id = game["game"]["id"].as_str().ok_or("Created game has no ID")?;
+            let game_url = format!("{tools}/games/{id}");
+            archive_files::verify(http, &tools, &app.state::<crate::settings::Settings>().paths.active, id)
+                .await.map_err(|e| e.to_string())?;
+            for request in [
+                http.put(&game_url).json(&json!({"status":"on_hold","title_english":"Smoke"})),
+                http.post(format!("{game_url}/mark-complete")),
+                http.get(format!("{tools}/orphaned-games")),
+                http.get(format!("{tools}/games-management?sort=title")),
+            ] {
+                let response=request.send().await.map_err(|e|e.to_string())?;
+                if response.headers().get("x-gsm-handler").and_then(|v|v.to_str().ok())!=Some("rust") {
+                    return Err("Game library request reached the compatibility server".into());
+                }
+                response.error_for_status().map_err(|e|e.to_string())?;
+            }
+            let cover=http.get(format!("{game_url}/image")).send().await.map_err(|e|e.to_string())?;
+            if cover.headers().get("content-type").and_then(|v|v.to_str().ok())!=Some("image/gif")
+                || cover.bytes().await.map_err(|e|e.to_string())?.as_ref()!=b"GIF89a" {
+                return Err("Game cover bytes or format changed".into());
+            }
+            let unlink:Value=http.delete(&game_url).send().await.and_then(|r|r.error_for_status()).map_err(|e|e.to_string())?
+                .json().await.map_err(|e|e.to_string())?;
+            if unlink["game_name"]!="Library smoke"{return Err("Library unlink failed".into());}
+            let base = format!("http://127.0.0.1:{port}/api/goals");
+            let reply = http.post(format!("{base}/update")).header("x-timezone", "America/New_York")
+                .json(&json!({"current_goals":[{"metricType":"characters","startDate":"2026-11-01T01:15:00-04:00","endDate":"2026-11-01T01:15:00-05:00"}],
+                    "partial_settings":{"easyDays":{"monday":25}}}))
+                .send().await.map_err(|e| e.to_string())?;
+            if reply.headers().get("x-gsm-handler").and_then(|v| v.to_str().ok()) != Some("rust") {
+                return Err("Goal edit did not reach the native gateway".into());
+            }
+            reply.error_for_status().map_err(|e| e.to_string())?;
+            let current: Value = http.get(format!("{base}/current")).send().await.and_then(|r|r.error_for_status())
+                .map_err(|e|e.to_string())?.json().await.map_err(|e|e.to_string())?;
+            if current["goals_settings"]["easyDays"]["monday"] != 25 || current["current_goals"][0]["metricType"] != "characters" {
+                return Err(format!("Goal edit did not survive a fresh read: {current}"));
+            }
+        }
+        let response = app.state::<DesktopState>().http.post(format!("http://127.0.0.1:{port}/api/database_backup"))
+            .send().await.map_err(|e| e.to_string())?;
+        if !response.status().is_success() || response.headers().get("x-gsm-handler").and_then(|v| v.to_str().ok()) != Some("rust") {
+            return Err(format!("Native backup request failed: {}", response.status()));
+        }
+        return response.json().await.map_err(|e| e.to_string());
     }
     // Never attach test overlays to an already-running user's backend.
     let endpoint = tokio::net::TcpListener::bind("127.0.0.1:0")
@@ -295,13 +562,14 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
             return run_dictionary_smoke(app, reader.trim()).await;
         }
     }
-    let suite = std::env::var("GSM_SMOKE_SUITE")
-        .or_else(|_| std::env::var("GSM_SMOKE_SCENARIO"))
-        .unwrap_or_else(|_| "foundation".into());
     if suite == "qt-dialog" {
         let python = std::env::var("GSM_TEST_QT_PYTHON").map_err(|e| e.to_string())?;
         let root = app.state::<crate::settings::Settings>().paths.active.join("dialog-fixture");
-        let dialog = crate::gui_dialog::Dialog::TextInput { title:"Fixture".into(), label:"Fixture".into() };
+        if std::env::var("GSM_QT_FIXTURE_MODE").as_deref() == Ok("settings") {
+            return qt_settings::run(app, python, root).await;
+        }
+        let grouping = std::env::var_os("GSM_SMOKE_ANKI_GROUPING").is_some();
+        let dialog = if grouping { anki_grouping::fixture() } else { crate::gui_dialog::Dialog::TextInput { title:"Fixture".into(), label:"Fixture".into() } };
         let live = std::env::var("GSM_QT_FIXTURE_MODE").as_deref() == Ok("live");
         let runtime = crate::runtime::get(app)?;
         if live {
@@ -320,7 +588,8 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
             crate::gui_dialog::run_worker(app, dialog, &python, &root).await?
         };
         let elapsed = started.elapsed().as_secs_f64()*1000.0;
-        if answer != "日本語" { return Err(format!("Unexpected Qt result: {answer}")); }
+        let expected = if grouping {json!({"target_note_id":102,"order":"back","delete_duplicate":false,"overwrite":true})} else {json!("日本語")};
+        if answer != expected { return Err(format!("Unexpected Qt result: {answer}")); }
         let state = runtime.call("process.state", json!({"id":"qt-dialog"})).await?;
         if !state["pid"].is_null() { return Err("Qt worker remained resident".into()); }
         if live { runtime.call("process.stop",json!({"id":"backend"})).await?; }
@@ -397,6 +666,65 @@ async fn run_capture_fixture(app: &AppHandle) -> Result<Value, String> {
     }
     window.destroy().map_err(|e| e.to_string())?;
     Ok(json!({"fixture":"capture"}))
+}
+
+#[cfg(windows)]
+async fn wait_for_smoke_show_key(app: &AppHandle) -> Result<(), String> {
+    let url = crate::input_server::url(app).ok_or("Missing fixture input server")?;
+    let (mut socket, _) = tokio_tungstenite::connect_async(url).await.map_err(|e| e.to_string())?;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while let Some(Ok(frame)) = socket.next().await {
+            let Some(status) = frame.to_text().ok().and_then(|s| serde_json::from_str::<Value>(s).ok()) else { continue };
+            if status["type"] == "keyboard_listener_status" && status["configuredHotkey"] == "F23"
+                && status["available"] == true {
+                return Ok(());
+            }
+        }
+        Err("Fixture input server disconnected".into())
+    }).await.map_err(|_| "F23 was not registered by the fixture input server".to_owned())?
+}
+
+#[cfg(windows)]
+async fn focus_dictionary_fixture(hub: &WebviewWindow) -> Result<bool, String> {
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    hub.show().map_err(|e| e.to_string())?;
+    crate::window_platform::apply(hub, "focus", &Value::Null)?;
+    for _ in 0..20 {
+        let mut pid = 0;
+        unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
+        if pid == std::process::id() { return Ok(true); }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Ok(false)
+}
+
+fn dictionary_smoke_key(app: &AppHandle, os_key: bool, pressed: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    if os_key {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        if pressed {
+            use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+            let mut pid = 0;
+            unsafe { GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut pid)) };
+            if pid != std::process::id() { return Err("Fixture lost foreground before F23".into()); }
+        }
+        let input = INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 { ki: KEYBDINPUT {
+                wVk: VK_F23, dwFlags: if pressed { KEYBD_EVENT_FLAGS(0) } else { KEYEVENTF_KEYUP },
+                ..Default::default()
+            } },
+        };
+        if unsafe { SendInput(&[input], std::mem::size_of::<INPUT>() as i32) } != 1 {
+            return Err("Could not send fixture F23 transition".into());
+        }
+        return Ok(());
+    }
+    let _ = os_key;
+    app.state::<crate::overlay_host::OverlayHost>().handle_input_server_msg(app, &json!({
+        "type":"manual_hotkey_event", "state": if pressed { "pressed" } else { "released" }
+    }));
+    Ok(())
 }
 
 async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, String> {
@@ -586,6 +914,10 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     hub.hide().map_err(|e| e.to_string())?;
 
     eprintln!("[smoke] {reader}/{phase}: checking overlay lookups and lifecycle");
+    #[cfg(windows)]
+    app.state::<crate::obs::Obs>().set_smoke_target(
+        "Dictionary fixture", hub.hwnd().map_err(|e| e.to_string())?.0 as usize as u64,
+    );
     let host = app.state::<crate::overlay_host::OverlayHost>();
     host.start(app, None, "smoke").await?;
     let overlay = wait_window_ready(app, OVERLAY_MAIN_LABEL, Duration::from_secs(25)).await?;
@@ -599,6 +931,32 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         return Err("Dictionary fixture overlay is hidden".into());
     }
     evaluate_raw(app, &overlay, include_str!("../smoke/overlay.js")).await?;
+    // The fixture owns its pointer samples. A real mouse moving elsewhere on
+    // the desktop must not trigger the reader's ordinary mouse-leave auto-hide.
+    #[cfg(windows)]
+    crate::browser_extensions::devtools_command(&overlay, "Input.setIgnoreInputEvents", json!({"ignore":true})).await?;
+    let os_key = if phase == "import" {
+        host.apply_setting_updates(app, serde_json::from_value(json!({
+            "manualMode":true, "manualModeType":"hybrid", "manualModeInactiveBehavior":"hide-overlay", "showHotkey":"F23",
+        })).unwrap(), false);
+        #[cfg(windows)]
+        {
+            wait_for_smoke_show_key(app).await?;
+            focus_dictionary_fixture(&hub).await?
+        }
+        #[cfg(not(windows))]
+        { false }
+    } else { false };
+    if phase == "import" {
+        eprintln!("[smoke] hybrid shortcut via {}", if os_key { "Windows F23 input hook" } else { "input-server event replay" });
+        dictionary_smoke_key(app, os_key, true)?;
+        let held = evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.waitForManualState(true)").await;
+        dictionary_smoke_key(app, os_key, false)?;
+        held?;
+        evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.waitForManualState(false)").await?;
+        evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.startHybridLookup()").await?;
+        dictionary_smoke_key(app, os_key, true)?;
+    }
     if phase == "reopen" {
         if use_windows_native_extensions()
             && app.state::<DesktopState>()
@@ -614,9 +972,14 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     let hover_ms = evaluate_raw(
         app,
         &overlay,
-        &format!("window.__gsmSmokeOverlay.lookup({}, {{stationary:true}})", json!(reader)),
+        &format!("(async () => {{ if ({}) await window.__gsmSmokeOverlay.waitForManualState(true); return window.__gsmSmokeOverlay.lookup({}, {{stationary:true}}); }})()",
+            phase == "import", json!(reader)),
     )
-    .await?;
+    .await;
+    if phase == "import" {
+        dictionary_smoke_key(app, os_key, false)?;
+    }
+    let hover_ms = hover_ms?;
     if phase == "reopen" {
         let elapsed = hover_ms.as_u64().ok_or("Missing popup-shown event after idle")?;
         eprintln!("[smoke] {reader}: first hover after 65s idle: {elapsed} ms");
@@ -625,6 +988,10 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         }
     }
     if phase == "import" {
+        evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.finishHybridLookup()").await?;
+        hub.hide().map_err(|e| e.to_string())?;
+        eprintln!("[smoke] {reader}: hybrid reveal, lookup, key release and popup dismissal passed");
+        host.apply_setting_updates(app, serde_json::from_value(json!({"manualMode":false})).unwrap(), false);
         let other = if reader == "yomitan" {
             "hachidori"
         } else {
@@ -769,7 +1136,7 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
     let source_raw = std::fs::read_to_string(fixture_dir.join("fixture.json"))
         .map_err(|e| format!("Failed reading fixture.json: {e}"))?;
     let source: Value = serde_json::from_str(&source_raw).map_err(|e| e.to_string())?;
-    let profile_path = PathBuf::from(
+    let mut profile_path = PathBuf::from(
         source["profile"]
             .as_str()
             .ok_or("Missing fixture profile")?,
@@ -781,6 +1148,107 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
     );
     let kind = source["kind"].as_str().unwrap_or("yomitan");
     let source_id = source["id"].as_str().unwrap_or("");
+    if matches!(phase.as_str(), "browser-import" | "browser-reopen") {
+        #[cfg(not(windows))]
+        return Err("Browser import smoke requires Windows WebView2".into());
+        #[cfg(windows)]
+        {
+            let destination = fixture_dir.join("browser-import-destination");
+            std::fs::create_dir_all(&destination).map_err(|error| error.to_string())?;
+            std::env::set_var("GSM_OVERLAY_DATA_PATH", &destination);
+            let manager = app.state::<DictionaryManager>();
+            std::fs::write(destination.join("settings.json"), json!({"dictionaryReaderSelection":kind}).to_string())
+                .map_err(|error| error.to_string())?;
+            let original = if phase == "browser-import" {
+                let (_, original) = manager.load_selected_extension(app).await?;
+                if kind == "hachidori" {
+                    manager.ensure_hachidori_engine(app, &original).await?;
+                }
+                let overlay = apply_profile_data_directory(
+                    apply_shared_webview_options(WebviewWindowBuilder::new(app, OVERLAY_MAIN_LABEL,
+                        WebviewUrl::External("about:blank".parse().unwrap())).visible(false)),
+                    &destination,
+                )?.build().map_err(|error| error.to_string())?;
+                manager.attach_reader_window(app, &overlay, &original).await?;
+                let status = manager.import_browser_dictionary(app, profile_path, source_id.into()).await?;
+                if status["selection"][kind].as_str().is_none() {
+                    return Err(format!("Browser import did not select its library: {status}"));
+                }
+                Some(original.id)
+            } else {
+                None
+            };
+            let (reader, extension) = manager.load_selected_extension(app).await?;
+            if reader != kind || extension.id == source_id || !extension.path.starts_with(destination.join("native-dictionaries/browser-imports")) {
+                return Err("Browser import is not active in its own origin".into());
+            }
+            if let Some(original) = &original {
+                if &extension.id == original || manager.get_home_reader_extension(OVERLAY_MAIN_LABEL).as_deref() != Some(extension.id.as_str()) {
+                    return Err("Browser import did not reattach the active overlay".into());
+                }
+            }
+            let label = "gsm-browser-import-smoke";
+            let desktop = app.state::<DesktopState>();
+            let token = desktop.register_window(label, "dictionary");
+            let url = desktop.assets.url(&format!("chrome-extension://{}/gsm-transfer.html", extension.id))?;
+            let builder = apply_shared_webview_options(WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+                .visible(false)
+                .initialization_script_for_all_frames(crate::overlay_preload::render_desktop_preload(&token)));
+            let page = apply_profile_data_directory(builder, &destination)?.build().map_err(|error| error.to_string())?;
+            wait_window_ready(app, label, Duration::from_secs(20)).await?;
+            let completed = destination.join("native-dictionaries")
+                .join(format!("{}-legacy-transfer.json", extension.id));
+            let summary: Value = serde_json::from_slice(&std::fs::read(completed).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+            let idbfs = summary["filesystemBackend"] == "idbfs";
+            verify_transferred_indexeddb(app, &page, kind, &phase, idbfs).await?;
+            if kind == "hachidori" && idbfs {
+                let text = evaluate_raw(app, &page, r#"(async () => {
+                    const request = ref => new Promise((resolve, reject) => {
+                        ref.onsuccess = () => resolve(ref.result);
+                        ref.onerror = () => reject(ref.error);
+                    });
+                    const db = await request(indexedDB.open('/dicts'));
+                    const file = await request(db.transaction('FILE_DATA').objectStore('FILE_DATA')
+                        .get('/dicts/.hdw-generation-fixture/日本語/index.json'));
+                    db.close();
+                    return new TextDecoder().decode(file.contents);
+                })()"#).await?;
+                if text != "日本語 dictionary" {
+                    return Err(format!("Browser import IDBFS verification failed: {text}"));
+                }
+            }
+            let _ = page.destroy();
+            desktop.unregister_window(label);
+            if phase == "browser-reopen" {
+                let status = manager.use_original_browser_dictionary(app, kind).await?;
+                let (_, original) = manager.load_selected_extension(app).await?;
+                if original.id == extension.id || !status["selection"][kind].is_null() {
+                    return Err(format!("Could not switch back to the original dictionary: {status}"));
+                }
+            }
+            return Ok(json!({"reader":reader, "id":extension.id, "filesystemBackend":summary["filesystemBackend"]}));
+        }
+    }
+    let mut expected_staged_id = None;
+    if matches!(phase.as_str(), "overlay-move-import" | "overlay-move-reopen") {
+        let old_stage = profile_path.join("native-dictionaries/extensions/yomitan");
+        std::fs::create_dir_all(&old_stage).map_err(|error| error.to_string())?;
+        let manifest = crate::dictionary_host::read_manifest(&ext_path)?;
+        let id = crate::dictionary_host::extension_id_for_directory(&old_stage, &manifest, true);
+        if phase == "overlay-move-import" {
+            let transfers = profile_path.join("native-dictionaries/transfers");
+            std::fs::create_dir_all(&transfers).map_err(|error| error.to_string())?;
+            // Simulate an installation that selected its unpacked ID before fixed keys.
+            std::fs::write(transfers.join(format!("{id}.json")), "{}")
+                .map_err(|error| error.to_string())?;
+        } else {
+            let overlay = fixture_dir.join("GameSentenceMiner/Overlay");
+            gsm_packages::overlay_directory::copy_profile(&profile_path, &overlay)?;
+            profile_path = overlay;
+        }
+        expected_staged_id = Some(id);
+    }
     std::env::set_var("GSM_OVERLAY_DATA_PATH", &profile_path);
 
     let dm = app.state::<DictionaryManager>();
@@ -790,6 +1258,11 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
         #[cfg(windows)]
         {
             let ext = dm.load_windows_extension(app, &ext_path).await?;
+            if let Some(expected) = expected_staged_id {
+                if ext.id != expected {
+                    return Err(format!("Overlay move changed the extension ID from {expected} to {}", ext.id));
+                }
+            }
             let url = format!("chrome-extension://{}/index.html", ext.id);
             let parsed = desktop.assets.url(&url)?;
             let label = "gsm-transfer-win-smoke";
@@ -803,6 +1276,33 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
             builder = apply_profile_data_directory(builder, &profile_path)?;
             let page = builder.build().map_err(|e| e.to_string())?;
             let _ = wait_window_ready(app, label, Duration::from_secs(20)).await?;
+            if phase == "probe-existing" {
+                if ext.id != source_id {
+                    return Err(format!("Expected existing dictionary ID {source_id}, loaded {}", ext.id));
+                }
+                let counts = evaluate_raw(app, &page, r#"(async () => {
+                    const request = value => new Promise((resolve, reject) => {
+                        value.onsuccess = () => resolve(value.result);
+                        value.onerror = () => reject(value.error);
+                    });
+                    const counts = {};
+                    for (const {name} of await indexedDB.databases()) {
+                        const db = await request(indexedDB.open(name));
+                        for (const store of db.objectStoreNames) {
+                            if (store === 'terms' || store === 'dictionaries')
+                                counts[store] = await request(db.transaction(store).objectStore(store).count());
+                        }
+                        db.close();
+                    }
+                    return counts;
+                })()"#).await?;
+                if counts["dictionaries"].as_u64().unwrap_or(0) == 0
+                    || counts["terms"].as_u64().unwrap_or(0) == 0
+                {
+                    return Err(format!("Existing dictionary data was not readable: {counts}"));
+                }
+                return Ok(json!({"id":ext.id,"counts":counts}));
+            }
             verify_transferred_indexeddb(app, &page, kind, &phase, false).await?;
             let _ = page.destroy();
             desktop.unregister_window(label);
@@ -940,7 +1440,7 @@ async fn verify_transferred_indexeddb(
     )
     .await?;
 
-    let expected_next = if phase == "reopen" { 101 } else { 100 };
+    let expected_next = if matches!(phase, "reopen" | "overlay-move-reopen" | "browser-reopen") { 101 } else { 100 };
     if result["term"]["definition"].as_str() != Some("to eat")
         || result["compound"]["value"].as_i64() != Some(42)
         || !result["deleted"].is_null()
@@ -1004,7 +1504,7 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
     wait_window_ready(app, "gsm-ocr-smoke-target", Duration::from_secs(15)).await?;
     let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize as u64;
     let scene = "Native OCR Smoke";
-    app.state::<crate::obs::Obs>().set_ocr_smoke_target(scene,hwnd);
+    app.state::<crate::obs::Obs>().set_smoke_target(scene,hwnd);
     let area_path = paths.active.join("ocr_config/NativeOCRSmoke.json");
     std::fs::create_dir_all(area_path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&area_path, json!({"scene":scene,"coordinate_system":"percentage","rectangles":[{"coordinates":[0.0,0.0,1.0,1.0],"is_excluded":false}]}).to_string()).map_err(|e| e.to_string())?;
@@ -1445,6 +1945,17 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
     }
 
     if suite == "overlay" {
+        // This suite drives capture transitions itself. An unrelated live OBS
+        // disconnect must not close the fixture window in the middle of a check.
+        #[cfg(windows)]
+        let fixture_hwnd = {
+            let window = crate::app_lifecycle::create_hub_window(app)?;
+            let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize as u64;
+            app.state::<crate::obs::Obs>().set_smoke_target("Guide game", hwnd);
+            Some(hwnd)
+        };
+        #[cfg(not(windows))]
+        let fixture_hwnd: Option<u64> = None;
         let overlay_data = overlay_data_path(app);
         std::fs::create_dir_all(&overlay_data).map_err(|e| e.to_string())?;
         let guide_catalogue = overlay_data.join("test-catalogue");
@@ -1717,15 +2228,11 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             "active",
         ] {
             let previous_samples = evaluate_raw(app, &main_win, "window.__gsmNativePointerSamples").await?;
-            app.state::<crate::overlay_host::OverlayHost>()
-                .handle_ws2_text(
-                    app,
-                    &json!({
-                        "type":"window_state", "data":state, "target_hwnd":1, "occlusion_rects":[]
-                    })
-                    .to_string(),
-                )
-                .await;
+            host.present_session(app, &json!({
+                "scene":"Guide game", "available": !matches!(state, "closed" | "minimized"),
+                "window_state":{"type":"window_state", "data":state, "game":"Guide game",
+                    "target_hwnd":fixture_hwnd, "occlusion_rects":[]}
+            })).await;
             let expected = matches!(state, "active" | "background");
             let mut matched = false;
             for _ in 0..40 {
@@ -1753,6 +2260,24 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
                 }})()"#)).await?;
             }
         }
+
+        host.apply_setting_updates(app, serde_json::from_value(json!({
+            "manualMode":false, "showLiveStats":true, "liveStatsScope":"today", "liveStatsDisplayModeV2":"always"
+        })).unwrap(), true);
+        host.handle_ws2_text(app, &json!({
+            "type":"live_stats_update","scope":"today","reason":"refresh","game_name":"Guide game",
+            "updated_at":chrono::Utc::now().timestamp(),"period_end":chrono::Utc::now().timestamp()+3600,
+            "values":{"total_characters":927}
+        }).to_string()).await;
+        evaluate_raw(app, &main_win, r#"(async()=>{
+            for(let i=0;i<40;i++) {
+                const chars = document.querySelector('#gsm-live-stats.gsm-live-stats-visible [data-field-key="total_characters"]');
+                if (chars?.textContent === '927') return true;
+                await new Promise(resolve=>setTimeout(resolve,50));
+            }
+            throw Error('Daily characters did not appear in the game overlay');
+        })()"#).await?;
+        eprintln!("[smoke] Captured window transitions and visible Today character total passed");
 
         #[cfg(windows)]
         smoke_overlay_clickthrough(app, &main_win).await?;

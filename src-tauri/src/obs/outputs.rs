@@ -5,7 +5,7 @@ use tokio::time::{timeout_at, Instant};
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
-enum Action {
+pub(super) enum Action {
     SaveReplay,
     LongplayStart,
     LongplayStop,
@@ -57,6 +57,26 @@ struct Request {
 }
 
 impl Obs {
+    pub(crate) async fn shutdown_mining(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        self.0.shutting_down.store(true, Ordering::Release);
+        let Some(id) = self.0.client.primary_id() else {
+            return Ok(());
+        };
+        let deadline = Instant::now() + Duration::from_secs(35);
+        let _recording = timeout_at(deadline, self.0.recording.lock())
+            .await
+            .map_err(|_| "OBS shutdown timed out")?;
+        let stopped = self
+            .send_output(app, &id, Action::LongplayStop, deadline)
+            .await?;
+        if (stopped["changed"] == true || self.game_session()["record_active"] == true)
+            && self.paths()?.profile()?["features"]["generate_longplay"] == true
+        {
+            self.send_output(app, &id, Action::RecordStop, deadline)
+                .await?;
+        }
+        Ok(())
+    }
     pub async fn mining_output(
         &self,
         app: &tauri::AppHandle,
@@ -81,7 +101,7 @@ impl Obs {
             .await
     }
 
-    pub(super) async fn save_replay(&self, app: &tauri::AppHandle) -> Result<Value, String> {
+    pub(crate) async fn save_replay(&self, app: &tauri::AppHandle) -> Result<Value, String> {
         self.output(app, Action::SaveReplay, Duration::from_secs(35))
             .await
     }
@@ -110,7 +130,7 @@ impl Obs {
             .await
             .map_err(|_| "OBS connection timed out")??;
         let id = self.0.client.primary_id().ok_or("OBS disconnected")?;
-        let mut result = self.send_output(&id, action, deadline).await?;
+        let mut result = self.send_output(app, &id, action, deadline).await?;
         if result["changed"] == true {
             let recording = match action {
                 Action::LongplayStart => Action::RecordStart,
@@ -119,7 +139,7 @@ impl Obs {
             };
             // Replay has already changed. Report a recording failure separately
             // so the backend still accounts for that transition exactly once.
-            match self.send_output(&id, recording, deadline).await {
+            match self.send_output(app, &id, recording, deadline).await {
                 Ok(data) => result["recording"] = data,
                 Err(error) => result["recordingError"] = json!(error),
             }
@@ -127,8 +147,9 @@ impl Obs {
         Ok(result)
     }
 
-    async fn send_output(
+    pub(super) async fn send_output(
         &self,
+        app: &tauri::AppHandle,
         id: &str,
         action: Action,
         deadline: Instant,
@@ -136,12 +157,23 @@ impl Obs {
         let remaining = deadline
             .checked_duration_since(Instant::now())
             .ok_or("OBS output request expired")?;
-        action.result(
+        self.0.policy.lock().unwrap().expect_method(action.method());
+        let issued = std::time::Instant::now();
+        let result = action.result(
             self.0
                 .client
                 .call(id, action.method().into(), Value::Null, remaining)
                 .await,
-        )
+        )?;
+        if matches!(action, Action::RecordStart | Action::RecordStop) && result["changed"] == true {
+            app.state::<crate::longplay::Service>().receipt(
+                issued,
+                matches!(action, Action::RecordStart),
+                result["outputPath"].as_str(),
+                self.current_scene_name(),
+            );
+        }
+        Ok(result)
     }
 }
 

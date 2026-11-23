@@ -220,9 +220,7 @@ def is_connected():
         return False
 
 
-TEXT_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "text_replacements.json")
 OCR_REPLACEMENTS_FILE = os.path.join(get_app_directory(), "config", "ocr_replacements.json")
-os.makedirs(os.path.dirname(TEXT_REPLACEMENTS_FILE), exist_ok=True)
 
 
 def add_srt_line(line_time, new_line):

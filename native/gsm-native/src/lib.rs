@@ -3,6 +3,8 @@ mod correlation;
 mod dialogue_journal;
 mod py_journal;
 mod py_correlation;
+mod recycled_index;
+mod recycled_lines;
 mod skip_detection;
 mod layout;
 mod overlay_coordinates;
@@ -25,6 +27,78 @@ type PyBoundingBox = (f64, f64, f64, f64);
 type PyLayoutLine = (String, PyBoundingBox, Vec<usize>);
 type PyLayoutParagraph = (PyBoundingBox, String, Vec<PyLayoutLine>);
 type PyOverlayFilterDecision = (usize, bool, Vec<usize>);
+
+#[pyfunction]
+fn save_layered_settings(py: Python<'_>, path: PathBuf, before: String, after: String) -> PyResult<()> {
+    py.detach(move || {
+        let before = serde_json::from_str(&before).map_err(|e| e.to_string())?;
+        let after = serde_json::from_str(&after).map_err(|e| e.to_string())?;
+        gsm_settings::profile_editor::save_standalone_edits(&path, &before, &after)
+    }).map_err(pyo3::exceptions::PyRuntimeError::new_err)
+}
+
+#[pyfunction]
+fn migrate_history_schema(py: Python<'_>, path: PathBuf, language: String) -> PyResult<()> {
+    py.detach(move || gsm_db::migrate_file(&path, &language))
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+type ImportRow = (String, i64, f64, String, String);
+
+#[pyfunction]
+fn configure_vocabulary_schema(py: Python<'_>, path: PathBuf, enabled: bool) -> PyResult<()> {
+    py.detach(move || gsm_db::vocabulary::configure(&mut gsm_db::open_writer(&path)?, enabled))
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn compressed_history_snapshot(
+    py: Python<'_>,
+    source: PathBuf,
+    destination: PathBuf,
+) -> PyResult<()> {
+    py.detach(move || gsm_db::backup::compressed_snapshot(&source, &destination))
+        .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
+
+#[pyfunction]
+fn history_snapshot(py: Python<'_>, source: PathBuf, destination: PathBuf) -> PyResult<()> {
+    py.detach(move || gsm_db::backup::snapshot(&source, &destination))
+        .map_err(|e| {
+            if e.is::<gsm_db::backup::IntegrityError>() {
+                let error = py.import("GameSentenceMiner.util.database.sqlite_core")
+                    .and_then(|m| m.getattr("DatabaseIntegrityError"))
+                    .and_then(|ty| ty.call1((e.to_string(),)));
+                return error.map(PyErr::from_value).unwrap_or_else(|err| err);
+            }
+            pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+        })
+}
+
+#[pyfunction]
+fn import_reading_stats(
+    py: Python<'_>,
+    path: PathBuf,
+    rows: Vec<ImportRow>,
+    clear_source: Option<String>,
+) -> PyResult<usize> {
+    py.detach(move || {
+        let entries = rows
+            .into_iter()
+            .map(
+                |(date, characters, seconds, source, label)| gsm_db::imports::Entry {
+                    date,
+                    characters,
+                    seconds,
+                    source,
+                    label,
+                },
+            )
+            .collect::<Vec<_>>();
+        gsm_db::imports::import_file(&path, clear_source.as_deref(), &entries)
+    })
+    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}
 
 #[pyfunction]
 fn api_version() -> u32 {
@@ -291,14 +365,21 @@ fn cached_download_asset(cache: PathBuf, id: String) -> Option<PathBuf> {
 
 #[pymodule]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(save_layered_settings, module)?)?;
     module.add_function(wrap_pyfunction!(rank_card_lines, module)?)?;
     module.add_function(wrap_pyfunction!(py_correlation::classify_dialogue, module)?)?;
     module.add_class::<py_correlation::DialogueSkipDetector>()?;
     module.add_class::<py_journal::DialogueJournal>()?;
+    module.add_class::<recycled_lines::RecycledLines>()?;
     module.add_function(wrap_pyfunction!(py_correlation::compact_dialogue, module)?)?;
     module.add_function(wrap_pyfunction!(download_file, module)?)?;
     module.add_function(wrap_pyfunction!(ensure_download_asset, module)?)?;
     module.add_function(wrap_pyfunction!(cached_download_asset, module)?)?;
+    module.add_function(wrap_pyfunction!(migrate_history_schema, module)?)?;
+    module.add_function(wrap_pyfunction!(configure_vocabulary_schema, module)?)?;
+    module.add_function(wrap_pyfunction!(import_reading_stats, module)?)?;
+    module.add_function(wrap_pyfunction!(compressed_history_snapshot, module)?)?;
+    module.add_function(wrap_pyfunction!(history_snapshot, module)?)?;
     module.add_function(wrap_pyfunction!(api_version, module)?)?;
     module.add_function(wrap_pyfunction!(filter_ocr_text, module)?)?;
     module.add_function(wrap_pyfunction!(order_ocr_layout, module)?)?;

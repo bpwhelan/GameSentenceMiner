@@ -1,0 +1,44 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "method": "Warm worker processes. Full config load, native atomic persistence when changed, eight profiles for upgrade/reopen. Median time and worker CPU in ms per call. Lifetime peak working set in MiB on Windows. Imports excluded.",
+  "medians": {
+    "fresh": {
+      "python": {
+        "ms": 10.399,
+        "cpu_ms": 15.625,
+        "resident_mib": 41.695
+      },
+      "rust": {
+        "ms": 3.026,
+        "cpu_ms": 0.0,
+        "resident_mib": 7.699
+      }
+    },
+    "upgrade": {
+      "python": {
+        "ms": 69.682,
+        "cpu_ms": 78.125,
+        "resident_mib": 43.746
+      },
+      "rust": {
+        "ms": 5.345,
+        "cpu_ms": 0.0,
+        "resident_mib": 8.43
+      }
+    },
+    "reopen": {
+      "python": {
+        "ms": 66.051,
+        "cpu_ms": 64.062,
+        "resident_mib": 46.562
+      },
+      "rust": {
+        "ms": 3.834,
+        "cpu_ms": 3.125,
+        "resident_mib": 8.977
+      }
+    }
+  }
+}

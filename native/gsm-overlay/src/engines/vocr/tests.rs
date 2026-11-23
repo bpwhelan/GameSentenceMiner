@@ -198,6 +198,12 @@ fn model_selection_is_atomic_shared_and_does_not_copy_model_files() -> Result<()
 #[test]
 fn main_and_overlay_engine_dispatch_observe_the_shared_vocr_model_choice() -> Result<()> {
     let root = tempfile::tempdir()?;
+    let old_install = Tier::directory(root.path())?;
+    std::fs::create_dir_all(&old_install)?;
+    std::fs::write(
+        old_install.join("native-runtime.json"),
+        br#"{"library":"legacy.dll","backend":"c"}"#,
+    )?;
     let image =
         image::load_from_memory(include_bytes!("../../../tests/fixtures/dialogue.png"))?.to_rgba8();
     let mut engines = crate::engines::Engines::new(root.path());
@@ -211,6 +217,8 @@ fn main_and_overlay_engine_dispatch_observe_the_shared_vocr_model_choice() -> Re
     assert!(small.text.contains("GarmeSentenCeMiner"));
     assert_eq!(normal.model["size"], "normal");
     assert_eq!(small.model["size"], "small");
+    assert_eq!(normal.model["backend"], "onnx");
+    assert_eq!(small.model["backend"], "onnx");
     assert_eq!(small.model["revision"], super::selection::REVISION);
     assert!(!root.path().join("ocr_models").exists());
     Ok(())

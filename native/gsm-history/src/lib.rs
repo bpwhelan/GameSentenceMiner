@@ -2,27 +2,64 @@
 //! Reports use independent snapshots. The desktop lends the active backend a
 //! single serialized writer until database close or backend disconnect.
 mod anki_games;
+mod anki_impact;
+mod anki_coverage;
 mod anki_notes;
 mod anki_report_cache;
 pub mod anki_sync;
-mod capture;
+pub mod capture;
+pub mod exstatic;
+pub mod kizuna;
+pub mod kechimochi;
+pub mod goal_metrics;
 mod game_stats;
+pub mod library;
+mod goals;
+pub use goals::GoalSettingsEdit;
+pub use gsm_db::imports::Entry as ReadingEntry;
+mod imported_stats;
+pub mod characters;
 mod kanji;
+pub mod live;
 mod maintenance;
+pub mod game_archive;
 mod maturity;
 mod milestones;
-mod mining;
+pub mod mining;
 mod novelty;
 mod overview;
+mod projection;
+pub mod recycled;
 mod rollup;
 pub mod schedule;
 mod search;
 mod sessions;
+pub use sessions::ReportCleaner;
 mod stats;
+pub mod stats_export;
+pub mod tadoku;
 mod tokenization;
 pub mod word_index;
+/// Typed inputs used by the web frontend and the desktop history broker.
+pub mod reports {
+    pub use super::anki_games::Report as AnkiGameQuery;
+    pub use super::anki_impact::Report as AnkiImpactQuery;
+    pub use super::anki_coverage::Report as AnkiCoverageQuery;
+    pub use super::kanji::is_kanji;
+    pub use super::maturity::Report as MaturityQuery;
+    pub use super::tokenization::WordsNotInAnkiQuery;
+    pub use super::game_stats::{DashboardStatsQuery, GameStatsQuery};
+    pub use super::game_stats::JITEN_DIFFICULTY_LABELS;
+    pub use super::overview::Range;
+    pub use super::projection::{Projection, Target};
+    pub use super::search::SentenceQuery;
+    pub use super::search::DuplicateQuery;
+    pub use super::maintenance::{ArchiveCandidate, DeduplicateQuery, LineRemoval, MaintenancePermit, RemovalSummary, TextDeletionQuery};
+    pub use super::stats::local_date;
+    pub use super::tokenization::{WordsQuery, KanjiQuery, TokenSearchQuery, WordDetailQuery};
+}
 
-use chrono::NaiveDate;
+use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone};
 use rusqlite::{Connection, OpenFlags};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -34,10 +71,44 @@ use std::{
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+fn legacy_timestamp(raw: &rusqlite::types::Value) -> Option<f64> {
+    use rusqlite::types::Value as Sql;
+    let text = match raw {
+        Sql::Integer(n) => return Some(*n as f64),
+        Sql::Real(n) => return n.is_finite().then_some(*n),
+        Sql::Text(text) => text,
+        _ => return None,
+    };
+    if let Ok(n) = text.trim().parse::<f64>() {
+        return n.is_finite().then_some(n);
+    }
+    // Old profiles also stored Python datetime.isoformat() strings. Python
+    // interprets a naive value in the machine's local zone, including a bare date.
+    let iso = text.replace(' ', "T");
+    if let Ok(date) = DateTime::parse_from_rfc3339(&iso) {
+        return Some(date.timestamp_micros() as f64 / 1e6);
+    }
+    let naive = iso
+        .parse::<NaiveDateTime>()
+        .ok()
+        .or_else(|| iso.parse::<NaiveDate>().ok()?.and_hms_opt(0, 0, 0))?;
+    Local
+        .from_local_datetime(&naive)
+        .earliest()
+        .map(|d| d.timestamp_micros() as f64 / 1e6)
+}
+
+pub use gsm_db::create_profile_if_missing;
 
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "camelCase", deny_unknown_fields)]
 pub enum Request {
+    MigrateSchema { language: String },
+    ConfigureVocabulary { enabled: bool },
+    ImportReadingStats {
+        clear_source: Option<String>,
+        rows: Vec<gsm_db::imports::Entry>,
+    },
     #[serde(alias = "writerGeneration")]
     BeginRollup,
     RebuildRollups(rollup::Rebuild),
@@ -49,6 +120,8 @@ pub enum Request {
     GameMilestones,
     MaturityHistory(maturity::Report),
     AnkiGameStats(anki_games::Report),
+    AnkiReadingImpact(anki_impact::Report),
+    AnkiCoverage(anki_coverage::Report),
     AnkiContentRetention(anki_games::Report),
     AnkiEarliestNote {
         parent_tag: String,
@@ -60,6 +133,11 @@ pub enum Request {
         end: Option<i64>,
     },
     ReadingOverview(overview::Range),
+    GoalsProjection(projection::Projection),
+    LatestGoals,
+    GoalStreak { today: NaiveDate },
+    GoalReadingPace { today: NaiveDate, day_start: f64, day_end: f64, session_gap: f64 },
+    CompleteGoals { today: NaiveDate },
     KanjiGrid {
         today: NaiveDate,
         start: Option<NaiveDate>,
@@ -76,7 +154,19 @@ pub enum Request {
     },
     CloseWriter,
     CaptureLines(capture::Batch),
+    ReadingBreak {
+        timestamp: f64,
+    },
     UpdateMinedLine(mining::MinedLine),
+    GameCharacterContext {
+        game_title: String,
+        include_character_data: bool,
+    },
+    SaveGameCharacterSummary {
+        game_id: String,
+        summary: String,
+        expected_summary: String,
+    },
     TodaySessions {
         start: f64,
         end: f64,
@@ -85,6 +175,8 @@ pub enum Request {
     MiningHeatmap {
         start: Option<f64>,
         end: Option<f64>,
+        #[serde(default)]
+        live_only: bool,
     },
     DailyActivity {
         today: NaiveDate,
@@ -96,6 +188,11 @@ pub enum Request {
     SearchSentences(search::SentenceQuery),
     SearchDuplicates(search::DuplicateQuery),
     GamesList,
+    OrphanedGames,
+    DatabaseStatus,
+    ImportedStats { source: Option<String> },
+    ImportedStatsSummary,
+    ArchivePreview { game_id: String },
     PreviewTextDeletion(maintenance::TextDeletionQuery),
     DeleteTextLines(maintenance::TextDeletionQuery),
     PreviewDeduplication(maintenance::DeduplicateQuery),
@@ -158,6 +255,16 @@ struct ReadPool {
 }
 
 impl History {
+    pub fn manual_backup(&self, path: &Path) -> Result<(PathBuf, String)> {
+        if std::env::var("GSM_DB_READ_ONLY").as_deref() == Ok("1") {
+            return Err("Cannot backup a database opened in read-only mode.".into());
+        }
+        // Finish an in-flight native write, then copy on a separate connection.
+        // Keeping the writer free during the snapshot lets intake continue.
+        drop(self.writer.lock().map_err(|_| "History writer unavailable")?);
+        gsm_db::profile::manual_backup(path)
+    }
+
     pub fn generation(&self) -> Result<u64> {
         Ok(self
             .writer
@@ -265,7 +372,63 @@ impl History {
         self.reports.close()
     }
 
+    pub fn current_goals(&self, path: &Path, read_only: bool) -> Result<Option<Value>> {
+        let existing = self.with_reader(path, |conn| goals::current(conn))?;
+        if existing.is_some() || read_only {
+            return Ok(existing);
+        }
+        self.with_writer(path, goals::create_current).map(Some)
+    }
+
+    pub fn update_goals(
+        &self, path: &Path, goals: Option<Vec<Value>>, settings: Option<GoalSettingsEdit>,
+    ) -> Result<Value> {
+        self.with_writer(path, |conn| goals::update(conn, goals, settings))
+    }
+
+    pub fn today_report(&self, path: &Path, start: f64, end: f64, gap: f64, cleaner: &ReportCleaner) -> Result<Value> {
+        self.with_reader(path, |conn| {
+            let tx = conn.transaction()?;
+            let mut report = sessions::today(&tx, start, end, gap, cleaner)?;
+            report.resolve_games(&tx)?;
+            Ok(serde_json::to_value(report)?)
+        })
+    }
+
+    pub fn first_rollup_date(&self, path: &Path) -> Result<Option<String>> {
+        self.with_reader(path, |conn| Ok(conn.query_row(
+            "SELECT min(date) FROM (SELECT min(date) AS date FROM daily_stats_rollup UNION ALL SELECT min(date) FROM third_party_stats)",
+            [], |r| r.get(0))?))
+    }
+
+    pub fn game_exists(&self, path: &Path, id: &str) -> Result<bool> {
+        self.with_reader(path, |conn| {
+            Ok(
+                conn.query_row("SELECT EXISTS(SELECT 1 FROM games WHERE id=?)", [id], |r| {
+                    r.get(0)
+                })?,
+            )
+        })
+    }
+
+    pub fn anki_has_notes(&self, path: &Path) -> Result<bool> {
+        self.with_reader(path, |conn| {
+            if !stats::table_exists(conn, "anki_notes")? {
+                return Ok(false);
+            }
+            Ok(conn.query_row("SELECT EXISTS(SELECT 1 FROM anki_notes)", [], |r| r.get(0))?)
+        })
+    }
+
+    pub fn capture(&self, path: &Path, batch: &capture::Batch) -> Result<usize> {
+        self.with_writer(path, |conn| batch.persist(conn))
+    }
+
     pub fn run(&self, path: &Path, request: Request) -> Result<Value> {
+        self.run_with_cleaner(path, request, &ReportCleaner::default())
+    }
+
+    pub fn run_with_cleaner(&self, path: &Path, request: Request, cleaner: &ReportCleaner) -> Result<Value> {
         match request {
             Request::CloseWriter => {
                 self.close()?;
@@ -277,8 +440,14 @@ impl History {
         }
         if matches!(
             request,
-            Request::UpdateMinedLine(_)
+            Request::MigrateSchema { .. }
+                | Request::ConfigureVocabulary { .. }
+                | Request::ImportReadingStats { .. }
+                | Request::CompleteGoals { .. }
+                | Request::UpdateMinedLine(_)
+                | Request::SaveGameCharacterSummary { .. }
                 | Request::ReplaceRollupDay(_)
+                | Request::ReadingBreak { .. }
                 | Request::CaptureLines(_)
                 | Request::LinkGameLines
                 | Request::CleanWordIndex
@@ -286,10 +455,10 @@ impl History {
                 | Request::DeleteTextLines(_)
                 | Request::DeduplicateLines(_)
         ) {
-            return self.with_writer(path, |conn| execute(conn, request));
+            return self.with_writer(path, |conn| execute(conn, request, cleaner));
         }
         let cache_key = anki_report_cache::Key::from_request(&request);
-        let read = || self.with_reader(path, |conn| execute(conn, request));
+        let read = || self.with_reader(path, |conn| execute(conn, request, cleaner));
         match cache_key {
             Some(key) => self.reports.read(path, key, read),
             None => read(),
@@ -297,8 +466,43 @@ impl History {
     }
 }
 
-fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
+fn execute(conn: &mut Connection, request: Request, cleaner: &ReportCleaner) -> Result<Value> {
     match request {
+        Request::LatestGoals => goals::latest(conn),
+        Request::GoalReadingPace { today, day_start, day_end, session_gap } => {
+            let tx = conn.transaction()?;
+            goals::reading_pace(&tx, cleaner, today, day_start, day_end, session_gap)
+        }
+        Request::CompleteGoals { today } => goals::complete(conn, today),
+        Request::GoalStreak { today } => {
+            let tx = conn.transaction()?;
+            Ok(serde_json::to_value(goals::streak(&tx, today)?)?)
+        }
+        Request::GoalsProjection(query) => {
+            let tx = conn.transaction()?;
+            query.read(&tx, cleaner)
+        }
+        Request::ImportedStats { source } => imported_stats::list(conn, source.as_deref()),
+        Request::ImportedStatsSummary => imported_stats::summary(conn),
+        Request::DatabaseStatus => {
+            let tx = conn.transaction()?;
+            maintenance::database_status(&tx)
+        }
+        Request::ArchivePreview { game_id } => {
+            let tx = conn.transaction()?;
+            maintenance::archive_preview(&tx, &game_id)
+        }
+        Request::MigrateSchema { language } => {
+            gsm_db::migrate(conn, &language)?;
+            Ok(Value::Null)
+        }
+        Request::ConfigureVocabulary { enabled } => {
+            gsm_db::vocabulary::configure_desktop(conn, enabled)?;
+            Ok(Value::Null)
+        }
+        Request::ImportReadingStats { clear_source, rows } => {
+            Ok(gsm_db::imports::import(conn, clear_source.as_deref(), &rows)?.into())
+        }
         Request::BeginRollup | Request::RebuildRollups(_) => {
             unreachable!("handled by writer lifecycle")
         }
@@ -318,6 +522,14 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
             let tx = conn.transaction()?;
             report.read(&tx, anki_games::Grouping::Game)
         }
+        Request::AnkiReadingImpact(report) => {
+            let tx = conn.transaction()?;
+            report.read(&tx, cleaner)
+        }
+        Request::AnkiCoverage(report) => {
+            let tx = conn.transaction()?;
+            report.read(&tx, cleaner)
+        }
         Request::AnkiContentRetention(report) => {
             let tx = conn.transaction()?;
             report.read(&tx, anki_games::Grouping::Content)
@@ -335,7 +547,7 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
         }
         Request::ReadingOverview(range) => {
             let tx = conn.transaction()?;
-            range.read(&tx)
+            range.read(&tx, cleaner)
         }
         Request::KanjiGrid {
             today,
@@ -345,7 +557,7 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
             day_end,
         } => {
             let tx = conn.transaction()?;
-            kanji::dashboard(&tx, today, start, end, day_start, day_end)
+            kanji::dashboard(&tx, today, start, end, day_start, day_end, cleaner)
         }
         Request::KanjiFrequency { kanji, today } => kanji::frequency(conn, kanji, today),
         Request::GameKanji { game_id } => {
@@ -353,6 +565,14 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
             kanji::game(&tx, &game_id)
         }
         Request::CloseWriter => unreachable!("handled by writer lifecycle"),
+        Request::ReadingBreak { timestamp } => {
+            conn.execute_batch("CREATE TABLE IF NOT EXISTS stats_reading_breaks (id INTEGER PRIMARY KEY AUTOINCREMENT,timestamp TEXT)")?;
+            conn.execute(
+                "INSERT INTO stats_reading_breaks(timestamp) VALUES (?1)",
+                [timestamp],
+            )?;
+            Ok(Value::Null)
+        }
         Request::CaptureLines(batch) => Ok(json!(batch.persist(conn)?)),
         Request::TodaySessions {
             start,
@@ -365,13 +585,20 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
                 start,
                 end,
                 session_gap,
+                cleaner,
             )?)?)
         }
         Request::UpdateMinedLine(line) => Ok(json!(line.update(conn)?)),
-        Request::MiningHeatmap { start, end } => {
+        Request::GameCharacterContext { game_title, include_character_data } => Ok(serde_json::to_value(
+            mining::game_character_context(conn, &game_title, include_character_data)?,
+        )?),
+        Request::SaveGameCharacterSummary { game_id, summary, expected_summary } => Ok(json!(
+            mining::save_game_character_summary(conn, &game_id, &summary, &expected_summary)?
+        )),
+        Request::MiningHeatmap { start, end, live_only } => {
             let tx = conn.transaction()?;
             Ok(serde_json::to_value(stats::mining_heatmap(
-                &tx, start, end,
+                &tx, start, end, live_only,
             )?)?)
         }
         Request::DailyActivity {
@@ -393,6 +620,7 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
             let tx = conn.transaction()?;
             Ok(serde_json::to_value(query.run(&tx)?)?)
         }
+        Request::OrphanedGames => library::orphaned(conn),
         Request::GamesList => {
             let tx = conn.transaction()?;
             Ok(serde_json::to_value(maintenance::games_list(&tx)?)?)
@@ -460,11 +688,11 @@ fn execute(conn: &mut Connection, request: Request) -> Result<Value> {
         }
         Request::GameStats(query) => {
             let tx = conn.transaction()?;
-            query.run(&tx)
+            query.run(&tx, cleaner)
         }
         Request::DashboardStats(query) => {
             let tx = conn.transaction()?;
-            query.run(&tx)
+            query.run(&tx, cleaner)
         }
     }
 }
@@ -485,7 +713,9 @@ mod read_pool_tests {
         }
         let history = Arc::new(History::default());
         let first: i64 = history
-            .with_reader(&path, |c| Ok(c.query_row("SELECT v FROM t", [], |r| r.get(0))?))
+            .with_reader(&path, |c| {
+                Ok(c.query_row("SELECT v FROM t", [], |r| r.get(0))?)
+            })
             .unwrap();
         assert_eq!(first, 1);
         assert_eq!(history.readers.lock().unwrap().idle.len(), 1);
@@ -496,7 +726,9 @@ mod read_pool_tests {
             conn.execute("UPDATE t SET v = 2", []).unwrap();
         }
         let second: i64 = history
-            .with_reader(&path, |c| Ok(c.query_row("SELECT v FROM t", [], |r| r.get(0))?))
+            .with_reader(&path, |c| {
+                Ok(c.query_row("SELECT v FROM t", [], |r| r.get(0))?)
+            })
             .unwrap();
         assert_eq!(second, 2);
         assert_eq!(history.readers.lock().unwrap().idle.len(), 1);

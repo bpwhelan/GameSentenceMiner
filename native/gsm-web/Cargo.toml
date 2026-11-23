@@ -1,0 +1,34 @@
+[package]
+name = "gsm-web"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-only"
+publish = false
+
+[dependencies]
+base64 = "0.22"
+chrono = "0.4"
+form_urlencoded = "1"
+gsm-history = { path = "../gsm-history" }
+gsm-settings = { path = "../gsm-settings" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico", "tiff", "pnm", "tga"] }
+jiff = "0.2"
+minijinja = { version = "3", default-features = false, features = ["builtins", "multi_template", "json", "serde"] }
+percent-encoding = "2"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+tempfile = "3"
+uuid = { version = "1", features = ["v4", "v5"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
+
+[build-dependencies]
+serde_json = "1"
+flate2 = "1"
+sha2 = "0.10"
+
+[dev-dependencies]
+gsm-db = { path = "../gsm-db" }
+rusqlite = { version = "0.32", features = ["bundled"] }

@@ -47,6 +47,10 @@ impl Overlay {
             .expect("Start native overlay worker");
         Self(shared)
     }
+    pub(crate) fn ready_for_line(&self,scene:&str)->bool {
+        let state=self.0.0.lock().unwrap();
+        !state.closed && !state.paused && available(&state.config) && state.config["scene"].as_str().unwrap_or("")==scene
+    }
     pub fn command(&self, label: &str, message: Value) -> Result<Value, String> {
         let (lock, wake) = &*self.0;
         let mut state = lock.lock().map_err(|_| "Overlay worker stopped")?;
@@ -418,6 +422,15 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             }
             let attempts = scan_attempts(&config, &request);
             let reference = request["text"].as_str().unwrap_or("");
+            let recycled = request["line_id"].as_str().map(|id| {
+                let scene = config["scene"].as_str().unwrap_or("");
+                request["line_scene"]
+                    .as_str()
+                    .is_none_or(|line_scene| line_scene == scene)
+                    && app
+                        .state::<crate::recycled_lines::Recycled>()
+                        .verdict(&app, scene, id, reference)
+            });
             let learn = matches!(request["source"].as_str(), Some("texthook" | "hooker"))
                 && local_engine(engine)
                 && !reference.is_empty()
@@ -566,7 +579,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 } else {
                     Value::Null
                 };
-                if let Some(recycled) = request["is_sentence_recycled"].as_bool() {
+                if let Some(recycled) = recycled {
                     payload["is_sentence_recycled"] = json!(recycled);
                 }
                 mark_latest(&mut payload, request["text"].as_str().unwrap_or(""));
@@ -622,6 +635,10 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                             format!("Overlay OCR complete: {engine} sent {box_count} text boxes (total: {total_ms}ms, queue: {queue_ms}ms, frame: {frame_ms}ms, resize: {resize_ms}ms, OCR: {ocr_ms}ms, other: {other_ms}ms, tries: {tries}, source: {source}, {timing})")
                         };
                         completed_summary = Some(summary);
+                    }
+                    if crate::overlay_host::OverlayHost::is_unbacked_scan(&payload) &&
+                        app.state::<Arc<crate::mining::MiningService>>().is_enabled() {
+                        crate::text_intake::context::remember_overlay(&app,&config,&payload);
                     }
                     emit(&app, &label, payload);
                     last_text = text;

@@ -53,7 +53,7 @@ const HOTKEY_BINDING_OPTIONS = Object.freeze({
   },
 });
 const VALID_PLATFORM_OVERRIDE_VALUES = new Set(["win32", "linux", "darwin"]);
-const VALID_MANUAL_MODE_TYPES = new Set(["hold", "toggle"]);
+const VALID_MANUAL_MODE_TYPES = new Set(["hold", "hybrid", "toggle"]);
 const VALID_MANUAL_MODE_INACTIVE_BEHAVIORS = new Set(["hide-overlay", "disable-interaction"]);
 const VALID_GAMEPAD_ACTIVATION_MODES = new Set(["modifier", "toggle"]);
 const VALID_GAMEPAD_TOKENIZER_BACKENDS = new Set([
@@ -385,7 +385,7 @@ function syncManualHotkeyStatusUi() {
   } else if (backend === "input_server" && manualHotkeyRuntimeState.backendReason === "electron-registration-failed") {
     statusText = "Backend: Input Server (Electron registration fallback)";
   }
-  if (backend === "electron" && manualModeType === "hold") {
+  if (backend === "electron" && manualModeType !== "toggle") {
     statusText += " | Hold detection is best-effort";
   }
   backendElement.textContent = statusText;
@@ -417,7 +417,7 @@ function syncManualHotkeyStatusUi() {
       platformWarning.textContent = "Linux manual hotkeys are best-effort. Wayland may block global keyboard hooks.";
       platformWarning.style.display = "block";
     }
-  } else if (backend === "electron" && manualModeType === "hold") {
+  } else if (backend === "electron" && manualModeType !== "toggle") {
     platformWarning.textContent =
       "Electron hold mode uses repeat/watchdog release detection because global shortcuts do not expose key-up.";
     platformWarning.style.display = "block";
@@ -919,10 +919,12 @@ const SETTING_BINDING_DEFINITIONS = [
     event: "change",
   }),
   createCheckboxBinding("openSettingsOnStartup", "#openSettingsOnStartup"),
-  createSelectBinding("dictionaryReaderSelection", "#dictionaryReaderSelection", {
-    normalize: (value) => (value === "hachidori" ? "hachidori" : "yomitan"),
-    afterApply: () => syncDictionaryReaderUi(),
-  }),
+  ...(dictionarySettingsInDesktop ? [] : [
+    createSelectBinding("dictionaryReaderSelection", "#dictionaryReaderSelection", {
+      normalize: (value) => (value === "hachidori" ? "hachidori" : "yomitan"),
+      afterApply: () => syncDictionaryReaderUi(),
+    }),
+  ]),
   createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
   createCheckboxBinding("textHoverClickThrough", "#textHoverClickThrough"),
   createCheckboxBinding("hideYomitanAfterMine", "#hideYomitanAfterMine"),
@@ -1021,6 +1023,9 @@ const SETTING_BINDING_DEFINITIONS = [
   createCheckboxBinding("manualModeDisableInteractionFocusOverlay", "#manualModeDisableInteractionFocusOverlay"),
   createHotkeyBinding("showHotkey", "#showHotkey", {
     afterApply: () => syncManualHotkeyStatusUi(),
+  }),
+  createCheckboxBinding("requireGameFocusForPushToShow", "#requireGameFocusForPushToShow", {
+    normalize: (value) => value !== false,
   }),
   createCheckboxBinding("autoRequestTranslation", "#autoRequestTranslation"),
   createHotkeyBinding("translateHotkey", "#translateHotkey"),

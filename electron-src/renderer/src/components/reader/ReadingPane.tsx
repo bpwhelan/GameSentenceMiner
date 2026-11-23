@@ -1,10 +1,9 @@
 import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import type { ReaderDictionaryTransfer, ReaderLine } from '../../../../shared/reader';
+import type { ReaderLine } from '../../../../shared/reader';
 import { useLocale, useTranslation } from '../../i18n';
-import { invokeIpc } from '../../lib/ipc';
+import { invokeIpc, onIpc } from '../../lib/ipc';
 import { readerLineKey, selectReaderRange } from '../../lib/readerState';
 import { useReader } from '../../lib/useReader';
-import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 import { useDocumentVisible } from '../../lib/useDocumentVisible';
 import './ReadingPane.css';
 
@@ -40,7 +39,6 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
   const [searchOpen, setSearchOpen] = useState(false);
   const [translations, setTranslations] = useState<Record<string, { source: string; text: string; visible: boolean }>>({});
   const [pending, setPending] = useState<string | null>(null);
-  const [transfers, setTransfers] = useState<ReaderDictionaryTransfer[]>([]);
   const scroll = useRef<HTMLDivElement>(null);
   const savedScrollTop = useRef(0);
   const search = useRef<HTMLInputElement>(null);
@@ -70,20 +68,16 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
   }, [reader.lines, following, presenting, fontSize]);
   useEffect(() => {
     if (!active) return;
-    void invokeIpc('reader.attachDictionary').catch(reason => reader.setError(reason instanceof Error ? reason.message : String(reason)));
-    return () => { window.dispatchEvent(new Event('gsm-reader-feed-closed')); };
-  }, [active]);
-  useEffect(() => {
-    if (!active) return;
-    let disposed = false;
-    const refresh = async () => {
-      const value = await invokeIpc<ReaderDictionaryTransfer[]>('reader.dictionaryTransfers');
-      if (!disposed && Array.isArray(value)) setTransfers(before => retainEqual(before, value));
+    const attachDictionary = () => {
+      void invokeIpc('reader.attachDictionary').catch(reason => reader.setError(reason instanceof Error ? reason.message : String(reason)));
     };
-    const stop = startVisiblePolling(refresh, 1000);
-    return () => { disposed = true; stop(); };
+    const off = onIpc('dictionary-library-changed', attachDictionary);
+    attachDictionary();
+    return () => {
+      off();
+      window.dispatchEvent(new Event('gsm-reader-feed-closed'));
+    };
   }, [active]);
-
   const follow = () => { setFollowing(true); setUnseen(0); if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight; };
   async function selectLine(line: ReaderLine, checked: boolean, shift: boolean) {
     const order = filtered.filter(canUseMedia).map(item => item.id);
@@ -125,7 +119,6 @@ export const ReadingPane = memo(function ReadingPane({ active, focus, onToggleFo
     </header>
     {searchOpen && <div className="reading-search"><Icon name="search" /><input ref={search} type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={t('reader.search')} aria-label={t('reader.search')} /><button type="button" onClick={() => { setSearchOpen(false); setQuery(''); }} aria-label={t('reader.close')}><Icon name="close" /></button></div>}
     {reader.paused && <div className="reading-notice">{t('reader.intakePaused')}</div>}
-    {transfers.map(transfer => <div key={transfer.name} className={transfer.phase === 'failed' ? 'reading-error' : 'reading-notice'} role="status">{t(`reader.transfer.${transfer.phase}`, { name: transfer.name, count: transfer.records.toLocaleString() })}</div>)}
     {reader.error && <div className="reading-error" role="alert"><span>{labelError}</span><button type="button" onClick={() => reader.setError('')} aria-label={t('reader.dismiss')}><Icon name="close" /></button></div>}
     <div className="reading-transcript" ref={scroll} onScroll={event => {
       if (!presenting) return;

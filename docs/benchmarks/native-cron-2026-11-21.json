@@ -1,0 +1,151 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "cases": {
+    "cron-rollup": {
+      "iterations_per_run": 1,
+      "result_sha256": "ec7f81298ae27a3458e396654a8cf5566d180e5006f1be334322881de79ed3dd",
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 35.88780000063707,
+            "cpu_ms": 46.875,
+            "settled_uss_mib": 54.34375
+          },
+          {
+            "wall_ms": 31.846000001678476,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 54.17578125
+          },
+          {
+            "wall_ms": 35.51059999881545,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 54.34765625
+          },
+          {
+            "wall_ms": 32.395499998528976,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 54.625
+          },
+          {
+            "wall_ms": 41.11440000269795,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 54.44921875
+          }
+        ],
+        "median": {
+          "wall_ms": 35.511,
+          "cpu_ms": 31.25,
+          "settled_uss_mib": 54.348
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 34.64159999930416,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 55.890625
+          },
+          {
+            "wall_ms": 35.72899999926449,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 55.7578125
+          },
+          {
+            "wall_ms": 34.30800000205636,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 55.6171875
+          },
+          {
+            "wall_ms": 31.546199999866076,
+            "cpu_ms": 15.625,
+            "settled_uss_mib": 55.6328125
+          },
+          {
+            "wall_ms": 32.69279999949504,
+            "cpu_ms": 31.25,
+            "settled_uss_mib": 55.6640625
+          }
+        ],
+        "median": {
+          "wall_ms": 34.308,
+          "cpu_ms": 15.625,
+          "settled_uss_mib": 55.664
+        }
+      }
+    },
+    "cron-anki-sync": {
+      "iterations_per_run": 1,
+      "result_sha256": "600487273dbcff5b4b553c72a56e06c93177d45a11dfd4052eddb48319e8b597",
+      "python": {
+        "samples": [
+          {
+            "wall_ms": 694.3726999998034,
+            "cpu_ms": 343.75,
+            "settled_uss_mib": 62.6796875
+          },
+          {
+            "wall_ms": 332.6919999999518,
+            "cpu_ms": 296.875,
+            "settled_uss_mib": 62.81640625
+          },
+          {
+            "wall_ms": 329.69779999984894,
+            "cpu_ms": 281.25,
+            "settled_uss_mib": 62.70703125
+          },
+          {
+            "wall_ms": 351.68509999857633,
+            "cpu_ms": 218.75,
+            "settled_uss_mib": 62.99609375
+          },
+          {
+            "wall_ms": 344.4592999985616,
+            "cpu_ms": 281.25,
+            "settled_uss_mib": 63.05859375
+          }
+        ],
+        "median": {
+          "wall_ms": 344.459,
+          "cpu_ms": 281.25,
+          "settled_uss_mib": 62.816
+        }
+      },
+      "rust": {
+        "samples": [
+          {
+            "wall_ms": 256.57870000213734,
+            "cpu_ms": 203.125,
+            "settled_uss_mib": 55.59375
+          },
+          {
+            "wall_ms": 337.7701999997953,
+            "cpu_ms": 156.25,
+            "settled_uss_mib": 55.375
+          },
+          {
+            "wall_ms": 261.1151000019163,
+            "cpu_ms": 187.5,
+            "settled_uss_mib": 54.93359375
+          },
+          {
+            "wall_ms": 227.81449999820325,
+            "cpu_ms": 140.625,
+            "settled_uss_mib": 55.3984375
+          },
+          {
+            "wall_ms": 212.86099999997532,
+            "cpu_ms": 140.625,
+            "settled_uss_mib": 55.33984375
+          }
+        ],
+        "median": {
+          "wall_ms": 256.579,
+          "cpu_ms": 156.25,
+          "settled_uss_mib": 55.375
+        }
+      }
+    }
+  },
+  "desktop_sha256": "516c146aa114aba4bfab27de412a4547d6b354180933b3d69a6e3edb32af74cb"
+}

@@ -26,6 +26,7 @@ jsonwebtoken = { version = "10", features = ["rust_crypto"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["ApplicationModel", "Management_Deployment"] }
 windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

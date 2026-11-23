@@ -1,0 +1,5 @@
+<label class="form-label" for="editCharacterSummary">Character Summary (for AI Translation)</label>
+<textarea id="editCharacterSummary" class="form-textarea" rows="{{ character_summary_rows | default(8) }}" placeholder="Character list for translation context..."></textarea>
+<button type="button" id="generateCharacterSummary" class="action-btn" disabled>Generate Character Summary</button>
+<span id="characterSummaryStatus" role="status"></span>
+<script src="/static/js/character-summary-editor.js" defer></script>

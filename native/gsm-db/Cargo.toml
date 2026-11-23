@@ -1,0 +1,15 @@
+[package]
+name = "gsm-db"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-only"
+publish = false
+
+[dependencies]
+gsm-settings = { path = "../gsm-settings" }
+chrono = "0.4"
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
+flate2 = "1"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 
 /// Resolve dependencies beside the selected OCR DLL without changing the
 /// desktop process's DLL search path (WebView2 and other engines share it).
@@ -126,23 +126,23 @@ pub fn pinned_model(
         .join("snapshots")
         .join(revision)
         .join(name);
-    let temporary = tempfile::NamedTempFile::new_in(root)?;
     if cached.is_file() {
         verify_sha256(&cached, digest)?;
+        let temporary = tempfile::NamedTempFile::new_in(root)?;
         std::fs::copy(cached, temporary.path())?;
+        verify_sha256(temporary.path(), digest)?;
+        temporary.as_file().sync_all()?;
+        temporary.persist(&destination)?;
     } else {
         gsm_downloads::download(
             &format!("https://huggingface.co/{repo}/resolve/{revision}/{name}"),
-            temporary.path(),
+            &destination,
             Some(digest),
             gsm_downloads::MAX_BYTES,
             &|_, _| {},
         )
         .map_err(anyhow::Error::msg)?;
     }
-    verify_sha256(temporary.path(), digest)?;
-    temporary.as_file().sync_all()?;
-    temporary.persist(&destination)?;
     Ok(destination)
 }
 
@@ -174,21 +174,8 @@ fn extract_archive(url: &str, root: &Path) -> Result<()> {
     result
 }
 
-pub fn ensure_oneocr() -> Result<()> {
-    if !cfg!(windows) {
-        bail!("OneOCR local recognition requires Windows");
-    }
-    let root = home()?.join(".config/oneocr");
-    let files = ["oneocr.dll", "oneocr.onemodel", "onnxruntime.dll"];
-    if files.iter().all(|f| root.join(f).is_file()) {
-        return Ok(());
-    }
-    extract_archive("https://r2.gamesentenceminer.com/oneocr.zip", &root)?;
-    if !files.iter().all(|f| root.join(f).is_file()) {
-        bail!("OneOCR download is missing required files");
-    }
-    Ok(())
-}
+#[cfg(windows)]
+pub mod oneocr;
 
 pub fn screenai_library() -> &'static str {
     if cfg!(windows) {

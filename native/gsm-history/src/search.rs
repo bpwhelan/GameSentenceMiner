@@ -120,9 +120,13 @@ impl RegexMatcher {
 
     #[inline]
     pub(crate) fn is_match(&self, text: &str) -> bool {
+        self.try_is_match(text).unwrap_or(false)
+    }
+
+    pub(crate) fn try_is_match(&self,text:&str) -> fancy_regex::Result<bool> {
         match self {
-            Self::Fast(re) => re.is_match(text),
-            Self::Fancy(re) => re.is_match(text).unwrap_or(false),
+            Self::Fast(re) => Ok(re.is_match(text)),
+            Self::Fancy(re) => re.is_match(text),
         }
     }
 }

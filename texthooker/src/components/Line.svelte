@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		mdiCheck,
 		mdiClockOutline,
 		mdiCameraOutline,
 		mdiContentSave,
@@ -323,32 +324,30 @@
 		dispatch('miningToggle', { id: line.id, checked: !miningSelected, shiftKey: event.shiftKey });
 	}
 
-	function isRowMiningTarget(event: MouseEvent) {
-		const target = event.target as Element | null;
+	function isMiningSelectorTarget(event: MouseEvent) {
 		return isActiveGSMLine && !isEditable && !$settingsOpen$ && !event.defaultPrevented
-			&& !event.ctrlKey && !event.metaKey && !event.altKey
-			&& !target?.closest('button, a, input, select, textarea, iframe, [contenteditable="true"], .line-actions-container');
+			&& !event.ctrlKey && !event.metaKey && !event.altKey;
 	}
 
-	function startRowMining(event: PointerEvent) {
+	function startSelectorMining(event: PointerEvent) {
 		// Keep touch drags available for scrolling the feed.
-		if (event.button !== 0 || event.pointerType === 'touch' || !isRowMiningTarget(event)) return;
-		if (event.shiftKey) event.preventDefault();
+		if (event.button !== 0 || event.pointerType === 'touch' || !isMiningSelectorTarget(event)) return;
+		event.preventDefault();
 		dispatch('miningStart', { id: line.id, checked: !miningSelected, event });
 	}
 
-	function clickRowMining(event: MouseEvent) {
-		if (event.button === 0 && isRowMiningTarget(event)) dispatch('miningClick', { id: line.id, event });
+	function clickSelectorMining(event: MouseEvent) {
+		if (event.button === 0 && isMiningSelectorTarget(event)) dispatch('miningClick', { id: line.id, event });
 	}
 
-	function miningRowEvents(node: HTMLElement) {
-		node.addEventListener('pointerdown', startRowMining);
-		node.addEventListener('click', clickRowMining);
+	function miningSelectorEvents(node: HTMLElement) {
+		node.addEventListener('pointerdown', startSelectorMining);
+		node.addEventListener('click', clickSelectorMining);
 		node.addEventListener('keydown', toggleMiningFromKeyboard);
 		return {
 			destroy() {
-				node.removeEventListener('pointerdown', startRowMining);
-				node.removeEventListener('click', clickRowMining);
+				node.removeEventListener('pointerdown', startSelectorMining);
+				node.removeEventListener('click', clickSelectorMining);
 				node.removeEventListener('keydown', toggleMiningFromKeyboard);
 			},
 		};
@@ -498,19 +497,13 @@
 </script>
 
 {#key line.text}
-	<!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard mining belongs to the row; grouping preserves access to its child action buttons.) -->
 	<div
 		class="textline2"
 		class:mining-selected={miningSelected}
 		class:mining-selectable={isActiveGSMLine}
 		class:vertical={isVerticalDisplay}
-		role="group"
-		tabindex={isActiveGSMLine ? 0 : undefined}
-		aria-label={isActiveGSMLine ? (miningSelected ? 'Selected line for mining' : 'Select line for mining') : undefined}
-		aria-keyshortcuts={isActiveGSMLine ? 'Space Enter' : undefined}
 		data-line-id={line.id}
 		data-mining-id={isActiveGSMLine ? line.id : undefined}
-		use:miningRowEvents
 	>
 		<div class="line-body" aria-busy={isTranslating}>
 		{#if lineTextMounted}
@@ -749,6 +742,23 @@
 				</div>
 			{/if}
 		</div>
+		{#if isActiveGSMLine}
+			<div
+				class="mining-selector unselectable"
+				class:hidden={$settingsOpen$}
+				role="checkbox"
+				tabindex={$settingsOpen$ ? -1 : 0}
+				aria-checked={miningSelected}
+				aria-label={miningSelected ? 'Selected line for mining' : 'Select line for mining'}
+				aria-keyshortcuts="Space Enter"
+				title="Click or drag to select lines for mining (Shift+click for range)"
+				use:miningSelectorEvents
+			>
+				<span class="mining-checkbox" aria-hidden="true">
+					<Icon path={mdiCheck} width="18px" height="18px" />
+				</span>
+			</div>
+		{/if}
 	</div>
 {/key}
 {#if aiError}
@@ -783,7 +793,7 @@
 
 	.textline2:focus-visible, .action-button:focus-visible,
 	button.translation-text:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
-	.mining-selectable { cursor: pointer; }
+	.mining-selector:focus-visible { outline: none; }
 	.source-text, .translation-content { cursor: text; }
 
 	.action-button {
@@ -902,8 +912,11 @@
 		border-radius: 10px;
 		transition: background-color 140ms, border-color 140ms;
 	}
-	.textline2.mining-selectable:not(.mining-selected):hover,
-	.textline2.mining-selectable:not(.mining-selected):focus-within {
+	.textline2.mining-selectable {
+		grid-template-columns: minmax(0, 1fr) auto auto;
+	}
+	.textline2.mining-selectable:not(.mining-selected):has(.mining-selector:hover),
+	.textline2.mining-selectable:not(.mining-selected):has(.mining-selector:focus-visible) {
 		background: color-mix(in srgb, var(--color-base-content) 3%, transparent);
 		border-left-color: color-mix(in srgb, var(--color-base-content) 25%, transparent);
 	}
@@ -911,7 +924,49 @@
 		background: color-mix(in srgb, var(--color-primary) 12%, transparent);
 		border-left-color: color-mix(in srgb, var(--color-primary) 75%, var(--color-base-content));
 	}
-	.textline2.mining-selected:hover { background: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+	.textline2.mining-selected:has(.mining-selector:hover) { background: color-mix(in srgb, var(--color-primary) 16%, transparent); }
+	.mining-selector {
+		align-self: stretch;
+		margin: -14px -12px -14px -6px;
+		padding: 14px 12px 14px 8px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		cursor: pointer;
+		touch-action: pan-y;
+	}
+	.mining-checkbox {
+		min-width: 40px;
+		min-height: 36px;
+		padding: 7px 10px;
+		border-radius: 7px;
+		border: 1px solid color-mix(in srgb, var(--color-base-content) 14%, transparent);
+		background-color: color-mix(in srgb, var(--color-base-content) 3%, transparent);
+		color: color-mix(in srgb, var(--color-base-content) 26%, transparent);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		transition: background-color 140ms, border-color 140ms, color 140ms, box-shadow 140ms;
+	}
+	.mining-selector:hover .mining-checkbox {
+		background-color: color-mix(in srgb, var(--color-primary) 12%, var(--color-base-content) 4%);
+		border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+		color: color-mix(in srgb, var(--color-primary) 85%, var(--color-base-content));
+	}
+	.mining-selector:focus-visible .mining-checkbox {
+		outline: 2px solid var(--color-primary);
+		outline-offset: 2px;
+	}
+	.textline2.mining-selected .mining-checkbox {
+		border-color: color-mix(in srgb, var(--color-primary) 80%, transparent);
+		background-color: var(--color-primary);
+		color: var(--color-primary-content, #fff);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+	}
+	.textline2.mining-selected .mining-selector:hover .mining-checkbox {
+		background-color: color-mix(in srgb, var(--color-primary) 88%, var(--color-base-content));
+	}
 	.line-body { min-width: 0; }
 	.line-source {
 		margin: 0;
@@ -956,12 +1011,19 @@
 	.vertical .line-body { display: flex; flex-direction: column; gap: 12px; }
 	.vertical .line-translation { writing-mode: horizontal-tb; inline-size: 16rem; max-inline-size: 70vh; margin: 0; align-self: flex-start; }
 	.vertical .line-actions-container { writing-mode: horizontal-tb; }
+	.vertical .mining-selector {
+		writing-mode: horizontal-tb;
+		margin: 0;
+		padding: 4px;
+	}
 	@media (max-width: 640px) {
 		.textline2 { padding: 12px 2px; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+		.textline2.mining-selectable { grid-template-columns: minmax(0, 1fr) auto; }
 		.line-actions-container { grid-column: 1; grid-row: 2; padding-block-start: 0; }
-		.action-button { padding: 5px; }
+		.mining-selector { grid-column: 2; grid-row: 1 / span 2; margin: -12px -2px -12px 0; padding: 12px 8px; }
+		.action-button, .mining-checkbox { padding: 5px; min-width: 32px; min-height: 32px; }
 	}
-	@media (prefers-reduced-motion: reduce) { .textline2, .translation-text, .action-button { transition: none; } }
+	@media (prefers-reduced-motion: reduce) { .textline2, .translation-text, .action-button, .mining-checkbox { transition: none; } }
 
 	.unselectable,
 	.unselectable * {

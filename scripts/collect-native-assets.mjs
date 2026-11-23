@@ -59,6 +59,4 @@ if(process.platform==='win32') {
   });
 }
 await fs.writeFile(path.join(output,'tauri-platform.json'),JSON.stringify({version,platforms},null,2));
-const wheels=path.join(root,'electron-src/assets/python');
-for(const name of await fs.readdir(wheels).catch(()=>[]))if(name.endsWith('.whl'))await fs.copyFile(path.join(wheels,name),path.join(output,name));
 console.log('Native release assets:',output);

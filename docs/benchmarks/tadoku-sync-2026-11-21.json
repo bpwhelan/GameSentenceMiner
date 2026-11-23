@@ -1,0 +1,57 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Preview 4,000 lines across eight games with global and per-game cursors. Compare the full payload except the wall clock. Exercise sign-in, daily eligibility, receipts for eight logs, and rollback after a rejected second log using a loopback Tadoku service. Sync timing includes polling every millisecond.",
+  "medians": {
+    "all": {
+      "python": {
+        "ms": 55.3585,
+        "server_cpu_ms": 46.875,
+        "server_resident_mib": 91.8672
+      },
+      "rust": {
+        "ms": 3.1457,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.5195
+      }
+    },
+    "deduplicated": {
+      "python": {
+        "ms": 52.3467,
+        "server_cpu_ms": 62.5,
+        "server_resident_mib": 92.0938
+      },
+      "rust": {
+        "ms": 3.3919,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 31.5664
+      }
+    },
+    "upload": {
+      "python": {
+        "ms": 100.5149,
+        "server_cpu_ms": 109.375,
+        "server_resident_mib": 93.9336
+      },
+      "rust": {
+        "ms": 8.2677,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.3398
+      }
+    },
+    "rollback": {
+      "python": {
+        "ms": 82.5708,
+        "server_cpu_ms": 93.75,
+        "server_resident_mib": 96.3086
+      },
+      "rust": {
+        "ms": 5.3808,
+        "server_cpu_ms": 0.0,
+        "server_resident_mib": 32.3906
+      }
+    }
+  }
+}

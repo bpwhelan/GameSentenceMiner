@@ -1,0 +1,21 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. Time from a Kizuna upload until committed game metadata and portraits are visible. The native desktop uses its scheduler. The Flask fixture dispatches its production Jiten update function on one background thread. Includes provider pacing and polls for SQLite commits every 5 ms. All provider responses come from loopback.",
+  "medians": {
+    "rust": {
+      "enqueue_ms": 1.4214,
+      "ready_ms": 1022.7826,
+      "server_cpu_ms": 46.875,
+      "server_resident_mib": 32.4844
+    },
+    "python": {
+      "enqueue_ms": 2.0298,
+      "ready_ms": 1140.2421,
+      "server_cpu_ms": 62.5,
+      "server_resident_mib": 88.3633
+    }
+  }
+}

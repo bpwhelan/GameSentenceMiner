@@ -1,9 +1,30 @@
 """Bridge legacy mining callers to the active desktop's SQLite history."""
 
+import math
 import os
 import re
+from typing import Literal
 
 from GameSentenceMiner.native.runtime import backend_manages
+
+
+def _desktop_schema_ready(db):
+    from GameSentenceMiner.util.communication import bus_client
+
+    return os.environ.get("GSM_NATIVE_SCHEMA") == "1" and managed(db) and bus_client.get_bus().connected
+
+
+def migrate_schema(db, language):
+    if _desktop_schema_ready(db):
+        db.run_external_write(lambda: request("migrateSchema", language=language, timeout=None))
+        return True
+    from GameSentenceMiner.native.ocr import _extension
+
+    migrate = getattr(_extension, "migrate_history_schema", None)
+    if migrate is None or db.db_path == ":memory:" or db.read_only:
+        return False
+    db.run_external_write(lambda: migrate(db.db_path, language))
+    return True
 
 
 def managed(db):
@@ -16,6 +37,39 @@ def managed(db):
         and bool(directory := os.environ.get("GSM_DATA_DIR"))
         and os.path.normcase(os.path.abspath(db.db_path))
         == os.path.normcase(os.path.abspath(os.path.join(directory, "gsm.db")))
+    )
+
+
+def configure_vocabulary_schema(db, enabled) -> Literal["desktop", "extension"] | None:
+    """Identify the owner that committed the schema change on this call."""
+    if _desktop_schema_ready(db):
+        db.run_external_write(lambda: request("configureVocabulary", enabled=enabled, timeout=None))
+        return "desktop"
+    from GameSentenceMiner.native.ocr import _extension
+
+    configure = getattr(_extension, "configure_vocabulary_schema", None)
+    if configure is None or db.read_only or db.db_path == ":memory:" or db._on_writer_thread():
+        return None
+    db.run_external_write(lambda: configure(db.db_path, enabled))
+    return "extension"
+
+
+def import_reading_stats(db, rows, clear_source):
+    if os.environ.get("GSM_NATIVE_SCHEMA") != "1" or not managed(db):
+        return None
+    # The bus allows 8 MiB per message. Bound escaped strings without encoding
+    # a second copy of the payload. Larger batches use the local native extension.
+    budget = 7 * 1024 * 1024 - 12 * len(clear_source or "")
+    if budget <= 0:
+        return None
+    for date, characters, seconds, source, label in rows:
+        if not -(2**63) <= characters < 2**63 or not math.isfinite(seconds):
+            return None
+        budget -= 96 + 12 * (len(date) + len(source) + len(label))
+        if budget <= 0:
+            return None
+    return db.run_external_write(
+        lambda: request("importReadingStats", rows=rows, clear_source=clear_source, timeout=None)
     )
 
 
@@ -62,11 +116,11 @@ def sync_anki(db, url, field, query, notes):
     )
 
 
-# These user regexes have the same meaning in Python and Rust: literal words,
-# explicit character classes/ranges, and their ordered alternatives. More
-# advanced Python expressions keep their original engine.
-_PUNCTUATION_TERM = r"(?:[\w ]+|\[(?:[\w ](?:-[\w ])?)+\]\+?)"
-_PORTABLE_PUNCTUATION = re.compile(rf"{_PUNCTUATION_TERM}(?:\|{_PUNCTUATION_TERM})*")
+# Keep this subset aligned with gsm_history::ReportCleaner::compile.
+_LITERAL = r"[^\\.^$|?*+()\[\]{}]+"
+_PUNCTUATION_TERM = rf"(?:{_LITERAL}(?:\.\*\?{_LITERAL})?|\[(?:[\w ](?:-[\w ])?)+\]\+?)"
+_PUNCTUATION_BRANCH = rf"(?:{_PUNCTUATION_TERM}|\(\?<={_LITERAL}\){_PUNCTUATION_TERM}|{_PUNCTUATION_TERM}\(\?={_LITERAL}\)|\({_LITERAL}(?:\|{_LITERAL})*\)\\1)"
+_PORTABLE_PUNCTUATION = re.compile(rf"{_PUNCTUATION_BRANCH}(?:\|{_PUNCTUATION_BRANCH})*")
 
 
 def manages_daily_rollup(db, config):

@@ -567,10 +567,12 @@ class MultiplexWebsocketServerThread(_PortConflictSupport, threading.Thread):
         try:
             from GameSentenceMiner.util.stats.live_stats import build_live_stats_payload, live_stats_tracker
 
-            await self._send_client_direct(
-                websocket,
-                json.dumps(build_live_stats_payload(live_stats_tracker, reason="connect")),
-            )
+            from GameSentenceMiner.native.intake import native_reader
+
+            if not native_reader():
+                await self._send_client_direct(
+                    websocket, json.dumps(build_live_stats_payload(live_stats_tracker, reason="connect"))
+                )
         except Exception as error:
             logger.debug(f"[{self.server_name}] Failed to send initial overlay state: {error}")
 
@@ -964,6 +966,10 @@ class WebsocketManager:
         }
 
     async def send(self, server_id: str, message: Any):
+        from GameSentenceMiner.native import intake
+
+        if server_id == ID_HOOKER and intake.native_reader():
+            return await asyncio.to_thread(intake.request, "readerControl", message=message)
         result = None
         targets = list(self._iter_server_targets(server_id))
         if not targets:
@@ -981,6 +987,12 @@ class WebsocketManager:
         return result
 
     def send_nowait(self, server_id: str, message: Any):
+        from GameSentenceMiner.native import intake
+
+        if server_id == ID_HOOKER and intake.native_reader():
+            from GameSentenceMiner.util.concurrency.work_pool import submit_background_work
+
+            return [submit_background_work(intake.request, "readerControl", message=message)]
         futures = []
         targets = list(self._iter_server_targets(server_id))
         if not targets:
@@ -1083,6 +1095,10 @@ def get_configured_direct_websocket_port() -> int:
 
 def get_default_websocket_ingress_port() -> int:
     """Return the configured direct ingress port or this process's automatic one."""
+    from GameSentenceMiner.native.intake import native_reader
+
+    if native_reader():
+        return _internal_ws_ingress_port
     return get_configured_direct_websocket_port() or _internal_ws_ingress_port
 
 

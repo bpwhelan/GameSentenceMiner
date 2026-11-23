@@ -24,6 +24,13 @@ def test_root_redirects_to_texthooker():
     assert response.headers["Location"] == "/texthooker"
 
 
+def test_retired_replacement_routes():
+    client = texthooking_page.app.test_client()
+    assert client.get("/load-data").status_code == 404
+    assert client.get("/textreplacements").status_code == 404
+    assert client.post("/save-data", json={"enabled": False}).status_code in (404, 405)
+
+
 def test_get_ids_reports_current_text_intake_state(monkeypatch):
     def no_op_check():
         return None
@@ -152,3 +159,20 @@ def test_set_stats_gathering_enabled_rejects_implicit_or_missing_state(monkeypat
     assert missing_response.status_code == 400
     assert string_response.status_code == 400
     assert config.advanced.dont_collect_stats is False
+
+
+def test_internal_reader_http_uses_desktop_selection(monkeypatch):
+    from GameSentenceMiner.native import intake
+
+    calls = []
+
+    def native_request(action, **data):
+        calls.append((action, data))
+        return {"status": 200, "body": {"selected_ids": ["a"]}}
+
+    monkeypatch.setattr(intake, "native_reader", lambda: True)
+    monkeypatch.setattr(intake, "request", native_request)
+    response = texthooking_page.app.test_client().post("/update_checkbox", json={"id": "a", "checked": True})
+    assert response.status_code == 200
+    assert response.json == {"selected_ids": ["a"]}
+    assert calls == [("readerHttp", {"path": "/update_checkbox", "body": {"id": "a", "checked": True}})]

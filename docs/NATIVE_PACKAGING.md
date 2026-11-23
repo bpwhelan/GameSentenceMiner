@@ -1,9 +1,15 @@
 # Native desktop package ownership
 
-`npm run app:dist` builds the Python extension using the checkout's `.venv`,
-builds the renderer and native helpers, stages resources, and produces the Tauri
-installer and portable archive. `npm run app:dist:signed` additionally creates
-signed updater artifacts. Nothing is published by these commands.
+`npm run app:dist` builds the renderer and native helpers, stages resources, and
+produces the Tauri installer and portable archive. `npm run app:dist:signed`
+additionally creates signed updater artifacts. These commands package native
+desktop resources and leave publication to the release workflow.
+
+Tauri packages exclude the Qt host wheel, `pyproject.toml`, `uv.lock` and
+`.python-version`. The release workflow still uses Python for developer
+compatibility tests. Local desktop builds can set `GSM_PYTHONLESS=0` for those
+tests. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md) for the legacy
+environment marker and bridge release design.
 
 Build reporting, asset collection and package smoke tests resolve Cargo's actual
 `target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR` overrides.
@@ -11,8 +17,30 @@ With the checkout's current configuration, release bundles are under
 `src-tauri/target/native-dev/release/bundle`; older files under
 `src-tauri/target/release/bundle` are not the current build. Collected installers
 and portable ZIPs are written to `dist/native-release/<platform>-<arch>`.
-Portable packaging validates the native executable, renderer, Python project
-metadata and Agent runtime manifest; it does not require an app `package.json`.
+Portable packaging validates the native executable, renderer, license and Agent
+runtime manifest.
+
+## Development build storage
+
+Cargo development builds and tests in this checkout use line-table debug
+information for backtraces and skip the incremental compiler cache.
+Cargo still reuses unchanged compilation outputs. Recompiling a changed crate
+can take longer. Set `CARGO_PROFILE_DEV_DEBUG=2` for full debugger symbols or
+`CARGO_PROFILE_DEV_INCREMENTAL=true` to opt into incremental compilation.
+
+To reclaim the existing development cache, run this from the repository root
+when no build or test is running. Review the dry run before removing the flag.
+This cleans Cargo's development output and preserves the launch copies used by
+`npm run start:tauri` and the restart workflow.
+
+```powershell
+cargo clean --manifest-path src-tauri/Cargo.toml --profile dev --dry-run
+```
+
+To put future desktop Cargo output on another drive, set
+`$env:CARGO_TARGET_DIR = 'D:\GSM-cargo-target'` before running the build. Keep
+that setting for packaging and asset collection so they find the same output.
+Helper-specific targets and staged launch copies still live in the checkout.
 
 ## Agent / Frida downloads
 
@@ -110,9 +138,9 @@ fixtures are excluded as well, along with the hardcoded overlay window diagnosti
 
 Staging writes `build/native-desktop/size-report.json` with totals and the largest
 files. `scripts/native-package-policy.mjs` governs resource filtering and audits
-the staged tree. Current limits are 6 MiB for renderer resources, 480 MiB for
-Windows resources (including room for a prerelease Python wheel), 50 MiB for the
-Windows desktop executable, and 160 MiB for the Windows installer. A failed check
+the staged tree. Current limits are 6 MiB for renderer resources, 300 MiB for
+Windows resources, 50 MiB for the Windows desktop executable, and 160 MiB for
+the Windows installer. A failed check
 stops the build. Change a limit only after reviewing the added payload.
 
 ```powershell

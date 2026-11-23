@@ -40,6 +40,17 @@ test('uses Cargo default output when no override is configured', async t => {
   assert.equal(await nativeTargetDirectory(options), path.join(options.projectRoot, 'src-tauri/target'));
 });
 
+test('resolves the audio helper target using its own manifest and the Cargo override', async t => {
+  const options = await fixture(t, false);
+  const helper = path.join(options.projectRoot, 'native', 'windows-audio-capture');
+  await fs.mkdir(path.dirname(helper), {recursive: true});
+  await fs.rename(path.join(options.projectRoot, 'src-tauri'), helper);
+  const manifest = path.join(helper, 'Cargo.toml');
+  assert.equal(await nativeTargetDirectory({...options, manifest}), path.join(helper, 'target'));
+  const override = path.join(options.projectRoot, 'shared output');
+  assert.equal(await nativeTargetDirectory({...options, manifest, env: {...options.env, CARGO_TARGET_DIR: override}}), override);
+});
+
 test('local builds keep using the last successful profile unless explicitly overridden', async t => {
   const {projectRoot} = await fixture(t);
   const pointer = path.join(projectRoot, 'launch.json');

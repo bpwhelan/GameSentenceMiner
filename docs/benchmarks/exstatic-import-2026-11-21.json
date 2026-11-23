@@ -1,0 +1,33 @@
+{
+  "platform": "Windows-11-10.0.26300-SP0",
+  "python": "3.13.2",
+  "rounds": 5,
+  "requests_per_round": 1,
+  "method": "Sequential persistent loopback HTTP requests alternating between release Rust Tauri and production Flask routes in Waitress. RSS covers the entire server process and excludes children. 2,500 ExStatic lines from three existing games, one previously imported using a legacy ID. Measure first upload and retry, including rollup queue submission. Each sample verifies the response, warning, IDs, text, times, languages and game links. Database seeding and verification run outside the timings.",
+  "medians": {
+    "initial": {
+      "python": {
+        "ms": 67.4726,
+        "server_cpu_ms": 62.5,
+        "server_resident_mib": 95.0742
+      },
+      "rust": {
+        "ms": 60.7943,
+        "server_cpu_ms": 46.875,
+        "server_resident_mib": 33.5898
+      }
+    },
+    "retry": {
+      "python": {
+        "ms": 41.2792,
+        "server_cpu_ms": 46.875,
+        "server_resident_mib": 95.0195
+      },
+      "rust": {
+        "ms": 6.5947,
+        "server_cpu_ms": 15.625,
+        "server_resident_mib": 33.5156
+      }
+    }
+  }
+}

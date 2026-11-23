@@ -25,10 +25,10 @@ function fixture() {
     },
     ipcRenderer: { send() {}, on: (event, listener) => listeners.set(event, listener) },
     console: { log() {}, error() {} }, setTimeout, clearTimeout,
-    showFurigana: false, dictionaryReader: 'yomitan',
+    gamepadHandler: null, showFurigana: false, dictionaryReader: 'yomitan',
     pendingManualRevealForBackground: false, isManualInteractionSuppressed: () => false,
   });
-  const start = renderer.indexOf('  let gamepadHandler = null;');
+  const start = renderer.indexOf('  let overlayCaptureAvailable = false;');
   const end = renderer.indexOf('\n</script>', start);
   assert(start >= 0 && end > start);
   vm.runInContext(renderer.slice(start, end), context);

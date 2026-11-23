@@ -12,6 +12,33 @@ pub struct Paths {
     pub recordings: PathBuf,
     pub policy: PathBuf,
 }
+
+/// OBS stores paths in Qt configuration files. A Win32 verbatim prefix cannot
+/// be made portable by simply converting its backslashes to forward slashes.
+pub(super) fn recording_directory(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let normalized = PathBuf::from(path.to_string_lossy().replace('/', "\\"));
+        let simplified = crate::dictionary_host::strip_windows_verbatim_prefix(&normalized);
+        if simplified.is_absolute() {
+            return simplified;
+        }
+    }
+    path.to_owned()
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn obs_recording_paths_preserve_drive_and_network_roots() {
+    for (input, expected) in [
+        (r"\\?\C:\日本語\recordings", r"C:\日本語\recordings"),
+        ("//?/C:/Games/recordings", r"C:\Games\recordings"),
+        (r"\\?\UNC\server\share\Game", r"\\server\share\Game"),
+        (r"\\server\share\Game", r"\\server\share\Game"),
+    ] {
+        assert_eq!(recording_directory(Path::new(input)), Path::new(expected));
+    }
+}
 impl Paths {
     pub fn root(&self) -> PathBuf {
         self.base.join("obs-studio")
@@ -138,14 +165,21 @@ impl Paths {
         }
         for name in ["GSM", "Untitled"] {
             let target = self.obs().join(format!("basic/profiles/{name}/basic.ini"));
-            let safe = self.recordings.to_string_lossy().replace('\\', "/");
+            let safe = recording_directory(&self.recordings)
+                .to_string_lossy()
+                .replace('\\', "/");
             write_missing(&target, format!("[SimpleOutput]\nFilePath={safe}\nRecRB=true\nRecRBTime=300\nRecRBSize=512\nRecAudioEncoder=opus\nRecRBPrefix=GSM\n").as_bytes())?;
             let old = fs::read_to_string(&target).map_err(err)?;
             let unsafe_path = self.recordings.to_string_lossy();
-            let fixed = old.replace(
-                &format!("FilePath={unsafe_path}"),
-                &format!("FilePath={safe}"),
-            );
+            let fixed = old
+                .replace(
+                    &format!("FilePath={unsafe_path}"),
+                    &format!("FilePath={safe}"),
+                )
+                .replace(
+                    &format!("FilePath={}", unsafe_path.replace('\\', "/")),
+                    &format!("FilePath={safe}"),
+                );
             if old != fixed {
                 atomic_write(&target, fixed.as_bytes())?;
             }

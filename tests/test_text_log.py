@@ -1,4 +1,5 @@
 import random
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -13,7 +14,8 @@ def test_normalize_text_for_comparison_removes_punctuation_and_whitespace():
 
 
 def test_is_line_recycled_uses_normalized_text(monkeypatch):
-    monkeypatch.setattr(text_log.game_log, "previous_lines", {"HelloWorld"})
+    monkeypatch.setattr(text_log, "game_log", text_log.GameText())
+    text_log.game_log.replace_previous_lines(["HelloWorld"])
 
     assert text_log.is_line_recycled("Hello, World!")
     assert not text_log.is_line_recycled("Goodbye")
@@ -32,17 +34,15 @@ def test_is_line_recycled_uses_normalized_text(monkeypatch):
     ],
 )
 def test_is_line_recycled_ignores_lines_shorter_than_ten_normalized_characters(monkeypatch, line_text):
-    monkeypatch.setattr(
-        text_log.game_log,
-        "previous_lines",
-        {text_log.normalize_text_for_comparison(line_text)},
-    )
+    monkeypatch.setattr(text_log, "game_log", text_log.GameText())
+    text_log.game_log.replace_previous_lines([line_text])
 
     assert not text_log.is_line_recycled(line_text)
 
 
 def test_is_line_recycled_accepts_ten_normalized_characters(monkeypatch):
-    monkeypatch.setattr(text_log.game_log, "previous_lines", {"１２３４５６７８９０"})
+    monkeypatch.setattr(text_log, "game_log", text_log.GameText())
+    text_log.game_log.replace_previous_lines(["１２３４５６７８９０"])
 
     assert text_log.is_line_recycled("１２３４５６７８９０！")
 
@@ -66,7 +66,8 @@ def test_previous_line_cache_is_bounded(monkeypatch):
 
     game_text.replace_previous_lines(["abcdefghij", "klmnopqrst", "uvwxyzabcd"])
 
-    assert game_text.previous_lines == {"klmnopqrst", "uvwxyzabcd"}
+    assert game_text.previous_line_count == 2
+    assert game_text.is_line_recycled("klmnopqrst") and game_text.is_line_recycled("uvwxyzabcd")
 
 
 def test_previous_line_cache_excludes_short_lines():
@@ -74,7 +75,112 @@ def test_previous_line_cache_excludes_short_lines():
 
     game_text.replace_previous_lines(["short", "１２３４５６７８９", "１２３４５６７８９０"])
 
-    assert game_text.previous_lines == {"１２３４５６７８９０"}
+    assert game_text.previous_line_count == 1
+    assert game_text.is_line_recycled("１２３４５６７８９０")
+
+
+def test_recycle_history_is_exact_fifo_and_replacement_is_atomic(monkeypatch):
+    monkeypatch.setattr(text_log, "MAX_PREVIOUS_LINES", 2)
+    game = text_log.GameText()
+    first = "ABCDEFGHIJ"
+    second = "１２３４５６７８９😀"
+    third = "あいうえおかきくけこ"
+    game.replace_previous_lines([first, second, "ABC、DEF GHIJ", third])
+    assert not game.is_line_recycled(first)
+    assert game.is_line_recycled(second + "？")
+    assert not game.is_line_recycled(second + "+")
+
+    def interrupted_load():
+        yield "a replacement line"
+        raise RuntimeError("read interrupted")
+
+    with pytest.raises(RuntimeError, match="interrupted"):
+        game.replace_previous_lines(interrupted_load())
+    assert game.is_line_recycled(third)
+    assert game.is_line_recycled(second)
+
+
+def test_live_recycle_history_remembers_previous_line_in_its_scene_only(monkeypatch):
+    monkeypatch.setattr(text_log, "is_recycled_line_detection_enabled", lambda: True)
+    game = text_log.GameText()
+    monkeypatch.setattr(text_log.gsm_state, "current_game", "First")
+    game.add_line("the first scene's last line")
+    assert not game.is_line_recycled("the first scene's last line")
+    monkeypatch.setattr(text_log.gsm_state, "current_game", "Second")
+    game.clear_previous_lines()
+    game.add_line("「Look、 over here!」")
+    assert not game.is_line_recycled("the first scene's last line")
+    assert not game.is_line_recycled("Look over here")
+    game.add_line("another line")
+    assert game.is_line_recycled("Look over here")
+
+
+def test_recycle_history_uses_the_final_revision_of_the_preceding_line(monkeypatch):
+    from GameSentenceMiner.text_pipeline.models import SourceKind, TextRecordSnapshot, TextRecordState
+
+    monkeypatch.setattr(text_log, "is_recycled_line_detection_enabled", lambda: True)
+    now = datetime.now(UTC)
+    first = TextRecordSnapshot(
+        line_id="first",
+        session_id="session",
+        stream_sequence=1,
+        revision=1,
+        state=TextRecordState.PROVISIONAL,
+        raw_text="words in progress",
+        text="words in progress",
+        source_kind=SourceKind.SPEECH_RECOGNITION,
+        source_instance="speech",
+        source_display_name="Speech",
+        observation_ids=(),
+        captured_at_utc=now,
+        first_seen_at_utc=now,
+        first_seen_monotonic_ns=0,
+        scene="game",
+    )
+    game = text_log.GameText()
+    game.upsert_authoritative_line(first)
+    game.upsert_authoritative_line(replace(first, text="corrected words", revision=2, state=TextRecordState.FROZEN))
+    assert game.previous_line_count == 0
+    game.upsert_authoritative_line(replace(first, line_id="second", stream_sequence=2, text="the next line"))
+    assert game.is_line_recycled("Corrected words") is False
+    assert game.is_line_recycled("corrected words")
+    assert not game.is_line_recycled("words in progress")
+    assert not game.is_line_recycled("the next line")
+
+
+def test_recycle_history_can_run_with_an_older_extension(monkeypatch):
+    from GameSentenceMiner.native import ocr
+
+    monkeypatch.setattr(ocr, "_extension", SimpleNamespace())
+    game = text_log.GameText()
+    game.replace_previous_lines(["あい、うえおかきくけこ"])
+    assert game.is_line_recycled("あいうえおかきくけこ")
+    game.clear_previous_lines()
+    assert not game.is_line_recycled("あいうえおかきくけこ")
+
+
+def test_native_recycle_index_matches_python_for_unicode_and_fifo_churn(monkeypatch):
+    from GameSentenceMiner.native import ocr, recycled_lines
+
+    if not hasattr(ocr._extension, "RecycledLines"):
+        pytest.skip("rebuilt native extension required")
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "native")
+    native = recycled_lines.new_recycled_lines(19, 10)
+    assert type(native).__module__ == "GameSentenceMiner._native"
+    monkeypatch.setenv("GSM_NATIVE_TEXT_MODE", "python")
+    reference = recycled_lines.new_recycled_lines(19, 10)
+    rng = random.Random(85)
+    alphabet = "éあ日Ａ＠「」๑😀\x00\x1c\u00a0\u200b+_$\u0301\ud800\udc00"
+    probes = ["X" * 9 + c for c in alphabet]
+    probes.extend(["X" * 9 + "\ud800\udc00", "X" * 9 + "𐀀", "abc" * 1600])
+    for _ in range(100):
+        probes.append("".join(rng.choices(alphabet, k=15)))
+    for i, value in enumerate(probes):
+        native.add(value)
+        reference.add(value)
+        for p in [value, value + "。", value + "+", text_log.normalize_text_for_comparison(value), *probes[:i:7]]:
+            assert (p in native) == (p in reference)
+        assert len(native) == len(reference)
 
 
 def test_lines_match_rejects_punctuation_only_line_against_sentence():
@@ -516,3 +622,16 @@ def test_broken_clip_lookup_keeps_latest_line_fallback(monkeypatch):
     monkeypatch.setattr(clips, "match_card_to_clip", fail_lookup)
 
     assert text_log.get_matching_line(_card("心当たりはねえのかこの声の主"), [line]) is line
+
+
+def test_desktop_owned_recycled_history_does_no_python_work(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_RECYCLED_LINES", "1")
+
+    def forbidden(*args):
+        pytest.fail("desktop-managed history touched Python")
+
+    monkeypatch.setattr(text_log, "new_recycled_lines", forbidden)
+    history = text_log.GameText()
+    history.replace_previous_lines(iter(forbidden, None))
+    history._remember_preceding_line(None)
+    assert history.previous_line_count == 0

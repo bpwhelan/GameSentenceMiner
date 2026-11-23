@@ -50,7 +50,7 @@ describe("SETTINGS_CATALOG", () => {
       "gsm-voice-detection": ["open-gsm-settings", "audio", "vad"],
       "gsm-hotkeys": ["open-gsm-settings", "hotkeys", undefined],
       "gsm-ai-prompts": ["open-gsm-settings", "ai", "prompts"],
-      "gsm-overlay-capture": ["open-gsm-settings", "overlay", undefined],
+      "gsm-overlay-capture": ["open-overlay-settings", undefined, undefined],
       "gsm-advanced-network": ["open-gsm-settings", "advanced", undefined],
       "gsm-experimental": ["open-gsm-settings", "features", undefined],
       "overlay-reading-stats": ["open-overlay-settings", undefined, undefined],

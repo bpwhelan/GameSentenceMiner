@@ -329,8 +329,14 @@ fn rank_hooks(
     target: &Target,
     cancelled: impl Fn() -> bool,
 ) -> Result<Value, String> {
+    let rules = super::replacements::Rules::new(&config["string_replacement"]);
     let batch = Batch {
-        processors: Processors::new(config, target, Instant::now() + Duration::from_secs(15)),
+        processors: Processors {
+            config,
+            target,
+            rules: &rules,
+            deadline: Instant::now() + Duration::from_secs(15),
+        },
         cancelled: &cancelled,
     };
     batch.check()?;

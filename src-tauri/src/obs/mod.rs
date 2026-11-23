@@ -1,14 +1,26 @@
 //! OBS ownership lives here: supervision, storage, installation, scene policy and devices.
 //! Node's remaining application services may call this API, but are never a fallback.
+mod backend;
+mod area_frame;
+#[cfg(windows)]
+pub(crate) mod game_audio;
 mod config;
 mod outputs;
+mod policy;
 mod process;
+pub(crate) mod game_pause;
 mod runtime;
 mod scenes;
 mod session;
 mod session_profile;
 mod session_target;
 mod switcher;
+#[cfg(windows)]
+mod window_events;
+#[cfg(windows)]
+mod window_input;
+#[cfg(windows)]
+mod window_state;
 use crate::obs_service::ObsService;
 use serde_json::{json, Value};
 use std::{
@@ -43,6 +55,13 @@ struct State {
 }
 #[derive(Default)]
 struct Inner {
+    #[cfg(windows)]
+    audio: Mutex<game_audio::Audio>,
+    images: backend::Images,
+    // A socket can finish closing after its replacement has opened. Serialize
+    // the identity check and publication across the two socket actors.
+    event_order: Mutex<()>,
+    policy: Mutex<policy::ReplayPolicy>,
     session: session::Session,
     state: Mutex<State>,
     client: ObsService,
@@ -54,10 +73,19 @@ struct Inner {
     suspended_clients: Mutex<(bool, bool)>,
     updating: AtomicBool,
     suspended: AtomicBool,
+    shutting_down: AtomicBool,
     started: AtomicBool,
+    replay_buffer_active: AtomicBool,
 }
 #[derive(Clone, Default)]
 pub struct Obs(Arc<Inner>);
+pub(crate) fn is_reader(client: &Value) -> bool {
+    client
+        .as_str()
+        .and_then(|s| s.strip_prefix("obs-reader-"))
+        .and_then(|pid| pid.parse::<u32>().ok())
+        .is_some_and(|pid| pid != 0)
+}
 impl Obs {
     fn paths(&self) -> Result<config::Paths, String> {
         self.0
@@ -119,6 +147,10 @@ impl Obs {
             }
         }
         if !self.0.started.swap(true, Ordering::SeqCst) {
+            #[cfg(windows)]
+            if let Err(error) = window_events::start(app, self.clone()) {
+                crate::desktop_log::warn(app, "window", error);
+            }
             let sampler = self.clone();
             tauri::async_runtime::spawn(sampler.sample_session(app.clone()));
             let controller = self.clone();
@@ -142,6 +174,11 @@ impl Obs {
         }
         crate::desktop_state::emit_to_desktop_windows(app, event, &[data]);
     }
+    pub(crate) async fn connection_settings_changed(&self) {
+        let _guard = self.0.connecting.lock().await;
+        let _ = self.0.client.disconnect_primary().await;
+        self.refresh_session();
+    }
     async fn ensure_connection(&self, app: &tauri::AppHandle) -> Result<(), String> {
         if self.0.client.has_primary() {
             return Ok(());
@@ -153,10 +190,52 @@ impl Obs {
         if self.0.suspended.load(Ordering::SeqCst) {
             return Err("OBS is being updated or closed".into());
         }
-        let (url, password) = self.paths()?.connection()?;
+        let paths = self.paths()?;
+        if std::env::var_os("GSM_SMOKE_TEST").is_some() && paths.settings()?["port"].is_null() {
+            return Err("Smoke tests require an explicit OBS endpoint".into());
+        }
+        let (url, password) = paths.connection()?;
         let controller = self.clone();
         let event_app = app.clone();
+        let id = uuid::Uuid::new_v4().to_string();
+        let event_id = id.clone();
+        let (record_tx, mut record_rx) = tokio::sync::mpsc::channel(128);
+        let record_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            while let Some(data) = record_rx.recv().await {
+                let _ =
+                    crate::runtime::backend_command(&record_app, "obs_record_event", data).await;
+            }
+        });
         let events = Arc::new(move |name: &str, data: Value| {
+            let _order = controller.0.event_order.lock().unwrap();
+            if name == "ConnectionOpened" {
+                if controller.0.client.primary_id().as_deref() != Some(&event_id) {
+                    return;
+                }
+                *controller.0.policy.lock().unwrap() = policy::ReplayPolicy::default();
+                controller.0.session.connection(Some(&event_id), None);
+                return;
+            }
+            if !controller.0.session.is_connection(&event_id) {
+                return;
+            }
+            if matches!(name, "RecordStateChanged" | "RecordFileChanged") {
+                if let Some(active) = data["outputActive"].as_bool() {
+                    controller.0.session.record_state(&event_id, active, false);
+                }
+                if controller.longplay_event(&event_app,name,&data) {
+                    return;
+                }
+                if let Err(error) = record_tx.try_send(json!({"event":name,"data":data})) {
+                    crate::desktop_log::warn(
+                        &event_app,
+                        "obs",
+                        format!("Could not deliver {name} to the subtitle writer: {error}"),
+                    );
+                }
+                return;
+            }
             match name {
                 "CurrentProgramSceneChanged" => controller
                     .0
@@ -169,15 +248,19 @@ impl Obs {
                 | "SceneItemCreated"
                 | "SceneItemRemoved"
                 | "SceneItemEnableStateChanged"
-                    if data["sceneUuid"] == controller.game_session()["scene_id"]
-                        || data["sceneName"] == controller.game_session()["scene"]
-                        || data["oldSceneName"] == controller.game_session()["scene"] =>
+                    if controller.0.session.with_state(|s| {
+                        data["sceneUuid"] == s["scene_id"]
+                            || data["sceneName"] == s["scene"]
+                            || data["oldSceneName"] == s["scene"]
+                    }) =>
                 {
                     controller.0.session.invalidate(None)
                 }
                 "InputSettingsChanged" | "InputNameChanged"
-                    if data["inputName"] == controller.game_session()["source_name"]
-                        || data["oldInputName"] == controller.game_session()["source_name"] =>
+                    if controller.0.session.with_state(|s| {
+                        data["inputName"] == s["source_name"]
+                            || data["oldInputName"] == s["source_name"]
+                    }) =>
                 {
                     controller.0.session.invalidate(None)
                 }
@@ -197,7 +280,31 @@ impl Obs {
                     .clear();
                 controller.0.state.lock().unwrap().devices = None;
             }
+            if name == "ReplayBufferStateChanged" {
+                let active = data["outputActive"].as_bool().unwrap_or(false);
+                controller.0.policy.lock().unwrap().observe(active);
+                controller
+                    .0
+                    .session
+                    .connection(Some(&event_id), Some(active));
+                controller
+                    .0
+                    .replay_buffer_active
+                    .store(active, Ordering::SeqCst);
+                if let Some(mining) = event_app.try_state::<Arc<crate::mining::MiningService>>() {
+                    mining.set_obs_replay_active(active);
+                }
+            }
             if name == "ConnectionClosed" {
+                *controller.0.policy.lock().unwrap() = policy::ReplayPolicy::default();
+                controller.0.session.connection(None, None);
+                controller
+                    .0
+                    .replay_buffer_active
+                    .store(false, Ordering::SeqCst);
+                if let Some(mining) = event_app.try_state::<Arc<crate::mining::MiningService>>() {
+                    mining.set_obs_replay_active(false);
+                }
                 controller.0.state.lock().unwrap().devices = None;
                 controller.emit(&event_app, "obs.connection", json!(false));
             }
@@ -206,13 +313,7 @@ impl Obs {
         let _ = self.0.client.disconnect_primary().await;
         self.0
             .client
-            .connect(
-                uuid::Uuid::new_v4().to_string(),
-                url,
-                password,
-                true,
-                events,
-            )
+            .connect(id.clone(), url, password, true, events)
             .await
             .map_err(|e| e.message)?;
         {
@@ -222,7 +323,64 @@ impl Obs {
             state.switcher.collection.clear();
         }
         self.emit(app, "obs.connection", json!(true));
+        self.refresh_session();
+        let probe_obs = self.clone();
+        let probe_app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Ok(status) = probe_obs
+                .0
+                .client
+                .call(
+                    &id,
+                    "GetRecordStatus".into(),
+                    Value::Null,
+                    Duration::from_secs(8),
+                )
+                .await
+            {
+                if let Some(active) = status["outputActive"].as_bool() {
+                    let _order = probe_obs.0.event_order.lock().unwrap();
+                    if probe_obs.0.session.record_state(&id, active, true) {
+                        // OBS reports elapsed recording time in milliseconds on reconnection.
+                        let elapsed = if active { status["outputDuration"].as_i64().unwrap_or(0).max(0) } else { 0 };
+                        let start = crate::longplay::now().saturating_sub(elapsed.saturating_mul(1000));
+                        probe_app.state::<crate::longplay::Service>().recording(active,None,start,probe_obs.current_scene_name());
+                    }
+                }
+            }
+        });
         Ok(())
+    }
+    pub(crate) fn longplay_event(&self, app: &tauri::AppHandle, name: &str, data: &Value) -> bool {
+        let service = app.state::<crate::longplay::Service>();
+        if !service.owned() {
+            return false;
+        }
+        let now = crate::longplay::now();
+        match name {
+            "RecordFileChanged" => {
+                if let Some(path) = data["newOutputPath"].as_str().filter(|s| !s.is_empty()) {
+                    service.recording(true, Some(path), now, self.current_scene_name());
+                }
+            }
+            "RecordStateChanged" => {
+                if matches!(
+                    data["outputState"].as_str(),
+                    Some("OBS_WEBSOCKET_OUTPUT_STARTED" | "OBS_WEBSOCKET_OUTPUT_STOPPED") | None
+                ) {
+                    if let Some(active) = data["outputActive"].as_bool() {
+                        service.recording(
+                            active,
+                            data["outputPath"].as_str(),
+                            now,
+                            self.current_scene_name(),
+                        );
+                    }
+                }
+            }
+            _ => return false,
+        }
+        true
     }
     async fn call(
         &self,
@@ -302,6 +460,21 @@ impl Obs {
         });
         process::find(&executable, remembered)
     }
+    pub(crate) async fn launch_on_startup(&self, app: &tauri::AppHandle) -> Result<(), String> {
+        let paths = self.paths()?;
+        if paths.settings()?["open_obs"] == false {
+            return Ok(());
+        }
+        if paths.managed()? && !paths.executable().is_file() {
+            self.ensure_installed(app).await?;
+        }
+        let result = self.launch(app, json!({})).await?;
+        if result["status"] == "missing" {
+            return Err(result["error"].as_str().unwrap_or("OBS not found").into());
+        }
+        Ok(())
+    }
+
     async fn launch(&self, app: &tauri::AppHandle, options: Value) -> Result<Value, String> {
         let _guard = self.0.lifecycle.write().await;
         self.launch_inner(app, options).await
@@ -543,6 +716,48 @@ impl Obs {
                 self.switcher_command(app, channel, arg).await
             }
             _ => self.scene_command(app, channel, arg).await,
+        }
+    }
+
+    pub(crate) fn is_replay_buffer_active(&self) -> bool {
+        self.0.replay_buffer_active.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn current_scene_name(&self) -> String {
+        self.game_session()["scene"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    }
+
+    async fn refresh_replay_buffer_state(&self, app: &tauri::AppHandle, id: &str) {
+        let Ok(reply) = self
+            .0
+            .client
+            .call(
+                id,
+                "GetReplayBufferStatus".into(),
+                Value::Null,
+                Duration::from_secs(1),
+            )
+            .await
+        else {
+            return;
+        };
+        let Some(active) = reply["outputActive"].as_bool() else {
+            return;
+        };
+        let _order = self.0.event_order.lock().unwrap();
+        let mut policy = self.0.policy.lock().unwrap();
+        if !self.0.session.is_connection(id) {
+            return;
+        }
+        let active = *policy.active.get_or_insert(active);
+        self.0.session.connection(Some(id), Some(active));
+        self.0.replay_buffer_active.store(active, Ordering::SeqCst);
+        if let Some(mining) = app.try_state::<Arc<crate::mining::MiningService>>() {
+            mining.set_obs_replay_active(active);
         }
     }
 

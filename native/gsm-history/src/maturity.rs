@@ -21,6 +21,19 @@ struct WeekRange {
     end: NaiveDate,
 }
 
+impl Report {
+    pub(super) fn weekly_counts(&self, conn: &Connection, start: NaiveDate, end: NaiveDate) -> Result<(Vec<usize>, Vec<usize>)> {
+        let reviews = table_exists(conn, "anki_reviews")?;
+        let cards = table_exists(conn, "anki_cards")?;
+        let weeks = WeekRange {start, end};
+        Ok((weeks.bucket(&self.words(conn, reviews, cards)?)?, weeks.bucket(&self.kanji(conn, reviews, cards)?)?))
+    }
+
+    pub fn daily(word_field: String, today:NaiveDate)->Self {
+        Self{word_field,today,weeks:None}
+    }
+}
+
 type Counts = BTreeMap<NaiveDate, usize>;
 
 // Keep SQLite's MIN semantics on legacy columns with mixed storage classes.
@@ -159,15 +172,14 @@ impl Report {
     }
 
     pub(super) fn read(&self, conn: &Connection) -> Result<Value> {
+        if let Some(weeks) = &self.weeks {
+            let (words, kanji) = self.weekly_counts(conn, weeks.start, weeks.end)?;
+            return Ok(json!({"mature_words":words, "mature_kanji":kanji}));
+        }
         let reviews = table_exists(conn, "anki_reviews")?;
         let cards = table_exists(conn, "anki_cards")?;
         let words = self.words(conn, reviews, cards)?;
         let kanji = self.kanji(conn, reviews, cards)?;
-        if let Some(weeks) = &self.weeks {
-            return Ok(
-                json!({"mature_words":weeks.bucket(&words)?, "mature_kanji":weeks.bucket(&kanji)?}),
-            );
-        }
         let start = [words.keys().next(), kanji.keys().next()]
             .into_iter()
             .flatten()

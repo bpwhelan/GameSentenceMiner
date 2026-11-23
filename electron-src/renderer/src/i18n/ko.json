@@ -1,4 +1,5 @@
 {
+  "mining": { "fields": { "ai_auto_generate_character_summary": "캐릭터 요약 자동 생성" } },
   "gameLauncher": {
     "mode": "실행 방식",
     "modeExecutable": "게임 실행 파일",
@@ -709,6 +710,7 @@
       "description": "여기에서 백엔드 패키지와 데스크톱 앱을 모두 확인합니다.",
       "backend": "GameSentenceMiner 백엔드",
       "electronApp": "Electron 앱",
+      "desktopApp": "데스크톱 앱",
       "current": "현재: {version}",
       "latest": "최신: {version}",
       "channel": "채널: {channel}",

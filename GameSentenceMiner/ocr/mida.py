@@ -13,9 +13,9 @@ from GameSentenceMiner.ocr.vita_ocr import get_install_directory
 from GameSentenceMiner.ocr.vocr_onnx import ONNXRuntime, bundled_directory, check_dimensions
 from GameSentenceMiner.ocr.vocr_onnx_decode import line_dark
 
-REVISION = "8503f1ccf4bc214b9c4710b5d19cba5ce422df83"
-FILENAME = "mida_l_alpha_v0.0.1.onnx"
-DIGEST = "9f72bce58b50b1837bb16e81c5c035d32d9cd45d84dcef56f0b6fb2ef25e8aed"
+REVISION = "0805742410e7d4daf797ff4993e4ad9b53d95a04"
+FILENAME = "mida_l_alpha_v0.0.2.onnx"
+DIGEST = "7a09988b2596ef3fda2e5dfa815bfebbba6d3dcc385cc905cbb329cd8c95a4fa"
 
 
 class MidaFinder:

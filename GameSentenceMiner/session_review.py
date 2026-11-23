@@ -293,6 +293,7 @@ def review_config(entry):
     config.audio = Audio.from_dict(entry.data["audio_config"])
     config.screenshot = Screenshot.from_dict(entry.data["screenshot_config"])
     config.ai.anki_field = entry.data.get("translation_field") or config.ai.anki_field
+    config.ai.add_to_anki = bool(entry.data.get("translation_field"))
     # Explicit edits replace the corresponding GSM fields even when normal mining appends.
     for field_config in vars(config.anki).values():
         if hasattr(field_config, "overwrite"):
@@ -421,14 +422,41 @@ def prepare_dialogue_change(prepared, selected_lines, *, translation, refresh_tr
                 translation, regenerated = translated, True
         audio = None
         if prepared.config.audio.enabled and anki._field_is_active("sentence_audio_field", prepared.config.anki):
-            audio = ReplayAudioExtractor.get_audio(
-                selected[0],
-                selected[-1].get_next_time(),
-                context.video_path,
-                context.anki_card_creation_time,
-                mined_line=context.mined_line,
-                full_text=remove_html_and_cloze_tags(sentence),
-            )
+            from GameSentenceMiner.native import mining as native_mining
+
+            if native_mining.native_mining_enabled():
+                from GameSentenceMiner.replay_handler import ReplayAudioResult
+                from GameSentenceMiner.ui.desktop_dialog import (
+                    _hydrate_audio_edit_context,
+                    _hydrate_vad_result,
+                )
+
+                raw_audio = native_mining.session_review_extract_audio(
+                    video_path=context.video_path,
+                    game_line=selected[0],
+                    next_line_time=selected[-1].get_next_time(),
+                    anki_card_creation_time=context.anki_card_creation_time,
+                    mined_line=context.mined_line,
+                    full_text=remove_html_and_cloze_tags(sentence),
+                    game_name=getattr(context.mined_line, "scene", "") or "",
+                )
+                audio = ReplayAudioResult(
+                    final_audio_output=str(raw_audio.get("final_audio_output") or ""),
+                    vad_result=_hydrate_vad_result(raw_audio.get("vad_result")),
+                    vad_trimmed_audio=str(raw_audio.get("vad_trimmed_audio") or ""),
+                    start_time=float(raw_audio.get("start_time", 0.0)),
+                    end_time=float(raw_audio.get("end_time", 0.0)),
+                    audio_edit_context=_hydrate_audio_edit_context(raw_audio.get("audio_edit_context")),
+                )
+            else:
+                audio = ReplayAudioExtractor.get_audio(
+                    selected[0],
+                    selected[-1].get_next_time(),
+                    context.video_path,
+                    context.anki_card_creation_time,
+                    mined_line=context.mined_line,
+                    full_text=remove_html_and_cloze_tags(sentence),
+                )
         return SimpleNamespace(
             context=context,
             audio=audio,
@@ -604,21 +632,71 @@ def _referenced_media(names, fields):
     return set(names) & references
 
 
+def _group_confirmed_review(entry, config):
+    from GameSentenceMiner import anki
+    from GameSentenceMiner.util.database.db import GameLinesTable
+
+    source = _current_note(entry, config)
+    target_id = entry.data.get("grouped_into")
+    if target_id is None:
+        decision = anki._resolve_field_grouping_decision(source, strict=True)
+        if not decision:
+            return None
+        # A manual choice can stay open while the user makes changes in Anki.
+        source = _current_note(entry, config)
+        delete_duplicate = decision["delete_duplicate"]
+        target = anki._apply_field_grouping_merge(
+            source, {"fields": {}}, [], {**decision, "delete_duplicate": False}, config
+        )
+        target_id = target.noteId
+        if delete_duplicate:
+            # Retrying a failed deletion must never append the same context again.
+            entry.data["grouped_into"] = target_id
+            entry.save()
+        anki._trigger_incremental_anki_cache_sync([target_id] if delete_duplicate else [target_id, source.noteId])
+        try:
+            if entry.data["line_id"]:
+                GameLinesTable.update(line_id=entry.data["line_id"], note_id=str(target_id))
+        except Exception:  # noqa: BLE001 - The Anki merge has already succeeded.
+            logger.exception("Grouped review saved, but its local history could not be refreshed.")
+        if not delete_duplicate:
+            return target_id
+        _current_note(entry, config)
+
+    try:
+        anki.invoke("deleteNotes", notes=[source.noteId])
+        if any(anki.invoke("notesInfo", notes=[source.noteId])):
+            raise RuntimeError("Anki did not delete the duplicate.")
+    except Exception as exc:
+        raise RuntimeError(f"The context was merged. Confirm again to retry deleting the duplicate. {exc}") from exc
+    anki._forget_anki_note(source.noteId)
+    return target_id
+
+
+def _finish_confirmed_review(entry, config, *, edited=False):
+    grouped = config.anki.field_grouping_enabled and _group_confirmed_review(entry, config)
+    finish_review(entry, config.features.review_after_session)
+    if grouped:
+        return "Merged the reviewed context into the original Anki note."
+    return "Saved to Anki." if edited else "Confirmed. Removed from the review queue."
+
+
 @_skip_missing_note
 def apply_review(entry, prepared, result):
-    """Apply only explicit edits; an unchanged confirmation is entirely local."""
+    """Save explicit edits before applying the configured duplicate grouping."""
     from GameSentenceMiner import anki
     from GameSentenceMiner.util.database.db import GameLinesTable
 
     config = review_config(entry)
     with use_profile_config(config):
+        if entry.data.get("grouped_into"):
+            return _finish_confirmed_review(entry, config)
         values = anki._parse_confirmation_dialog_result(result)
         voice, sentence, translation, screenshot, previous, _nsfw, audio, metadata = values
         changes = _review_changes(entry, prepared, values, config)
         settings = config.features.review_after_session
         if not changes:
-            finish_review(entry, settings)
-            return "Confirmed. Removed from the review queue."
+            return _finish_confirmed_review(entry, config)
 
         last_note = _current_note(entry, config)
         note = {"id": last_note.noteId, "fields": {}}
@@ -784,8 +862,8 @@ def apply_review(entry, prepared, result):
                 entry.data["sentence"] = sentence
             if "translation" in changes:
                 entry.data["translation"] = translation
-            finish_review(entry, settings)
-            return "Saved to Anki."
+            if config.anki.field_grouping_enabled:
+                entry.save()
         except Exception:
             # Keep track of any uploads from a failed attempt; cleanup must never run before a verified update.
             entry.data["owned_media"] = sorted(set(entry.data["owned_media"]) | set(media_names(assets)))
@@ -795,6 +873,7 @@ def apply_review(entry, prepared, result):
             # scratch is constructed inside this entry, never taken from a manifest.
             if scratch.exists():
                 shutil.rmtree(scratch)
+        return _finish_confirmed_review(entry, config, edited=True)
 
 
 def cleanup_unused_media(names):

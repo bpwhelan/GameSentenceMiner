@@ -288,6 +288,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "routeAllHotkeysThroughInputServer": false,
         "manualMode": false,
         "manualModeType": "hold",
+        "requireGameFocusForPushToShow": true,
         "manualModeInactiveBehavior": "hide-overlay",
         "manualModeDisableInteractionFocusOverlay": false,
         "showManualModeRecommendations": true,
@@ -686,9 +687,13 @@ pub fn normalize_user_settings(settings: &mut Map<String, Value>, single_port: u
         "manualModeType".into(),
         json!(norm_enum(
             settings.get("manualModeType"),
-            &["hold", "toggle"],
+            &["hold", "hybrid", "toggle"],
             "hold"
         )),
+    );
+    settings.insert(
+        "requireGameFocusForPushToShow".into(),
+        json!(norm_bool(settings.get("requireGameFocusForPushToShow"), true)),
     );
     settings.insert(
         "manualModeInactiveBehavior".into(),
@@ -1018,6 +1023,10 @@ fn normalize_profiles_container(settings: &mut Map<String, Value>, defaults: &Ma
         cleaned
             .entry("hideLiveStatsOnTextOverlap".to_string())
             .or_insert_with(|| defaults["hideLiveStatsOnTextOverlap"].clone());
+        cleaned.insert(
+            "requireGameFocusForPushToShow".into(),
+            json!(norm_bool(cleaned.get("requireGameFocusForPushToShow"), true)),
+        );
         normalized_profiles.insert(norm_name.to_string(), Value::Object(cleaned));
     }
     settings.insert(

@@ -1,7 +1,5 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
-import { SceneSwitchConflictWindow } from "./components/SceneSwitchConflictWindow";
 import { I18nProvider } from "./i18n";
 import { TooltipLayer } from "./components/Tooltip";
 import { installDevPreviewBridge } from "./lib/devPreview";
@@ -46,17 +44,40 @@ async function getInitialSettings(): Promise<{ locale: string; theme?: string; s
 }
 
 const root = createRoot(document.getElementById("root")!);
-const isSceneSwitcherPicker = new URLSearchParams(window.location.search).get("window") === "scene-switcher-picker";
-if (!isSceneSwitcherPicker) document.documentElement.setAttribute("data-gsm-preload-dictionary-popup", "");
+const windowKind = new URLSearchParams(window.location.search).get("window");
+function loadWindow() {
+  switch (windowKind) {
+    case "anki-confirmation":
+    case "session-review":
+      return import("./components/CardReviewWindow").then(module => module.CardReviewWindow);
+    case "mining-settings":
+      return import("./components/tabs/MiningSettings").then(module => module.MiningSettings);
+    case "anki-grouping":
+      return import("./components/AnkiGroupingDialog").then(module => module.AnkiGroupingDialog);
+    case "screenshot-selector":
+      return import("./components/ScreenshotSelector").then(module => module.ScreenshotSelector);
+    case "furigana-preview":
+      return import("./components/FuriganaPreview").then(module => module.FuriganaPreview);
+    case "recommended-anki":
+      return import("./components/RecommendedAnkiSetup").then(module => module.RecommendedAnkiSetup);
+    case "ocr-area-selector":
+      return import("./components/OcrAreaSelector").then(module => module.OcrAreaSelector);
+    case "scene-switcher-picker":
+      return import("./components/SceneSwitchConflictWindow").then(module => module.SceneSwitchConflictWindow);
+    default:
+      document.documentElement.setAttribute("data-gsm-preload-dictionary-popup", "");
+      return import("./App").then(module => module.default);
+  }
+}
 
-void desktopReady.then(getInitialSettings).then(({ locale, theme, seasonalEffectsDisabled }) => {
+void Promise.all([desktopReady.then(getInitialSettings), loadWindow()]).then(([{ locale, theme, seasonalEffectsDisabled }, WindowContent]) => {
   // Apply the persisted theme before first paint to avoid a flash.
   applyTheme(theme);
   startSeasonalEffects(seasonalEffectsDisabled === true);
   root.render(
     <I18nProvider initialLocale={locale}>
       <TooltipLayer />
-      {isSceneSwitcherPicker ? <SceneSwitchConflictWindow /> : <App />}
+      <WindowContent />
     </I18nProvider>
   );
 });

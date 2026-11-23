@@ -556,6 +556,14 @@ def _capture_overlay_scan_call(monkeypatch, source):
 
 
 def test_overlay_recycled_indicator_setting_saves_and_broadcasts_full_subset(monkeypatch):
+    from GameSentenceMiner.util.database.db import GameLinesTable
+    from GameSentenceMiner.util.text_log import GameText
+
+    history = GameText()
+    monkeypatch.setattr(overlay_handler_module, "game_log", history)
+    monkeypatch.setattr(overlay_handler_module, "get_current_scene", lambda: "Current scene")
+    monkeypatch.setattr(overlay_handler_module, "get_current_game", lambda: "Current game")
+    monkeypatch.setattr(GameLinesTable, "iter_recycled_line_texts", lambda scene: iter([scene + " dialogue"]))
     current_config, saved_configs, sent_messages = _run_overlay_config_message(
         monkeypatch,
         {
@@ -563,8 +571,12 @@ def test_overlay_recycled_indicator_setting_saves_and_broadcasts_full_subset(mon
             "key": "check_previous_lines_for_recycled_indicator",
             "value": True,
         },
+        sync_recycled=False,
     )
 
+    assert history.is_line_recycled("Current scene dialogue")
+    overlay_handler_module.OverlayRequestHandler()._sync_recycled_line_cache(False)
+    assert history.previous_line_count == 0
     assert current_config.overlay.check_previous_lines_for_recycled_indicator is True
     assert saved_configs and saved_configs[0].overlay is current_config.overlay
     assert len(sent_messages) == 1
@@ -769,3 +781,16 @@ def test_overlay_config_ignores_invalid_value(monkeypatch):
     # Invalid value coerces to nothing applied -> no save, no broadcast.
     assert saved_configs == []
     assert sent_messages == []
+
+
+def test_desktop_indicator_toggle_leaves_history_to_rust(monkeypatch):
+    monkeypatch.setenv("GSM_NATIVE_RECYCLED_LINES", "1")
+    monkeypatch.setattr(overlay_handler_module, "game_log", None)
+
+    def forbidden():
+        raise AssertionError("desktop-managed toggle read the scene in Python")
+
+    monkeypatch.setattr(overlay_handler_module, "get_current_scene", forbidden)
+    handler = overlay_handler_module.OverlayRequestHandler()
+    handler._sync_recycled_line_cache(True)
+    handler._sync_recycled_line_cache(False)

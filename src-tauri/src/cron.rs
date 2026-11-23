@@ -1,5 +1,6 @@
-//! The authenticated backend pulls a lease only for jobs still implemented
-//! there. Between leases the desktop sleeps until a deadline or a command.
+//! Run native jobs from database startup. When the compatibility worker
+//! registers, its long poll drives the same deadline planner and can take
+//! leases for jobs which still need it.
 use gsm_history::{schedule::Job, History};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -18,6 +19,10 @@ pub struct Scheduler(Mutex<Owner>);
 struct Owner {
     epoch: Option<u64>,
     run: Option<Arc<Run>>,
+    local: Option<Arc<Run>>,
+    ready: Option<(Database, u64)>,
+    drive: Arc<AsyncMutex<()>>,
+    manual_jobs: Arc<Mutex<VecDeque<&'static str>>>,
 }
 #[derive(Clone, Copy, Default)]
 struct Control {
@@ -26,7 +31,9 @@ struct Control {
     revision: u64,
 }
 struct Run {
-    session: String,
+    session: Option<String>,
+    drive: Arc<AsyncMutex<()>>,
+    manual_jobs: Arc<Mutex<VecDeque<&'static str>>>,
     priorities: HashMap<String, u32>,
     retry: Duration,
     refresh: Duration,
@@ -94,11 +101,179 @@ impl Scheduler {
         if let Some(run) = &owner.run {
             run.control.send_modify(|state| state.epoch = None);
         }
+        owner.start_local();
     }
-    pub fn close(&self) {
-        if let Some(run) = self.0.lock().unwrap().run.take() {
+    pub fn forget_backend(&self) {
+        let mut owner = self.0.lock().unwrap();
+        if let Some(run) = owner.run.take() {
             run.control.send_modify(|state| state.epoch = None);
         }
+        owner.start_local();
+    }
+    pub fn close(&self) {
+        let mut owner = self.0.lock().unwrap();
+        owner.manual_jobs = Arc::default();
+        if let Some((db, _)) = owner.ready.take() {
+            db.anki.database_closing();
+        }
+        owner.stop_local();
+        if let Some(run) = owner.run.take() {
+            run.control.send_modify(|state| state.epoch = None);
+        }
+    }
+    pub fn force_anki(&self) -> Result<(), String> {
+        self.force("anki_card_sync")
+    }
+    pub fn force_rollup(&self) -> Result<(), String> {
+        self.force("daily_stats_rollup")
+    }
+    pub fn force_tokenization(&self) -> Result<(), String> {
+        self.force("tokenize_backfill")
+    }
+    pub fn force_metadata(&self) -> Result<(), String> {
+        self.force("jiten_sync")
+    }
+    fn force(&self, job: &'static str) -> Result<(), String> {
+        let owner = self.0.lock().unwrap();
+        if owner.ready.is_none() {
+            return Err("The scheduled job database is unavailable".into());
+        }
+        if !owner.run.iter().chain(owner.local.iter()).any(|run|
+            run.control.borrow().epoch.is_some() && run.priorities.contains_key(job)) {
+            return Err(format!("No active scheduler handles {job}"));
+        }
+        let mut jobs = owner.manual_jobs.lock().unwrap();
+        if jobs.len() >= 128 {
+            return Err("Cron mailbox is full".into());
+        }
+        jobs.push_back(job);
+        drop(jobs);
+        for run in owner.local.iter().chain(owner.run.iter()) {
+            run.control.send_modify(|_| {});
+        }
+        Ok(())
+    }
+    pub async fn drain(&self) {
+        self.close();
+        let drive = self.0.lock().unwrap().drive.clone();
+        let _finished = drive.lock().await;
+    }
+    pub fn ready(&self, app: &AppHandle) -> Result<(), String> {
+        let db = Database::new(app);
+        let mut owner = self.0.lock().unwrap();
+        let generation = db.history.generation().map_err(|e| e.to_string())?;
+        owner.ready = Some((db, generation));
+        owner.refresh_local(generation);
+        Ok(())
+    }
+    pub fn refresh_generation(&self) -> Result<(), String> {
+        let mut owner = self.0.lock().unwrap();
+        if let Some((db, current)) = owner.ready.as_mut() {
+            let generation = db.history.generation().map_err(|e| e.to_string())?;
+            *current = generation;
+            owner.refresh_local(generation);
+        }
+        Ok(())
+    }
+}
+
+impl Owner {
+    fn refresh_local(&mut self, generation: u64) {
+        if self
+            .local
+            .as_ref()
+            .is_some_and(|run| run.control.borrow().generation != generation)
+        {
+            // A replacement database can reuse row IDs. Drop retry deadlines
+            // and any pending plan inherited from the previous writer.
+            self.stop_local();
+        }
+        if let Some(run) = &self.local {
+            run.control.send_modify(|state| {
+                state.generation = generation;
+                state.revision = state.revision.wrapping_add(1);
+            });
+        } else {
+            self.start_local();
+        }
+    }
+
+    fn stop_local(&mut self) {
+        if let Some(run) = self.local.take() {
+            run.control.send_modify(|state| state.epoch = None);
+        }
+    }
+
+    fn start_local(&mut self) {
+        if self.local.is_some()
+            || self
+                .run
+                .as_ref()
+                .is_some_and(|r| r.control.borrow().epoch.is_some())
+        {
+            return;
+        }
+        let Some((db, generation)) = self.ready.clone() else {
+            return;
+        };
+        let priorities = [
+            ("daily_stats_rollup", 10),
+            ("populate_games", 100),
+            ("database_maintenance", 100),
+            ("anki_word_sync", 100),
+            ("anki_card_sync", 100),
+            ("tokenize_backfill", 1000),
+            ("jiten_sync", 1000),
+            ("jiten_upgrader", 1000),
+            ("tadoku_sync", 1000),
+            ("kechimochi_sync", 1000),
+            ("daily_goals_completion", 100),
+            (gsm_db::JITEN_GENRE_BACKFILL, 1000),
+        ]
+        .into_iter()
+        .map(|(name, priority)| (name.to_owned(), priority))
+        .collect();
+        let run = Arc::new(Run {
+            session: None,
+            drive: self.drive.clone(),
+            manual_jobs: self.manual_jobs.clone(),
+            priorities,
+            retry: Duration::from_secs(60),
+            refresh: Duration::from_secs(900),
+            control: watch::channel(Control {
+                epoch: Some(0),
+                generation,
+                revision: 0,
+            })
+            .0,
+            inbox: Mutex::default(),
+            driver: AsyncMutex::default(),
+        });
+        self.local = Some(run.clone());
+        tauri::async_runtime::spawn(async move {
+            let mut changed = run.control.subscribe();
+            while changed.borrow_and_update().epoch.is_some() {
+                if let Err(error) = run.next(db.clone(), 0, None).await {
+                    if changed.borrow().epoch.is_none() {
+                        break;
+                    }
+                    eprintln!("GSM scheduled job planner: {error}");
+                    tokio::select! {
+                        _ = changed.changed() => {}
+                        _ = tokio::time::sleep(run.retry) => {}
+                    }
+                }
+            }
+        });
+    }
+}
+
+pub fn refresh(app: &AppHandle) {
+    let owner = app.state::<Scheduler>();
+    let owner = owner.0.lock().unwrap();
+    for run in owner.local.iter().chain(owner.run.iter()) {
+        run.control
+            .send_modify(|s| s.revision = s.revision.wrapping_add(1));
     }
 }
 
@@ -131,7 +306,7 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
     let Request { session, command } = serde_json::from_value(data).map_err(|e| e.to_string())?;
     let scheduler = app.state::<Scheduler>();
     if let Command::Start {
-        priorities,
+        mut priorities,
         retry_seconds,
         refresh_seconds,
     } = command
@@ -143,15 +318,29 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
         .await
         .map_err(|e| e.to_string())??;
         let mut owner = scheduler.owner(epoch)?;
-        if owner.run.as_ref().is_none_or(|r| r.session != session) {
+        if !owner
+            .ready
+            .as_ref()
+            .is_some_and(|(_, current)| *current == generation)
+        {
+            return Err("Database is not ready for scheduled jobs".into());
+        }
+        if owner
+            .run
+            .as_ref()
+            .is_none_or(|r| r.session.as_ref() != Some(&session))
+        {
             let retry = seconds(retry_seconds)?;
             let refresh = seconds(refresh_seconds)?;
             if let Some(old) = owner.run.take() {
                 old.control.send_modify(|state| state.epoch = None);
             }
             let (control, _) = watch::channel(Control::default());
+            priorities.insert(gsm_db::JITEN_GENRE_BACKFILL.to_owned(), 1000);
             owner.run = Some(Arc::new(Run {
-                session,
+                session: Some(session),
+                drive: owner.drive.clone(),
+                manual_jobs: owner.manual_jobs.clone(),
                 priorities,
                 retry,
                 refresh,
@@ -160,6 +349,7 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
                 driver: AsyncMutex::default(),
             }));
         }
+        owner.stop_local();
         owner.run.as_ref().unwrap().control.send_modify(|state| {
             state.epoch = Some(epoch);
             state.generation = generation;
@@ -172,7 +362,7 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
         let run = owner
             .run
             .as_ref()
-            .filter(|r| r.session == session)
+            .filter(|r| r.session.as_ref() == Some(&session))
             .ok_or("Cron session has expired")?
             .clone();
         if run.control.borrow().epoch != Some(epoch) {
@@ -191,20 +381,13 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
             Command::Stop { .. } => {
                 owner.run.take();
                 run.control.send_modify(|state| state.epoch = None);
+                owner.start_local();
             }
             _ => {}
         }
         run
     };
-    let db = Database {
-        index: app.state::<crate::word_index::WordIndex>().inner().clone(),
-        history: app.state::<Arc<History>>().inner().clone(),
-        path: app
-            .state::<crate::settings::Settings>()
-            .paths
-            .active
-            .join("gsm.db"),
-    };
+    let db = Database::new(&app);
     match command {
         Command::Next { ack } => run.next(db, epoch, ack).await,
         Command::Stop { ack } => {
@@ -219,21 +402,169 @@ pub async fn request(app: AppHandle, epoch: u64, data: Value) -> Result<Value, S
 
 #[derive(Clone)]
 struct Database {
+    app: Option<AppHandle>,
     index: crate::word_index::WordIndex,
     history: Arc<History>,
     path: PathBuf,
+    default_config: PathBuf,
+    anki: crate::anki_sync::SyncLane,
+    http: reqwest::Client,
+    runtime: crate::runtime::Runtime,
 }
 impl Database {
+    fn new(app: &AppHandle) -> Self {
+        Self {
+            app: Some(app.clone()),
+            index: app.state::<crate::word_index::WordIndex>().inner().clone(),
+            history: app.state::<Arc<History>>().inner().clone(),
+            path: app
+                .state::<crate::settings::Settings>()
+                .paths
+                .active
+                .join("gsm.db"),
+            default_config: app
+                .state::<crate::desktop_state::DesktopState>()
+                .app_root
+                .join("config.json"),
+            anki: app.state::<crate::anki_sync::SyncLane>().inner().clone(),
+            http: app
+                .state::<crate::desktop_state::DesktopState>()
+                .http
+                .clone(),
+            runtime: app.state::<crate::runtime::Runtime>().inner().clone(),
+        }
+    }
+    async fn job_config(&self) -> Result<Value, String> {
+        let default = self.default_config.clone();
+        self.work(move |_, path| {
+            let profile = path.with_file_name("config.json");
+            Ok(gsm_settings::read_object(if profile.try_exists()? {
+                &profile
+            } else {
+                &default
+            })?)
+        })
+        .await
+    }
+    async fn rollup(&self, generation: u64, job: Job) -> Result<bool, String> {
+        let config = self.job_config().await?;
+        self.work(move |history, path| {
+            let tokenized = vocabulary_enabled(&config);
+            history.try_scheduled_rollup(path, generation, &job, &config["stats"], tokenized)
+        })
+        .await
+    }
+    async fn sync_tadoku(&self, generation: u64, job: Job) -> Result<bool, String> {
+        let history = self.history.clone();
+        self.work(move |h, path| {
+            if !h.scheduled_job_current(path, generation, &job)? { return Ok(true) }
+            let reports = Arc::new(gsm_mining::gateway::Reports::new(path.parent().ok_or("Missing profile directory")?, history));
+            let result = match reports.prepare_tadoku(&Value::Null, true) {
+                Ok(Some(work)) if work.generation() == generation => work.run().map(|_|()).map_err(|e|e.to_string()),
+                Ok(Some(_)) => return Err("Database changed before Tadoku sync".into()),
+                Ok(None) => return Ok(false),
+                Err(reply) => Err(reply.body["error"].as_str().unwrap_or("Tadoku sync failed").to_owned()),
+            };
+            if let Err(error) = result {
+                // Scheduled authentication and provider failures are retried at
+                // the configured daily time, like the Python cron runner.
+                eprintln!("Tadoku daily sync failed: {error}");
+            }
+            let next = if job.schedule == "daily" {
+                let config = gsm_settings::read_object(&path.with_file_name("config.json"))?;
+                Some(gsm_db::startup_jobs::next_tadoku_run(&config["stats"], chrono::Local::now())?)
+            } else { None };
+            h.finish_scheduled_job(path, generation, &job, next)?;
+            Ok(true)
+        }).await
+    }
+    async fn complete_goals(&self,generation:u64,job:Job)->Result<bool,String>{
+        let history=self.history.clone();
+        self.work(move |h,path|{
+            if !h.scheduled_job_current(path,generation,&job)?{return Ok(true);}
+            let reports=gsm_mining::gateway::Reports::new(path.parent().ok_or("Missing profile directory")?,history);
+            if !reports.scheduled_goals(generation)?{return Ok(false);}
+            h.finish_scheduled_job(path,generation,&job,None)?;Ok(true)
+        }).await
+    }
+    async fn sync_kechimochi(&self,generation:u64,job:Job)->Result<bool,String>{
+        let history=self.history.clone();
+        self.work(move |h,path|{
+            if !h.scheduled_job_current(path,generation,&job)? {return Ok(true);}
+            let reports=Arc::new(gsm_mining::gateway::Reports::new(path.parent().ok_or("Missing profile directory")?,history));
+            let start=reports.prepare_kechimochi(None,true,gsm_mining::config::profile_language_name);
+            use gsm_mining::gateway::KechimochiStart;
+            let failed=match start {
+                Ok(KechimochiStart::Compatibility)=>return Ok(false),
+                Ok(KechimochiStart::Ready(_,None))=>false,
+                Ok(KechimochiStart::Ready(_,Some(work)))=>{
+                    if work.generation()!=generation{return Err("Database changed before Kechimochi sync".into());}
+                    work.run(false).is_err()
+                }
+                Err(reply) if reply.status==409=>return Ok(false),
+                Err(reply)=>return Err(reply.body["error"].as_str().unwrap_or("Could not prepare Kechimochi sync").into())
+            };
+            let next=if job.id.is_some() && job.schedule!="once" {
+                let config=gsm_settings::read_object(&path.with_file_name("config.json"))?;
+                Some(gsm_db::startup_jobs::next_kechimochi_run(&config["stats"],chrono::Local::now(),failed)?)
+            }else{None};
+            h.finish_scheduled_job(path,generation,&job,next)?;Ok(true)
+        }).await
+    }
+    async fn sync_metadata(&self, generation: u64, job: Job) -> Result<bool, String> {
+        let check = job.clone();
+        if !self.work(move |h,p| h.scheduled_job_current(p, generation, &check)).await? {
+            return Ok(true);
+        }
+        if job.name == "jiten_upgrader" {
+            crate::game_metadata::upgrade::run(
+                self.http.clone(), self.history.clone(), self.path.clone(), generation,
+            ).await?;
+        } else {
+            crate::game_metadata::sync(
+                self.http.clone(), self.history.clone(), self.path.clone(), generation,
+                self.app.as_ref(), job.name == gsm_db::JITEN_GENRE_BACKFILL,
+            ).await?;
+        }
+        let _ = self.runtime.backend_command("game_library_changed", Value::Null).await;
+        self.work(move |h, p| h.finish_scheduled_job(p, generation, &job, None)).await?;
+        Ok(true)
+    }
+    async fn sync_anki(&self, generation: u64, job: Job) -> Result<bool, String> {
+        let check = job.clone();
+        if !self
+            .work(move |h, p| h.scheduled_job_current(p, generation, &check))
+            .await?
+        {
+            return Ok(true);
+        }
+        let config = self.job_config().await?;
+        if !vocabulary_enabled(&config) {
+            return Err("Anki sync skipped because tokenization is disabled".into());
+        }
+        let cache = gsm_history::anki_sync::Cache {
+            history: self.history.clone(),
+            path: self.path.clone(),
+            generation,
+        };
+        self.anki.scheduled(&self.http, cache, &config).await?;
+        let _ = self
+            .runtime
+            .backend_command("anki_cache_updated", Value::Null)
+            .await;
+        self.work(move |h, p| h.finish_scheduled_job(p, generation, &job, None))
+            .await?;
+        Ok(true)
+    }
     async fn work<T: Send + 'static>(
         &self,
         f: impl FnOnce(&History, &std::path::Path) -> gsm_history::Result<T> + Send + 'static,
     ) -> Result<T, String> {
-        let db = self.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            f(&db.history, &db.path).map_err(|e| e.to_string())
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        let history = self.history.clone();
+        let path = self.path.clone();
+        tauri::async_runtime::spawn_blocking(move || f(&history, &path).map_err(|e| e.to_string()))
+            .await
+            .map_err(|e| e.to_string())?
     }
 
     async fn run_word_backfill(&self, generation: u64, job: Job) -> Result<(), String> {
@@ -248,6 +579,54 @@ impl Database {
         }
         Ok(())
     }
+
+    async fn maintenance(&self, generation: u64, job: Job) -> Result<bool, String> {
+        let check = job.clone();
+        if !self
+            .work(move |h, p| h.scheduled_job_current(p, generation, &check))
+            .await?
+        {
+            return Ok(true);
+        }
+        let profile = self.path.parent().ok_or("Missing database directory")?;
+        let reports = Arc::new(gsm_mining::gateway::Reports::new(
+            profile,
+            self.history.clone(),
+        ));
+        let index = self.index.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs_f64();
+            reports
+                .scheduled_maintenance(generation, now, |ids, generation| {
+                    tokio::runtime::Handle::current()
+                        .block_on(index.prepare_archive_lines(ids, generation))
+                })
+                .map_err(|e| e.to_string())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let Some(result) = result else {
+            return Ok(false);
+        };
+        if result["archived_lines"].as_u64().unwrap_or(0) > 0 {
+            let _ = self.runtime.backend_command("game_library_changed", Value::Null).await;
+            let _ = self.runtime.backend_command("reading_stats_changed", Value::Null).await;
+        }
+        if result["success"] != true {
+            return Err(format!("Database maintenance failed: {}", result["errors"]));
+        }
+        self.work(move |h, p| h.finish_scheduled_job(p, generation, &job, None))
+            .await?;
+        Ok(true)
+    }
+}
+
+fn vocabulary_enabled(config: &Value) -> bool {
+    let flags = &config["experimental"];
+    flags["enable_experimental_features"] == true && flags["enable_tokenization"] == true
 }
 
 impl Run {
@@ -257,6 +636,13 @@ impl Run {
             .driver
             .try_lock()
             .map_err(|_| "Cron request is already active")?;
+        // An attaching worker waits for any native job already running. A
+        // stale plan cannot start work after the new owner gets the clock.
+        let _drive = tokio::select! {
+            biased;
+            _ = changed.wait_for(|s| s.epoch != Some(epoch)) => return Err("Cron session was interrupted".into()),
+            guard = self.drive.lock() => guard,
+        };
         let mut ack = ack;
         loop {
             let control = *changed.borrow_and_update();
@@ -291,6 +677,15 @@ impl Run {
                     .pop_front()
                     .map(Job::forced)
             });
+            // Keep a manual HTTP request queued until its operation returns.
+            // Ownership changes can interrupt a network sync between pages.
+            // During an ownership change, keep queued jobs for the worker
+            // that handles them. Eligible jobs behind them can still run.
+            let manual = if job.is_none() {
+                self.manual_jobs.lock().unwrap().iter().copied().enumerate()
+                    .find(|(_,name)|self.priorities.contains_key(*name))
+            } else { None };
+            let job = job.or_else(||manual.map(|(_,name)| Job::forced(name.into())));
             if let Some(job) = job {
                 let id = job.id;
                 let result = if job.name == "tokenize_backfill" {
@@ -298,23 +693,63 @@ impl Run {
                         biased;
                         _ = changed.wait_for(|s| s.epoch != Some(epoch) || s.generation != generation) =>
                             return Err("Cron session was interrupted".into()),
-                        result = db.run_word_backfill(generation, job) => result,
+                        result = db.run_word_backfill(generation, job.clone()) => result.map(|()| true),
+                    }
+                } else if job.name == "tadoku_sync" {
+                    db.sync_tadoku(generation, job.clone()).await
+                } else if job.name == "kechimochi_sync" {
+                    db.sync_kechimochi(generation, job.clone()).await
+                } else if job.name == "daily_goals_completion" {
+                    db.complete_goals(generation,job.clone()).await
+                } else if matches!(job.name.as_str(), "jiten_sync" | "jiten_upgrader" | gsm_db::JITEN_GENRE_BACKFILL) {
+                    tokio::select! {
+                        biased;
+                        _ = changed.wait_for(|s| s.epoch != Some(epoch) || s.generation != generation) =>
+                            return Err("Cron session was interrupted".into()),
+                        result = db.sync_metadata(generation,job.clone()) => result,
+                    }
+                } else if job.name == "daily_stats_rollup" {
+                    db.rollup(generation, job.clone()).await
+                } else if job.name == "database_maintenance" {
+                    db.maintenance(generation,job.clone()).await
+                } else if job.name == "anki_card_sync" {
+                    tokio::select! {
+                        biased;
+                        _ = changed.wait_for(|s| s.epoch != Some(epoch) || s.generation != generation) =>
+                            return Err("Cron session was interrupted".into()),
+                        result = db.sync_anki(generation, job.clone()) => result,
                     }
                 } else if job.direct() {
-                    db.work(move |h, p| h.run_direct_job(p, generation, &job))
+                    let direct = job.clone();
+                    db.work(move |h, p| h.run_direct_job(p, generation, &direct))
                         .await
+                        .map(|()| true)
                 } else {
-                    driver.lease = Some((uuid::Uuid::new_v4().to_string(), job));
-                    continue;
+                    Ok(false)
                 };
-                if let Err(error) = result {
-                    eprintln!("GSM scheduled job failed: {error}");
-                    if let Some(id) = id {
-                        driver.retry_at.insert(id, Instant::now() + self.retry);
+                let retry = match result {
+                    Ok(true) => None,
+                    Ok(false) if self.session.is_some() => {
+                        if let Some((index,_)) = manual {
+                            self.manual_jobs.lock().unwrap().remove(index);
+                        }
+                        driver.lease = Some((uuid::Uuid::new_v4().to_string(), job));
+                        continue;
                     }
+                    Ok(false) => Some(self.refresh),
+                    Err(error) => {
+                        eprintln!("GSM scheduled job '{}' failed: {error}", job.name);
+                        Some(self.retry)
+                    }
+                };
+                if let Some((index,_)) = manual {
+                    self.manual_jobs.lock().unwrap().remove(index);
                 }
                 if id.is_some() {
                     driver.reload = None;
+                }
+                if let Some((id, delay)) = id.zip(retry) {
+                    driver.retry_at.insert(id, Instant::now() + delay);
                 }
                 continue;
             }
@@ -392,12 +827,11 @@ mod tests {
     use super::*;
     use rusqlite::Connection;
 
-    #[tokio::test]
-    async fn orders_jobs_replays_unacknowledged_leases_and_interrupts_idle_wait() {
-        let dir = tempfile::tempdir().unwrap();
+    fn fixture(dir: &tempfile::TempDir) -> Database {
         let history = Arc::new(History::default());
         let path = dir.path().join("gsm.db");
-        let db = Database {
+        Database {
+            app: None,
             index: crate::word_index::WordIndex::start(
                 path.clone(),
                 history.clone(),
@@ -408,7 +842,93 @@ mod tests {
             ),
             history,
             path,
+            default_config: dir.path().join("config.json"),
+            http: reqwest::Client::new(),
+            anki: Default::default(),
+            runtime: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn native_clock_retries_deferred_rollups_after_a_writer_replacement() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = fixture(&dir);
+        let conn = gsm_db::open_profile(&db.path, "ja").unwrap();
+        conn.execute_batch("INSERT INTO game_lines(id,game_name,line_text,timestamp) VALUES ('one','Game','猫犬',1600000000);
+            INSERT INTO cron_table(name,enabled,next_run,schedule) VALUES ('daily_stats_rollup',1,1,'once'),
+            ('populate_games',1,1,'once'),('jiten_sync',1,1,'once'),('jiten_upgrader',1,1,'once'),
+            ('tadoku_sync',1,1,'once'),('kechimochi_sync',1,1,'once'),('daily_goals_completion',1,1,'once'),('unknown_extension_job',1,1,'once');").unwrap();
+        std::fs::write(
+            &db.default_config,
+            r#"{"stats":{"extra_punctuation_regex":"(?<=猫+)犬"}}"#,
+        )
+        .unwrap();
+        let scheduler = Scheduler::default();
+        {
+            let mut owner = scheduler.0.lock().unwrap();
+            owner.ready = Some((db.clone(), 0));
+            owner.start_local();
+        }
+        let wait_for = |name: &'static str| {
+            let conn = &conn;
+            async move {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !conn
+                        .query_row(
+                            "SELECT last_run IS NOT NULL FROM cron_table WHERE name=?",
+                            [name],
+                            |r| r.get::<_, bool>(0),
+                        )
+                        .unwrap()
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .unwrap()
+            }
         };
+        wait_for("populate_games").await;
+        assert_eq!(
+            conn.query_row("SELECT count(*) FROM daily_stats_rollup", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        db.history.close().unwrap();
+        std::fs::write(&db.default_config, "{}").unwrap();
+        scheduler.refresh_generation().unwrap();
+        wait_for("daily_stats_rollup").await;
+        wait_for("jiten_sync").await;
+        wait_for("jiten_upgrader").await;
+        wait_for("tadoku_sync").await;
+        wait_for("kechimochi_sync").await;
+        wait_for("daily_goals_completion").await;
+        scheduler.drain().await;
+        assert_eq!(
+            conn.query_row(
+                "SELECT CAST(total_characters AS INTEGER) FROM daily_stats_rollup",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            2
+        );
+        assert!(conn
+            .query_row(
+                "SELECT last_run IS NULL FROM cron_table WHERE name='unknown_extension_job'",
+                [],
+                |r| r.get::<_, bool>(0)
+            )
+            .unwrap());
+        scheduler.connection(None);
+        assert!(scheduler.0.lock().unwrap().local.is_none());
+    }
+
+    #[tokio::test]
+    async fn orders_jobs_replays_unacknowledged_leases_and_interrupts_idle_wait() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = fixture(&dir);
         let conn = Connection::open(&db.path).unwrap();
         conn.execute_batch("CREATE TABLE cron_table (id INTEGER PRIMARY KEY,name TEXT,enabled TEXT,next_run TEXT,schedule TEXT,last_run TEXT);
             INSERT INTO cron_table VALUES (1,'low','1','1','once',null),(2,'high','1','2','once',null),(3,'unknown','1','0','once',null),
@@ -418,7 +938,9 @@ mod tests {
             ..Control::default()
         });
         let run = Arc::new(Run {
-            session: "test".into(),
+            session: Some("test".into()),
+            drive: Arc::default(),
+            manual_jobs: Arc::default(),
             priorities: HashMap::from([
                 ("low".into(), 100),
                 ("high".into(), 10),

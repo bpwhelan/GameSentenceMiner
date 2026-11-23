@@ -59,7 +59,7 @@ function setup(t) {
     getManualModeBackgroundMode: () => 'on_demand',
   });
   const names = [
-    'hasValidOverlayCapture', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
+    'hasValidOverlayCapture', 'hasFocusedManualActivation', 'canUseOverlayCapture', 'publishOverlayCaptureAvailability',
     'canTrackMagpiePointer', 'canRouteTextHover',
     'invalidateOverlayCapture', 'updateOverlayCaptureStatus', 'publishOverlaySocketState',
     'showOverlayUsingManualFlow', 'setGamepadNavigationModeActive',
