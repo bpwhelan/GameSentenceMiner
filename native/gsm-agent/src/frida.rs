@@ -20,15 +20,26 @@ extern "C" {
     fn frida_init();
     fn frida_version_string() -> *const c_char;
     fn frida_unref(p: Ptr);
+    // The Linux devkit header maps GLib calls to Frida's private GLib symbols.
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_main_context_iteration")]
     fn g_main_context_iteration(p: Ptr, may_block: c_int) -> c_int;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_object_unref")]
     fn g_object_unref(p: Ptr);
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_error_free")]
     fn g_error_free(p: *mut GError);
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_cancellable_new")]
     fn g_cancellable_new() -> Ptr;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_cancellable_cancel")]
     fn g_cancellable_cancel(p: Ptr);
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_cancellable_is_cancelled")]
     fn g_cancellable_is_cancelled(p: Ptr) -> c_int;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_bytes_new")]
     fn g_bytes_new(p: *const c_void, len: usize) -> Ptr;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_bytes_get_data")]
     fn g_bytes_get_data(p: Ptr, len: *mut usize) -> *const u8;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_bytes_unref")]
     fn g_bytes_unref(p: Ptr);
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_signal_connect_data")]
     fn g_signal_connect_data(
         instance: Ptr,
         name: *const c_char,
@@ -37,6 +48,7 @@ extern "C" {
         destroy: Option<unsafe extern "C" fn(Ptr, Ptr)>,
         flags: c_int,
     ) -> c_ulong;
+    #[cfg_attr(target_os = "linux", link_name = "_frida_g_signal_handler_disconnect")]
     fn g_signal_handler_disconnect(instance: Ptr, id: c_ulong);
     fn frida_device_manager_new() -> Ptr;
     fn frida_device_manager_close_sync(p: Ptr, cancel: Ptr, error: *mut *mut GError);
