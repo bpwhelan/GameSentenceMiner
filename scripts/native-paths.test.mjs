@@ -6,7 +6,8 @@ import test from 'node:test';
 import {localBuildProfile, nativeTargetDirectory} from './native-paths.mjs';
 
 async function fixture(t, configured = true) {
-  const projectRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'gsm cargo paths-'));
+  // Cargo uses the physical working directory, including when macOS TMPDIR is under /var.
+  const projectRoot = await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()), 'gsm cargo paths-'));
   t.after(() => fs.rm(projectRoot, {recursive: true, force: true}));
   await fs.mkdir(path.join(projectRoot, 'src-tauri/src'), {recursive: true});
   await fs.writeFile(path.join(projectRoot, 'src-tauri/src/main.rs'), 'fn main() {}');

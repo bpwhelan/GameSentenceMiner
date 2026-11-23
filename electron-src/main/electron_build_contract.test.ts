@@ -6,11 +6,11 @@ const config = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
 const bundle = JSON.parse(fs.readFileSync('src-tauri/tauri.bundle.conf.json', 'utf8'));
 
 describe('native desktop distribution contract', () => {
-    it('uses the native launcher for normal and watched development', () => {
+    it('uses the native launcher for local starts and Tauri for watched development', () => {
         expect(packageJson.scripts.start).toContain('scripts/start-tauri.mjs');
-        expect(packageJson.scripts.dev).toContain('dev:desktop');
-        expect(packageJson.scripts['dev:desktop']).toContain('scripts/build-native-dev.mjs');
-        expect(packageJson.scripts['dev:desktop']).not.toContain('electron');
+        expect(packageJson.scripts.dev).toBe('tauri dev --config src-tauri/tauri.dev.conf.json');
+        const devConfig = JSON.parse(fs.readFileSync('src-tauri/tauri.dev.conf.json', 'utf8'));
+        expect(devConfig.build.beforeDevCommand).toBe('npm run dev:prepare && npm run dev:renderer');
     });
 
     it('keeps Electron outside production dependencies and bundles one owned service tree', () => {

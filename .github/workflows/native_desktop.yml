@@ -99,6 +99,8 @@ jobs:
       GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
       CARGO_INCREMENTAL: '0'
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target/native-dev
+      # ort-sys 2.0.0-rc.12 locates the DLL destination using Cargo's old OUT_DIR layout.
+      __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: ${{ matrix.platform == 'win32-x64' && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -124,7 +126,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libgbm-dev libpipewire-0.3-dev libclang-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libnspr4 libnss3 libasound2-dev patchelf xvfb openbox libfuse2
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libgbm-dev libpipewire-0.3-dev libclang-dev libudev-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libnspr4 libnss3 libasound2-dev patchelf xvfb openbox libfuse2
       - name: Set the coordinated release version
         run: node scripts/set-native-ci-version.mjs
       - name: Install development dependencies
@@ -178,6 +180,7 @@ jobs:
           GSM_NATIVE_TEST_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/native-dev/debug/gsm-desktop
       - name: Build preview resources and check packaging contracts
         if: inputs.portable_preview
+        shell: bash
         run: |
           npm run build
           npm run build:input-server
@@ -188,6 +191,7 @@ jobs:
         run: |
           node scripts/write-prerelease-metadata.mjs --desktop-only --version "${{ needs.version.outputs.version }}" --branch "${{ github.ref_name }}" --commit "${{ github.sha }}"
       - name: Stage the complete native application
+        shell: bash
         run: |
           npm run build:windows-helpers
           npm run stage:native -- ${{ inputs.portable_preview && '--portable-preview' || '' }}
@@ -212,6 +216,7 @@ jobs:
         run: node scripts/test-native-package.mjs
       - name: Build and package the portable preview
         if: inputs.portable_preview
+        shell: bash
         run: |
           node scripts/build-native-desktop.mjs --portable-preview
           node scripts/package-native-preview.mjs
