@@ -86,6 +86,7 @@ export class Translator {
     async findTerms(mode, text, options) {
         safePerformance.mark('translator:findTerms:start');
         const {enabledDictionaryMap, excludeDictionaryDefinitions, sortFrequencyDictionary, sortFrequencyDictionaryOrder, language, primaryReading, useAllFrequencyDictionaries} = options;
+        const preferredHeadword = /** @type {typeof options & {preferredHeadword?: string}} */ (options).preferredHeadword;
         const tagAggregator = new TranslatorTagAggregator();
         let {dictionaryEntries, originalTextLength} = await this._findTermsInternal(text, options, tagAggregator, primaryReading);
 
@@ -124,7 +125,7 @@ export class Translator {
             this._updateSortFrequencies(dictionaryEntries, sortFrequencyDictionary, sortFrequencyDictionaryOrder === 'ascending');
         }
         if (dictionaryEntries.length > 1) {
-            this._sortTermDictionaryEntries(dictionaryEntries);
+            this._sortTermDictionaryEntries(dictionaryEntries, preferredHeadword);
         }
         for (const {definitions, frequencies, pronunciations} of dictionaryEntries) {
             this._flagRedundantDefinitionTags(definitions);
@@ -2174,14 +2175,30 @@ export class Translator {
     /**
      * @param {import('translation-internal').TermDictionaryEntry[]} dictionaryEntries
      */
-    _sortTermDictionaryEntries(dictionaryEntries) {
+    _sortTermDictionaryEntries(dictionaryEntries, preferredHeadword = '') {
         const stringComparer = this._stringComparer;
+        const preferredHeadwordNormalized = typeof preferredHeadword === 'string'
+            ? preferredHeadword.normalize('NFKC').trim()
+            : '';
         /**
          * @param {import('translation-internal').TermDictionaryEntry} v1
          * @param {import('translation-internal').TermDictionaryEntry} v2
          * @returns {number}
          */
         const compareFunction = (v1, v2) => {
+            // When GSM supplies a Jiten-resolved headword for this OCR token,
+            // prefer entries containing that exact headword. All remaining Yomitan
+            // ordering rules continue unchanged when neither/both entries match.
+            if (preferredHeadwordNormalized) {
+                const v1Preferred = Array.isArray(v1.headwords) && v1.headwords.some(({term}) =>
+                    typeof term === 'string' && term.normalize('NFKC') === preferredHeadwordNormalized,
+                );
+                const v2Preferred = Array.isArray(v2.headwords) && v2.headwords.some(({term}) =>
+                    typeof term === 'string' && term.normalize('NFKC') === preferredHeadwordNormalized,
+                );
+                if (v1Preferred !== v2Preferred) { return v1Preferred ? -1 : 1; }
+            }
+
             // Sort by reading match
             let i = (v2.matchPrimaryReading ? 1 : 0) - (v1.matchPrimaryReading ? 1 : 0);
             if (i !== 0) { return i; }

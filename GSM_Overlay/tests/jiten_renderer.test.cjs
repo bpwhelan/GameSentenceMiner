@@ -35,14 +35,15 @@ function loadHighlighter() {
   const elements = [];
   let observer;
   const events = [];
+  const word = { classList: [], cloneNode: () => ({ textContent: '猫', querySelectorAll: () => [] }) };
   const createElement = (tag) => {
     const element = {
       tag, style: {}, dataset: {}, children: [], isConnected: true, words: false, unparsedWords: false,
       appendChild(child) { this.children.push(child); },
       set innerHTML(_value) { this.children = []; this.words = false; this.unparsedWords = false; },
       querySelectorAll(selector) {
-        if (selector === '.jiten-word:not(.unparsed)') return this.words ? [{}] : [];
-        if (selector === '.jiten-word') return (this.words || this.unparsedWords) ? [{}] : [];
+        if (selector === '.jiten-word:not(.unparsed)') return this.words ? [word] : [];
+        if (selector === '.jiten-word') return (this.words || this.unparsedWords) ? [word] : [];
         if (selector === 'p[data-line-index]') return this.children;
         return [];
       },
@@ -63,6 +64,7 @@ function loadHighlighter() {
     Date: class extends Date { static now() { return now; } },
     setTimeout: (fn, delay) => { const id = ++nextId; timers.set(id, { fn, at: now + delay }); return id; },
     clearTimeout: id => timers.delete(id),
+    setInterval: () => ++nextId, clearInterval: () => {},
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../jiten_highlight.js'), 'utf8'), context);
   const tick = duration => {
@@ -82,6 +84,22 @@ function loadHighlighter() {
     completeUnparsed: () => { document.getElementById('jiten-parse-container').unparsedWords = true; observer(); tick(200); },
   };
 }
+
+test('local token alignment joins mimetic stems ending in small tsu with と', () => {
+  const { api } = loadHighlighter();
+  const merged = api.mergeMimeticToTokens([
+    { start: 0, end: 3, surface: 'ツンッ', token: { word: 'ツンッ', headword: '吊る' } },
+    { start: 3, end: 4, surface: 'と', token: { word: 'と', headword: 'と' } },
+  ]);
+  assert.equal(merged.length, 1);
+  assert.deepEqual({ start: merged[0].start, end: merged[0].end, surface: merged[0].surface },
+    { start: 0, end: 4, surface: 'ツンッと' });
+  assert.equal(merged[0].token.word, 'ツンッと');
+  assert.equal(api.mergeMimeticToTokens([
+    { start: 0, end: 2, surface: 'そして', token: {} },
+    { start: 2, end: 3, surface: 'と', token: {} },
+  ]).length, 2);
+});
 
 test('highlight coalescing emits the newest frame on the next task and keeps original line indices', () => {
   const { api, tick, parses, paragraphs } = loadHighlighter();
@@ -362,9 +380,10 @@ test('local highlighting remains available without the Reader or API key', () =>
   const end = html.indexOf('function jitenSettingTruthy', start);
   const calls = [];
   const context = vm.createContext({ localVocabularyEnabled: true, jitenHighlightAvailable: false,
-    jitenReaderEnabled: false, jitenHighlightingEnabled: true,
+    jitenReaderEnabled: false, jitenHighlightingEnabled: true, applyJitenHighlightingForLines() {},
+    lastJitenHighlightLines: [], lastJitenHighlightMeta: null, lastJitenHighlightLineBlocks: null,
     window: { GsmJitenHighlight: { setAvailable: value => calls.push(value) } } });
   vm.runInContext(`${html.slice(start, end)}\nglobalThis.applyAvailability = applyVerifiedJitenAvailability;`, context);
   context.applyAvailability(false, true);
-  assert.deepEqual(calls, [], 'Reader availability must not disable the independent local parser');
+  assert.deepEqual(calls, [true], 'Reader availability must not disable the independent local parser');
 });

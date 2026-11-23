@@ -573,6 +573,19 @@ export class Frontend {
         if (scanningOptions.autoHideResults) {
             void this._clearSelectionDelayed(scanningOptions.hideDelay, false, false);
         }
+        // GSM: source-text cursor exit fallback.
+        const gsmCursorExitOptions = this._options?.scanning;
+        if (
+            gsmCursorExitOptions &&
+            !gsmCursorExitOptions.autoHideResults &&
+            gsmCursorExitOptions.hidePopupOnCursorExit
+        ) {
+            void this._clearSelectionDelayed(
+                gsmCursorExitOptions.hidePopupOnCursorExitDelay,
+                false,
+                false,
+            );
+        }
     }
 
     /**

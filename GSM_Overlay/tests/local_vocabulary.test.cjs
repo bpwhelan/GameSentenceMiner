@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { LocalVocabulary, jitenWords, ankiWords, sourceId } = require('../local_vocabulary');
+const { LocalVocabulary, jitenWords, ankiWords, sourceId, yomitanParticlePrefixMatch,
+  yomitanMatchedPrefixCandidate, yomitanInflectedPrefixCandidate } = require('../local_vocabulary');
 
 test('Jiten exports retain real identities and map FSRS states, not enum ordinals', () => {
   const words = jitenWords({ totalCards: 4, cards: [
@@ -86,7 +87,7 @@ test('Anki sync batches selected cards and refuses a partial batch', async () =>
     } });
   const config = { source: 'anki', wordField: 'Word', ankiQuery: 'deck:Japanese' };
   await service.sync(config);
-  assert.deepEqual(actions.filter(a => a.action === 'cardsInfo').map(a => a.params.cards.length), [500, 1]);
+  assert.deepEqual(actions.filter(a => a.action === 'cardsInfo').map(a => a.params.cards.length), [100, 100, 100, 100, 100, 1]);
   assert.equal(requests.find(r => r.action === 'replace').words.length, 501);
   requests.length = 0; incomplete = true;
   await assert.rejects(service.sync(config), /incomplete card batch/);
@@ -117,4 +118,40 @@ test('disabling local mode cancels a download without reopening the database con
   finish(Response.json({ totalCards: 0, cards: [] }));
   await assert.rejects(syncing);
   assert.deepEqual(requests, []);
+});
+
+test('resolved popup flags keep their stored headword and match surface candidates', () => {
+  const service = new LocalVocabulary({ request: async () => {} });
+  service.popupGradingFlags = new Map([['ん', { spelling: 'ん', reading: '', flag: 'blacklist' }]]);
+  assert.equal(service.popupGradingFlag('んぅ', ['ん'])?.spelling, 'ん');
+  assert.equal(service.popupGradingFlag('んぅ', ['ん'])?.flag, 'blacklist');
+  assert.equal(service.popupGradingFlag('んぅ'), null);
+});
+
+test('Yomitan preferred Anki candidate wins, with ordered fallback', () => {
+  const service = new LocalVocabulary({ request: async () => {} });
+  service.ankiStateMap = new Map([['好き', [2]], ['好く', [3]]]);
+  assert.equal(service.firstAnkiResolutionMatch(['好き', '好く']), '好き');
+  service.ankiStateMap.delete('好き');
+  assert.equal(service.firstAnkiResolutionMatch(['好き', '好く']), '好く');
+});
+
+test('Yomitan resolved prefix candidates retain particle and small-kana matches', () => {
+  assert.equal(yomitanParticlePrefixMatch('んぅ', { term: 'ん' }, [{ originalText: 'ん' }]), true);
+  assert.equal(yomitanParticlePrefixMatch('好きな', { term: '好き' }, [{ originalText: '好き' }]), true);
+  assert.equal(yomitanParticlePrefixMatch('好きた', { term: '好き' }, [{ originalText: '好き' }]), false);
+});
+
+test('Yomitan preferred matched headwords remain candidates even without deconjugation', () => {
+  assert.equal(yomitanMatchedPrefixCandidate('好きな', { term: '好き' }, [{ originalText: '好きな' }]), true);
+  assert.equal(yomitanMatchedPrefixCandidate('好きな', { term: '好く' }, [{ originalText: '好きな' }]), false);
+  assert.equal(yomitanMatchedPrefixCandidate('好きな', { term: '好き' }, [{ originalText: '好き' }]), false);
+});
+
+test('Yomitan inflected compound prefixes remain candidates when its chain confirms them', () => {
+  const entry = { inflectionRuleChainCandidates: [{ inflectionRules: [] }] };
+  assert.equal(yomitanInflectedPrefixCandidate('移動させていく', { term: '移動' },
+    [{ originalText: '移動' }], entry), true);
+  assert.equal(yomitanInflectedPrefixCandidate('移動させていく', { term: '移' },
+    [{ originalText: '移' }], { inflectionRuleChainCandidates: [] }), false);
 });
