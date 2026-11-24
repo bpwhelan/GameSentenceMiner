@@ -1,4 +1,5 @@
 name: Build native desktop previews
+run-name: Build native desktop previews
 
 on:
   workflow_dispatch:

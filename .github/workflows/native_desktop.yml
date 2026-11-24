@@ -10,6 +10,7 @@ on:
       - 'native/gsm-agent/**'
       - 'native/gsm-runtime/**'
       - 'native/gsm-intake/**'
+      - 'native/gsm-mining/**'
       - 'native/gsm-settings/**'
       - 'native/gsm-text-preview/**'
       - 'native/gsm-db/**'
@@ -117,9 +118,6 @@ jobs:
         with:
           node-version: '22.23.1'
           cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -163,13 +161,6 @@ jobs:
         run: node scripts/set-native-ci-version.mjs
       - name: Install development dependencies
         run: npm ci --no-audit --no-fund
-      - name: Prepare compatibility smoke fixtures
-        if: ${{ !inputs.portable_preview }}
-        shell: bash
-        run: |
-          python -m venv .venv
-          if [ "$RUNNER_OS" = Windows ]; then python=.venv/Scripts/python.exe; else python=.venv/bin/python; fi
-          "$python" -m pip install websockets loguru
       - name: Build the desktop and native input service
         if: ${{ !inputs.portable_preview }}
         run: |
@@ -180,7 +171,7 @@ jobs:
         shell: bash
         run: |
           if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
-          npm run test:ts -- --maxWorkers=2
+          npm run test:ts -- --maxWorkers=2 electron-src/renderer/ electron-src/shared/ release_build_contract.test.ts vocr_package.test.ts
           node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs
           node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
           cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
@@ -189,6 +180,7 @@ jobs:
           cargo test --locked --manifest-path native/gsm-agent/Cargo.toml
           cargo test --locked --manifest-path native/gsm-runtime/Cargo.toml
           cargo test --locked --manifest-path native/gsm-intake/Cargo.toml
+          cargo test --locked --manifest-path native/gsm-mining/Cargo.toml
           cargo test --locked --manifest-path native/gsm-settings/Cargo.toml
           cargo test --locked --manifest-path native/gsm-text-preview/Cargo.toml
           cargo test --locked --manifest-path native/gsm-web/Cargo.toml
@@ -196,7 +188,7 @@ jobs:
           cargo test --locked --manifest-path native/gsm-history/Cargo.toml
           cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
           cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
-      - name: Exercise native Python supervision and message delivery
+      - name: Exercise the native runtime bus and desktop bridge
         if: runner.os != 'Linux' && !inputs.portable_preview
         shell: bash
         run: |

@@ -1089,6 +1089,15 @@ mod tests {
         let tag = response.headers()[header::ETAG].clone();
         assert!(response.collect().await.unwrap().to_bytes().is_empty());
         let request = Request::get("/static/js/shared.js")
+            .header(header::IF_NONE_MATCH, &tag)
+            .body(body())
+            .unwrap();
+        let identity = client.send_request(request).await.unwrap();
+        assert_eq!(identity.status(), 200);
+        assert_ne!(identity.headers()[header::ETAG], tag);
+        identity.collect().await.unwrap();
+        let request = Request::get("/static/js/shared.js")
+            .header(header::ACCEPT_ENCODING, "gzip")
             .header(header::IF_NONE_MATCH, tag)
             .body(body())
             .unwrap();

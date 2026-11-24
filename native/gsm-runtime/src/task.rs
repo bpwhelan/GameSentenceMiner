@@ -53,7 +53,10 @@ pub fn run_with_progress(
             let mut output = Vec::new();
             let mut chunk = [0; 8192];
             loop {
-                let count = pipe.read(&mut chunk).map_err(|e| e.to_string())?;
+                let count = match pipe.read(&mut chunk) {
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    result => result.map_err(|error| error.to_string())?,
+                };
                 if count == 0 {
                     return Ok(output);
                 }
@@ -100,20 +103,22 @@ pub fn run_with_progress(
     // Reap descendants before joining readers; inherited pipe handles must not
     // keep a completed or timed-out task waiting indefinitely.
     child.terminate()?;
-    let written = writer.join().map_err(|_| "Task input worker stopped")?;
-    let stdout = stdout.join().map_err(|_| "Task output worker stopped")??;
-    let stderr = stderr.join().map_err(|_| "Task error worker stopped")??;
+    let written = writer.join();
+    let stdout = stdout.join();
+    let stderr = stderr.join();
+    // Closing a pipe during termination can also fail a reader. Report the
+    // reason the task was stopped after all three workers have finished.
     let status = status?;
     if overflow.load(Ordering::Acquire) {
         return Err("Native task output exceeds the size limit".into());
     }
     if status.success() {
-        written?;
+        written.map_err(|_| "Task input worker stopped")??;
     }
     Ok(Output {
         code: status.code(),
-        stdout,
-        stderr,
+        stdout: stdout.map_err(|_| "Task output worker stopped")??,
+        stderr: stderr.map_err(|_| "Task error worker stopped")??,
     })
 }
 
@@ -165,9 +170,7 @@ mod tests {
             .err()
             .unwrap()
             .contains("timed out"));
-        assert!(run_fixture("overflow", Duration::from_secs(5), 4096)
-            .err()
-            .unwrap()
-            .contains("size limit"));
+        let error = run_fixture("overflow", Duration::from_secs(5), 4096).err().unwrap();
+        assert!(error.contains("size limit"), "{error}");
     }
 }
