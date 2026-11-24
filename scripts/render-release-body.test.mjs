@@ -56,3 +56,11 @@ test("renderStableReleaseBody appends bundled changelog with release image URLs"
     /https:\/\/github\.com\/bpwhelan\/GameSentenceMiner\/releases\/download\/v2026\.6\.15\/changelog-assets-2026\.6\.15-2026\.6\.15-gsm-ready\.png/
   );
 });
+
+test("published preview notes explain the first install and link to the matching installer", () => {
+  const version = "2026.11.1-preview.2";
+  const notes = renderPrereleaseBody({ version });
+  assert.match(notes, /receive future previews through GSM’s beta update setting/);
+  assert.match(notes, /portable preview ZIPs require this manual step/);
+  assert.ok(notes.includes(`/releases/download/v${version}/GameSentenceMiner-Setup-${version}.exe`));
+});

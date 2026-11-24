@@ -311,6 +311,9 @@ impl UpdateManager {
                         format!("Failed to check for application updates: {error}"),
                     );
                     guard.app_status.checked_at = Some(iso_now_utc());
+                    guard.app_status.latest_version = None;
+                    guard.app_status.update_available = false;
+                    guard.pending_update = None;
                     guard.app_status.error = Some(error);
                 }
             }
@@ -455,6 +458,9 @@ impl UpdateManager {
             }
 
             update.install(bytes).map_err(|e| e.to_string())?;
+            // NSIS relaunches GSM itself. Unix installers replace the app on disk.
+            #[cfg(not(windows))]
+            app.request_restart();
             Ok(())
         }
         .await;
@@ -1086,12 +1092,13 @@ fn select_best_beta_manifest_url(releases: &[GitHubRelease]) -> Option<String> {
         .filter_map(|rel| {
             let tag = rel.tag_name.as_deref()?;
             let ver = semver::Version::parse(&normalize_version_str(tag)).ok()?;
+            let expected_url = format!("{ALLOWED_RELEASE_DOWNLOAD_PREFIX}{tag}/tauri-latest.json");
             let manifest_url = rel
                 .assets
                 .iter()
                 .find(|asset| asset.name.as_deref() == Some("tauri-latest.json"))
                 .and_then(|asset| asset.browser_download_url.as_deref())
-                .filter(|url| url.starts_with(ALLOWED_RELEASE_DOWNLOAD_PREFIX))?
+                .filter(|url| *url == expected_url)?
                 .to_owned();
             Some((ver, manifest_url))
         })
@@ -1144,6 +1151,30 @@ mod tests {
         assert!(!evaluate_app_update_offer("2026.12.0", "2026.11.0-beta.2", true, false));
         // Upgrading from prerelease 1 -> 2 on beta channel
         assert!(evaluate_app_update_offer("2026.11.0-beta.1", "2026.11.0-beta.2", true, false));
+    }
+
+    #[test]
+    fn beta_clients_pick_the_newest_published_preview_with_its_own_manifest() {
+        let release = |tag: &str, asset_tag: &str| GitHubRelease {
+            tag_name: Some(tag.into()),
+            draft: Some(false),
+            assets: vec![GitHubReleaseAsset {
+                name: Some("tauri-latest.json".into()),
+                browser_download_url: Some(format!("{ALLOWED_RELEASE_DOWNLOAD_PREFIX}{asset_tag}/tauri-latest.json")),
+            }],
+        };
+        let latest = "v2026.11.1-preview.10";
+        let releases = [
+            release("v2026.11.2-preview.1", "v2026.11.0"),
+            release("v2026.11.1-preview.9", "v2026.11.1-preview.9"),
+            release(latest, latest),
+            release("v2026.11.0", "v2026.11.0"),
+        ];
+        assert_eq!(select_best_beta_manifest_url(&releases), Some(format!(
+            "{ALLOWED_RELEASE_DOWNLOAD_PREFIX}{latest}/tauri-latest.json"
+        )));
+        assert!(evaluate_app_update_offer("2026.11.1-preview.9", latest, true, false));
+        assert!(!evaluate_app_update_offer(latest, latest, true, false));
     }
 
     #[test]

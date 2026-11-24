@@ -139,8 +139,10 @@ fixtures are excluded as well, along with the hardcoded overlay window diagnosti
 Staging writes `build/native-desktop/size-report.json` with totals and the largest
 files. `scripts/native-package-policy.mjs` governs resource filtering and audits
 the staged tree. Current limits are 6 MiB for renderer resources, 300 MiB for
-Windows resources, 50 MiB for the Windows desktop executable, and 160 MiB for
-the Windows installer. A failed check
+Windows resources, 50 MiB for the stable Windows desktop executable, and 160 MiB for
+the Windows installer. Published Tauri previews allow 88 MiB for the executable.
+The November preview binary measured 73 MiB, including 49 MiB of native code.
+A failed check
 stops the build. Change a limit only after reviewing the added payload.
 
 ```powershell

@@ -143,6 +143,20 @@ export function renderPrereleaseBody({ repo = DEFAULT_REPO, version }) {
 
   ensureVersion(version);
 
+  if (version.includes("-preview.")) {
+    return [
+      "## Tauri desktop preview",
+      "",
+      "Install this preview once to receive future previews through GSM’s beta update setting. Existing portable preview ZIPs require this manual step.",
+      "The Windows installer replaces a registered Electron installation and keeps your GSM profile. On Linux, use the AppImage or DEB. macOS requires version 14 or newer.",
+      "",
+      `[Latest stable release](https://github.com/${repo}/releases/latest)`,
+      "",
+      ...renderDownloadTable({ repo, version }),
+      ...renderBundledChangelogSection(repo, version),
+    ].join("\n");
+  }
+
   return [
     "> **Development prerelease**",
     "> This is not the latest stable release and should only be downloaded if you know what you are doing.",

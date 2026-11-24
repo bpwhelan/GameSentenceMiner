@@ -29,6 +29,14 @@ const cargo = fs.readFileSync(cargoPath, 'utf8');
 const nativeVersion = cargo.replace(/(\[package\][\s\S]*?\nversion\s*=\s*)"[^"]*"/, `$1"${appVersion}"`);
 if (cargo !== nativeVersion) fs.writeFileSync(cargoPath, nativeVersion);
 
+// The desktop CI build uses cargo --locked, including for generated preview versions.
+const cargoLockPath = path.join(repoRoot, 'src-tauri', 'Cargo.lock');
+const cargoLock = fs.readFileSync(cargoLockPath, 'utf8');
+const desktopLockVersion = /(\[\[package\]\]\r?\nname = "gsm-desktop"\r?\nversion = )"[^"]+"/;
+if (!desktopLockVersion.test(cargoLock)) throw Error('Missing gsm-desktop package in Cargo.lock');
+const updatedLock = cargoLock.replace(desktopLockVersion, `$1"${appVersion}"`);
+if (updatedLock !== cargoLock) fs.writeFileSync(cargoLockPath, updatedLock);
+
 const pyproject = fs.readFileSync(pyprojectPath, "utf8");
 
 // Replace the version assignment inside the [project] table only.

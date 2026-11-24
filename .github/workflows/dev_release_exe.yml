@@ -1,15 +1,19 @@
-name: Build portable Tauri preview ZIPs
+name: Publish Tauri desktop preview
 
 on:
   workflow_dispatch:
+    inputs:
+      portable_only:
+        description: Build portable test ZIPs as workflow artifacts only
+        type: boolean
+        default: false
 
 concurrency:
-  group: native-preview-${{ github.ref }}
+  # Preview version numbers come from repository-wide tags, across branches.
+  group: native-preview
   cancel-in-progress: false
 
 permissions:
-  # GitHub validates the called workflow's publish job permission even for an
-  # artifact-only run. The build job declares contents: read.
   contents: write
   actions: read
   id-token: write
@@ -18,6 +22,7 @@ jobs:
   preview:
     uses: ./.github/workflows/native_desktop.yml
     with:
-      portable_preview: true
+      portable_preview: ${{ inputs.portable_only }}
       prerelease: true
-      publish: false
+      publish: ${{ !inputs.portable_only }}
+    secrets: inherit

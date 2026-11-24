@@ -12,6 +12,8 @@ if (portablePreview && (signed || args.includes('--debug'))) {
   throw Error('Build the portable preview as an unsigned release-profile application.');
 }
 const environment=signed?await signingEnvironment():{...process.env};
+const desktopConfig = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json')));
+const publishedPreview = desktopConfig.version.includes('-preview.');
 const stagedApp = path.join(root, 'build/native-desktop/app');
 await auditNativePackage(stagedApp);
 if (portablePreview) await fs.access(path.join(stagedApp, 'native/agent-runtime.zip'));
@@ -25,6 +27,10 @@ if (portablePreview) {
   config.mainBinaryName = 'gsm-desktop';
   config.identifier = 'com.beangate.gamesentenceminer.preview';
   if (process.platform === 'darwin') config.bundle.macOS = {signingIdentity: '-'};
+}
+if (signed && process.platform === 'darwin' && publishedPreview
+    && !environment.APPLE_SIGNING_IDENTITY && !environment.APPLE_CERTIFICATE) {
+  config.bundle.macOS = {signingIdentity: '-'};
 }
 const macOrt = process.platform === 'darwin' && process.arch === 'x64' && environment.GSM_MACOS_ORT_DIR;
 if (macOrt) {
@@ -53,10 +59,12 @@ await new Promise((resolve,reject)=>{
 if(process.platform==='win32'&&!args.includes('--debug')&&!portablePreview) {
   const target=await nativeTargetDirectory({env:environment});
   const executable=path.join(target,'release/gsm-desktop.exe');
-  if((await fs.stat(executable)).size>50*1024**2)throw Error('Desktop executable exceeds the 50 MiB budget; check for duplicated embedded resources.');
+  const executableLimitMiB = publishedPreview ? 88 : 50;
+  if ((await fs.stat(executable)).size > executableLimitMiB * 1024 ** 2) {
+    throw Error(`Desktop executable exceeds the ${executableLimitMiB} MiB budget. Check for duplicated embedded resources.`);
+  }
   if(!args.includes('--no-bundle')) {
-    const config=JSON.parse(await fs.readFile(path.join(root,'src-tauri/tauri.conf.json')));
-    const installer=path.join(target,'release/bundle/nsis',`${config.productName}_${config.version}_${process.arch}-setup.exe`);
+    const installer=path.join(target,'release/bundle/nsis',`${desktopConfig.productName}_${desktopConfig.version}_${process.arch}-setup.exe`);
     if(!signed)await fs.rm(installer+'.sig',{force:true}); // Never reuse a signature from an earlier build.
     const bytes=(await fs.stat(installer)).size;
     if(bytes>160*1024**2)throw Error('Windows installer exceeds the 160 MiB budget; inspect the package size report.');

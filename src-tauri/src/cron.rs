@@ -858,11 +858,8 @@ mod tests {
             INSERT INTO cron_table(name,enabled,next_run,schedule) VALUES ('daily_stats_rollup',1,1,'once'),
             ('populate_games',1,1,'once'),('jiten_sync',1,1,'once'),('jiten_upgrader',1,1,'once'),
             ('tadoku_sync',1,1,'once'),('kechimochi_sync',1,1,'once'),('daily_goals_completion',1,1,'once'),('unknown_extension_job',1,1,'once');").unwrap();
-        std::fs::write(
-            &db.default_config,
-            r#"{"stats":{"extra_punctuation_regex":"(?<=猫+)犬"}}"#,
-        )
-        .unwrap();
+        // Rollup requires a readable settings object. Repair it after replacing the writer.
+        std::fs::write(&db.default_config, "[]").unwrap();
         let scheduler = Scheduler::default();
         {
             let mut owner = scheduler.0.lock().unwrap();

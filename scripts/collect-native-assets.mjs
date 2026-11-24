@@ -24,7 +24,8 @@ if(oldManifest&&oldManifest.version!==version)throw Error('The native release ou
 const files=await fs.readdir(bundle,{recursive:true});
 const platforms={};
 for(const relative of files) {
-  if(!/\.(exe|AppImage|deb|dmg|app\.tar\.gz)$/.test(relative))continue;
+  // Bundlers also leave staging trees here, including helper executables inside .app/.
+  if(!/^(?:nsis\/[^/]+-setup\.exe|appimage\/[^/]+\.AppImage|deb\/[^/]+\.deb|dmg\/[^/]+\.dmg|macos\/[^/]+\.app\.tar\.gz)$/.test(relative.split(path.sep).join('/')))continue;
   const source=path.join(bundle,relative),extension=path.basename(relative);
   let name=extension;
   if(extension.endsWith('.exe'))name=`GameSentenceMiner-Setup-${version}.exe`;
@@ -32,9 +33,13 @@ for(const relative of files) {
   else if(extension.endsWith('.dmg'))name=`GameSentenceMiner-${version}-${process.arch}.dmg`;
   else if(extension.endsWith('.app.tar.gz'))name=`GameSentenceMiner-${version}-${process.arch}.app.tar.gz`;
   await fs.copyFile(source,path.join(output,name));
-  if(/\.(exe|AppImage|app\.tar\.gz)$/.test(relative)) {
+  if(/\.(exe|AppImage|deb|app\.tar\.gz)$/.test(relative)) {
     let signature;try{signature=(await fs.readFile(source+'.sig','utf8')).trim();await fs.copyFile(source+'.sig',path.join(output,name+'.sig'));}catch(error){if(error.code!=='ENOENT')throw error;await fs.rm(path.join(output,name+'.sig'),{force:true});}
-    platforms[`${process.platform==='win32'?'windows':process.platform}-${process.arch==='x64'?'x86_64':process.arch==='arm64'?'aarch64':process.arch}`]={signature:signature||'',url:`https://github.com/bpwhelan/GameSentenceMiner/releases/download/v${version}/${encodeURIComponent(name)}`};
+    const os = process.platform === 'win32' ? 'windows' : process.platform;
+    const arch = process.arch === 'x64' ? 'x86_64' : process.arch === 'arm64' ? 'aarch64' : process.arch;
+    const target = `${os}-${arch}${extension.endsWith('.deb') ? '-deb' : ''}`;
+    if (platforms[target]) throw Error(`Duplicate updater artifact for ${target}`);
+    platforms[target]={signature:signature||'',url:`https://github.com/bpwhelan/GameSentenceMiner/releases/download/v${version}/${encodeURIComponent(name)}`};
   }
 }
 if(process.platform==='win32') {
@@ -50,7 +55,7 @@ if(process.platform==='win32') {
   await fs.cp(path.join(root,'build/native-desktop/app'),path.join(portable,'app'),{recursive:true});
   const filename=path.join(output,`GameSentenceMiner-${version}-win-unpacked.zip`);
   await packagePortable(portable,filename);
-} else if(process.platform==='darwin') {
+} else if(process.platform==='darwin' && !version.includes('-preview.')) {
   const app=(await fs.readdir(path.join(bundle,'macos'))).find(name=>name.endsWith('.app'));
   if(!app)throw Error('The macOS app bundle is missing');
   await new Promise((resolve,reject)=>{

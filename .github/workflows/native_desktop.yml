@@ -58,6 +58,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.23.1'
+      - name: Check updater signing is configured before starting the matrix
+        if: inputs.publish
+        env:
+          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_SIGNING_KEY" != true ]; then
+            echo "::error::Set TAURI_SIGNING_PRIVATE_KEY to the key matching src-tauri/tauri.conf.json."
+            exit 1
+          fi
       - id: version
         env:
           PRERELEASE: ${{ inputs.prerelease }}
@@ -68,7 +77,9 @@ jobs:
             echo "Portable preview ZIPs are distributed through CI artifacts."
             exit 1
           fi
-          if [ "$PRERELEASE" = true ]; then
+          if [ "$PRERELEASE" = true ] && [ "$PUBLISH" = true ]; then
+            version=$(node scripts/compute-version.cjs --pre-release --preid preview)
+          elif [ "$PRERELEASE" = true ]; then
             version=$(node scripts/compute-version.cjs --pre-release --preid beta)
           else
             version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
@@ -218,18 +229,18 @@ jobs:
       - name: Record prerelease metadata
         if: inputs.prerelease
         run: |
-          node scripts/write-prerelease-metadata.mjs --desktop-only --version "${{ needs.version.outputs.version }}" --branch "${{ github.ref_name }}" --commit "${{ github.sha }}"
+          node scripts/write-prerelease-metadata.mjs --desktop-only --version "${{ needs.version.outputs.version }}"
       - name: Stage the complete native application
         shell: bash
         run: |
           npm run build:windows-helpers
           npm run stage:native -- ${{ inputs.portable_preview && '--portable-preview' || '' }}
           node scripts/verify-native-package.mjs
-      - name: Build unsigned preview bundles
-        if: ${{ !inputs.portable_preview && (!inputs.publish || runner.os == 'Windows') }}
+      - name: Build bundles for testing or Windows release code signing
+        if: ${{ !inputs.portable_preview && (!inputs.publish || (runner.os == 'Windows' && !inputs.prerelease)) }}
         run: node scripts/build-native-desktop.mjs
       - name: Build signed update bundles
-        if: inputs.publish && runner.os != 'Windows'
+        if: inputs.publish && (runner.os != 'Windows' || inputs.prerelease)
         run: node scripts/build-native-desktop.mjs --signed
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -267,14 +278,14 @@ jobs:
         run: node scripts/collect-native-assets.mjs
       - name: Upload Windows installer for code signing
         id: windows-installer
-        if: inputs.publish && runner.os == 'Windows'
+        if: inputs.publish && !inputs.prerelease && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: native-unsigned-installer
           path: dist/native-release/win32-x64/*Setup*.exe
           if-no-files-found: error
       - name: Sign the Windows installer
-        if: inputs.publish && runner.os == 'Windows'
+        if: inputs.publish && !inputs.prerelease && runner.os == 'Windows'
         uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
         with:
           api-token: ${{ secrets.SIGNPATH_APITOKEN }}
@@ -286,14 +297,14 @@ jobs:
           output-artifact-directory: dist/native-release/win32-x64
       - name: Upload Windows portable files for code signing
         id: windows-portable
-        if: inputs.publish && runner.os == 'Windows'
+        if: inputs.publish && !inputs.prerelease && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: native-unsigned-portable
           path: build/native-desktop/portable
           if-no-files-found: error
       - name: Sign the Windows portable application
-        if: inputs.publish && runner.os == 'Windows'
+        if: inputs.publish && !inputs.prerelease && runner.os == 'Windows'
         uses: signpath/github-action-submit-signing-request@b9d91eadd323de506c0c81cf0c7fe7438f3360fd
         with:
           api-token: ${{ secrets.SIGNPATH_APITOKEN }}
@@ -305,7 +316,7 @@ jobs:
           wait-for-completion: true
           output-artifact-directory: dist/native-signed-portable
       - name: Package signed portable files and sign the final updater bytes
-        if: inputs.publish && runner.os == 'Windows'
+        if: inputs.publish && !inputs.prerelease && runner.os == 'Windows'
         run: |
           node scripts/package-native-portable.mjs dist/native-signed-portable "dist/native-release/win32-x64/GameSentenceMiner-${{ needs.version.outputs.version }}-win-unpacked.zip"
           node scripts/sign-native-assets.mjs dist/native-release/win32-x64
@@ -356,7 +367,7 @@ jobs:
           mode=stable
           if [ "$PRERELEASE" = true ]; then mode=prerelease; fi
           node scripts/render-release-body.mjs --mode "$mode" --version "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" > dist/native-release/release-notes.md
-          node scripts/export-changelog-release-asset.mjs --version "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --out dist/native-release/gsm-changelog.json
+          node scripts/export-changelog-release-asset.mjs --version "$RELEASE_VERSION" --repo "$GITHUB_REPOSITORY" --out "dist/native-release/changelog-v${RELEASE_VERSION}.json"
       - name: Publish only after every platform succeeds
         run: node scripts/publish-native-assets.mjs
         env:

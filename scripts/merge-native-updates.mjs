@@ -9,8 +9,8 @@ const manifests=await Promise.all(entries.filter(name=>path.basename(name)==='ta
 if(!manifests.length)throw Error('No native update manifests were found');
 const version=manifests[0].version,platforms={};
 for(const manifest of manifests){if(manifest.version!==version)throw Error('Native release versions do not match');for(const [name,platform] of Object.entries(manifest.platforms)){if(platforms[name])throw Error(`Duplicate native release platform: ${name}`);platforms[name]=platform;}}
-for(const [name,platform] of Object.entries(platforms))if(!platform.signature||!platform.url.startsWith('https://github.com/bpwhelan/GameSentenceMiner/releases/download/'))throw Error(`Missing signature or invalid update URL for ${name}`);
-for(const platform of ['windows-x86_64','linux-x86_64','darwin-aarch64','darwin-x86_64'])if(!platforms[platform])throw Error(`Missing native release platform: ${platform}`);
+for(const [name,platform] of Object.entries(platforms))if(!platform.signature||!platform.url.startsWith(`https://github.com/bpwhelan/GameSentenceMiner/releases/download/v${version}/`))throw Error(`Missing signature or invalid update URL for ${name}`);
+for(const platform of ['windows-x86_64','linux-x86_64','linux-x86_64-deb','darwin-aarch64','darwin-x86_64'])if(!platforms[platform])throw Error(`Missing native release platform: ${platform}`);
 // Every installer must have its pinned first-use runtime in the same release.
 for(const platform of ['win32-x64','linux-x64','darwin-arm64','darwin-x64']) {
   const records=entries.filter(entry=>path.basename(entry)===`agent-runtime-${platform}.json`);
@@ -30,6 +30,11 @@ for(const [name,platform] of Object.entries(platforms)) {
   await verifyNativeFile(path.join(directory,candidates[0]),platform.signature,config.plugins.updater.pubkey,version);
 }
 await fs.writeFile(path.join(directory,'tauri-latest.json'),JSON.stringify({version,notes:'See the in-app changelog for this release.',pub_date:new Date().toISOString(),platforms},null,2));
+console.log('Validated update manifest for Windows, Linux, Apple silicon and Intel macOS.');
+if (version.includes('-preview.')) {
+  console.log('Publishing this preview to Tauri clients only.');
+  process.exit(0);
+}
 // Electron's installed updater can deliver the first native release. JSON is
 // valid YAML and avoids introducing a second metadata serialization library.
 const releaseDate=new Date().toISOString();
@@ -48,4 +53,3 @@ for(const [suffix,filter] of [
   const channels=version.includes('-')?['latest',version.split('-')[1].split('.')[0]]:['latest'];
   for(const channel of channels)await fs.writeFile(path.join(directory,`${channel}${suffix}.yml`),JSON.stringify(metadata,null,2));
 }
-console.log('Validated update manifest for Windows, Linux, Apple silicon and Intel macOS.');

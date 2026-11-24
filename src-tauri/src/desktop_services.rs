@@ -914,7 +914,8 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
         .unwrap_or_default();
     let paths = paths_for(app);
 
-    if let Some(requested_pre) = payload.get("pullPreReleases").and_then(Value::as_bool) {
+    let native_session = crate::app_lifecycle::native_session_requested();
+    if let Some(requested_pre) = payload.get("pullPreReleases").and_then(Value::as_bool).filter(|_| !native_session) {
         let paths_read = paths.clone();
         let current_pre = tokio::task::spawn_blocking(move || -> Result<bool, String> {
             Ok(Preferences::new(&paths_read.active)
@@ -1078,6 +1079,8 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
         }
 
         let seasonal_updated = patch.contains_key("seasonalEffectsDisabled");
+        let update_channel_changed = patch.get("pullPreReleases").and_then(Value::as_bool)
+            .is_some_and(|requested| requested != current_doc["pullPreReleases"].as_bool().unwrap_or(false));
         if !patch.is_empty() {
             prefs.patch(&Value::Object(patch))?;
         }
@@ -1093,6 +1096,7 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
             next_theme,
             next_visible_tabs,
             seasonal_updated,
+            update_channel_changed,
             icon_style_changed,
             did_sync_locale,
         })
@@ -1100,6 +1104,13 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
     .await
     .map_err(|e| e.to_string())??;
 
+    if native_session && outcome.update_channel_changed {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            handle.state::<crate::update_manager::UpdateManager>()
+                .check_app_update_status(&handle, false).await;
+        });
+    }
     if let Some(tabs) = outcome.next_visible_tabs {
         crate::desktop_state::emit_to_desktop_windows(
             app,
@@ -1137,6 +1148,7 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
 
 struct SaveOutcome {
     snapshot: Value,
+    update_channel_changed: bool,
     next_theme: Option<String>,
     next_visible_tabs: Option<Vec<Value>>,
     seasonal_updated: bool,

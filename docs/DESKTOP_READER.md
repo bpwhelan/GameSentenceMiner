@@ -90,19 +90,34 @@ profiles can take time on the first lookup; progress is recorded in GSM's logs.
 `native_desktop.yml` builds and tests all four targets before publication.
 Stable and prerelease workflows call that same pipeline. Windows produces NSIS
 and portable ZIPs, Linux AppImage and DEB, and macOS DMG and app archives.
-Metadata includes the legacy updater format for the initial transition from
-Electron and signed Tauri metadata for subsequent updates.
+Run **Publish Tauri desktop preview** from GitHub Actions on the branch to test.
+It publishes a GitHub prerelease tagged `vX.Y.Z-preview.N` after validating the
+signed installers. Choose **portable_only** for standalone test ZIPs instead.
+Existing portable previews have their updater disabled and need a one-time
+manual install from the release page to join the update channel.
 
-Release builds require `TAURI_SIGNING_PRIVATE_KEY` and its password in CI,
-matching `plugins.updater.pubkey` in the Tauri configuration. Windows installer
-code signing precedes updater signing; metadata verification checks the final
-bytes, public key and trusted version. Apple signing/notarization credentials
+Installed Tauri previews enable beta updates on first use. In GSM Settings,
+enabling beta updates checks for the newest published version with a Tauri
+manifest. Startup checks also follow the automatic-update preference.
+The custom `preview` tag and Tauri-only manifest keep the current Electron beta
+feed available to Electron clients.
+
+Release builds require `TAURI_SIGNING_PRIVATE_KEY` in CI, matching
+`plugins.updater.pubkey` in the Tauri configuration. Set
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` for a password-protected key. Every preview
+update carries a Tauri signature. Stable Windows releases also go through SignPath
+before updater signing. CI verifies the final bytes, public key and signed version.
+Apple signing/notarization credentials
 are separate. Local signing files are private and are not committed.
 
-The NSIS hook removes the previous Electron program through its uninstaller,
-preserving GSM data. Updater metadata is published only when every platform
-artifact passes verification. The workflows are prepared locally; running the
-macOS matrix and configuring release secrets remain release gates.
+The stable release tooling also generates Electron updater metadata. The
+Windows NSIS installer can remove the registered Electron installation through
+its uninstaller and honor Electron's relaunch flag. Linux AppImage replacement
+is another migration candidate. Test both from an installed Electron release
+before offering a migration. macOS automatic migration additionally needs a
+compatible code-signing identity. Previews built without Apple credentials use
+an ad-hoc app signature. See the [Windows bridge design](ELECTRON_TO_TAURI.md)
+for the proposed backup, first-launch check and rollback sequence.
 
 ## Verification
 
