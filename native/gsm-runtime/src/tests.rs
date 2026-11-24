@@ -297,6 +297,7 @@ fn managed_process_fixture() {
             let mut child = std::process::Command::new(std::env::current_exe().unwrap())
                 .args(FIXTURE_ARGS)
                 .env("GSM_PROCESS_TEST_MODE", "sleep")
+                .stdout(std::process::Stdio::null())
                 .spawn()
                 .unwrap();
             println!("\nworker={}", child.id());
@@ -385,15 +386,13 @@ async fn process_stop_reaps_owned_workers_and_preserves_other_processes() {
     let until = Instant::now() + Duration::from_secs(5);
     let worker = loop {
         let logs = events.lock().unwrap();
-        let worker = logs.iter().find_map(|(event, data)| {
-            if event == "process.log" {
-                data["message"]
-                    .as_str()
-                    .and_then(|s| s.strip_prefix("worker="))
-                    .and_then(|s| s.trim().parse::<u32>().ok())
-            } else {
-                None
-            }
+        // The runtime forwards pipe chunks, which may split or combine lines.
+        let stdout: String = logs.iter()
+            .filter(|(event, data)| event == "process.log" && data["stream"] == "stdout")
+            .filter_map(|(_, data)| data["message"].as_str())
+            .collect();
+        let worker = stdout.split_inclusive('\n').find_map(|line| {
+            line.strip_suffix('\n')?.trim_end().strip_prefix("worker=")?.parse::<u32>().ok()
         });
         drop(logs);
         if let Some(pid) = worker {

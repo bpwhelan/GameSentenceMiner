@@ -425,7 +425,6 @@ pub struct OverlayHost {
     inner: Arc<Mutex<OverlayInner>>,
     reader_switch: Arc<AsyncMutex<()>>,
     lifecycle: Arc<AsyncMutex<()>>,
-    tray_update: Arc<Mutex<()>>,
     vn_guide: Arc<AsyncMutex<Option<VnGuideController>>>,
     vn_catalogue: Arc<AsyncMutex<Option<GuideStore>>>,
     jiten: Arc<Mutex<Option<JitenParseCache>>>,
@@ -437,7 +436,6 @@ impl Default for OverlayHost {
             inner: Arc::new(Mutex::new(OverlayInner::default())),
             reader_switch: Arc::new(AsyncMutex::new(())),
             lifecycle: Arc::new(AsyncMutex::new(())),
-            tray_update: Arc::new(Mutex::new(())),
             vn_guide: Arc::new(AsyncMutex::new(None)),
             vn_catalogue: Arc::new(AsyncMutex::new(None)),
             jiten: Arc::new(Mutex::new(None)),
@@ -862,8 +860,27 @@ impl OverlayHost {
         self.sync_interaction_reveal(app, "controller-navigation");
         self.sync_window_ignore_mouse(app);
     }
+    // GTK otherwise waits for a separate UI event for every shortcut and menu
+    // item. Finish each update in one UI turn before reporting activation.
+    fn update_on_main_thread(&self, app: &AppHandle, update: fn(&Self, &AppHandle)) {
+        let host = self.clone();
+        let handle = app.clone();
+        let (done, finished) = std::sync::mpsc::channel();
+        if let Err(error) = app.run_on_main_thread(move || {
+            update(&host, &handle);
+            let _ = done.send(());
+        }) {
+            crate::desktop_log::warn(app, "overlay", format!("Could not update desktop controls: {error}"));
+        } else if let Err(error) = finished.recv() {
+            crate::desktop_log::warn(app, "overlay", format!("Desktop controls update interrupted: {error}"));
+        }
+    }
+
     fn refresh_tray(&self, app: &AppHandle) {
-        let _guard = self.tray_update.lock().unwrap();
+        self.update_on_main_thread(app, Self::refresh_tray_on_main);
+    }
+
+    fn refresh_tray_on_main(&self, app: &AppHandle) {
         let (settings, running) = {
             let inner = self.inner.lock().unwrap();
             (inner.user_settings.clone(), inner.running)
@@ -2465,6 +2482,10 @@ impl OverlayHost {
     }
 
     fn sync_all_hotkeys(&self, app: &AppHandle) {
+        self.update_on_main_thread(app, Self::sync_hotkeys_on_main);
+    }
+
+    fn sync_hotkeys_on_main(&self, app: &AppHandle) {
         self.unregister_all_tauri_shortcuts(app);
         if !self.inner.lock().unwrap().running {
             return;

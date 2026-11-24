@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ ${GSM_TEST_XVFB:-} != 1 ]]; then
-  exec xvfb-run -a dbus-run-session -- env GSM_TEST_XVFB=1 bash "$0" "$@"
+  exec xvfb-run -a dbus-run-session -- env -u WAYLAND_DISPLAY GDK_BACKEND=x11 XDG_SESSION_TYPE=x11 GSM_TEST_XVFB=1 bash "$0" "$@"
 fi
 openbox >/dev/null 2>&1 &
 window_manager=$!

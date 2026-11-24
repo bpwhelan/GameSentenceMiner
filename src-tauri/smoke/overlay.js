@@ -84,6 +84,7 @@
       await receive({ ...state, occlusion_rects: [], target_client_rect: { left: -1800, top: -1000, right: -100, bottom: -100 } });
       const after = stats.getBoundingClientRect();
       check(before.x !== after.x || before.y !== after.y, 'Stats did not follow target window');
+      dispatch('show-overlay-hotkey', false);
       return true;
     },
     async lookup(reader, { shiftKey = true, stationary = false } = {}) {

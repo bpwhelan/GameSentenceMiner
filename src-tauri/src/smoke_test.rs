@@ -1006,7 +1006,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             phase == "import" || !cfg!(windows), json!(reader)),
     )
     .await;
-    if phase == "import" {
+    if phase == "import" || !cfg!(windows) {
         dictionary_smoke_key(app, os_key, false)?;
     }
     let hover_ms = hover_ms?;
@@ -1061,6 +1061,8 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             &format!("window.__gsmSmokeOverlay.lookup({})", json!(reader)),
         )
         .await?;
+        #[cfg(not(windows))]
+        dictionary_smoke_key(app, false, false)?;
     }
     if reader == "hachidori" {
         // Test the user's automatic hover path too: no Shift and no artificial
@@ -1083,7 +1085,15 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         if crate::windows_input::forwarding_interval(&overlay).is_none() {
             return Err("Hover lookup has no native pointer feed after game reactivation".into());
         }
+        #[cfg(not(windows))]
+        {
+            // Losing capture also releases Push to Show on the portable overlay.
+            dictionary_smoke_key(app, false, true)?;
+            evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.waitForManualState(true)").await?;
+        }
         evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.lookup('hachidori', {shiftKey:false, stationary:true})").await?;
+        #[cfg(not(windows))]
+        dictionary_smoke_key(app, false, false)?;
     }
     let document = evaluate_raw(app, &overlay, "performance.timeOrigin").await?;
     host.stop(app).await;
@@ -2310,12 +2320,12 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         evaluate_raw(app, &main_win, r#"(async()=>{
             for(let i=0;i<40;i++) {
                 const chars = document.querySelector('#gsm-live-stats.gsm-live-stats-visible [data-field-key="total_characters"]');
-                if (chars?.textContent === '927') return true;
+                if (chars?.dataset.text === '927' && chars.getBoundingClientRect().width > 0) return true;
                 await new Promise(resolve=>setTimeout(resolve,50));
             }
             const widget = document.getElementById('gsm-live-stats');
             throw Error('Daily characters did not appear in the game overlay: ' +
-                JSON.stringify({classes: widget?.className, text: widget?.textContent?.slice(0, 240)}));
+                JSON.stringify({classes: widget?.className, characters: widget?.querySelector('[data-field-key="total_characters"]')?.dataset.text}));
         })()"#).await?;
         eprintln!("[smoke] Captured window transitions and visible Today character total passed");
 
