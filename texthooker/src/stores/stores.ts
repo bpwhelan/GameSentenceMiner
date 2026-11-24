@@ -298,7 +298,7 @@ export const dialogOpen$ = writableSubject<boolean>(false);
 
 export const lastSettingPreset$ = writableStringSubject()('bannou-texthooker-lastSettingPreset', '');
 
-export const lineData$ = writeableArraySubject<LineItem>()('bannou-texthooker-lineData', [], persistLines$);
+export const lineData$ = writeableArraySubject<LineItem>()('bannou-texthooker-lineData', [], persistLines$, 250);
 
 export const lineIDs$ = writeableArraySubject<string>()('bannou-texthooker-lineIDs', []);
 
@@ -387,7 +387,7 @@ export async function resetAllData(savedClipsNote = '') {
 
 	window.localStorage.removeItem('bannou-texthooker-timeValue');
 	window.localStorage.removeItem('bannou-texthooker-userNotes');
-	window.localStorage.removeItem('bannou-texthooker-lineData');
+	lineData$.clearStoredValue();
 	window.localStorage.removeItem('bannou-texthooker-actionHistory');
 
 	theme$.next(defaultSettings.theme$);

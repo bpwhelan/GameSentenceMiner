@@ -27,6 +27,7 @@
 	import { quintInOut } from 'svelte/easing';
 	import { fade, fly } from 'svelte/transition';
 	import {
+		autoTranslateLines$,
 		actionHistory$,
 		alwaysScrollToNewest$,
 		allowNewLineDuringPause$,
@@ -318,6 +319,13 @@
 	let settingsElement: SVGElement;
 	let lineContainer: HTMLElement;
 	let lineElements: Line[] = [];
+	const feedPageSize = 150;
+	let historyAnchor = '';
+	let historyQuery = '';
+	let historyFindId = '';
+	let historyFindMessage = '';
+	let nativeFeedVisible = true;
+	let feedScroll = { x: 0, y: 0, newest: true };
 	let lineInEdit = false;
 	let blockNextExternalLine = false;
 	let pipContainer: HTMLElement;
@@ -419,37 +427,43 @@
 				return;
 			}
 			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta.streamSequence));
+			const lastLineIndex = $lineData$.length - 1;
+			const existingLineIndex = $lineData$[lastLineIndex]?.id === id
+				? lastLineIndex
+				: $lineData$.findIndex((line) => line.id === id);
 			const text = transformLine(lineContent, type !== LineType.TL, !isAuthoritativeV2);
 			if (!text) {
 				return;
 			}
 
-			const existingLineIndex = $lineData$?.findIndex((line) => line.id === id) ?? -1;
 			if (existingLineIndex >= 0) {
 				const existing = $lineData$[existingLineIndex];
 				const incomingRevision = Number(lineMeta.revision ?? 1);
 				if (incomingRevision > Number(existing.revision ?? 0)) {
-					$lineData$ = $lineData$.map((item, index) =>
-						index === existingLineIndex ? { ...item, ...lineMeta, text } : item,
-					);
+					$lineData$[existingLineIndex] = { ...existing, ...lineMeta, text };
 				}
 				if (lineMeta.gsmStatus === 'timed_out') {
-					$lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
-					if (!$timedOutIDs$.includes(id)) $timedOutIDs$ = [...$timedOutIDs$, id];
+					if ($lineIDs$.includes(id)) $lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
+					rememberTimedOutId(id);
 				}
 				return;
 			}
 
 			if (lineMeta.gsmStatus === 'active') {
 				$lineIDs$ = [...$lineIDs$, id];
-			} else if (lineMeta.gsmStatus === 'timed_out' && !$timedOutIDs$.includes(id)) {
-				$timedOutIDs$ = [...$timedOutIDs$, id];
+			} else if (lineMeta.gsmStatus === 'timed_out') {
+				rememberTimedOutId(id);
 			}
 
 			if (text) {
 				// Capture before render: content grows, so a later check is too late.
-				const mainAtEnd = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+				const mainAtEnd = !historyAnchor && (nativeFeedVisible
+					? isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$)
+					: feedScroll.newest);
 				const mainShouldScroll = shouldAutoScroll($alwaysScrollToNewest$, mainAtEnd);
+				if (!historyAnchor && !mainShouldScroll && pageStart > 0) {
+					historyAnchor = $lineData$[pageStart]?.id ?? '';
+				}
 				setAutoScrollStick(false, mainShouldScroll);
 				if (pipWindow) {
 					setAutoScrollStick(
@@ -481,6 +495,12 @@
 		reduceToEmptyString(),
 	);
 
+	function rememberTimedOutId(id: string) {
+		if (!$timedOutIDs$.includes(id)) {
+			$timedOutIDs$ = [...$timedOutIDs$.slice(1 - DEFAULT_TEXTFEED_SESSION_SYNC_LINE_LIMIT), id];
+		}
+	}
+
 	const pasteHandler$ = enablePaste$.pipe(
 		switchMap((enablePaste) => (enablePaste ? fromEvent<ClipboardEvent>(document, 'paste') : NEVER)),
 		tap((event) => newLine$.next([event.clipboardData?.getData('text/plain') ?? '', LineType.PASTE, ''])),
@@ -506,15 +526,26 @@
 	// Capture-phase so element scroll (vertical mode) is caught too, not just window.
 	const scrollHandler$ = fromEvent(window, 'scroll', { capture: true, passive: true }).pipe(
 		throttleTime(100, undefined, { leading: true, trailing: true }),
-		tap(() => (isAtNewest = isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$))),
+		tap(() => {
+			if (nativeFeedVisible) {
+				isAtNewest = !historyAnchor && isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+			}
+		}),
 		reduceToEmptyString(),
 	);
 
 	let isAtNewest = true;
 	let newLinesBelow = 0;
 
+	// Automatic translations currently belong to mounted rows. Keep that mode's
+	// background processing live even while the window is hidden.
+	$: pageStart = $autoTranslateLines$ ? 0 : historyAnchor
+		? Math.max(0, $lineData$.findIndex((line) => line.id === historyAnchor))
+		: Math.max(0, $lineData$.length - feedPageSize);
+	$: pageLines = $autoTranslateLines$ ? $lineData$ : $lineData$.slice(pageStart, pageStart + feedPageSize);
+	$: if ($autoTranslateLines$ || !$lineData$.length) historyAnchor = '';
 	$: if (isAtNewest) newLinesBelow = 0;
-	$: showScrollToNewest = !isAtNewest && !!$lineData$.length;
+	$: showScrollToNewest = (!isAtNewest || !!historyAnchor) && !!$lineData$.length;
 	$: newestIconPath = $displayVertical$
 		? $reverseLineOrder$
 			? mdiChevronRight
@@ -539,6 +570,8 @@
 	}
 
 	onMount(() => {
+		syncNativeFeedVisibility();
+		window.addEventListener('gsm-native-visibilitychange', syncNativeFeedVisibility);
 		mountFunction();
 		initializeAudioElement();
 		void fetchGSMTextIntakePausedState();
@@ -547,6 +580,7 @@
 		window.addEventListener('focus', loadSavedClips);
 
 		return () => {
+			window.removeEventListener('gsm-native-visibilitychange', syncNativeFeedVisibility);
 			textFeedSessionSyncVersion += 1;
 			audioEventsSub?.unsubscribe();
 			finishMiningSelection(false);
@@ -562,6 +596,59 @@
 	function mountFunction() {
 		isSmFactor = window.matchMedia('(min-width: 640px)').matches;
 		executeUpdateScroll();
+	}
+
+	async function syncNativeFeedVisibility() {
+		const visible = (window as Window & { __GSM_NATIVE_WINDOW_VISIBLE__?: boolean }).__GSM_NATIVE_WINDOW_VISIBLE__ !== false;
+		if (visible === nativeFeedVisible) return;
+		if (!visible) {
+			feedScroll = {
+				x: lineContainer.scrollLeft,
+				y: window.scrollY,
+				newest: !historyAnchor && isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$),
+			};
+			finishMiningSelection(false);
+		}
+		nativeFeedVisible = visible;
+		if (!visible) return;
+		await tick();
+		if (!nativeFeedVisible) return;
+		if (feedScroll.newest) executeUpdateScroll();
+		else if ($displayVertical$) lineContainer.scrollLeft = feedScroll.x;
+		else window.scrollTo(0, feedScroll.y);
+	}
+
+	async function browseFeed(direction: -1 | 1) {
+		const start = Math.max(0, pageStart + direction * feedPageSize);
+		historyAnchor = start + feedPageSize < $lineData$.length ? $lineData$[start].id : '';
+		isAtNewest = !historyAnchor;
+		await tick();
+		executeUpdateScroll();
+	}
+
+	async function findHistoryLine() {
+		const query = historyQuery.trim().toLocaleLowerCase();
+		if (!query) return;
+		const lines = $lineData$;
+		const previousMatch = lines.findIndex((line) => line.id === historyFindId);
+		let index = (previousMatch < 0 ? lines.length : previousMatch) - 1;
+		for (let checked = 0; checked < lines.length; checked++) {
+			if (index < 0) index = lines.length - 1;
+			if (lines[index].text.toLocaleLowerCase().includes(query)) {
+				historyFindId = lines[index].id;
+				historyFindMessage = `Match at line ${index + 1}`;
+				if (index < pageStart || index >= pageStart + pageLines.length) {
+					const start = Math.max(0, index - Math.floor(feedPageSize / 2));
+					historyAnchor = start + feedPageSize < lines.length ? lines[start].id : '';
+				}
+				await tick();
+				const row = lineContainer.querySelector(`[data-line-id="${CSS.escape(historyFindId)}"]`);
+				row?.scrollIntoView({ block: 'center', inline: 'center' });
+				return;
+			}
+			index--;
+		}
+		historyFindMessage = 'No matching lines';
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
@@ -1423,7 +1510,9 @@
 		}
 	}
 
-	function scrollToNewest() {
+	async function scrollToNewest() {
+		historyAnchor = '';
+		await tick();
 		updateScroll(window, lineContainer, $reverseLineOrder$, $displayVertical$, 'smooth');
 	}
 
@@ -1798,7 +1887,9 @@
 	bind:this={lineContainer}
 >
 	{@html newLineCharacter}
-	{#if clipsViewOpen}
+	{#if !nativeFeedVisible && !$autoTranslateLines$ && !lineInEdit}
+		<!-- The socket and transcript stay live while the overlay is hidden. -->
+	{:else if clipsViewOpen}
 		<h2 class="my-4 text-2xl font-semibold select-none">{describeSavedClips(savedClips, 'Saved Clip')}</h2>
 		{#each clipLines as line, index (line.id)}
 			<Line
@@ -1821,7 +1912,8 @@
 			/>
 		{/each}
 	{:else}
-		{#each $lineData$ as line, index (line.id)}
+		{#each pageLines as line, offset (line.id)}
+			{@const index = pageStart + offset}
 			<Line
 				{line}
 				{index}
@@ -1833,7 +1925,8 @@
 				audioLineId={activeAudioLineId}
 				audioIsPlaying={browserAudioPlaying}
 				audioPendingLineId={pendingAudioLineId}
-				bind:this={lineElements[index]}
+				bind:this={lineElements[offset]}
+				isSelected={selectedLineIds.includes(line.id)}
 				on:selected={({ detail }) => {
 					selectedLineIds = [...selectedLineIds, detail];
 				}}
@@ -1857,6 +1950,18 @@
 </main>
 
 <div class="reader-footer">
+{#if !clipsViewOpen && !$autoTranslateLines$ && $lineData$.length > feedPageSize}
+	<nav class="feed-page-nav" aria-label="Transcript pages">
+		<button type="button" disabled={!pageStart} on:click={() => browseFeed(-1)}>Older lines</button>
+		<button type="button" disabled={!historyAnchor} on:click={() => browseFeed(1)}>Newer lines</button>
+		<form on:submit|preventDefault={findHistoryLine}>
+			<input type="search" aria-label="Search transcript" placeholder="Search transcript" bind:value={historyQuery}
+				on:input={() => { historyFindId = ''; historyFindMessage = ''; }} on:keydown|stopPropagation={() => {}} />
+			<button type="submit" disabled={!historyQuery.trim()}>Find</button>
+		</form>
+		{#if historyFindMessage}<span role="status">{historyFindMessage}</span>{/if}
+	</nav>
+{/if}
 {#if miningSelectedIds.size || miningSaving || miningError}
 	<aside class="mining-toolbar" aria-label="Mining selection" aria-busy={miningSaving}>
 		<span class="mining-summary" role="status">
@@ -1962,6 +2067,26 @@
 	{/if}
 </div>
 <style>
+	.feed-page-nav {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: 8px;
+		padding: 5px 8px;
+		border-radius: 8px;
+		background: var(--color-base-100);
+		box-shadow: 0 2px 10px rgb(0 0 0 / 20%);
+		font-size: 13px;
+	}
+	.feed-page-nav form { display: flex; gap: 4px; }
+	.feed-page-nav input { width: min(120px, 32vw); padding-inline: 4px; }
+	.feed-page-nav button {
+		padding: 6px 10px;
+		border: 1px solid color-mix(in srgb, var(--color-base-content) 20%, transparent);
+		border-radius: 6px;
+	}
+	.feed-page-nav button:disabled { opacity: .45; }
 	.reader-footer {
 		position: fixed;
 		z-index: 50;

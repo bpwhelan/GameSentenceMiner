@@ -170,10 +170,14 @@ export class SocketConnection {
 			return;
 		}
 
+		let latestSequence = 0;
+		for (const line of lineData$.getValue()) {
+			latestSequence = Math.max(latestSequence, line.streamSequence ?? 0);
+		}
 		this.socket.send(
 			JSON.stringify({
 				event: 'text_v2_snapshot_request',
-				after_sequence: Math.max(0, ...lineData$.getValue().map((line) => line.streamSequence ?? 0)),
+				after_sequence: latestSequence,
 				max_lines: getTextFeedSessionSyncLineLimit(maxLines$.getValue()),
 			}),
 		);

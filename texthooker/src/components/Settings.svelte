@@ -133,7 +133,7 @@
 		const removedLines = $lineData$;
 		$lineData$ = [];
 		selectedLineIds = [];
-		window.localStorage.removeItem('bannou-texthooker-lineData');
+		lineData$.clearStoredValue();
 		dispatch('linesRemoved', removedLines);
 
 		if (!linesOnly) {

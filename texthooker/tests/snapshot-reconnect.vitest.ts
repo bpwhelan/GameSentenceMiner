@@ -121,9 +121,66 @@ async function receiveSnapshot(lines: object[]) {
 
 function expectPersistedLines(lines: LineItem[]) {
 	expect(stores.lineData$.getValue()).toEqual(lines);
+	vi.advanceTimersByTime(250);
 	expect(JSON.parse(localStorage.getItem(linesStorageKey)!)).toEqual(lines);
 	expect(document.querySelectorAll('main .textline2')).toHaveLength(lines.length);
 }
+
+test('coalesces transcript writes and flushes the latest read state on pagehide', async () => {
+	const writes = vi.spyOn(Storage.prototype, 'setItem');
+	await receiveSnapshot([recentRecord]);
+	const latest = { ...recentRecord, id: 'latest', stream_sequence: 3 };
+	socket.receive({ event: 'text_v2_append', data: latest });
+	await svelte.tick();
+	const transcriptWrites = () => writes.mock.calls.filter(([key]) => key === linesStorageKey);
+	expect(transcriptWrites()).toHaveLength(0);
+	window.dispatchEvent(new Event('pagehide'));
+	expect(transcriptWrites()).toHaveLength(1);
+	expect(JSON.parse(localStorage.getItem(linesStorageKey)!).at(-1)?.id).toBe('latest');
+	vi.advanceTimersByTime(250);
+	expect(transcriptWrites()).toHaveLength(1);
+});
+
+test('bounds the rendered history, preserves it while hidden, and returns to the same page', async () => {
+	const previousAnimate = Object.getOwnPropertyDescriptor(Element.prototype, 'animate');
+	Object.defineProperty(Element.prototype, 'animate', {
+		configurable: true,
+		value: () => {
+			const animation = { onfinish: null as (() => void) | null, cancel() {} };
+			queueMicrotask(() => animation.onfinish?.());
+			return animation;
+		},
+	});
+	const lines = Array.from({ length: 450 }, (_, index) => ({ id: `line-${index}`, text: `行 ${index}` }));
+	stores.lineData$.next(lines);
+	await svelte.tick();
+	const rendered = () => [...document.querySelectorAll<HTMLElement>('main .textline2')].map(row => row.dataset.lineId);
+	const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('nav button')].find(item => item.textContent === label)!;
+	expect(rendered()).toEqual(lines.slice(-150).map(line => line.id));
+	button('Older lines').click();
+	await svelte.tick();
+	expect(rendered()).toEqual(lines.slice(150, 300).map(line => line.id));
+
+	const desktop = window as Window & { __GSM_NATIVE_WINDOW_VISIBLE__?: boolean };
+	try {
+		desktop.__GSM_NATIVE_WINDOW_VISIBLE__ = false;
+		window.dispatchEvent(new Event('gsm-native-visibilitychange'));
+		await svelte.tick();
+		expect(rendered()).toEqual([]);
+		expect(stores.lineData$.getValue()).toEqual(lines);
+		desktop.__GSM_NATIVE_WINDOW_VISIBLE__ = true;
+		window.dispatchEvent(new Event('gsm-native-visibilitychange'));
+		await svelte.tick();
+		expect(rendered()).toEqual(lines.slice(150, 300).map(line => line.id));
+		button('Newer lines').click();
+		await svelte.tick();
+		expect(rendered()).toEqual(lines.slice(-150).map(line => line.id));
+	} finally {
+		delete desktop.__GSM_NATIVE_WINDOW_VISIBLE__;
+		if (previousAnimate) Object.defineProperty(Element.prototype, 'animate', previousAnimate);
+		else Reflect.deleteProperty(Element.prototype, 'animate');
+	}
+});
 
 test('an empty reconnect snapshot preserves saved history, character count, CPH, and timer', async () => {
 	expect(document.querySelector('.timer')?.textContent).toBe('02:00:00 (4/h) 8 / 2');
@@ -176,6 +233,7 @@ test.each(['Reset Lines', 'Reset Data'])(
 		expect(button).toBeDefined();
 		button!.click();
 		await svelte.tick();
+		vi.advanceTimersByTime(250);
 
 		expect(stores.lineData$.getValue()).toEqual([]);
 		expect(localStorage.getItem(linesStorageKey)).toBeNull();

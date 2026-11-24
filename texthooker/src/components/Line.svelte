@@ -1,33 +1,18 @@
-<script lang="ts">
+<script lang="ts" module>
 	import {
-		mdiCheck,
-		mdiClockOutline,
-		mdiCameraOutline,
-		mdiContentSave,
-		mdiContentSaveCheck,
-		mdiCreationOutline,
-		mdiHistory,
-		mdiDotsHorizontal,
-		mdiMovieOutline,
-		mdiPlay,
-		mdiStop,
-		mdiTrophy,
-		mdiTranslate,
+		mdiCheck, mdiClockOutline, mdiCameraOutline, mdiContentSave, mdiContentSaveCheck,
+		mdiHistory, mdiDotsHorizontal, mdiMovieOutline, mdiPlay, mdiStop, mdiTranslate,
 	} from '@mdi/js';
-	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
-	import { fly } from 'svelte/transition';
+
+	import { combineLatest, shareReplay } from 'rxjs';
 	import {
 		alwaysScrollToNewest$,
 		displayVertical$,
 		enableLineAnimation$,
 		preserveWhitespace$,
 		reverseLineOrder$,
-		lineIDs$,
-		lineData$,
 		autoTranslateLines$,
 		blurAutoTranslatedLines$,
-		milestoneLines$,
-		timedOutIDs$,
 		unblurTLTimer$,
 		showMenuButton$,
 		showExpiredIcon$,
@@ -36,7 +21,52 @@
 		showTrimVideoButton$,
 		showSaveClipButton$,
 		showTranslateButton$,
+	} from '../stores/stores';
+
+	// One shared upstream subscription for page-wide options, even with thousands of rows.
+	const lineSettings = combineLatest({
+		alwaysScrollToNewest: alwaysScrollToNewest$,
+		displayVertical: displayVertical$,
+		enableLineAnimation: enableLineAnimation$,
+		preserveWhitespace: preserveWhitespace$,
+		reverseLineOrder: reverseLineOrder$,
+		autoTranslateLines: autoTranslateLines$,
+		blurAutoTranslatedLines: blurAutoTranslatedLines$,
+		unblurTLTimer: unblurTLTimer$,
+		showMenuButton: showMenuButton$,
+		showExpiredIcon: showExpiredIcon$,
+		showScreenshotButton: showScreenshotButton$,
+		showAudioButton: showAudioButton$,
+		showTrimVideoButton: showTrimVideoButton$,
+		showSaveClipButton: showSaveClipButton$,
+		showTranslateButton: showTranslateButton$,
+	}).pipe(shareReplay({ bufferSize: 1, refCount: true }));
+
+	function iconMask(path: string) {
+		return `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${path}"/></svg>`)}")`;
+	}
+
+	const masks = {
+		check: iconMask(mdiCheck), clock: iconMask(mdiClockOutline), camera: iconMask(mdiCameraOutline),
+		save: iconMask(mdiContentSave), saved: iconMask(mdiContentSaveCheck), history: iconMask(mdiHistory),
+		menu: iconMask(mdiDotsHorizontal), video: iconMask(mdiMovieOutline), play: iconMask(mdiPlay),
+		stop: iconMask(mdiStop), translate: iconMask(mdiTranslate),
+	};
+</script>
+
+<script lang="ts">
+	import {
+		mdiCreationOutline,
+		mdiTrophy,
+	} from '@mdi/js';
+	import { createEventDispatcher, onDestroy, onMount, tick } from 'svelte';
+	import { fly } from 'svelte/transition';
+	import {
+		lineIDs$,
+		lineData$,
+		milestoneLines$,
 		settingsOpen$,
+		timedOutIDs$,
 	} from '../stores/stores';
 	import type { LineItem, LineItemEditEvent } from '../types';
 	import {
@@ -63,6 +93,7 @@
 	export let isClipSaved = false;
 	export let clipSizeBytes: number | undefined = undefined;
 	export let miningSelected = false;
+	export let isSelected = false;
 
 	export function deselect() {
 		isSelected = false;
@@ -93,8 +124,8 @@
 	let lineTextMounted = false;
 	let autoTranslationRevision = -1;
 	let translatedSourceText = line.translation ? line.text.trim() : null;
-	const pendingTranslations = new Set<string>();
-	let isSelected = false;
+	let pendingTranslations: Set<string> | undefined;
+	let unblurTranslationTimer: ReturnType<typeof setTimeout> | undefined;
 	let isEditable = false;
 	// One popover for the line's menus: the ☰ actions, or the saved clip's own menu.
 	let openMenu: 'actions' | 'clip' | null = null;
@@ -106,7 +137,7 @@
 	let aiError = '';
 	let isTranslating = false;
 	$: actionsMenuOpen = openMenu === 'actions';
-	$: if (!$showMenuButton$ && openMenu === 'actions') closeActionsMenu();
+	$: if (!$lineSettings.showMenuButton && openMenu === 'actions') closeActionsMenu();
 	$: isAudioLine = audioLineId === line.id;
 	$: isAudioPending = audioPendingLineId === line.id;
 	$: audioButtonTitle = isAudioPending ? 'Preparing audio...' : isAudioLine && audioIsPlaying ? 'Stop audio' : 'Play audio';
@@ -115,9 +146,10 @@
 	$: clipSizeLabel = clipSizeBytes ? formatMegabytes(clipSizeBytes) : '';
 	$: canAskAI = !!line.id && (isActiveGSMLine || isTimedOutGSMLine || isClipSaved || line.gsmStatus === 'external');
 
-	$: isVerticalDisplay = !pipWindow && $displayVertical$;
+	$: isVerticalDisplay = !pipWindow && $lineSettings.displayVertical;
 	$: if (line.text !== previousLineText) {
 		if (translatedSourceText !== null && line.text.trim() !== translatedSourceText) {
+			clearTimeout(unblurTranslationTimer);
 			line.translation = undefined;
 			line.blurTranslation = false;
 			translatedSourceText = null;
@@ -129,11 +161,11 @@
 		componentMounted &&
 		line.recordState === 'frozen' &&
 		!line.sessionBackfill &&
-		$autoTranslateLines$ &&
+		$lineSettings.autoTranslateLines &&
 		Number(line.revision ?? 0) > autoTranslationRevision
 	) {
 		autoTranslationRevision = Number(line.revision ?? 0);
-		handleAction(line.id, 'TL', $blurAutoTranslatedLines$, true);
+		handleAction(line.id, 'TL', $lineSettings.blurAutoTranslatedLines, true);
 	}
 
 	onMount(() => {
@@ -143,10 +175,18 @@
 
 	onDestroy(() => {
 		componentMounted = false;
+		clearTimeout(unblurTranslationTimer);
 		document.removeEventListener('click', clickOutsideHandler, false);
 		removeActionsMenuListeners();
 		dispatch('edit', { inEdit: false });
 	});
+
+	function introduceLine(node: HTMLElement) {
+		if ($lineSettings.enableLineAnimation && !line.sessionBackfill) {
+			return fly(node, { x: isVerticalDisplay ? 100 : -100, duration: 250 });
+		}
+		return { duration: 0 };
+	}
 
 	async function revealLineText() {
 		// Svelte 5 builds each line off-DOM before inserting its wrapper. Reveal the
@@ -163,17 +203,17 @@
 		}
 
 		// Keep the reader's position unless continuous following is enabled.
-		if (shouldAutoScroll($alwaysScrollToNewest$, getAutoScrollStick(!!pipWindow))) {
+		if (shouldAutoScroll($lineSettings.alwaysScrollToNewest, getAutoScrollStick(!!pipWindow))) {
 			updateScroll(
 				pipWindow || window,
 				paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null,
-				$reverseLineOrder$,
+				$lineSettings.reverseLineOrder,
 				isVerticalDisplay,
-				$enableLineAnimation$ ? 'smooth' : 'auto',
+				$lineSettings.enableLineAnimation ? 'smooth' : 'auto',
 			);
 		}
-		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $autoTranslateLines$) {
-			handleAction(line.id, 'TL', $blurAutoTranslatedLines$, true);
+		if (isActiveGSMLine && !line.recordState && !line.sessionBackfill && $lineSettings.autoTranslateLines) {
+			handleAction(line.id, 'TL', $lineSettings.blurAutoTranslatedLines, true);
 		}
 	}
 
@@ -187,8 +227,8 @@
 		const container = paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null;
 		if (
 			!shouldAutoScroll(
-				$alwaysScrollToNewest$,
-				isScrolledToEnd(view, container, $reverseLineOrder$, isVerticalDisplay),
+				$lineSettings.alwaysScrollToNewest,
+				isScrolledToEnd(view, container, $lineSettings.reverseLineOrder, isVerticalDisplay),
 			)
 		) {
 			return;
@@ -197,7 +237,7 @@
 		if (!componentMounted || !isLast) {
 			return;
 		}
-		updateScroll(view, container, $reverseLineOrder$, isVerticalDisplay, $enableLineAnimation$ ? 'smooth' : 'auto');
+		updateScroll(view, container, $lineSettings.reverseLineOrder, isVerticalDisplay, $lineSettings.enableLineAnimation ? 'smooth' : 'auto');
 	}
 
 	function getActionsWindow() {
@@ -423,11 +463,11 @@
 		}
 		const requestText = line.text.trim();
 		if (action === 'TL') {
-			if (pendingTranslations.has(requestText)) return;
+			if (pendingTranslations?.has(requestText)) return;
 			// Manual requests consult GSM's cache so a changed target language
 			// can select a new result without relying on stale reader state.
 			if (automatic && line.translation && translatedSourceText === requestText) return;
-			pendingTranslations.add(requestText);
+			(pendingTranslations ??= new Set()).add(requestText);
 			isTranslating = true;
 		}
 		fetch(getGSMEndpoint(endpoint), {
@@ -450,11 +490,11 @@
 					const shouldFollowTranslation =
 						isLast &&
 						shouldAutoScroll(
-							$alwaysScrollToNewest$,
+							$lineSettings.alwaysScrollToNewest,
 							isScrolledToEnd(
 								pipWindow || window,
 								container,
-								$reverseLineOrder$,
+								$lineSettings.reverseLineOrder,
 								isVerticalDisplay,
 							),
 						);
@@ -466,18 +506,23 @@
 					} else {
 						line.blurTranslation = false;
 					}
-					if ($unblurTLTimer$ > 0 && line.blurTranslation) {
-						setTimeout(() => {
+					clearTimeout(unblurTranslationTimer);
+					if ($lineSettings.unblurTLTimer > 0 && line.blurTranslation) {
+						unblurTranslationTimer = setTimeout(() => {
 							line.blurTranslation = false;
-						}, $unblurTLTimer$ * 1000);
+						}, $lineSettings.unblurTLTimer * 1000);
 					}
 
 					if (line.index !== undefined) {
-						$lineData$[line.index] = line;
+						const lines = lineData$.getValue();
+						if (lines[line.index]?.id === id) {
+							lines[line.index] = line;
+							lineData$.next(lines);
+						}
 					}
 					if (shouldFollowTranslation) {
-						updateScroll(pipWindow || window, container, $reverseLineOrder$, isVerticalDisplay,
-							$enableLineAnimation$ ? 'smooth' : 'auto');
+						updateScroll(pipWindow || window, container, $lineSettings.reverseLineOrder, isVerticalDisplay,
+							$lineSettings.enableLineAnimation ? 'smooth' : 'auto');
 					}
 				}
 			})
@@ -489,14 +534,14 @@
 			})
 			.finally(() => {
 				if (action === 'TL') {
-					pendingTranslations.delete(requestText);
-					isTranslating = pendingTranslations.size > 0;
+					pendingTranslations?.delete(requestText);
+					isTranslating = Boolean(pendingTranslations?.size);
+					if (!isTranslating) pendingTranslations = undefined;
 				}
 			});
 	}
 </script>
 
-{#key line.text}
 	<div
 		class="textline2"
 		class:mining-selected={miningSelected}
@@ -509,21 +554,23 @@
 		{#if lineTextMounted}
 			<!-- Yomitan's sentence scan needs literal newlines around the dialogue. -->
 			{@html newLineCharacter}
+			{#key line.text}
 			<p
 				class="line-source"
 				class:line-selected={isSelected}
 				class:cursor-text={isEditable}
 				class:border-primary={isSelected}
 				class:border-accent-focus={isEditable}
-				class:whitespace-pre-wrap={$preserveWhitespace$}
+				class:whitespace-pre-wrap={$lineSettings.preserveWhitespace}
 				contenteditable={isEditable}
 				on:dblclick={handleDblClick}
 				on:keyup={dummyFn}
 				bind:this={paragraph}
-				in:fly={{ x: isVerticalDisplay ? 100 : -100, duration: $enableLineAnimation$ ? 250 : 0 }}
+				in:introduceLine
 			>
 				<span class="source-text">{line.text}</span>
 			</p>
+			{/key}
 			{@html newLineCharacter}
 			{#if line.translation}
 				<div class="line-translation" role="group" aria-label="Translation">
@@ -548,131 +595,120 @@
 			{/if}
 			{#if isActiveGSMLine || isClipSaved}
 				<div class="textline-buttons unselectable">
-					{#if $showScreenshotButton$}
+					{#if $lineSettings.showScreenshotButton}
 						<button
 							class="hide-on-mobile action-button"
+							style:--line-icon={masks.camera}
 							on:click={() => handleAction(line.id, 'Screenshot')}
 							title="Screenshot"
 							tabindex="-1"
-						>
-							<Icon path={mdiCameraOutline} width="20px" height="20px" />
-						</button>
+						></button>
 					{/if}
-					{#if $showTrimVideoButton$}
+					{#if $lineSettings.showTrimVideoButton}
 						<button
 							class="hide-on-mobile action-button"
+							style:--line-icon={masks.video}
 							on:click={handleVideoTrim}
 							title="Save cropped replay"
 							tabindex="-1"
-						>
-							<Icon path={mdiMovieOutline} width="20px" height="20px" />
-						</button>
+						></button>
 					{/if}
 					{#if isClipSaved}
 						<button
 							class="action-button clip-status"
+							style:--line-icon={masks.saved}
 							class:menu-open={openMenu === 'clip'}
 							on:click={(event) => toggleMenu(event, 'clip')}
 							title="Clip saved for later"
 							aria-label="Clip saved for later"
 							aria-expanded={openMenu === 'clip'}
 							tabindex="-1"
-						>
-							<Icon path={mdiContentSaveCheck} width="20px" height="20px" />
-						</button>
-					{:else if $showSaveClipButton$}
+						></button>
+					{:else if $lineSettings.showSaveClipButton}
 						<!-- Kept visible on small screens: saving from a phone or tablet is the main use. -->
 						<button
 							class="action-button"
+							style:--line-icon={masks.save}
 							on:click={handleSaveClip}
 							title={isSavingClip ? 'Saving…' : 'Save clip for later'}
 							aria-label="Save clip for later"
 							tabindex="-1"
 							disabled={isSavingClip}
-						>
-							<Icon path={mdiContentSave} width="20px" height="20px" />
-						</button>
+						></button>
 					{/if}
-					{#if $showAudioButton$}
+					{#if $lineSettings.showAudioButton}
 						<button
 							class="hide-on-mobile action-button"
+							style:--line-icon={isAudioLine && audioIsPlaying ? masks.stop : masks.play}
 							class:audio-active={isAudioLine && audioIsPlaying}
 							on:click={handleAudioToggle}
 							title={audioButtonTitle}
 							tabindex="-1"
 							disabled={isAudioPending}
-						>
-							<Icon path={isAudioLine && audioIsPlaying ? mdiStop : mdiPlay} width="20px" height="20px" />
-						</button>
+						></button>
 					{/if}
-					{#if $showTranslateButton$}
+					{#if $lineSettings.showTranslateButton}
 						<button
 							class="action-button"
+							style:--line-icon={masks.translate}
 							on:click={() => handleAction(line.id, 'TL')}
 							title="Translate"
 							tabindex="-1"
-						>
-							<Icon path={mdiTranslate} width="20px" height="20px" />
-						</button>
+						></button>
 					{/if}
 				</div>
 			{:else if isTimedOutGSMLine}
-				{#if $showExpiredIcon$}
+				{#if $lineSettings.showExpiredIcon}
 					<div
 						class="line-indicator unselectable"
+						style:--line-icon={masks.clock}
 						title="Line is outside replay buffer"
 						tabindex="-1"
 						style="color: #666;"
-					>
-						<Icon path={mdiClockOutline} width="32px" height="32px" />
-					</div>
+					></div>
 				{/if}
-				{#if $showTranslateButton$}
+				{#if $lineSettings.showTranslateButton}
 					<button
 						class="action-button"
+						style:--line-icon={masks.translate}
 						on:click={() => handleAction(line.id, 'TL')}
 						title="Translate"
 						style="margin-left: 5px;"
 						tabindex="-1"
-					>
-						<Icon path={mdiTranslate} width="20px" height="20px" />
-					</button>
+					></button>
 				{/if}
 			{:else if line.gsmStatus === 'external'}
-				{#if $showTranslateButton$}
+				{#if $lineSettings.showTranslateButton}
 					<button
 						class="action-button"
+						style:--line-icon={masks.translate}
 						on:click={() => handleAction(line.id, 'TL')}
 						title="Translate"
 						tabindex="-1"
-					>
-						<Icon path={mdiTranslate} width="20px" height="20px" />
-					</button>
+					></button>
 				{/if}
-			{:else if $showExpiredIcon$}
+			{:else if $lineSettings.showExpiredIcon}
 				<!-- Show different icon for lines that are from before GSM was started. -->
 				<div
 					class="line-indicator unselectable"
+					style:--line-icon={masks.history}
 					title="Line is from before GSM was started"
 					tabindex="-1"
 					style="color: #666;"
-				>
-					<Icon path={mdiHistory} width="32px" height="32px" />
-				</div>
+				></div>
 			{/if}
-			{#if canAskAI && $showMenuButton$}
+			{#if canAskAI && $lineSettings.showMenuButton}
 				<div class="actions-menu">
 					<button
 						class="action-button menu-toggle"
+						style:--line-icon={masks.menu}
 						class:menu-open={actionsMenuOpen}
 						on:click={(event) => toggleMenu(event, 'actions')}
 						title="More line actions"
 						aria-label="More line actions"
 						aria-expanded={actionsMenuOpen}
 						bind:this={actionsMenuButton}
-					>
-						<Icon path={mdiDotsHorizontal} width="20px" height="20px" />
-					</button>
+					></button>
 				</div>
 			{/if}
 			{#if openMenu}
@@ -754,13 +790,10 @@
 				title="Click or drag to select lines for mining (Shift+click for range)"
 				use:miningSelectorEvents
 			>
-				<span class="mining-checkbox" aria-hidden="true">
-					<Icon path={mdiCheck} width="18px" height="18px" />
-				</span>
+				<span class="mining-checkbox" style:--line-icon={masks.check} aria-hidden="true"></span>
 			</div>
 		{/if}
 	</div>
-{/key}
 {#if aiError}
 	<p role="alert" class="mx-4 text-sm">{aiError} <a class="underline" href="https://docs.gamesentenceminer.com/docs/features/ai-features" target="_blank" rel="noreferrer">AI setup guide</a></p>
 {/if}
@@ -772,16 +805,16 @@
 {#if $milestoneLines$.has(line.id)}
 	<div
 		class="flex justify-center text-xs my-2 py-2 border-primary border-dashed milestone"
-		class:border-x-2={$displayVertical$}
-		class:border-y-2={!$displayVertical$}
+		class:border-x-2={$lineSettings.displayVertical}
+		class:border-y-2={!$lineSettings.displayVertical}
 		class:py-4={!isVerticalDisplay}
 		class:px-2={!isVerticalDisplay}
 		class:py-2={isVerticalDisplay}
 		class:px-4={isVerticalDisplay}
 	>
 		<div class="flex items-center">
-			<Icon class={$displayVertical$ ? '' : 'mr-2'} path={mdiTrophy}></Icon>
-			<span class:mt-2={$displayVertical$}>{$milestoneLines$.get(line.id)}</span>
+			<Icon class={$lineSettings.displayVertical ? '' : 'mr-2'} path={mdiTrophy}></Icon>
+			<span class:mt-2={$lineSettings.displayVertical}>{$milestoneLines$.get(line.id)}</span>
 		</div>
 	</div>
 {/if}
@@ -795,6 +828,23 @@
 	button.translation-text:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
 	.mining-selector:focus-visible { outline: none; }
 	.source-text, .translation-content { cursor: text; }
+	.action-button::before, .line-indicator::before, .mining-checkbox::before {
+		content: '';
+		display: block;
+		flex: none;
+		width: 20px;
+		height: 20px;
+		background-color: currentColor;
+		mask: var(--line-icon) center / contain no-repeat;
+	}
+	.line-indicator::before { width: 32px; height: 32px; }
+	.mining-checkbox::before { width: 18px; height: 18px; }
+	@media (forced-colors: active) {
+		.action-button::before, .line-indicator::before, .mining-checkbox::before {
+			forced-color-adjust: none;
+			background-color: ButtonText;
+		}
+	}
 
 	.action-button {
 		background-color: color-mix(in srgb, var(--color-base-content) 3%, transparent);

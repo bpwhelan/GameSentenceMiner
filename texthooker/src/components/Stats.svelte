@@ -12,6 +12,7 @@
 		throttleTime,
 	} from 'rxjs';
 	import { createEventDispatcher } from 'svelte';
+	import type { LineItem } from '../types';
 	import {
 		adjustTimerOnAfk$,
 		afkTimer$,
@@ -76,29 +77,26 @@
 	let speed = 0;
 	let characters = 0;
 	let statstring = '';
+	const characterCounts = new WeakMap<LineItem, { text: string; count: number }>();
 
-	$: if (($showCharacterCount$ || $characterMilestone$ > 1) && $lineData$) {
-		const newMilestoneLines = new Map<string, string>();
+	$: if ($showCharacterCount$ || $showSpeed$ || $characterMilestone$ > 1) {
+		const newMilestoneLines = $characterMilestone$ > 1 ? new Map<string, string>() : undefined;
 
 		let newCount = 0;
 		let nextMilestone = $characterMilestone$ > 1 ? $characterMilestone$ : 0;
 
 		for (let index = 0, { length } = $lineData$; index < length; index += 1) {
-			newCount += getCharacterCount($lineData$[index].text);
+			const line = $lineData$[index];
+			newCount += getCharacterCount(line);
 
-			if (nextMilestone && newCount >= nextMilestone) {
-				let currentCount = newCount;
-				let achievedMilestone = nextMilestone;
-
-				newMilestoneLines.set($lineData$[index].id, `Milestone ${achievedMilestone} (${newCount})`);
-
-				while (currentCount >= nextMilestone) {
-					nextMilestone += $characterMilestone$;
-				}
+			if (newMilestoneLines && newCount >= nextMilestone) {
+				newMilestoneLines.set(line.id, `Milestone ${nextMilestone} (${newCount})`);
+				nextMilestone = (Math.floor(newCount / $characterMilestone$) + 1) * $characterMilestone$;
 			}
 		}
 
-		$milestoneLines$ = newMilestoneLines;
+		if (newMilestoneLines) $milestoneLines$ = newMilestoneLines;
+		else if ($milestoneLines$.size) $milestoneLines$ = new Map();
 
 		characters = newCount;
 		speed = $timeValue$ ? Math.ceil((3600 * characters) / $timeValue$) : 0;
@@ -156,13 +154,14 @@
 		}
 	}
 
-	function getCharacterCount(text: string) {
-		if (!text) return 0;
-		return countUnicodeCharacters(text.replace(isNotJapaneseRegex, ''));
-	}
-
-	function countUnicodeCharacters(s: string) {
-		return Array.from(s).length;
+	function getCharacterCount(line: LineItem) {
+		if (!line.text) return 0;
+		const cached = characterCounts.get(line);
+		if (cached?.text === line.text) return cached.count;
+		let count = 0;
+		for (const character of line.text.replace(isNotJapaneseRegex, '')) count++;
+		characterCounts.set(line, { text: line.text, count });
+		return count;
 	}
 
 	function buildString(currentTime: number, currentSpeed: number, currentCharacters: number, currentLines: number) {
