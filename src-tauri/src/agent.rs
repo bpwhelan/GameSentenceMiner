@@ -49,8 +49,16 @@ pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         if crate::PORTABLE_PREVIEW {
             return runtime.ensure_from_archive(&manifest, &root.join("native/agent-runtime.zip"));
         }
+        let needs_download = !runtime.is_cached(&manifest);
+        if needs_download {
+            crate::desktop_state::emit_to_desktop_windows(
+                app,
+                "texthook.engineDownloadStarted",
+                &[json!({ "engine": "agent" })],
+            );
+        }
         let progress = std::sync::atomic::AtomicU64::new(u64::MAX);
-        runtime.ensure(&manifest, &|bytes, total| {
+        let ensured = runtime.ensure(&manifest, &|bytes, total| {
             let percent = total.filter(|n| *n > 0).map(|n| bytes.saturating_mul(100) / n).unwrap_or(0).min(100);
             let step = percent / 10;
             if progress.swap(step, std::sync::atomic::Ordering::Relaxed) != step {
@@ -59,7 +67,19 @@ pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
                     "ts":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()
                 }), false);
             }
-        })?
+        });
+        if needs_download {
+            let payload = match &ensured {
+                Ok(_) => json!({ "success": true }),
+                Err(error) => json!({ "success": false, "error": error }),
+            };
+            crate::desktop_state::emit_to_desktop_windows(
+                app,
+                "texthook.engineDownloadComplete",
+                &[payload],
+            );
+        }
+        ensured?
     };
     Ok(executable)
 }

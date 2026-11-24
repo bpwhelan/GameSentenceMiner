@@ -1154,4 +1154,64 @@ describe("TextHookTab", () => {
       expect.anything()
     );
   });
+
+  it("shows preparing feedback and disables script search while downloading scripts on demand", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    let resolveScripts: (value: unknown) => void = () => {};
+    invokeMock.mockImplementation(async (channel: string, ...args: unknown[]) => {
+      if (channel === "texthook.getStatus") {
+        return {
+          running: false,
+          engine: "luna",
+          arch: null,
+          pid: null,
+          exeName: null,
+          selectedHookId: null,
+          hookCount: 0,
+          flushDelayMs: 100,
+        };
+      }
+      if (channel === "settings.listAgentScripts") {
+        return new Promise((resolve) => {
+          resolveScripts = resolve;
+        });
+      }
+      if (channel === "settings.resolveAgentScriptForScene") {
+        return { status: "not_found", candidates: [] };
+      }
+      return original(channel, ...args);
+    });
+
+    await act(async () => {
+      root.render(<TextHookTab active />);
+      await flushAsyncWork();
+    });
+
+    const engineSelect = container.querySelector("#texthook-engine-select") as HTMLSelectElement;
+    await act(async () => {
+      engineSelect.value = "agent";
+      engineSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const searchButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Search scripts"
+    )!;
+    expect(searchButton.disabled).toBe(false);
+    await act(async () => {
+      searchButton.click();
+      await Promise.resolve();
+    });
+
+    expect(searchButton.disabled).toBe(true);
+    expect(searchButton.textContent?.trim()).toBe("Preparing scripts…");
+
+    await act(async () => {
+      resolveScripts({ status: "success", scripts: ["C:\\scripts\\PC_Test.js"] });
+      await flushAsyncWork();
+    });
+
+    expect(searchButton.disabled).toBe(false);
+    expect(searchButton.textContent?.trim()).toBe("Search scripts");
+    expect(container.querySelector(".agent-script-search-dialog")).not.toBeNull();
+  });
 });

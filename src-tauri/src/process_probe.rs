@@ -137,7 +137,14 @@ pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
 
 #[cfg(not(windows))]
 pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
-    let target = normalize_exe_name(exe_name);
+    let target_raw = exe_name
+        .trim()
+        .trim_matches('"')
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let target = normalize_exe_name(&target_raw);
     if target.is_empty() {
         return Vec::new();
     }
@@ -150,24 +157,53 @@ pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
             continue;
         };
         let proc_dir = entry.path();
-        let exe_match = std::fs::read_link(proc_dir.join("exe"))
+        let exe_link_name = std::fs::read_link(proc_dir.join("exe"))
             .ok()
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .filter(|name| name.eq_ignore_ascii_case(&target) || name.eq_ignore_ascii_case(exe_name))
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()));
+        let comm = std::fs::read_to_string(proc_dir.join("comm"))
+            .ok()
+            .map(|c| c.trim().to_owned())
+            .unwrap_or_default();
+        let comm_lower = comm.to_ascii_lowercase();
+
+        let matched_name = exe_link_name
+            .as_deref()
+            .filter(|name| name.eq_ignore_ascii_case(&target) || name.eq_ignore_ascii_case(&target_raw))
+            .map(str::to_owned)
             .or_else(|| {
-                std::fs::read_to_string(proc_dir.join("comm"))
-                    .ok()
-                    .map(|c| c.trim().to_owned())
-                    .filter(|name| name.eq_ignore_ascii_case(&target))
+                let is_wine_launcher = crate::linux_wine::is_launcher_comm(&comm_lower)
+                    && comm_lower != target_raw
+                    && comm_lower != target;
+                if is_wine_launcher {
+                    return None;
+                }
+                if comm_lower == target || comm_lower == target_raw {
+                    return Some(comm.clone());
+                }
+                let cmdline = crate::linux_wine::read_proc_cmdline(pid, Path::new("/proc"));
+                if crate::linux_wine::cmdline_matches_exe(&cmdline, &comm, &target_raw)
+                    || crate::linux_wine::cmdline_matches_exe(&cmdline, &comm, &target)
+                {
+                    return Some(if target_raw.ends_with(".exe") {
+                        target_raw.clone()
+                    } else {
+                        comm.clone()
+                    });
+                }
+                None
             });
-        if let Some(exe_name) = exe_match {
+
+        if let Some(matched) = matched_name {
+            let rss_bytes = crate::linux_wine::read_proc_resident_pages(pid, Path::new("/proc"))
+                .saturating_mul(4096);
             matches.push(MatchedProcess {
                 pid,
-                exe_name,
-                working_set_bytes: 0,
+                exe_name: matched,
+                working_set_bytes: rss_bytes,
             });
         }
     }
+    matches.sort_by(|a, b| b.working_set_bytes.cmp(&a.working_set_bytes));
     matches
 }
 

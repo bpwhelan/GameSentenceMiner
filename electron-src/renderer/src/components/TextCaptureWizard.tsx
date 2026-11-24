@@ -214,6 +214,7 @@ export function TextCaptureWizard({
   const [profilesLoading, setProfilesLoading] = useState(false);
   const [assigningProfile, setAssigningProfile] = useState(false);
   const [hookBusy, setHookBusy] = useState(false);
+  const [preparingHookEngine, setPreparingHookEngine] = useState(false);
   const [contextLoading, setContextLoading] = useState(true);
   const [contextFailed, setContextFailed] = useState(false);
   const [savedHookProfile, setSavedHookProfile] = useState<SavedHookProfile | null>(null);
@@ -536,6 +537,24 @@ export function TextCaptureWizard({
     }).catch(() => {});
     return () => { disposed = true; };
   }, [step, activeScene?.id, currentGsmProfile]);
+
+  useEffect(() => {
+    if (step !== "hook") {
+      setPreparingHookEngine(false);
+      return;
+    }
+    const offStart = onIpc("texthook.engineDownloadStarted", () => {
+      setPreparingHookEngine(true);
+    });
+    const offDone = onIpc("texthook.engineDownloadComplete", () => {
+      setPreparingHookEngine(false);
+    });
+    return () => {
+      offStart();
+      offDone();
+      setPreparingHookEngine(false);
+    };
+  }, [step]);
 
   useEffect(() => {
     if (step !== "hook" || !runtimeMatchesCapture || !hookStatus.running || hookStatus.engine !== "agent") return;
@@ -1037,6 +1056,7 @@ export function TextCaptureWizard({
                     </button>
                   )}
                 </div>
+                {preparingHookEngine ? <p className="capture-wizard-instruction" role="status">{t("texthook.actions.preparing")}</p> : null}
                 {!exeName ? <p className="capture-wizard-instruction">{t("captureWizard.guided.noScene")}</p> : null}
                 {hookStatus.running && !runtimeMatchesCapture ? (
                   <p className="capture-wizard-instruction">{t("captureWizard.guided.otherGameRunning", { exe: hookStatus.exeName })}</p>

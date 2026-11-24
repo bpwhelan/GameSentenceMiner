@@ -67,6 +67,11 @@ pub async fn dispatch(app: &tauri::AppHandle, action: &str, args: Value) -> Resu
                 .await
                 .map_err(|e| e.to_string())?
         }
+        "ensure" => {
+            tauri::async_runtime::spawn_blocking(move || updater.ensure_installed())
+                .await
+                .map_err(|e| e.to_string())?
+        }
         _ => Err("Unknown native update operation".into()),
     }
 }

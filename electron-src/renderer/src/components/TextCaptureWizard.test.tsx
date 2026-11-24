@@ -1131,4 +1131,23 @@ describe("TextCaptureWizard", () => {
       engine: "textractor", hookId: selectedHook.id, hookFunction: selectedHook.function, autoHook: true,
     }));
   });
+
+  it("shows preparing feedback while texthook engines are downloading on demand in the wizard", async () => {
+    mockSceneContext();
+    await renderWizard();
+    await clickButton(container, "Texthook");
+    expect(container.textContent).not.toContain("Preparing text capture…");
+
+    await act(async () => {
+      emitIpc("texthook.engineDownloadStarted", { engine: "luna" });
+      await flushAsyncWork();
+    });
+    expect(container.textContent).toContain("Preparing text capture…");
+
+    await act(async () => {
+      emitIpc("texthook.engineDownloadComplete", { success: true });
+      await flushAsyncWork();
+    });
+    expect(container.textContent).not.toContain("Preparing text capture…");
+  });
 });

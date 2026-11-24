@@ -1444,6 +1444,7 @@
     },
     "agent": {
       "search": "스크립트 검색",
+      "searching": "스크립트 준비 중…",
       "browse": "파일 선택…"
     },
     "profile": {

@@ -321,6 +321,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
     query: string;
   } | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [searchingAgentScripts, setSearchingAgentScripts] = useState(false);
   const [downloadingTool, setDownloadingTool] = useState<DownloadableTool | null>(null);
   const [downloadUiByTool, setDownloadUiByTool] = useState<
     Partial<Record<DownloadableTool, DownloadUiState>>
@@ -670,83 +671,88 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
   }, [configuredScene, patchSceneProfile, sceneProfile, sharedSettings.agentScriptsPath, t]);
 
   const openSceneAgentScriptSearchDialog = useCallback(async () => {
-    if (!configuredScene || !sceneProfile) {
+    if (!configuredScene || !sceneProfile || searchingAgentScripts) {
       return;
     }
 
-    const fallbackPath =
-      sharedSettings.agentScriptsPath.trim() || sceneProfile.agentScriptPath.trim();
-    const [resolvedResultSettled, listResultSettled] = await Promise.allSettled([
-      invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
-        scene: configuredScene
-      }),
-      invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
-        path: fallbackPath
-      })
-    ]);
+    setSearchingAgentScripts(true);
+    try {
+      const fallbackPath =
+        sharedSettings.agentScriptsPath.trim() || sceneProfile.agentScriptPath.trim();
+      const [resolvedResultSettled, listResultSettled] = await Promise.allSettled([
+        invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
+          scene: configuredScene
+        }),
+        invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", {
+          path: fallbackPath
+        })
+      ]);
 
-    let resolvedResult: ResolveAgentScriptResponse | null = null;
-    if (resolvedResultSettled.status === "fulfilled") {
-      resolvedResult = resolvedResultSettled.value;
-    } else {
-      console.warn("Failed to resolve ranked script suggestions:", resolvedResultSettled.reason);
+      let resolvedResult: ResolveAgentScriptResponse | null = null;
+      if (resolvedResultSettled.status === "fulfilled") {
+        resolvedResult = resolvedResultSettled.value;
+      } else {
+        console.warn("Failed to resolve ranked script suggestions:", resolvedResultSettled.reason);
+      }
+
+      if (listResultSettled.status !== "fulfilled") {
+        console.error("Failed to list agent scripts:", listResultSettled.reason);
+        setStatusMessage(t("launcher.status.failedListScripts", { scene: configuredScene.name }));
+        return;
+      }
+
+      const listedScripts = Array.isArray(listResultSettled.value?.scripts)
+        ? listResultSettled.value.scripts.filter(
+            (scriptPath): scriptPath is string =>
+              typeof scriptPath === "string" && scriptPath.trim().length > 0
+          )
+        : [];
+
+      if (listedScripts.length === 0) {
+        setStatusMessage(
+          listResultSettled.value?.message ??
+            t("launcher.status.noScriptsFound", { scene: configuredScene.name })
+        );
+        return;
+      }
+
+      const resolvedCandidates = Array.isArray(resolvedResult?.candidates)
+        ? resolvedResult.candidates.filter(
+            (candidate): candidate is AgentScriptCandidate =>
+              Boolean(candidate && typeof candidate.path === "string" && candidate.path.trim())
+          )
+        : [];
+
+      const configuredScriptPath = sceneProfile.agentScriptPath.trim();
+      const mergedCandidates = buildAgentScriptCandidateList({
+        searchContext: {
+          sceneName: configuredScene.name,
+          windowTitle: resolvedResult?.windowTitle,
+          processName: resolvedResult?.processName,
+        },
+        scripts: listedScripts,
+        resolvedCandidates,
+        resolvedPath:
+          configuredScriptPath || (
+            resolvedResult?.status === "success" &&
+            typeof resolvedResult.path === "string" &&
+            resolvedResult.path.trim()
+            ? resolvedResult.path
+            : null
+          ),
+        resolvedReason: configuredScriptPath ? "matched_explicit_path" : resolvedResult?.reason,
+        resolvedScore: configuredScriptPath ? 0 : undefined,
+      });
+
+      setCandidateDialog({
+        sceneId: configuredScene.id,
+        query: "",
+        candidates: mergedCandidates
+      });
+    } finally {
+      setSearchingAgentScripts(false);
     }
-
-    if (listResultSettled.status !== "fulfilled") {
-      console.error("Failed to list agent scripts:", listResultSettled.reason);
-      setStatusMessage(t("launcher.status.failedListScripts", { scene: configuredScene.name }));
-      return;
-    }
-
-    const listedScripts = Array.isArray(listResultSettled.value?.scripts)
-      ? listResultSettled.value.scripts.filter(
-          (scriptPath): scriptPath is string =>
-            typeof scriptPath === "string" && scriptPath.trim().length > 0
-        )
-      : [];
-
-    if (listedScripts.length === 0) {
-      setStatusMessage(
-        listResultSettled.value?.message ??
-          t("launcher.status.noScriptsFound", { scene: configuredScene.name })
-      );
-      return;
-    }
-
-    const resolvedCandidates = Array.isArray(resolvedResult?.candidates)
-      ? resolvedResult.candidates.filter(
-          (candidate): candidate is AgentScriptCandidate =>
-            Boolean(candidate && typeof candidate.path === "string" && candidate.path.trim())
-        )
-      : [];
-
-    const configuredScriptPath = sceneProfile.agentScriptPath.trim();
-    const mergedCandidates = buildAgentScriptCandidateList({
-      searchContext: {
-        sceneName: configuredScene.name,
-        windowTitle: resolvedResult?.windowTitle,
-        processName: resolvedResult?.processName,
-      },
-      scripts: listedScripts,
-      resolvedCandidates,
-      resolvedPath:
-        configuredScriptPath || (
-          resolvedResult?.status === "success" &&
-          typeof resolvedResult.path === "string" &&
-          resolvedResult.path.trim()
-          ? resolvedResult.path
-          : null
-        ),
-      resolvedReason: configuredScriptPath ? "matched_explicit_path" : resolvedResult?.reason,
-      resolvedScore: configuredScriptPath ? 0 : undefined,
-    });
-
-    setCandidateDialog({
-      sceneId: configuredScene.id,
-      query: "",
-      candidates: mergedCandidates
-    });
-  }, [configuredScene, sceneProfile, sharedSettings.agentScriptsPath, t]);
+  }, [configuredScene, sceneProfile, searchingAgentScripts, sharedSettings.agentScriptsPath, t]);
 
   const pickCandidateScript = useCallback(
     async (candidatePath: string) => {
@@ -1177,11 +1183,12 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                             <button
                               type="button"
                               className="secondary"
+                              disabled={searchingAgentScripts}
                               onClick={() => {
                                 void openSceneAgentScriptSearchDialog();
                               }}
                             >
-                              {t("launcher.scene.search")}
+                              {searchingAgentScripts ? t("texthook.agent.searching") : t("launcher.scene.search")}
                             </button>
                             <button
                               type="button"

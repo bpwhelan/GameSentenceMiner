@@ -58,8 +58,9 @@ const LAUNCHER_COMMS = new Set([
     'wine', 'wine64', 'wineserver', 'wine-preloader', 'wine64-preloader',
     'winedevice.exe', 'services.exe', 'plugplay.exe', 'svchost.exe', 'rpcss.exe',
     'conhost.exe', 'explorer.exe', 'start.exe', 'steam.exe', 'steamwebhelper',
-    'gameoverlayui', 'pv-bwrap', 'pv-adverb', 'pressure-vessel-wrap', 'reaper',
-    'proton', 'python', 'python3', 'umu-run', 'umu',
+    'gameoverlayui', 'pv-bwrap', 'pv-adverb', 'pressure-vessel-wrap', 'bwrap',
+    'flatpak', 'bottles', 'bottles-cli', 'reaper', 'proton', 'python', 'python3',
+    'umu-run', 'umu',
 ]);
 
 function basenameLower(value: string): string {
@@ -176,51 +177,117 @@ function existingExecutable(value: string, searchPath = process.env.PATH ?? ''):
     }
 }
 
+function isFlatpakInternalPath(value: string): boolean {
+    return value === '/app' || value.startsWith('/app/') || value.startsWith('/usr/lib/extensions/');
+}
+
 function candidateWinePaths(root: string): string[] {
     if (!root) return [];
     return [
+        path.join(root, 'bin', 'wine'),
         path.join(root, 'files', 'bin', 'wine'),
         path.join(root, 'dist', 'bin', 'wine'),
+        path.join(root, 'bin', 'wine64'),
         path.join(root, 'files', 'bin', 'wine64'),
         path.join(root, 'dist', 'bin', 'wine64'),
     ];
 }
 
-function deriveWineFromToolPaths(env: Record<string, string>): string {
-    const roots = [env.PROTONPATH, env.STEAM_COMPAT_TOOL_PATHS, env.STEAM_COMPAT_MOUNTS]
-        .filter(Boolean)
-        .flatMap((value) => value.split(':'));
-    for (const root of roots) {
-        for (const candidate of candidateWinePaths(root)) {
-            if (existingExecutable(candidate, env.PATH)) return candidate;
+function parseBottleRunnerName(yaml: string): string {
+    for (const rawLine of yaml.split(/\r?\n/)) {
+        const trimmed = rawLine.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        if (trimmed.startsWith('Runner:')) {
+            const value = trimmed.slice('Runner:'.length).trim().replace(/^['"]|['"]$/g, '').trim();
+            if (value && value.toLowerCase() !== 'null') return value;
         }
     }
     return '';
 }
 
-function deriveWineFromProcess(procRoot: string, linuxPid: number, env: Record<string, string>): string {
-    // WINELOADER is already the launcher's authoritative path. Keep it even
-    // when a synthetic/test proc tree points at a path that is not visible to
-    // the host; a real process normally makes this path executable.
-    if (env.WINELOADER) {
-        return path.isAbsolute(env.WINELOADER)
-            ? env.WINELOADER
-            : resolveFromPath(env.WINELOADER, env.PATH) || env.WINELOADER;
+function deriveBottlesRunnerWine(winePrefix: string, env: Record<string, string>, searchPath: string): string {
+    if (!winePrefix) return '';
+    let bottleYml = '';
+    try {
+        bottleYml = fs.readFileSync(path.join(winePrefix, 'bottle.yml'), 'utf-8');
+    } catch {
+        return '';
     }
-    if (env.WINE) {
-        return path.isAbsolute(env.WINE)
-            ? env.WINE
-            : resolveFromPath(env.WINE, env.PATH) || env.WINE;
+    const runnerName = parseBottleRunnerName(bottleYml);
+    if (!runnerName) return '';
+
+    const roots: string[] = [];
+    const parent = path.dirname(winePrefix);
+    if (path.basename(parent).toLowerCase() === 'bottles') {
+        roots.push(path.dirname(parent));
+    }
+    for (const key of ['XDG_DATA_HOME', 'HOST_XDG_DATA_HOME']) {
+        if (env[key]) roots.push(path.join(env[key], 'bottles'));
+    }
+    if (env.HOME) {
+        roots.push(path.join(env.HOME, '.var', 'app', 'com.usebottles.bottles', 'data', 'bottles'));
+        roots.push(path.join(env.HOME, '.local', 'share', 'bottles'));
     }
 
-    const wineServer = existingExecutable(env.WINESERVER, env.PATH);
+    const seen = new Set<string>();
+    for (const root of roots) {
+        if (!root || seen.has(root)) continue;
+        seen.add(root);
+        const runnerDir = path.join(root, 'runners', runnerName);
+        for (const candidate of candidateWinePaths(runnerDir)) {
+            if (existingExecutable(candidate, searchPath)) return candidate;
+        }
+    }
+    return '';
+}
+
+function deriveWineFromToolPaths(env: Record<string, string>, searchPath = env.PATH ?? ''): string {
+    const roots = [env.PROTONPATH, env.STEAM_COMPAT_TOOL_PATHS, env.STEAM_COMPAT_MOUNTS]
+        .filter(Boolean)
+        .flatMap((value) => value.split(':'));
+    for (const root of roots) {
+        for (const candidate of candidateWinePaths(root)) {
+            if (existingExecutable(candidate, searchPath)) return candidate;
+        }
+    }
+    return '';
+}
+
+function deriveWineFromProcess(
+    procRoot: string,
+    linuxPid: number,
+    env: Record<string, string>,
+    winePrefix = '',
+    searchPath = env.PATH ?? '',
+): string {
+    // WINELOADER is already the launcher's authoritative path. Keep non-sandbox
+    // paths even when a synthetic/test proc tree points at a path not visible on
+    // disk, while skipping Flatpak-internal /app/ paths when searching host runners.
+    let fallbackEnvLoader = '';
+    for (const value of [env.WINELOADER, env.WINE]) {
+        if (!value) continue;
+        const exec = existingExecutable(value, searchPath);
+        if (exec) return exec;
+        if (!fallbackEnvLoader && !isFlatpakInternalPath(value)) {
+            fallbackEnvLoader = path.isAbsolute(value)
+                ? value
+                : resolveFromPath(value, searchPath) || value;
+        }
+    }
+
+    const wineServer = existingExecutable(env.WINESERVER, searchPath);
     if (wineServer) {
-        const sibling = path.join(path.dirname(wineServer), 'wine');
-        if (existingExecutable(sibling, env.PATH)) return sibling;
+        for (const name of ['wine', 'wine64']) {
+            const sibling = path.join(path.dirname(wineServer), name);
+            if (existingExecutable(sibling, searchPath)) return sibling;
+        }
     }
 
-    const fromTools = deriveWineFromToolPaths(env);
+    const fromTools = deriveWineFromToolPaths(env, searchPath);
     if (fromTools) return fromTools;
+
+    const fromBottles = deriveBottlesRunnerWine(winePrefix, env, searchPath);
+    if (fromBottles) return fromBottles;
 
     // For plain Wine, /proc/<pid>/exe is normally wine-preloader. Its sibling
     // is the launcher users expect (`wine` or `wine64`).
@@ -228,14 +295,14 @@ function deriveWineFromProcess(procRoot: string, linuxPid: number, env: Record<s
     if (image) {
         for (const name of ['wine', 'wine64']) {
             const sibling = path.join(path.dirname(image), name);
-            if (existingExecutable(sibling, env.PATH)) return sibling;
+            if (existingExecutable(sibling, searchPath)) return sibling;
         }
     }
     for (const name of ['wine', 'wine64']) {
-        const found = resolveFromPath(name, env.PATH ?? '');
-        if (existingExecutable(found, env.PATH)) return found;
+        const found = resolveFromPath(name, searchPath);
+        if (existingExecutable(found, searchPath)) return found;
     }
-    return '';
+    return fallbackEnvLoader;
 }
 
 function isUmuCommand(value: string): boolean {
@@ -279,6 +346,24 @@ function deriveUmuFromProcess(procRoot: string, linuxPid: number, env: Record<st
         : '';
 }
 
+function sanitizeFlatpakHostEnv(env: Record<string, string>, hostPath: string): void {
+    if (env.LD_LIBRARY_PATH) {
+        const filtered = env.LD_LIBRARY_PATH
+            .split(':')
+            .filter((entry) => entry && !isFlatpakInternalPath(entry));
+        if (filtered.length > 0) env.LD_LIBRARY_PATH = filtered.join(':');
+        else delete env.LD_LIBRARY_PATH;
+    }
+    const pathEntries = (env.PATH ?? '')
+        .split(':')
+        .filter((entry) => entry && !isFlatpakInternalPath(entry));
+    for (const entry of hostPath.split(':')) {
+        if (entry && !pathEntries.includes(entry)) pathEntries.push(entry);
+    }
+    if (pathEntries.length > 0) env.PATH = pathEntries.join(':');
+    else delete env.PATH;
+}
+
 /**
  * Resolve the environment and Windows launcher for a running Wine/Proton game.
  * `linuxPidOverride` is used by the auto-launcher so it does not race a second
@@ -308,9 +393,16 @@ export function resolveWineLaunch(
     if (!winePrefix && env.STEAM_COMPAT_DATA_PATH) winePrefix = path.join(env.STEAM_COMPAT_DATA_PATH, 'pfx');
     if (winePrefix) env.WINEPREFIX = winePrefix;
 
+    const hostPath = process.env.PATH ?? '';
+    const searchPath = [env.PATH, hostPath].filter(Boolean).join(':');
     const umuRunner = linuxPid > 0 ? deriveUmuFromProcess(procRoot, linuxPid, gameEnv) : '';
-    const launcherPath = umuRunner || deriveWineFromProcess(procRoot, linuxPid, gameEnv);
+    const launcherPath = umuRunner || (linuxPid > 0 ? deriveWineFromProcess(procRoot, linuxPid, gameEnv, winePrefix, searchPath) : '');
     const launcherKind: WineLaunchContext['launcherKind'] = isUmuCommand(launcherPath) ? 'umu' : 'wine';
+    const isFlatpak = Boolean(
+        gameEnv.container === 'flatpak' ||
+        gameEnv.FLATPAK_ID ||
+        winePrefix.replace(/\\/g, '/').includes('/.var/app/'),
+    );
     if (launcherKind === 'umu') {
         // `waitforexitandrun` is correct for a game, but would make the helper
         // wait for the game to exit. UMU uses `run` for sidecar processes.
@@ -319,10 +411,12 @@ export function resolveWineLaunch(
         // ~/.local/share), not Lutris's sandbox XDG_DATA_HOME. Use UMU's folder
         // override to retain that location without copying container=flatpak
         // into a helper GSM starts outside the sandbox.
-        if (!env.UMU_FOLDERS_PATH && (gameEnv.container === 'flatpak' || gameEnv.FLATPAK_ID)) {
+        if (!env.UMU_FOLDERS_PATH && isFlatpak) {
             const dataHome = gameEnv.HOST_XDG_DATA_HOME || (env.HOME ? path.join(env.HOME, '.local', 'share') : '');
             if (dataHome) env.UMU_FOLDERS_PATH = dataHome;
         }
+    } else if (isFlatpak) {
+        sanitizeFlatpakHostEnv(env, hostPath);
     }
     return { linuxPid, winePrefix, launcherPath, launcherKind, env };
 }

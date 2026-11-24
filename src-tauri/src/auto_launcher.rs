@@ -11,9 +11,9 @@ use crate::process_probe::{
     find_primary_pid_by_exe, pe_bitness, process_executable_path, window_title_for_pid,
 };
 use crate::settings_tools::{
-    find_scene_launch_profile, get_game_exe_path_for_scene, read_game_settings,
-    read_scene_profiles, resolve_agent_scripts_dir, set_game_exe_path_for_scene,
-    SceneLaunchProfile,
+    find_scene_launch_profile, get_game_exe_path_for_scene, prepare_agent_scripts_dir,
+    read_game_settings, read_scene_profiles, resolve_agent_scripts_dir,
+    set_game_exe_path_for_scene, SceneLaunchProfile,
 };
 use crate::texthook_coordinator::{self, TexthookCoordinator};
 use gsm_settings::preferences::Preferences;
@@ -647,7 +647,11 @@ async fn run_texthook_automation_step(
 
     // Persist discovered executable path cleanly for future restarts if missing
     if let Some(exe_path) = process_executable_path(pid) {
-        if get_game_exe_path_for_scene(prefs, scene_name).is_empty() {
+        let is_wine_launcher = exe_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| crate::linux_wine::is_launcher_comm(&n.to_ascii_lowercase()));
+        if !is_wine_launcher && get_game_exe_path_for_scene(prefs, scene_name).is_empty() {
             let _ = set_game_exe_path_for_scene(prefs, scene_name, &exe_path.to_string_lossy());
         }
     }
@@ -696,7 +700,15 @@ async fn run_texthook_automation_step(
     });
 
     if engine == "agent" {
-        let scripts_dir = resolve_agent_scripts_dir(prefs, &paths.active, None);
+        let scripts_dir = {
+            let active_dir = paths.active.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let prefs = Preferences::new(&active_dir);
+                prepare_agent_scripts_dir(&prefs, &active_dir, None).dir
+            })
+            .await
+            .unwrap_or_else(|_| resolve_agent_scripts_dir(prefs, &paths.active, None))
+        };
         let saved_script = (saved["engine"] == "agent" && saved["autoHook"] == true)
             .then(|| saved["agentScriptPath"].as_str())
             .flatten();

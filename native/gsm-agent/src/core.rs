@@ -362,21 +362,29 @@ impl Core {
             return Err("Select a valid Agent script before starting.".into());
         }
         let root = PathBuf::from(options["root"].as_str().unwrap_or("."));
-        let loader = [
-            script.parent().unwrap().join("libLoader.js"),
-            root.join(".agent_scripts/libLoader.js"),
-        ]
-        .into_iter()
-        .find(|p| p.is_file())
-        .ok_or("Agent loader missing. Expected libLoader.js next to the script.")?;
-        options["scriptPath"] = json!(script);
-        let storage = PathBuf::from(
+        let base_dir = PathBuf::from(
             options["baseDir"]
                 .as_str()
                 .ok_or("Missing Agent data directory")?,
-        )
-        .join("texthook/agent-storage")
-        .join(format!("{}.json", safe_name(&script)));
+        );
+        let mut loader_candidates = vec![script.parent().unwrap().join("libLoader.js")];
+        if let Some(scripts_dir) = options["agentScriptsPath"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            loader_candidates.push(PathBuf::from(scripts_dir).join("libLoader.js"));
+        }
+        loader_candidates.push(base_dir.join("agent-scripts/scripts/libLoader.js"));
+        loader_candidates.push(root.join(".agent_scripts/libLoader.js"));
+        let loader = loader_candidates
+            .into_iter()
+            .find(|p| p.is_file())
+            .ok_or("Agent loader missing. Expected libLoader.js next to the script.")?;
+        options["scriptPath"] = json!(script);
+        let storage = base_dir
+            .join("texthook/agent-storage")
+            .join(format!("{}.json", safe_name(&script)));
         let local = fs::read(storage)
             .ok()
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())

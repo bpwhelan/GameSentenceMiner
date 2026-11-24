@@ -702,6 +702,22 @@ fn apply_saved_hook_options(mut options: Value, profile: &Value) -> Value {
     options
 }
 
+pub fn needs_agent_loader_download(
+    script_path: &Path,
+    configured_scripts_dir: Option<&Path>,
+    active_dir: &Path,
+) -> bool {
+    let sibling = script_path
+        .parent()
+        .is_some_and(|p| p.join("libLoader.js").is_file());
+    let configured = configured_scripts_dir.is_some_and(|p| p.join("libLoader.js").is_file());
+    let managed = gsm_packages::scripts::Scripts::new(active_dir)
+        .directory()
+        .join("libLoader.js")
+        .is_file();
+    !sibling && !configured && !managed
+}
+
 pub async fn start_session(
     app: &AppHandle,
     options: Value,
@@ -713,7 +729,8 @@ pub async fn start_session(
         .filter(|s| !s.is_empty())
         .unwrap_or("textractor")
         .to_ascii_lowercase();
-    let exe_name = options["exeName"]
+    #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+    let mut exe_name = options["exeName"]
         .as_str()
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -724,11 +741,113 @@ pub async fn start_session(
         .filter(|s| !s.is_empty())
         .map(str::to_owned);
 
-    let pid = match options["pid"]
+    let paths = paths_for(app);
+    let explicit_pid = options["pid"]
         .as_u64()
         .and_then(|p| u32::try_from(p).ok())
-        .filter(|&p| p > 0)
-    {
+        .filter(|&p| p > 0);
+
+    #[cfg(target_os = "linux")]
+    let (pid, wine_launch, linux_arch) = {
+        let active_scene_name = if let Some(obs) = app.try_state::<crate::obs::Obs>() {
+            obs.invoke(app, "obs.getActiveScene", &[])
+                .await
+                .ok()
+                .and_then(|v| v["name"].as_str().map(str::to_owned))
+        } else {
+            None
+        };
+        let configured_exe = active_scene_name
+            .as_deref()
+            .map(|name| {
+                get_game_exe_path_for_scene(&Preferences::new(&paths.active), name)
+            })
+            .unwrap_or_default();
+        let effective_exe_path = if !configured_exe.trim().is_empty() {
+            configured_exe
+        } else {
+            exe_name.clone().unwrap_or_default()
+        };
+        if effective_exe_path.is_empty() && explicit_pid.is_none() {
+            return Err(
+                "Set the game executable for this scene first (Home tab → Game executable)."
+                    .into(),
+            );
+        }
+        if exe_name.is_none() && !effective_exe_path.is_empty() {
+            let derived = effective_exe_path
+                .trim()
+                .trim_matches('"')
+                .rsplit(['/', '\\'])
+                .next()
+                .unwrap_or("")
+                .trim();
+            if !derived.is_empty() {
+                exe_name = Some(derived.to_owned());
+            }
+        }
+        let target_for_wine = effective_exe_path.clone();
+        let wine_launch = tokio::task::spawn_blocking(move || {
+            crate::linux_wine::resolve_wine_launch(
+                &target_for_wine,
+                Path::new("/proc"),
+                std::process::id(),
+                explicit_pid,
+            )
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        if wine_launch.linux_pid == 0 {
+            let display = exe_name.as_deref().unwrap_or(&effective_exe_path);
+            return Err(format!(
+                "Could not find a running process for \"{display}\". Is the game running?"
+            ));
+        }
+        if let Some(reason) = &wine_launch.sandbox_blocked_reason {
+            return Err(reason.clone());
+        }
+        if wine_launch.launcher_path.is_empty() {
+            return Err(if let Some(id) = wine_launch.flatpak_id.as_deref() {
+                format!(
+                    "Could not resolve a Wine/Proton launcher on the host for this game inside Flatpak ({id})."
+                )
+            } else {
+                "Could not resolve the Wine/Proton launcher for this game. Check the running game environment and Wine installation.".into()
+            });
+        }
+        let resolved_exe_disk =
+            crate::linux_wine::resolve_wine_drive_path(&effective_exe_path, &wine_launch.wine_prefix);
+        let linux_arch = if pe_bitness(&resolved_exe_disk) == "x86" {
+            "x86"
+        } else {
+            "x64"
+        };
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        emit_to_desktop_windows(
+            app,
+            "texthook.log",
+            &[json!({
+                "level": "info",
+                "message": format!(
+                    "[rust:texthook-coordinator] Linux Wine target: PID {}, prefix={}, launcher={} ({}) for {} ({}).",
+                    wine_launch.linux_pid,
+                    if wine_launch.wine_prefix.is_empty() { "(unknown)" } else { &wine_launch.wine_prefix },
+                    wine_launch.launcher_path,
+                    wine_launch.launcher_kind.as_str(),
+                    exe_name.as_deref().unwrap_or("game"),
+                    linux_arch
+                ),
+                "ts": ts,
+            })],
+        );
+        (wine_launch.linux_pid, Some(wine_launch), linux_arch)
+    };
+
+    #[cfg(not(target_os = "linux"))]
+    let pid = match explicit_pid {
         Some(p) => p,
         None => {
             let exe = exe_name.as_deref().ok_or_else(|| {
@@ -739,7 +858,6 @@ pub async fn start_session(
         }
     };
 
-    let paths = paths_for(app);
     let profile =
         Profiles::new(&paths.active).get(exe_name.as_deref().unwrap_or(""), scene_id.as_deref())?;
     let mut options = options;
@@ -791,6 +909,47 @@ pub async fn start_session(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| "Agent mode requires selecting an Agent script.".to_owned())?;
+        let configured_scripts_str = Preferences::new(&paths.active)
+            .get("agentScriptsPath")
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned));
+        if needs_agent_loader_download(
+            Path::new(script_path),
+            configured_scripts_str.as_deref().map(Path::new),
+            &paths.active,
+        ) {
+            emit_to_desktop_windows(
+                app,
+                "texthook.engineDownloadStarted",
+                &[json!({ "engine": "agent" })],
+            );
+            let active_dir = paths.active.clone();
+            let prepared = tokio::task::spawn_blocking(move || {
+                let prefs = Preferences::new(&active_dir);
+                crate::settings_tools::prepare_agent_scripts_dir(&prefs, &active_dir, None)
+            })
+            .await;
+            let (ok, err_val) = match &prepared {
+                Ok(p) if p.dir.join("libLoader.js").is_file() => (true, Value::Null),
+                Ok(p) => (
+                    false,
+                    json!(p
+                        .warning
+                        .clone()
+                        .unwrap_or_else(|| "Agent loader missing.".to_owned())),
+                ),
+                Err(e) => (false, json!(e.to_string())),
+            };
+            emit_to_desktop_windows(
+                app,
+                "texthook.engineDownloadComplete",
+                &[json!({ "success": ok, "error": err_val })],
+            );
+        }
+        #[cfg(target_os = "linux")]
+        let arch = linux_arch;
+        #[cfg(not(target_os = "linux"))]
         let arch = process_executable_path(pid)
             .map(|p| pe_bitness(&p))
             .filter(|&b| b == "x86" || b == "x64")
@@ -801,47 +960,141 @@ pub async fn start_session(
             .flatten()
             .and_then(|v| v.as_str().map(str::trim).map(str::to_owned))
             .unwrap_or_default();
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut agent_params = json!({
+            "baseDir": paths.active,
+            "pid": pid,
+            "exeName": resolved_exe,
+            "arch": arch,
+            "scriptPath": script_path,
+            "agentScriptsPath": configured_scripts_str,
+            "agentPath": agent_path,
+            "sceneId": scene_id,
+            "source": source,
+            "flushDelayMs": flush_delay,
+            "copyToClipboard": copy_to_clipboard,
+            "maxBufferSize": max_buffer,
+            "detached": options["agentDetached"].as_bool().unwrap_or(cfg!(windows)),
+        });
+        #[cfg(target_os = "linux")]
+        if let Some(ref launch) = wine_launch {
+            agent_params["wineLaunch"] = launch.to_json();
+        }
         let start_params = json!({
             "action": "start",
-            "params": {
-                "baseDir": paths.active,
-                "pid": pid,
-                "exeName": resolved_exe,
-                "arch": arch,
-                "scriptPath": script_path,
-                "agentScriptsPath": Preferences::new(&paths.active).get("agentScriptsPath").ok().flatten().and_then(|v| v.as_str().map(str::to_owned)),
-                "agentPath": agent_path,
-                "sceneId": scene_id,
-                "source": source,
-                "flushDelayMs": flush_delay,
-                "copyToClipboard": copy_to_clipboard,
-                "maxBufferSize": max_buffer,
-                "detached": options["agentDetached"].as_bool().unwrap_or(cfg!(windows)),
-            }
+            "params": agent_params,
         });
         crate::agent::dispatch(app, start_params).await
     } else if matches!(engine.as_str(), "textractor" | "luna") {
-        let (arch, cli_path) = resolve_cli_for_pid(&paths.shared, &engine, pid);
-        let cli_path = cli_path.ok_or_else(|| {
-            format!("Hook engine ({engine} {arch}) is not installed. Download hook engines from the TextHook tab.")
-        })?;
+        let engines = gsm_packages::engines::Engines::new(&paths.shared);
+        #[cfg(target_os = "linux")]
+        let (mut arch, mut cli_path) = {
+            let preferred = if linux_arch == "x86" { "x86" } else { "x64" };
+            let primary = engine_cli_path(&paths.shared, &engine, preferred);
+            let found = if primary.is_file() {
+                Some(primary)
+            } else {
+                let alt_arch = if preferred == "x64" { "x86" } else { "x64" };
+                let alt = engine_cli_path(&paths.shared, &engine, alt_arch);
+                alt.is_file().then_some(alt)
+            };
+            (preferred.to_owned(), found)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let (mut arch, mut cli_path) = resolve_cli_for_pid(&paths.shared, &engine, pid);
+
+        if !engines.installed() || cli_path.is_none() {
+            emit_to_desktop_windows(
+                app,
+                "texthook.engineDownloadStarted",
+                &[json!({ "engine": engine })],
+            );
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64;
+            emit_to_desktop_windows(
+                app,
+                "texthook.log",
+                &[json!({
+                    "level": "info",
+                    "message": "[rust:texthook-coordinator] Downloading hook engines on demand…",
+                    "ts": ts,
+                })],
+            );
+            let ensure_res = crate::hook_updates::dispatch(app, "ensure", Value::Null).await;
+            match ensure_res {
+                Ok(_) => {
+                    emit_to_desktop_windows(
+                        app,
+                        "texthook.engineDownloadComplete",
+                        &[json!({ "success": true })],
+                    );
+                }
+                Err(err) => {
+                    emit_to_desktop_windows(
+                        app,
+                        "texthook.engineDownloadComplete",
+                        &[json!({ "success": false, "error": err })],
+                    );
+                    return Err(format!("Hook engine download failed: {err}"));
+                }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                let primary = engine_cli_path(&paths.shared, &engine, &arch);
+                cli_path = if primary.is_file() {
+                    Some(primary)
+                } else {
+                    let alt_arch = if arch == "x64" { "x86" } else { "x64" };
+                    let alt = engine_cli_path(&paths.shared, &engine, alt_arch);
+                    if alt.is_file() {
+                        arch = alt_arch.to_owned();
+                        Some(alt)
+                    } else {
+                        None
+                    }
+                };
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                (arch, cli_path) = resolve_cli_for_pid(&paths.shared, &engine, pid);
+            }
+        }
+        let cli_path = cli_path
+            .ok_or_else(|| "Hook engine binary still missing after download.".to_owned())?;
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut hook_params = json!({
+            "engine": engine,
+            "arch": arch,
+            "pid": pid,
+            "exeName": resolved_exe,
+            "sceneId": scene_id,
+            "source": source,
+            "cliPath": cli_path,
+            "cliPaths": {
+                "x86": engine_cli_path(&paths.shared, &engine, "x86"),
+                "x64": engine_cli_path(&paths.shared, &engine, "x64"),
+            },
+            "baseDir": paths.active,
+            "flushDelayMs": flush_delay,
+            "copyToClipboard": copy_to_clipboard,
+            "maxBufferSize": max_buffer,
+            "manualHookCode": options["manualHookCode"],
+            "autoSelectHookId": options["autoSelectHookId"],
+            "autoSelectHookFunction": options["autoSelectHookFunction"],
+            "autoSelectProcessorOverrides": options["autoSelectProcessorOverrides"],
+            "architectureFallbackAttempted": options["architectureFallbackAttempted"] == true,
+        });
+        #[cfg(target_os = "linux")]
+        if let Some(ref launch) = wine_launch {
+            hook_params["launcherPath"] = json!(launch.launcher_path);
+            hook_params["env"] = json!(launch.env);
+            hook_params["wineLaunch"] = launch.to_json();
+        }
         let start_params = json!({
             "action": "start",
-            "params": {
-                "engine": engine,
-                "pid": pid,
-                "exeName": resolved_exe,
-                "sceneId": scene_id,
-                "source": source,
-                "cliPath": cli_path,
-                "flushDelayMs": flush_delay,
-                "copyToClipboard": copy_to_clipboard,
-                "maxBufferSize": max_buffer,
-                "manualHookCode": options["manualHookCode"],
-                "autoSelectHookId": options["autoSelectHookId"],
-                "autoSelectHookFunction": options["autoSelectHookFunction"],
-                "autoSelectProcessorOverrides": options["autoSelectProcessorOverrides"],
-            }
+            "params": hook_params,
         });
         crate::texthook::dispatch(app, start_params).await
     } else {
@@ -886,10 +1139,20 @@ pub async fn start_session(
                 .as_str()
                 .unwrap_or("Failed to start text hook session")
                 .to_owned();
+            #[cfg(target_os = "linux")]
+            let err = wine_launch
+                .as_ref()
+                .map(|launch| crate::linux_wine::enrich_flatpak_wine_error(launch, &err))
+                .unwrap_or(err);
             Err(err)
         }
         Err(err) => {
             crate::game_privileges::set_target(app, "texthook", None);
+            #[cfg(target_os = "linux")]
+            let err = wine_launch
+                .as_ref()
+                .map(|launch| crate::linux_wine::enrich_flatpak_wine_error(launch, &err))
+                .unwrap_or(err);
             Err(err)
         }
     }
@@ -1169,36 +1432,101 @@ async fn try_invoke_inner(
             } else {
                 None
             };
-            let (scene_id, title, exe) = match capture {
+            #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+            let (mut scene_id, title, mut exe) = match capture {
                 Some((id, title, exe)) => (Some(id), Some(title), Some(exe)),
                 None => (None, None, None),
             };
-            let exe_name = exe.as_deref().unwrap_or("");
-            let pid = if !exe_name.is_empty() {
-                find_primary_pid_by_exe(exe_name)
+            let active_scene_obj = if let Some(ref obs) = obs_state {
+                obs.invoke(app, "obs.getActiveScene", &[]).await.ok()
             } else {
                 None
             };
-            let active_scene_name = if let Some(ref obs) = obs_state {
-                obs.invoke(app, "obs.getActiveScene", &[])
-                    .await
-                    .ok()
-                    .and_then(|v| v["name"].as_str().map(str::to_owned))
-            } else {
-                None
-            };
+            if scene_id.is_none() {
+                scene_id = active_scene_obj
+                    .as_ref()
+                    .and_then(|v| v["id"].as_str())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned);
+            }
+            let active_scene_name = active_scene_obj
+                .as_ref()
+                .and_then(|v| v["name"].as_str())
+                .map(str::to_owned);
             let configured_exe = active_scene_name
                 .as_deref()
                 .map(|name| {
                     get_game_exe_path_for_scene(&Preferences::new(&paths_for(app).active), name)
                 })
                 .unwrap_or_default();
+            #[cfg(target_os = "linux")]
+            let (pid, arch) = {
+                if exe.as_deref().is_none_or(|s| s.trim().is_empty())
+                    && !configured_exe.trim().is_empty()
+                {
+                    let base = configured_exe
+                        .trim()
+                        .trim_matches('"')
+                        .rsplit(['/', '\\'])
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    if !base.is_empty() {
+                        exe = Some(base.to_owned());
+                    }
+                }
+                let lookup_target = if !configured_exe.trim().is_empty() {
+                    configured_exe.clone()
+                } else {
+                    exe.clone().unwrap_or_default()
+                };
+                if lookup_target.is_empty() {
+                    (None, None)
+                } else {
+                    tokio::task::spawn_blocking(move || {
+                        let ctx = crate::linux_wine::resolve_wine_launch(
+                            &lookup_target,
+                            Path::new("/proc"),
+                            std::process::id(),
+                            None,
+                        );
+                        if ctx.linux_pid == 0 {
+                            (None, None)
+                        } else {
+                            let resolved = crate::linux_wine::resolve_wine_drive_path(
+                                &lookup_target,
+                                &ctx.wine_prefix,
+                            );
+                            let bitness = match pe_bitness(&resolved) {
+                                "x86" => Some("x86".to_owned()),
+                                "x64" => Some("x64".to_owned()),
+                                _ => None,
+                            };
+                            (Some(ctx.linux_pid), bitness)
+                        }
+                    })
+                    .await
+                    .unwrap_or((None, None))
+                }
+            };
+            #[cfg(not(target_os = "linux"))]
+            let (pid, arch): (Option<u32>, Option<String>) = {
+                let exe_name = exe.as_deref().unwrap_or("");
+                let pid = if !exe_name.is_empty() {
+                    find_primary_pid_by_exe(exe_name)
+                } else {
+                    None
+                };
+                (pid, None)
+            };
             Ok(json!({
                 "sceneId": scene_id,
                 "sceneName": active_scene_name,
                 "windowTitle": title,
                 "exeName": exe,
                 "pid": pid,
+                "arch": arch,
                 "gameExePath": configured_exe,
             }))
         }
@@ -1791,5 +2119,33 @@ mod tests {
         assert_eq!(load_max_buffer_size(&cfg), 4567);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn needs_agent_loader_download_checks_sibling_configured_and_managed_loaders() {
+        let dir = tempfile::tempdir().unwrap();
+        let active = dir.path().join("active");
+        let custom = dir.path().join("custom");
+        let standalone = dir.path().join("standalone");
+        std::fs::create_dir_all(&active).unwrap();
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::create_dir_all(&standalone).unwrap();
+        let script = standalone.join("Game.js");
+        std::fs::write(&script, b"// script").unwrap();
+
+        assert!(needs_agent_loader_download(&script, Some(&custom), &active));
+
+        let managed_dir = gsm_packages::scripts::Scripts::new(&active).directory();
+        std::fs::create_dir_all(&managed_dir).unwrap();
+        std::fs::write(managed_dir.join("libLoader.js"), b"// managed").unwrap();
+        assert!(!needs_agent_loader_download(&script, None, &active));
+
+        std::fs::remove_file(managed_dir.join("libLoader.js")).unwrap();
+        std::fs::write(custom.join("libLoader.js"), b"// custom").unwrap();
+        assert!(!needs_agent_loader_download(&script, Some(&custom), &active));
+
+        std::fs::remove_file(custom.join("libLoader.js")).unwrap();
+        std::fs::write(standalone.join("libLoader.js"), b"// sibling").unwrap();
+        assert!(!needs_agent_loader_download(&script, None, &active));
     }
 }

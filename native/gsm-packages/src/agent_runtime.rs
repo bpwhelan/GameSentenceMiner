@@ -151,6 +151,17 @@ impl AgentRuntime {
             root: shared.join("texthook/frida"),
         }
     }
+    pub fn is_cached(&self, manifest: &Manifest) -> bool {
+        if manifest.validate().is_err() {
+            return false;
+        }
+        let destination = self
+            .root
+            .join(&manifest.frida_version)
+            .join(&manifest.platform)
+            .join(&manifest.archive.sha256);
+        manifest.verify(&destination).is_ok()
+    }
     /// Development/offline staging follows exactly the same verification and
     /// shared-cache path, without requiring an unpublished build on GitHub.
     pub fn ensure_from_archive(&self, manifest: &Manifest, archive: &Path) -> Result<PathBuf> {
@@ -295,10 +306,14 @@ mod tests {
                 })
                 .unwrap()
         };
+        assert!(!runtime.is_cached(&manifest));
         let executable = install();
+        assert!(runtime.is_cached(&manifest));
         assert!(executable.starts_with(dir.path().join("texthook/frida")));
         fs::write(&executable, b"corrupt").unwrap();
+        assert!(!runtime.is_cached(&manifest));
         assert_eq!(install(), executable);
+        assert!(runtime.is_cached(&manifest));
         manifest.archive.url = manifest.archive.url.replace("v2026.11.0/", "v2026.12.0/");
         assert_eq!(
             runtime

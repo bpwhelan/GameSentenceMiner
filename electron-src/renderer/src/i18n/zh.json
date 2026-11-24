@@ -1440,6 +1440,7 @@
     },
     "agent": {
       "search": "搜索脚本",
+      "searching": "正在准备脚本…",
       "browse": "选择文件…"
     },
     "profile": {

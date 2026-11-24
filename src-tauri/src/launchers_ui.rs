@@ -8,7 +8,7 @@ use crate::desktop_state::emit_to_desktop_windows;
 use crate::native::dialog_open;
 use crate::obs::Obs;
 use crate::ocr_coordinator::ocr_config_paths;
-use crate::settings_tools::resolve_agent_scripts_dir;
+use crate::settings_tools::prepare_agent_scripts_dir;
 use crate::texthook_coordinator;
 use gsm_settings::preferences::Preferences;
 use serde_json::{json, Map, Value};
@@ -285,7 +285,6 @@ async fn launch_yuzu_game_by_id(
     should_launch_agent: bool,
 ) -> Result<(), String> {
     let paths = paths_for(app);
-    let prefs = Preferences::new(&paths.active);
     let store = read_store_object(app);
     let roms_path = store["yuzu"]["romsPath"].as_str().unwrap_or("");
     let emu_path = store["yuzu"]["emuPath"].as_str().unwrap_or("");
@@ -303,9 +302,16 @@ async fn launch_yuzu_game_by_id(
         Path::new(emu_path).parent(),
     )?;
     if should_launch_agent {
-        let scripts_dir = resolve_agent_scripts_dir(&prefs, &paths.active, None);
-        let files = list_agent_script_files(&scripts_dir);
-        let script = find_agent_script_by_id(&files, game_id).unwrap_or_default();
+        let active_dir = paths.active.clone();
+        let game_id_owned = game_id.to_owned();
+        let script = tauri::async_runtime::spawn_blocking(move || {
+            let prefs = Preferences::new(&active_dir);
+            let scripts_dir = prepare_agent_scripts_dir(&prefs, &active_dir, None).dir;
+            let files = list_agent_script_files(&scripts_dir);
+            find_agent_script_by_id(&files, &game_id_owned).unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default();
         let app_clone = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(Duration::from_secs(3)).await;
@@ -599,15 +605,21 @@ pub async fn try_invoke(
             Some(Ok(res))
         }
         "steam.getAgentScriptPath" => {
-            let game_name = args.first().and_then(Value::as_str).unwrap_or("");
+            let game_name = args.first().and_then(Value::as_str).unwrap_or("").to_owned();
             let paths = paths_for(app);
-            let prefs = Preferences::new(&paths.active);
-            let scripts_dir = resolve_agent_scripts_dir(&prefs, &paths.active, None);
-            let files = list_agent_script_files(&scripts_dir);
+            let active_dir = paths.active.clone();
+            let (scripts_dir, files) = tauri::async_runtime::spawn_blocking(move || {
+                let prefs = Preferences::new(&active_dir);
+                let scripts_dir = prepare_agent_scripts_dir(&prefs, &active_dir, None).dir;
+                let files = list_agent_script_files(&scripts_dir);
+                (scripts_dir, files)
+            })
+            .await
+            .unwrap_or_default();
             let mut best_path: Option<String> = None;
             let mut best_score = 1.0_f64;
             for f in files {
-                let s = score_script_for_query(game_name, &f);
+                let s = score_script_for_query(&game_name, &f);
                 if s < best_score
                     || (s == best_score && best_path.as_deref().is_some_and(|p| f.as_str() < p))
                 {

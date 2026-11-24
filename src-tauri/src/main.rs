@@ -33,6 +33,7 @@ mod hook_updates;
 mod input_server;
 mod install_session;
 mod launchers_ui;
+mod linux_wine;
 mod mining;
 mod mining_settings;
 mod mining_workspace;

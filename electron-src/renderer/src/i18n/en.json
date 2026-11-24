@@ -2835,6 +2835,7 @@
       "scriptPath": "Script path:",
       "scriptPlaceholder": "Select a .js Agent script",
       "search": "Search scripts",
+      "searching": "Preparing scripts…",
       "browse": "Choose file…",
       "save": "Save",
       "noScripts": "No Agent scripts were found.",

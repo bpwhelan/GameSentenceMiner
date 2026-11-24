@@ -553,3 +553,34 @@ fn interrupted_agent_directory_switch_restores_original_before_update() {
     assert!(!scripts.directory().join("game.js").exists());
     assert!(!scripts.root.join("transaction.json").exists());
 }
+
+#[test]
+fn ensure_installed_downloads_missing_engines_and_waits_for_concurrent_operations() {
+    use gsm_packages::updates::Updater;
+    use gsm_settings::preferences::Preferences;
+    let dir = tempfile::tempdir().unwrap();
+    let server = engine_server(false);
+    let mut engines = Engines::new(dir.path());
+    engines.base_url = server.url.clone();
+    let updater = Updater::new(engines.clone(), Preferences::new(dir.path()), || false, |_| {});
+
+    let check_rx = updater.spawn("check".into(), json!(null));
+    let mut handles = Vec::new();
+    for _ in 0..3 {
+        let u = updater.clone();
+        handles.push(std::thread::spawn(move || u.ensure_installed()));
+    }
+    let _ = check_rx
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    for h in handles {
+        let res = h.join().unwrap().unwrap();
+        assert_eq!(res["success"], true);
+    }
+    assert!(engines.installed());
+    assert_eq!(engines.local_status()["version"], "2.0.0");
+
+    // Once installed, ensure_installed succeeds without requiring the server.
+    drop(server);
+    assert_eq!(updater.ensure_installed().unwrap()["success"], true);
+}

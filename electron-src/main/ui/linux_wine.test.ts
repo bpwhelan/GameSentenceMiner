@@ -350,4 +350,30 @@ describe('resolveWineLaunch', () => {
             launcherKind: 'wine',
         });
     });
+
+    it('resolves a Bottles runner from bottle.yml and strips Flatpak /app/ paths from host env', () => {
+        const procRoot = makeProcRoot();
+        const bottlesData = path.join(procRoot, 'home', '.var', 'app', 'com.usebottles.bottles', 'data', 'bottles');
+        const prefix = path.join(bottlesData, 'bottles', 'VisualNovels');
+        fs.mkdirSync(prefix, { recursive: true });
+        fs.writeFileSync(path.join(prefix, 'bottle.yml'), 'Name: VisualNovels\nRunner: soda-9.0-1\n');
+        const runnerWine = writeExecutable(path.join(bottlesData, 'runners', 'soda-9.0-1', 'bin', 'wine'));
+        writeProcEntry(procRoot, 995, {
+            comm: 'vn.exe',
+            environ: {
+                WINEPREFIX: prefix,
+                WINELOADER: '/app/bin/wine',
+                PATH: '/app/bin:/usr/bin',
+                LD_LIBRARY_PATH: '/app/lib:/usr/lib/extensions/vulkan/lib:/usr/lib64',
+                FLATPAK_ID: 'com.usebottles.bottles',
+                container: 'flatpak',
+            },
+        });
+
+        const ctx = resolveWineLaunch('vn.exe', procRoot, 1);
+        expect(ctx.launcherPath).toBe(runnerWine);
+        expect(ctx.launcherKind).toBe('wine');
+        expect(ctx.env.LD_LIBRARY_PATH).toBe('/usr/lib64');
+        expect(ctx.env.PATH).not.toContain('/app/bin');
+    });
 });

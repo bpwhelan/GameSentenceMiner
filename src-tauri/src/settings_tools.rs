@@ -342,6 +342,61 @@ pub fn set_game_exe_path_for_scene(
     write_scene_profiles(prefs, &profiles)
 }
 
+pub struct PreparedAgentScripts {
+    pub dir: PathBuf,
+    pub warning: Option<String>,
+}
+
+fn paths_match(left: &Path, right: &Path) -> bool {
+    let normalize = |p: &Path| {
+        let resolved = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        let raw = resolved.to_string_lossy().replace('\\', "/");
+        if cfg!(windows) {
+            raw.to_lowercase()
+        } else {
+            raw
+        }
+    };
+    normalize(left) == normalize(right)
+}
+
+pub fn prepare_agent_scripts_dir_with(
+    prefs: &Preferences,
+    active_dir: &Path,
+    override_hint: Option<&str>,
+    ensure_managed: impl FnOnce() -> Result<Value, String>,
+) -> PreparedAgentScripts {
+    let dir = resolve_agent_scripts_dir(prefs, active_dir, override_hint);
+    let managed_dir = Scripts::new(active_dir).directory();
+    let is_managed = paths_match(&dir, &managed_dir);
+    let has_scripts = !crate::agent_scripts::list_agent_script_files(&dir).is_empty();
+    if !is_managed && has_scripts {
+        return PreparedAgentScripts { dir, warning: None };
+    }
+    match ensure_managed() {
+        Ok(status) => PreparedAgentScripts {
+            dir: managed_dir,
+            warning: status["warning"].as_str().map(str::to_owned),
+        },
+        Err(err) => PreparedAgentScripts {
+            dir,
+            warning: Some(format!(
+                "Failed to download Agent scripts from 0xDC00/scripts: {err}"
+            )),
+        },
+    }
+}
+
+pub fn prepare_agent_scripts_dir(
+    prefs: &Preferences,
+    active_dir: &Path,
+    override_hint: Option<&str>,
+) -> PreparedAgentScripts {
+    prepare_agent_scripts_dir_with(prefs, active_dir, override_hint, || {
+        Scripts::new(active_dir).ensure(false)
+    })
+}
+
 pub fn resolve_agent_scripts_dir(
     prefs: &Preferences,
     active_dir: &Path,
@@ -1048,17 +1103,31 @@ pub async fn handle_ipc(
                 .map(str::to_owned);
             tokio::task::spawn_blocking(move || -> Result<Value, String> {
                 let prefs = Preferences::new(&paths.active);
-                let dir = resolve_agent_scripts_dir(
+                let prepared = prepare_agent_scripts_dir(
                     &prefs,
                     &paths.active,
                     override_path.as_deref(),
                 );
-                let scripts = crate::agent_scripts::list_agent_script_files(&dir);
-                Ok(json!({
+                let scripts = crate::agent_scripts::list_agent_script_files(&prepared.dir);
+                if scripts.is_empty() {
+                    return Ok(json!({
+                        "status": "empty",
+                        "path": prepared.dir.to_string_lossy(),
+                        "scripts": [],
+                        "message": prepared.warning.unwrap_or_else(|| {
+                            format!("No scripts found in {}.", prepared.dir.display())
+                        }),
+                    }));
+                }
+                let mut payload = json!({
                     "status": "success",
-                    "path": dir.to_string_lossy(),
+                    "path": prepared.dir.to_string_lossy(),
                     "scripts": scripts,
-                }))
+                });
+                if let Some(warning) = prepared.warning {
+                    payload["warning"] = json!(warning);
+                }
+                Ok(payload)
             })
             .await
             .map_err(|e| e.to_string())?
@@ -1121,11 +1190,12 @@ pub async fn handle_ipc(
                         }
                     }
                 }
-                let dir = resolve_agent_scripts_dir(
+                let dir = prepare_agent_scripts_dir(
                     &prefs,
                     &paths.active,
                     scripts_override.as_deref(),
-                );
+                )
+                .dir;
                 let result = crate::agent_scripts::resolve_agent_script(
                     &crate::agent_scripts::ResolveAgentScriptInput {
                         scripts_path: dir.to_string_lossy().into_owned(),
@@ -1202,13 +1272,28 @@ pub async fn handle_ipc(
                 .first()
                 .and_then(|v| v.as_str().or_else(|| v.get("path").and_then(Value::as_str)))
                 .map(str::to_owned);
+            let p = paths.clone();
+            let initial = tokio::task::spawn_blocking(move || {
+                if let Some(ref raw) = hint {
+                    let trimmed = raw.trim();
+                    if !trimmed.is_empty() && Path::new(trimmed).exists() {
+                        return trimmed.to_owned();
+                    }
+                }
+                prepare_agent_scripts_dir(&Preferences::new(&p.active), &p.active, hint.as_deref())
+                    .dir
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .await
+            .map_err(|e| e.to_string())?;
             pick_and_optionally_save_path(
                 app,
                 None,
                 "Select Agent Script",
                 false,
                 vec![json!({ "name": "Agent Scripts", "extensions": ["js", "mjs", "cjs"] })],
-                hint.as_deref(),
+                Some(&initial),
             )
             .await
         }
@@ -1337,5 +1422,58 @@ mod tests {
             update_saved_extensions_content(Some(SAVED_EXTENSIONS_PIPELINE_X64), "textractor_websocket_x64"),
             SAVED_EXTENSIONS_PIPELINE_X64
         );
+    }
+
+    #[test]
+    fn prepare_agent_scripts_downloads_when_managed_or_missing_and_skips_populated_custom_dir() {
+        let dir = tempdir().unwrap();
+        let prefs = Preferences::new(dir.path());
+        let custom_dir = dir.path().join("custom-scripts");
+        std::fs::create_dir_all(&custom_dir).unwrap();
+        std::fs::write(custom_dir.join("PC_Custom_Game.js"), b"// script").unwrap();
+        save_game_settings(
+            &prefs,
+            &json!({ "agentScriptsPath": custom_dir.to_string_lossy() }),
+        )
+        .unwrap();
+
+        let mut called = 0usize;
+        let custom_res = prepare_agent_scripts_dir_with(&prefs, dir.path(), None, || {
+            called += 1;
+            Ok(json!({ "installed": true }))
+        });
+        assert_eq!(called, 0);
+        assert_eq!(custom_res.dir, custom_dir);
+        assert!(custom_res.warning.is_none());
+
+        // An empty custom directory falls back to preparing the managed scripts library.
+        let empty_custom = dir.path().join("empty-scripts");
+        std::fs::create_dir_all(&empty_custom).unwrap();
+        save_game_settings(
+            &prefs,
+            &json!({ "agentScriptsPath": empty_custom.to_string_lossy() }),
+        )
+        .unwrap();
+        let managed_res = prepare_agent_scripts_dir_with(&prefs, dir.path(), None, || {
+            called += 1;
+            Ok(json!({ "installed": true, "warning": "Offline; using local scripts" }))
+        });
+        assert_eq!(called, 1);
+        assert_eq!(managed_res.dir, Scripts::new(dir.path()).directory());
+        assert_eq!(
+            managed_res.warning.as_deref(),
+            Some("Offline; using local scripts")
+        );
+
+        // Unset agentScriptsPath triggers managed preparation and surfaces failures cleanly.
+        save_game_settings(&prefs, &json!({ "agentScriptsPath": "" })).unwrap();
+        let err_res = prepare_agent_scripts_dir_with(&prefs, dir.path(), None, || {
+            Err("network unreachable".into())
+        });
+        assert_eq!(err_res.dir, Scripts::new(dir.path()).directory());
+        assert!(err_res
+            .warning
+            .as_deref()
+            .is_some_and(|w| w.contains("0xDC00/scripts") && w.contains("network unreachable")));
     }
 }

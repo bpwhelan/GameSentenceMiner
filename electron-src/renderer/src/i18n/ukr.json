@@ -2945,6 +2945,7 @@
       "scriptPath": "Шлях до скрипта:",
       "scriptPlaceholder": "Виберіть .js скрипт Agent",
       "search": "Знайти скрипт",
+      "searching": "Підготовка скриптів…",
       "browse": "Вибрати файл…",
       "save": "Зберегти",
       "noScripts": "Скрипти Agent не знайдено.",

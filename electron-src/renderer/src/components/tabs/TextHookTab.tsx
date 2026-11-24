@@ -242,6 +242,7 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   const [manualHookCode, setManualHookCode] = useState("");
   const [agentScriptPath, setAgentScriptPath] = useState("");
   const [agentDetached, setAgentDetached] = useState(true);
+  const [searchingAgentScripts, setSearchingAgentScripts] = useState(false);
   const [agentScriptDialog, setAgentScriptDialog] = useState<{
     candidates: AgentScriptCandidate[];
     query: string;
@@ -832,41 +833,48 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
   }, [agentScriptPath]);
 
   const openAgentScriptSearch = useCallback(async () => {
-    const [listed, resolved] = await Promise.allSettled([
-      invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", { path: agentScriptPath }),
-      capture?.sceneId
-        ? invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
-            scene: { id: capture.sceneId, name: capture.sceneName },
-          })
-        : Promise.resolve(null),
-    ]);
-    const response = listed.status === "fulfilled" ? listed.value : null;
-    const resolution = resolved.status === "fulfilled" ? resolved.value : null;
-    const scripts = Array.isArray(response?.scripts) ? response.scripts : [];
-    if (scripts.length === 0) {
-      showNotice(response?.message ?? t("texthook.agent.noScripts"), "error");
-      return;
+    if (searchingAgentScripts) return;
+    setSearchingAgentScripts(true);
+    try {
+      const [listed, resolved] = await Promise.allSettled([
+        invokeIpc<ListAgentScriptsResponse>("settings.listAgentScripts", { path: agentScriptPath }),
+        capture?.sceneId
+          ? invokeIpc<ResolveAgentScriptResponse>("settings.resolveAgentScriptForScene", {
+              scene: { id: capture.sceneId, name: capture.sceneName },
+            })
+          : Promise.resolve(null),
+      ]);
+      const response = listed.status === "fulfilled" ? listed.value : null;
+      const resolution = resolved.status === "fulfilled" ? resolved.value : null;
+      const scripts = Array.isArray(response?.scripts) ? response.scripts : [];
+      if (scripts.length === 0) {
+        showNotice(response?.message ?? t("texthook.agent.noScripts"), "error");
+        return;
+      }
+      const fallbackExeName = capture?.exeName || (status.running ? status.exeName : "");
+      const candidates = buildAgentScriptCandidateList({
+        searchContext: {
+          sceneName: capture?.sceneName,
+          windowTitle: capture?.windowTitle,
+          processName: fallbackExeName,
+        },
+        scripts,
+        resolvedCandidates: resolution?.candidates,
+        resolvedPath: agentScriptPath || (resolution?.status === "success" ? resolution.path : null),
+        resolvedReason: agentScriptPath ? "matched_explicit_path" : resolution?.reason,
+        resolvedScore: agentScriptPath ? 0 : undefined,
+      });
+      setAgentScriptDialog({ candidates, query: "" });
+    } finally {
+      setSearchingAgentScripts(false);
     }
-    const fallbackExeName = capture?.exeName || (status.running ? status.exeName : "");
-    const candidates = buildAgentScriptCandidateList({
-      searchContext: {
-        sceneName: capture?.sceneName,
-        windowTitle: capture?.windowTitle,
-        processName: fallbackExeName,
-      },
-      scripts,
-      resolvedCandidates: resolution?.candidates,
-      resolvedPath: agentScriptPath || (resolution?.status === "success" ? resolution.path : null),
-      resolvedReason: agentScriptPath ? "matched_explicit_path" : resolution?.reason,
-      resolvedScore: agentScriptPath ? 0 : undefined,
-    });
-    setAgentScriptDialog({ candidates, query: "" });
   }, [
     agentScriptPath,
     capture?.exeName,
     capture?.sceneId,
     capture?.sceneName,
     capture?.windowTitle,
+    searchingAgentScripts,
     showNotice,
     status,
     t,
@@ -1242,10 +1250,10 @@ export function TextHookTab({ active, onNavigateTab }: TextHookTabProps) {
                             <button
                               type="button"
                               className="secondary"
-                              disabled={status.running}
+                              disabled={status.running || searchingAgentScripts}
                               onClick={() => void openAgentScriptSearch()}
                             >
-                              {t("texthook.agent.search")}
+                              {t(searchingAgentScripts ? "texthook.agent.searching" : "texthook.agent.search")}
                             </button>
                             <button
                               type="button"

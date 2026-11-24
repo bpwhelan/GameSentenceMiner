@@ -1,9 +1,11 @@
 use crate::frida::Cancellation;
 use serde_json::Value;
 use std::{
+    io::{BufRead, BufReader},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     process::{Child, Command, Stdio},
+    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -100,7 +102,7 @@ pub fn launch(
         .args(["--listen", &address])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
     if let Some(env) = launch["env"].as_object() {
         for (k, v) in env {
             if let Some(v) = v.as_str() {
@@ -125,21 +127,85 @@ pub fn launch(
         address: address.clone(),
         child: cmd.spawn().map_err(|e| e.to_string())?,
     };
+    let stderr_lines: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let pending_logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    if let Some(stderr) = wine.child.stderr.take() {
+        let lines_ref = stderr_lines.clone();
+        let logs_ref = pending_logs.clone();
+        thread::spawn(move || {
+            let mut reader = BufReader::new(stderr);
+            let mut line = String::new();
+            let mut captured_bytes = 0usize;
+            while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                let trimmed = line.trim().to_owned();
+                line.clear();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if captured_bytes < 4096 {
+                    captured_bytes += trimmed.len();
+                    let mut recent = lines_ref.lock().unwrap();
+                    if recent.len() >= 8 {
+                        recent.remove(0);
+                    }
+                    recent.push(trimmed.clone());
+                }
+                let mut pending = logs_ref.lock().unwrap();
+                if pending.len() < 32 {
+                    pending.push(trimmed);
+                }
+            }
+        });
+    }
+    let drain_logs = || {
+        let drained: Vec<String> = pending_logs.lock().unwrap().drain(..).collect();
+        for line in drained {
+            log(&format!("[frida-server] {line}"));
+        }
+    };
     let deadline = Instant::now() + Duration::from_secs(120);
     loop {
+        drain_logs();
         if cancel.cancelled() {
             return Err("Agent startup cancelled".into());
         }
         if TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_millis(100)).is_ok()
         {
+            drain_logs();
             return Ok(Some(wine));
         }
         if wine.child.try_wait().map_err(|e| e.to_string())?.is_some() {
-            return Err("Agent Wine bridge exited before connecting".into());
+            thread::sleep(Duration::from_millis(20));
+            drain_logs();
+            let summary = summarize_stderr(&stderr_lines.lock().unwrap());
+            return Err(if summary.is_empty() {
+                "Agent Wine bridge exited before connecting".into()
+            } else {
+                format!("Agent Wine bridge exited before connecting: {summary}")
+            });
         }
         if Instant::now() >= deadline {
-            return Err("Agent Wine bridge did not start".into());
+            drain_logs();
+            let summary = summarize_stderr(&stderr_lines.lock().unwrap());
+            return Err(if summary.is_empty() {
+                "Agent Wine bridge did not start".into()
+            } else {
+                format!("Agent Wine bridge did not start: {summary}")
+            });
         }
         thread::sleep(Duration::from_millis(100));
     }
+}
+
+fn summarize_stderr(lines: &[String]) -> String {
+    lines
+        .iter()
+        .rev()
+        .take(3)
+        .cloned()
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join(" | ")
 }

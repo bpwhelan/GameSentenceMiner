@@ -186,6 +186,47 @@ impl Updater {
             self.spawn("apply".into(), Value::Null);
         }
     }
+    pub fn ensure_installed(self: &Arc<Self>) -> Result<Value> {
+        let deadline = Instant::now() + Duration::from_secs(180);
+        loop {
+            if self.stopped.load(Ordering::SeqCst) {
+                return Err("GSM is shutting down.".into());
+            }
+            let installing = self.gate.lock().unwrap().installing;
+            if self.engines.installed() && !installing {
+                return Ok(json!({ "success": true }));
+            }
+            if self
+                .operation
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+            {
+                let _operation = Operation(self.clone());
+                let installing = self.gate.lock().unwrap().installing;
+                if self.engines.installed() && !installing {
+                    return Ok(json!({ "success": true }));
+                }
+                if self.stopped.load(Ordering::SeqCst) {
+                    return Err("GSM is shutting down.".into());
+                }
+                return match self.download(false, None) {
+                    Ok(val) if val["deferred"] == true => Err(
+                        "Hook engines could not activate while another hook session is active."
+                            .into(),
+                    ),
+                    Ok(val) => Ok(val),
+                    Err(err) => {
+                        self.fail(err.clone());
+                        Err(err)
+                    }
+                };
+            }
+            if Instant::now() >= deadline {
+                return Err("Timed out waiting for hook engine installation.".into());
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     pub fn spawn(
         self: &Arc<Self>,
         action: String,

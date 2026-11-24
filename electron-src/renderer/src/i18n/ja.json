@@ -2945,6 +2945,7 @@
       "scriptPath": "スクリプトパス:",
       "scriptPlaceholder": ".js Agentスクリプトを選択",
       "search": "スクリプトを検索",
+      "searching": "スクリプトを準備中…",
       "browse": "ファイルを選択…",
       "save": "保存",
       "noScripts": "Agentスクリプトが見つかりません。",

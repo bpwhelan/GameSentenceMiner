@@ -1440,6 +1440,7 @@
     },
     "agent": {
       "search": "Buscar scripts",
+      "searching": "Preparando scripts…",
       "browse": "Elegir archivo…"
     },
     "profile": {
