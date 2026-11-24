@@ -1,6 +1,6 @@
 [build]
 jobs = 6
-target-dir = "src-tauri/target/native-dev"
+target-dir = "G:/cargo-target/gsm"
 
 [profile.dev]
 # Tests inherit this profile. Keep source locations for backtraces and avoid
