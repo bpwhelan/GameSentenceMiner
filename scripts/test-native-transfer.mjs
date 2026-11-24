@@ -2,11 +2,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
-import {createRequire} from 'node:module';
 import {spawn} from 'node:child_process';
 import {nativeExecutable} from './native-paths.mjs';
 
-const root=path.resolve(import.meta.dirname,'..'),require=createRequire(import.meta.url);
+const root=path.resolve(import.meta.dirname,'..');
 const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'gsm-native-transfer-'));
 const environment={...process.env,GSM_LEGACY_FIXTURE:fixture,GSM_APP_ROOT:root,GSM_PROFILE_DIR:path.join(fixture,'profile'),GSM_SMOKE_TEST:'1'};
 delete environment.GSM_NODE_EXECUTABLE;delete environment.GSM_TEST_SERVICE;delete environment.ELECTRON_RUN_AS_NODE;
@@ -20,9 +19,15 @@ async function run(executable,args,env) {
   });
 }
 
-const electron=process.env.GSM_LEGACY_ELECTRON||require('electron');
-await run(electron,[...(process.platform==='linux'&&process.getuid?.()===0?['--no-sandbox']:[]),path.join(root,'scripts/legacy-fixture.cjs')],environment);
-const source=JSON.parse(await fs.readFile(path.join(fixture,'fixture.json'),'utf8'));
+// These snapshots contain the synthetic extension and its original Chromium
+// LevelDB, blob and OPFS records from the legacy transfer fixture.
+const kind = process.env.GSM_LEGACY_KIND || 'yomitan';
+if (!['yomitan', 'hachidori'].includes(kind)) throw Error('Unknown transfer fixture');
+const archive = path.join(root, 'scripts', 'fixtures', `transfer-${kind}.tar.gz`);
+await run('tar', ['-xzf', archive, '-C', fixture], environment);
+const profile = path.join(fixture, 'legacy-overlay');
+const [id] = await fs.readdir(path.join(profile, 'Local Extension Settings'));
+const source = {kind, id, profile, extensionPath: path.join(fixture, 'extension')};
 // An installed upgrade moves extension resources. Discovery must recover the
 // old Chromium identity from its saved settings, not the new installation path.
 const upgraded=path.join(fixture,'upgraded-extension');

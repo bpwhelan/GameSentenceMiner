@@ -186,7 +186,8 @@ jobs:
           cargo test --locked --manifest-path native/gsm-web/Cargo.toml
           cargo test --locked --manifest-path native/gsm-db/Cargo.toml
           cargo test --locked --manifest-path native/gsm-history/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
+          # The native preview no longer installs the retired interpreter environment.
+          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml -- --skip python::tests::
           cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
       - name: Exercise the native runtime bus and desktop bridge
         if: runner.os != 'Linux' && !inputs.portable_preview

@@ -1693,6 +1693,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             | "settings"
             | "workspace"
             | "overlay"
+            | "services"
             | "obs"
             | "texthook"
             | "agent"
@@ -1880,7 +1881,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             return Err("Onboarding dictionary status failed".into());
         }
     }
-    if suite == "texthook" {
+    if matches!(suite, "services" | "texthook") {
         let profile = crate::desktop_services::paths_for(app).active;
         tauri::async_runtime::spawn_blocking(move || -> Result<(), String> {
             let file = profile.join("config.json");

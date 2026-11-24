@@ -8,7 +8,7 @@ const root=path.resolve(import.meta.dirname,'..');
 const executable=nativeExecutable();
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'gsm-native-services-'));
 const modes=process.argv.slice(2);
-const targets=modes.length?modes:['obs','texthook','agent','ocr'];
+const targets=modes.length?modes:['services'];
 
 for(const mode of targets) {
   const profile=path.join(temp,mode);
