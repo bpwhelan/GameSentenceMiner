@@ -77,7 +77,7 @@ jobs:
             echo "Portable preview ZIPs are distributed through CI artifacts."
             exit 1
           fi
-          if [ "$PRERELEASE" = true ] && [ "$PUBLISH" = true ]; then
+          if [ "$PRERELEASE" = true ] && [ "$PORTABLE_PREVIEW" != true ]; then
             version=$(node scripts/compute-version.cjs --pre-release --preid preview)
           elif [ "$PRERELEASE" = true ]; then
             version=$(node scripts/compute-version.cjs --pre-release --preid beta)

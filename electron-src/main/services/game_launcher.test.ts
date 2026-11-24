@@ -187,7 +187,17 @@ require('node:fs').writeFileSync(${JSON.stringify(output)}, JSON.stringify({args
     });
     vi.stubEnv('GSM_LAUNCHER_TEST_ONLY', 'must-not-leak-into-desktop-launches');
     try {
-        await service.launch('real-windows-fixture');
+        // Hosted images can run even Explorer as administrator. In that case
+        // the launcher must refuse and must never start the fixture.
+        try {
+            await service.launch('real-windows-fixture');
+        } catch (error) {
+            if (process.env.RUNNER_ENVIRONMENT !== 'github-hosted') throw error;
+            expect((error as Error).message).toBe('The desktop launcher is running as administrator. The game was not launched.');
+            expect(launchedPid).toBe(0);
+            await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' });
+            return;
+        }
         expect(launchedPid).toBeGreaterThan(0);
         await vi.waitFor(async () => {
             expect(JSON.parse(await readFile(output, 'utf8'))).toEqual({

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import afterPack, { verifyVocrBundle } from '../../scripts/verify-vocr-package.mjs';
+import { includeSource } from '../../scripts/native-package-policy.mjs';
 
 const source = path.resolve('GameSentenceMiner/assets/vocr');
 const temporary: string[] = [];
@@ -16,12 +17,11 @@ afterEach(async () => {
 });
 
 describe('bundled faithful VOCR packaging', () => {
-    it('ships intact graphs and notices and enforces verification before native packaging', async () => {
+    it('verifies source graphs and stages the manifest and notices for downloadable models', async () => {
         expect(await verifyVocrBundle(source)).toEqual({ graphs: 5, bytes: 26307112 });
-        const configuration = JSON.parse(await fs.readFile('package.json', 'utf8'));
-        expect(configuration.scripts['app:prepare']).toContain('stage:native');
-        const staging = await fs.readFile('scripts/stage-native-desktop.mjs', 'utf8');
-        expect(staging).toContain("await verifyVocrBundle(path.join(destination,'GameSentenceMiner/assets/vocr'))");
+        const directory = await makeTemp();
+        await fs.cp(source, directory, { recursive: true, filter: filename => includeSource(path.relative('.', filename)) });
+        expect(await verifyVocrBundle(directory, { downloadable: true })).toEqual({ graphs: 5, bytes: 0 });
     });
 
     it.each(['missing', 'damaged', 'extra', 'attribution'])('rejects %s packaged assets', async failure => {

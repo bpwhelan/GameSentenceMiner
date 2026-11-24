@@ -134,9 +134,8 @@ function relocatedManagedObsPath(
     oldDir: string,
     newDir: string,
 ): string | null {
-    // GSM runs on Windows, but using the configured path's style keeps this testable on
-    // other platforms and handles configs containing either slash style.
-    const pathImpl = path.win32.isAbsolute(configuredPath) ? path.win32 : path;
+    // win32.isAbsolute also accepts POSIX paths. Identify drive and UNC paths explicitly.
+    const pathImpl = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(configuredPath) ? path.win32 : path;
     if (!pathImpl.isAbsolute(configuredPath)) {
         return null;
     }

@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
+
+const addonDirectory = path.join(os.tmpdir(), 'GameSentenceMiner');
+const addonPath = path.join(addonDirectory, 'Anki.Beacon.ankiaddon');
 
 const axiosGetMock = vi.fn();
 const mkdirMock = vi.fn();
@@ -21,7 +26,7 @@ vi.mock('node:fs/promises', () => ({
 
 vi.mock('electron', () => ({
     app: {
-        getPath: vi.fn(() => 'C:\\temp'),
+        getPath: vi.fn(() => os.tmpdir()),
     },
     ipcMain: {
         handle: ipcHandleMock,
@@ -66,20 +71,20 @@ describe('AnkiBeacon installer IPC', () => {
 
         await expect(installAnkiBeaconAddon()).resolves.toMatchObject({
             success: true,
-            filePath: 'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+            filePath: addonPath,
         });
 
         expect(axiosGetMock).toHaveBeenCalledWith(
             'https://github.com/bpwhelan/AnkiBeacon/releases/latest/download/Anki.Beacon.ankiaddon',
             expect.objectContaining({ responseType: 'arraybuffer' }),
         );
-        expect(mkdirMock).toHaveBeenCalledWith('C:\\temp\\GameSentenceMiner', { recursive: true });
+        expect(mkdirMock).toHaveBeenCalledWith(addonDirectory, { recursive: true });
         expect(writeConfiguredAnkiBeaconAddonMock).toHaveBeenCalledWith(
             Buffer.from('addon'),
-            'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+            addonPath,
             7275,
         );
-        expect(openPathMock).toHaveBeenCalledWith('C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon');
+        expect(openPathMock).toHaveBeenCalledWith(addonPath);
         expect(writeFileMock).not.toHaveBeenCalled();
     });
 
@@ -93,16 +98,16 @@ describe('AnkiBeacon installer IPC', () => {
 
         await expect(installAnkiBeaconAddon()).resolves.toMatchObject({
             success: true,
-            filePath: 'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+            filePath: addonPath,
         });
 
         expect(writeConfiguredAnkiBeaconAddonMock).toHaveBeenCalledWith(
             addonBytes,
-            'C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon',
+            addonPath,
             6001,
         );
         expect(writeFileMock).not.toHaveBeenCalled();
-        expect(openPathMock).toHaveBeenCalledWith('C:\\temp\\GameSentenceMiner\\Anki.Beacon.ankiaddon');
+        expect(openPathMock).toHaveBeenCalledWith(addonPath);
     });
 
     it('reports shell-open failures so the renderer can show manual instructions', async () => {

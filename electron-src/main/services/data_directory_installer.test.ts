@@ -11,7 +11,7 @@ describe.skipIf(process.platform !== 'win32')('installer data folder selection',
     let appData: string;
     let pointer: string;
     beforeEach(() => {
-        root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-installer-'));
+        root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'gsm-installer-')));
         profile = path.join(root, 'home');
         appData = path.join(root, 'roaming');
         pointer = path.join(profile, '.config', 'GameSentenceMiner', 'data_dir.json');

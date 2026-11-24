@@ -25,29 +25,29 @@ describe('tray icon helpers', () => {
     it('builds the tray base icon path with the requested extension', () => {
         expect(
             getTrayBaseIconPath({
-                assetsDir: 'C:\\repo\\assets',
+                assetsDir: 'assets',
                 configuredIconStyle: 'random[tray]',
                 resolvedRandomStyle: 'gsm_jacked',
                 extension: 'ico',
             })
-        ).toBe('C:\\repo\\assets\\gsm_jacked.ico');
+        ).toBe(path.join('assets', 'gsm_jacked.ico'));
     });
 
     it('builds hard-coded status icon paths from the gsm base name', () => {
         expect(
             getStatusTrayIconPath({
-                assetsDir: 'C:\\repo\\assets',
+                assetsDir: 'assets',
                 state: 'loading',
                 extension: 'ico',
             })
-        ).toBe('C:\\repo\\assets\\gsm-loading.ico');
+        ).toBe(path.join('assets', 'gsm-loading.ico'));
         expect(
             getStatusTrayIconPath({
-                assetsDir: 'C:\\repo\\assets',
+                assetsDir: 'assets',
                 state: 'ready',
                 extension: 'png',
             })
-        ).toBe('C:\\repo\\assets\\gsm-ready.png');
+        ).toBe(path.join('assets', 'gsm-ready.png'));
     });
 
     it('uses the Halloween icon and keeps status badges when seasonal effects are active', () => {

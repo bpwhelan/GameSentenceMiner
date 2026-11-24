@@ -11,3 +11,5 @@ permissions:
 jobs:
   build:
     uses: ./.github/workflows/native_desktop.yml
+    with:
+      prerelease: true

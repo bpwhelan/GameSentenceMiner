@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import path from 'node:path';
 
 const existsSyncMock = vi.fn();
 const spawnMock = vi.fn();
@@ -46,9 +47,9 @@ vi.mock('../util.js', () => ({
     BASE_DIR: 'C:\\test-gsm',
     getOverlayAppAsarPath: () => 'C:\\overlay-out\\resources\\app.asar',
     getOverlayExecName: () => 'gsm_overlay.exe',
-    getOverlayPath: () => 'C:\\overlay-out',
+    getOverlayPath: () => path.resolve('overlay-out'),
     getOverlayResourcesPath: () => 'C:\\overlay-out\\resources',
-    getResourcesDir: () => 'C:\\repo',
+    getResourcesDir: () => path.resolve('repo'),
     OVERLAY_RESOURCES_ENV: 'GSM_OVERLAY_RESOURCES_PATH',
     get isDev() {
         return isDevValue;
@@ -143,9 +144,11 @@ describe('runOverlayWithSource', () => {
 
         await expect(runOverlayWithSource('startup')).resolves.toBe(true);
 
-        expect(existsSyncMock).toHaveBeenCalledWith('C:\\repo\\GSM_Overlay\\package.json');
-        expect(spawnMock).toHaveBeenCalledWith('cmd.exe', ['/d', '/s', '/c', 'npm run start'], {
-            cwd: 'C:\\repo\\GSM_Overlay',
+        const directory = path.resolve('repo', 'GSM_Overlay');
+        expect(existsSyncMock).toHaveBeenCalledWith(path.join(directory, 'package.json'));
+        const windows = process.platform === 'win32';
+        expect(spawnMock).toHaveBeenCalledWith(windows ? 'cmd.exe' : 'npm', windows ? ['/d', '/s', '/c', 'npm run start'] : ['run', 'start'], {
+            cwd: directory,
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({ GSM_OVERLAY_LAUNCH_ID: expect.any(String) }),
@@ -308,7 +311,8 @@ describe('runOverlayWithSource', () => {
     });
 
     it('falls back to the standalone overlay executable when only the legacy package exists', async () => {
-        existsSyncMock.mockImplementation((candidate: string) => candidate === 'C:\\overlay-out\\gsm_overlay.exe');
+        const executable = path.resolve('overlay-out', 'gsm_overlay.exe');
+        existsSyncMock.mockImplementation((candidate: string) => candidate === executable);
         const processHandle = createProcessHandle();
         spawnMock.mockReturnValue(processHandle);
 
@@ -317,8 +321,8 @@ describe('runOverlayWithSource', () => {
         await expect(runOverlayWithSource('manual')).resolves.toBe(true);
 
         expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\resources\\app.asar');
-        expect(existsSyncMock).toHaveBeenCalledWith('C:\\overlay-out\\gsm_overlay.exe');
-        expect(spawnMock).toHaveBeenCalledWith('C:\\overlay-out\\gsm_overlay.exe', [], {
+        expect(existsSyncMock).toHaveBeenCalledWith(executable);
+        expect(spawnMock).toHaveBeenCalledWith(executable, [], {
             detached: false,
             stdio: 'ignore',
             env: expect.objectContaining({ GSM_OVERLAY_LAUNCH_ID: expect.any(String) }),

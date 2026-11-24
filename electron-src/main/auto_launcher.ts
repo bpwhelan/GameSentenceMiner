@@ -1822,8 +1822,7 @@ export class AutoLauncher {
     }
 
     private normalizeAgentScriptPath(value: string): string {
-        const resolved = path.resolve(value);
-        return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+        return process.platform === 'win32' ? path.win32.resolve(value).toLowerCase() : path.resolve(value);
     }
 
     private normalizeTitle(value: string): string {
