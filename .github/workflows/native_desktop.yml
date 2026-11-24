@@ -43,12 +43,11 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
-
 jobs:
   version:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -332,11 +331,11 @@ jobs:
           retention-days: 14
 
   publish:
+    # Inherit the caller's token. Requesting write here also rejects read-only
+    # build workflows at validation time, even when this job is skipped.
     if: inputs.publish
     needs: [version, build]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

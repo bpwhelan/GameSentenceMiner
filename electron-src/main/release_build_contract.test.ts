@@ -22,7 +22,12 @@ describe('coordinated native release',()=>{
         });
         expect(preview.jobs.preview.secrets).toBe('inherit');
         expect(preview.concurrency.group).not.toContain('github.ref');
-        expect(preview.permissions.contents).toBe(native.jobs.publish.permissions.contents);
+        expect(preview.permissions.contents).toBe('write');
+        expect(workflow('release_exe.yml').permissions.contents).toBe('write');
+        expect(workflow('dev_windows_unpacked.yml').permissions.contents).toBe('read');
+        expect(native.permissions).toBeUndefined();
+        expect(native.jobs.publish.permissions).toBeUndefined();
+        expect(native.jobs.version.permissions.contents).toBe('read');
         expect(native.jobs.build.permissions.contents).toBe('read');
         expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
             if: 'inputs.portable_preview',
