@@ -135,7 +135,7 @@ pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
     matches
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
     let target_raw = exe_name
         .trim()
@@ -207,6 +207,48 @@ pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
     matches
 }
 
+#[cfg(target_os = "macos")]
+pub fn find_processes_by_exe(exe_name: &str) -> Vec<MatchedProcess> {
+    use std::mem::{size_of, size_of_val, MaybeUninit};
+
+    let Some(target) = Path::new(exe_name.trim().trim_matches('"')).file_name() else {
+        return Vec::new();
+    };
+    // libproc takes a buffer length in bytes and returns a count of PIDs.
+    let estimate = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    let mut pids = vec![0i32; estimate.max(0) as usize + 64];
+    let count = unsafe {
+        libc::proc_listallpids(pids.as_mut_ptr().cast(), size_of_val(&pids[..]) as i32)
+    };
+    pids.truncate(count.max(0) as usize);
+    let mut matches = Vec::new();
+    for pid in pids.into_iter().filter(|pid| *pid > 0) {
+        let Some(path) = process_executable_path(pid as u32) else {
+            continue;
+        };
+        if path.file_name() != Some(target) {
+            continue;
+        }
+        let mut info = MaybeUninit::<libc::proc_taskinfo>::uninit();
+        let size = size_of::<libc::proc_taskinfo>() as i32;
+        let read = unsafe {
+            libc::proc_pidinfo(pid, libc::PROC_PIDTASKINFO, 0, info.as_mut_ptr().cast(), size)
+        };
+        let working_set_bytes = if read == size {
+            unsafe { info.assume_init().pti_resident_size }
+        } else {
+            0
+        };
+        matches.push(MatchedProcess {
+            pid: pid as u32,
+            exe_name: target.to_string_lossy().into_owned(),
+            working_set_bytes,
+        });
+    }
+    matches.sort_by_key(|p| std::cmp::Reverse(p.working_set_bytes));
+    matches
+}
+
 pub fn find_primary_pid_by_exe(exe_name: &str) -> Option<u32> {
     const MIN_WORKING_SET_BYTES: u64 = 20_000 * 1024;
     let matches = find_processes_by_exe(exe_name);
@@ -241,9 +283,16 @@ pub fn is_pid_alive(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 pub fn is_pid_alive(pid: u32) -> bool {
     pid > 0 && Path::new(&format!("/proc/{pid}")).exists()
+}
+
+#[cfg(target_os = "macos")]
+pub fn is_pid_alive(pid: u32) -> bool {
+    let Ok(pid) = i32::try_from(pid) else { return false };
+    pid > 0 && (unsafe { libc::kill(pid, 0) } == 0
+        || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM))
 }
 
 #[cfg(windows)]
@@ -274,12 +323,26 @@ pub fn process_executable_path(pid: u32) -> Option<PathBuf> {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
 pub fn process_executable_path(pid: u32) -> Option<PathBuf> {
     if pid == 0 {
         return None;
     }
     std::fs::read_link(format!("/proc/{pid}/exe")).ok()
+}
+
+#[cfg(target_os = "macos")]
+pub fn process_executable_path(pid: u32) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let mut path = vec![0; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let length = unsafe {
+        libc::proc_pidpath(pid.try_into().ok()?, path.as_mut_ptr().cast(), path.len() as u32)
+    };
+    if length <= 0 {
+        return None;
+    }
+    path.truncate(length as usize);
+    Some(std::ffi::OsString::from_vec(path).into())
 }
 
 #[cfg(windows)]

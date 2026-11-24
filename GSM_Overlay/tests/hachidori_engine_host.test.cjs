@@ -81,12 +81,13 @@ test('native engine ownership waits for persisted dictionaries to finish loading
     chrome: { runtime: { sendMessage: async message => {
       assert.equal(message.type, 'hd_status');
       ++requests;
-      return { ok: true, ready: requests > 1, loading: requests === 1 };
+      if (requests === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
+      return { ok: true, ready: requests > 2, loading: requests === 2 };
     } } },
     setTimeout, clearTimeout,
     Date,
   });
   vm.runInContext(engineHost, context);
   assert.equal(await context.GsmHachidoriEngineHost, true);
-  assert.equal(requests, 2);
+  assert.equal(requests, 3);
 });

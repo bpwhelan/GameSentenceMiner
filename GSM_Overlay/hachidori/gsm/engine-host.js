@@ -18,7 +18,11 @@ globalThis.GsmHachidoriEngineHost = (async () => {
   while (Date.now() < deadline) {
     let timer;
     const status = await Promise.race([
-      chrome.runtime.sendMessage({ target: 'hoshidicts-offscreen', type: 'hd_status' }),
+      chrome.runtime.sendMessage({ target: 'hoshidicts-offscreen', type: 'hd_status' }).catch(error => {
+        // A new offscreen document may still be registering its message listeners.
+        if (/Receiving end does not exist/i.test(String(error?.message ?? error))) return null;
+        throw error;
+      }),
       new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Dictionary engine status timed out')), 5000); }),
     ]).finally(() => clearTimeout(timer));
     if (status?.ok && status.ready && !status.loading) return true;

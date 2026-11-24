@@ -3478,7 +3478,7 @@ impl DictionaryManager {
                 HACHIDORI_ENGINE_LABEL.to_string(),
                 ExtensionContext {
                     extension_id: extension.id.clone(),
-                    kind: "offscreen".into(),
+                    kind: "tab".into(),
                     url: check_url.clone(),
                 },
             );
@@ -3545,6 +3545,12 @@ impl DictionaryManager {
             .assets
             .url(&offscreen_raw)?;
         win.navigate(assets_url).map_err(|e| e.to_string())?;
+        if is_portable {
+            if let Some(context) = self.contexts.lock().unwrap().get_mut(HACHIDORI_ENGINE_LABEL) {
+                context.kind = "offscreen".into();
+                context.url = offscreen_raw;
+            }
+        }
         self.hachidori_engine_ready
             .lock()
             .unwrap()
@@ -4280,6 +4286,7 @@ impl DictionaryManager {
         }
 
         if operation == "runtime.getContexts" {
+            let document_urls = args.first().and_then(|v| v["documentUrls"].as_array());
             let filter_types: Option<Vec<String>> = args
                 .first()
                 .and_then(|v| v["contextTypes"].as_array())
@@ -4316,6 +4323,9 @@ impl DictionaryManager {
                     } else {
                         c.url
                     };
+                    if document_urls.is_some_and(|urls| !urls.iter().any(|url| url.as_str() == Some(&doc_url))) {
+                        return None;
+                    }
                     Some(json!({
                         "contextType": ctx_type,
                         "documentUrl": doc_url,

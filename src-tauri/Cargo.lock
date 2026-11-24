@@ -2389,6 +2389,7 @@ dependencies = [
  "gtk",
  "ico",
  "image",
+ "libc",
  "mime_guess",
  "objc2-app-kit",
  "open",

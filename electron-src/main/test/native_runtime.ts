@@ -3,24 +3,23 @@ import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:c
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { nativeTargetDirectory } from '../../../scripts/native-paths.mjs';
-let serviceExecutable: string | undefined;
+let serviceExecutable: string;
 let child: ChildProcessWithoutNullStreams | null = null, sequence = 0;
 const listeners = new Set<(event: string, data: any) => void>();
 const clients = new Set<string>();
 const pending = new Map<number, { resolve: (data: any) => void; reject: (error: Error) => void }>();
 export function runtimeEvents(listener: (event: string, data: any) => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 export function runtimeSync(action: string) { if (action === 'bus.clients') return [...clients]; throw Error(`Unsupported synchronous test operation: ${action}`); }
+export async function buildRuntimeFixture() {
+    const manifest = 'native/gsm-runtime/Cargo.toml';
+    const target = await nativeTargetDirectory({ manifest });
+    execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--example', 'service', '--target-dir', target], { windowsHide: true, stdio: 'pipe' });
+    serviceExecutable = path.join(target, 'debug', 'examples', process.platform === 'win32' ? 'service.exe' : 'service');
+}
 export async function runtimeCall(action: string, params: unknown = {}): Promise<any> {
     if (action === 'bus.start') {
-        if (!serviceExecutable) {
-            const manifest = 'native/gsm-runtime/Cargo.toml';
-            const target = await nativeTargetDirectory({ manifest });
-            execFileSync('cargo', ['build', '--locked', '--manifest-path', manifest, '--example', 'service', '--target-dir', target], { windowsHide: true, stdio: 'pipe' });
-            serviceExecutable = path.join(target, 'debug', 'examples', globalThis.process.platform === 'win32' ? 'service.exe' : 'service');
-        }
-        const executable = serviceExecutable;
         return new Promise((resolve, reject) => {
-            const process = spawn(executable, [], { windowsHide: true, stdio: 'pipe' });
+            const process = spawn(serviceExecutable, [], { windowsHide: true, stdio: 'pipe' });
             child = process; process.on('error',reject);
             process.stderr.on('data', data => globalThis.process.stderr.write(data));
             createInterface({input:process.stdout}).on('line', line => {

@@ -5,6 +5,11 @@ use std::{
 };
 
 pub fn same_path(a: &Path, b: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    if let (Ok(left), Ok(right)) = (a.metadata(), b.metadata()) {
+        use std::os::unix::fs::MetadataExt;
+        return (left.dev(), left.ino()) == (right.dev(), right.ino());
+    }
     let normalize = |p: &Path| {
         p.canonicalize()
             .unwrap_or_else(|_| p.to_path_buf())
@@ -106,18 +111,7 @@ pub fn image_path(pid: u32) -> Option<PathBuf> {
 }
 #[cfg(target_os = "macos")]
 pub fn image_path(pid: u32) -> Option<PathBuf> {
-    unsafe extern "C" {
-        fn proc_pidpath(pid: i32, buffer: *mut std::ffi::c_void, size: u32) -> i32;
-    }
-    let mut bytes = vec![0u8; 4096];
-    let n = unsafe { proc_pidpath(pid as i32, bytes.as_mut_ptr().cast(), bytes.len() as u32) };
-    (n > 0).then(|| {
-        PathBuf::from(
-            String::from_utf8_lossy(&bytes)
-                .trim_end_matches('\0')
-                .to_owned(),
-        )
-    })
+    crate::process_probe::process_executable_path(pid)
 }
 pub fn find(executable: &Path, remembered: Option<u32>) -> Result<Option<u32>, String> {
     #[cfg(windows)]
@@ -363,7 +357,8 @@ mod tests {
     fn process_identity_checks_the_executable_path() {
         let pid = std::process::id();
         let executable = std::env::current_exe().unwrap();
-        assert!(image_path(pid).is_some_and(|image| same_path(&image, &executable)));
+        let image = image_path(pid).expect("process executable path");
+        assert!(same_path(&image, &executable), "process image {image:?}, current executable {executable:?}");
         assert_eq!(find(&executable, Some(pid)).unwrap(), Some(pid));
         assert_eq!(
             find(&executable.with_file_name("different-obs.exe"), Some(pid)).unwrap(),

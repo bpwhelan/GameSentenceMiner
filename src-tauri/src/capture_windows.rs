@@ -234,26 +234,7 @@ pub fn process_path(pid: u32) -> Option<String> {
 
 #[cfg(target_os = "macos")]
 pub fn process_path(pid: u32) -> Option<String> {
-    // proc_pidpath is part of macOS libSystem; no additional runtime is needed.
-    unsafe extern "C" {
-        fn proc_pidpath(pid: i32, buffer: *mut std::ffi::c_void, size: u32) -> i32;
-    }
-    let mut buffer = vec![0u8; 4096];
-    let length = unsafe {
-        proc_pidpath(
-            pid.try_into().ok()?,
-            buffer.as_mut_ptr().cast(),
-            buffer.len() as u32,
-        )
-    };
-    if length <= 0 {
-        return None;
-    }
-    let end = buffer
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(length as usize);
-    Some(String::from_utf8_lossy(&buffer[..end]).into_owned())
+    crate::process_probe::process_executable_path(pid).map(|p| p.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]

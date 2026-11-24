@@ -1,14 +1,16 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../runtime/native_runtime.js', async () => import('../test/native_runtime.js'));
 
 import { startAgentControl } from './agent_control.js';
 import { MessageBroker } from '../runtime/message_bus.js';
 import { requestAgent } from '../../../scripts/restart-gsm.mjs';
+import { buildRuntimeFixture } from '../test/native_runtime.js';
 
+beforeAll(buildRuntimeFixture, 300_000);
 const cleanups: Array<() => unknown | Promise<unknown>> = [];
 afterEach(async () => {
     vi.useRealTimers();
