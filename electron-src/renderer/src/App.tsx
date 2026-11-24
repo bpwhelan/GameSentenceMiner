@@ -1035,7 +1035,7 @@ export default function App() {
           changelog={desktopChangelog}
           installSession={installSession}
           backendStatus={desktopUpdateBackendStatus}
-          requiresBackendSync={desktopChangelogMode === "update"}
+          requiresBackendSync={desktopChangelogMode === "update" && window.gsmEnv?.pythonBackend !== false}
           onContinue={() => void closeDesktopChangelog()}
           onRetry={() => void retryInstallSession()}
           onOpenLogs={() => void openInstallLogs()}

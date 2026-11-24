@@ -893,6 +893,30 @@ describe('App install-session integration', () => {
         expect(continueButton?.hasAttribute('disabled')).toBe(true);
     });
 
+    it('dismisses a pending desktop changelog without backend sync in a native session', async () => {
+        window.gsmEnv.shell = 'tauri';
+        window.gsmEnv.pythonBackend = false;
+        vi.stubGlobal('__TAURI__', { event: { listen: vi.fn().mockResolvedValue(vi.fn()) } });
+        vi.stubGlobal('__GSM_INVOKE__', vi.fn().mockResolvedValue('null'));
+        invokeMock.mockImplementation(async (channel: string) => {
+            if (channel === 'changelog.getPendingDesktopUpdate') return createChangelogSnapshot();
+            if (channel === 'settings.getSettings') return { hasCompletedSetup: true };
+            return { success: true };
+        });
+
+        const { default: App } = await import('./App.js');
+        await act(async () => { root.render(<App />); });
+
+        expect(container.querySelector('.whats-changed-progress')).toBeNull();
+        const closeButton = container.querySelector<HTMLButtonElement>('.whats-changed-continue');
+        expect(closeButton?.textContent).toBe('Close');
+        expect(closeButton?.disabled).toBe(false);
+        await act(async () => { closeButton?.click(); });
+
+        expect(invokeMock).toHaveBeenCalledWith('changelog.markDesktopUpdateSeen', '1.0.1');
+        expect(container.querySelector('.whats-changed-overlay')).toBeNull();
+    });
+
     it('enables continue after the backend update session completes', async () => {
         invokeMock.mockImplementation(async (channel: string) => {
             if (channel === 'install-session.getActive') {
