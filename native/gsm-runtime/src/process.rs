@@ -159,11 +159,23 @@ impl OwnedChild {
             }
         }
         #[cfg(unix)]
-        unsafe {
-            if libc::kill(-self.group, libc::SIGKILL) != 0
-                && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-            {
-                return Err(std::io::Error::last_os_error().to_string());
+        {
+            // Darwin can still find the group while its last child is exiting,
+            // yet find no live member to signal. Reap it and retry the group so
+            // descendants are still accounted for and real permission errors surface.
+            #[cfg(target_os = "macos")]
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+            loop {
+                if unsafe { libc::kill(-self.group, libc::SIGKILL) } == 0 { break; }
+                let error = std::io::Error::last_os_error();
+                if error.raw_os_error() == Some(libc::ESRCH) { break; }
+                #[cfg(target_os = "macos")]
+                if error.raw_os_error() == Some(libc::EPERM) && std::time::Instant::now() < deadline {
+                    self.child.try_wait().map_err(|error| error.to_string())?;
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    continue;
+                }
+                return Err(format!("Could not terminate owned process group {}: {error}", self.group));
             }
         }
         #[cfg(windows)]

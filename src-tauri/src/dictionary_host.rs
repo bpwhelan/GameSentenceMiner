@@ -410,10 +410,6 @@ pub fn resolve_extension_source(
     let root = overlay_data.join("extensions");
     let target = root.join(reader);
     let versions_file = root.join("versions.json");
-    let mut versions: Map<String, Value> = fs::read_to_string(&versions_file)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
 
     let revision = if reader == "yomitan" {
         extension_content_revision(&bundled)?
@@ -438,6 +434,14 @@ pub fn resolve_extension_source(
         }
     };
 
+    // Home and the hidden lookup view can select the same reader concurrently.
+    // Finish staging it before either caller starts loading its modules.
+    static INSTALL: Mutex<()> = Mutex::new(());
+    let _install = INSTALL.lock().unwrap();
+    let mut versions: Map<String, Value> = fs::read_to_string(&versions_file)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
     if versions.get(reader).and_then(Value::as_str) != Some(revision.as_str())
         || !target.join("manifest.json").exists()
     {
@@ -446,15 +450,15 @@ pub fn resolve_extension_source(
             let _ = fs::remove_dir_all(&target);
         }
         copy_dir_recursive(&bundled, &target)?;
+        if profile_yomitan && target.join("manifest_static.json").exists() {
+            fs::copy(target.join("manifest_static.json"), target.join("manifest.json"))
+                .map_err(|e| e.to_string())?;
+        }
         versions.insert(reader.to_string(), Value::String(revision));
         let json_bytes = serde_json::to_vec_pretty(&Value::Object(versions)).map_err(|e| e.to_string())?;
         fs::write(&versions_file, json_bytes).map_err(|e| e.to_string())?;
     }
 
-    if profile_yomitan && target.join("manifest_static.json").exists() {
-        fs::copy(target.join("manifest_static.json"), target.join("manifest.json"))
-            .map_err(|e| e.to_string())?;
-    }
     Ok(target)
 }
 
@@ -2127,6 +2131,7 @@ impl DictionaryManager {
             "manifest": ext.manifest,
             "base": ext.base,
             "kind": kind,
+            "hostOrigin": crate::assets::origin(),
             "windowId": window_id,
             "url": effective_url,
             "extensions": self.known_portable_extensions_config(),
@@ -2675,6 +2680,10 @@ impl DictionaryManager {
             .lock()
             .unwrap()
             .insert(id.clone(), extension.clone());
+        if kind == "yomitan" {
+            let config = self.portable_config_for(&extension, "popup", &format!("{base}/popup.html"), 0);
+            assets.document(&id, "__gsm_popup_bridge__.js", &self.portable_preload_for_config(&config))?;
+        }
 
         let overlay_data = overlay_data_path(app);
         let state_root = overlay_data.join("portable-dictionaries");
@@ -2729,7 +2738,7 @@ impl DictionaryManager {
                 let html = format!(
                     "<!doctype html><meta charset=\"utf-8\"><title>{title}</title>{script_tags}"
                 );
-                assets.document(&id, &html)?;
+                assets.document(&id, "__gsm_background__.html", &html)?;
                 format!("chrome-extension://{id}/__gsm_background__.html")
             };
 
@@ -2758,8 +2767,10 @@ impl DictionaryManager {
             )?;
             // Background modules can register listeners after initial module imports.
             for _ in 0..80 {
-                let res = evaluate_raw(app, &win, "globalThis.__GSM_DICTIONARY_BOOTED__").await;
-                if res.is_ok() {
+                let res = evaluate_raw(app, &win,
+                    "(async()=>{if (!globalThis.__GSM_DICTIONARY_BOOTED__) return false; await globalThis.__GSM_DICTIONARY_BOOTED__; return true;})()"
+                ).await;
+                if res == Ok(json!(true)) {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -3760,6 +3771,8 @@ impl DictionaryManager {
                     .retain(|(wlabel, _), _| wlabel != &label);
                 if let Ok(url) = window.url() {
                     window.navigate(url).map_err(|e| e.to_string())?;
+                    // The new document's ready handler installs its reader.
+                    return Ok(());
                 }
             }
         }

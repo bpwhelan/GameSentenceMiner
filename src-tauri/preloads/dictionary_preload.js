@@ -1,10 +1,74 @@
 (() => {
-  if (!globalThis.__GSM_INVOKE__) return;
   const initial = __GSM_DICTIONARY_CONFIG__;
   if (globalThis.__GSM_DICTIONARY_SELECT__) return;
+  const popup = window !== window.top && location.href.split(/[?#]/, 1)[0] === initial.base + '/popup.html';
+  if (!popup && !globalThis.__GSM_INVOKE__) return;
   const contexts = new Map(), ports = new Map();
-  const frame = window === window.top ? 0 : Math.floor(Math.random() * 0x7ffffffe) + 1;
-  const invoke = (params) => window.__GSM_INVOKE__('dictionary_call', { params });
+  const frame = window === window.top ? 0 : crypto.getRandomValues(new Uint32Array(1))[0] || 1;
+  const popupFrames = new Map();
+  const channelName = 'gsm.dictionary.popup';
+  function request(port, message) {
+    return new Promise((resolve, reject) => {
+      const reply = new MessageChannel();
+      const timer = setTimeout(() => {
+        reply.port1.close();
+        reject(Error('Dictionary popup did not respond'));
+      }, 55000);
+      reply.port1.onmessage = ({data}) => {
+        clearTimeout(timer);
+        reply.port1.close();
+        if (data.error !== undefined) reject(Error(data.error));
+        else resolve(data.value);
+      };
+      port.postMessage(message, [reply.port2]);
+    });
+  }
+  function respond(port, handle) {
+    port.onmessage = async event => {
+      const reply = event.ports[0];
+      if (!reply) return;
+      try { reply.postMessage({value: await handle(event.data)}); }
+      catch (error) { reply.postMessage({error: String(error)}); }
+      finally { reply.close(); }
+    };
+  }
+  let invoke;
+  if (popup) {
+    const link = new MessageChannel();
+    respond(link.port1, ({type, args}) => globalThis.__GSM_DICTIONARY_DISPATCH__(initial.id, type, args, frame));
+    window.parent.postMessage({channel: channelName, id: initial.id, frame}, initial.hostOrigin, [link.port2]);
+    invoke = ({operation, args}) => request(link.port1, {operation, args});
+    window.addEventListener('pagehide', () => link.port1.close(), {once: true});
+  } else {
+    invoke = params => window.__GSM_INVOKE__('dictionary_call', {params});
+  }
+  if (window === window.top && location.origin === initial.hostOrigin) {
+    window.addEventListener('message', event => {
+      const {channel, id, frame: childFrame} = event.data || {};
+      const port = event.ports[0];
+      if (channel !== channelName || !port || !Number.isSafeInteger(childFrame) || childFrame <= 0) return;
+      const context = contexts.get(id);
+      if (!context || event.origin !== context.config.base || !/yomitan/i.test(context.config.manifest.name)) return;
+      const children = Array.from(window.frames);
+      if (!children.includes(event.source)) return;
+      for (const [key, entry] of popupFrames) {
+        if (entry.source === event.source || !children.includes(entry.source)) {
+          entry.port.close();
+          popupFrames.delete(key);
+        }
+      }
+      if (popupFrames.has(childFrame)) return;
+      popupFrames.set(childFrame, {id, port, source: event.source});
+      // The child can use its reader's messaging API. The desktop nonce and
+      // native command selection stay in the parent.
+      const allowed = new Set(['runtime.sendMessage', 'runtime.connect', 'tabs.connect',
+        'port.message', 'port.disconnect', 'tabs.getCurrent', 'tabs.getZoom', 'commands.getAll']);
+      respond(port, ({operation, args}) => {
+        if (!allowed.has(operation) || !Array.isArray(args)) throw Error('Unsupported dictionary popup operation: ' + operation);
+        return invoke({extension: id, operation, args, frame: childFrame});
+      });
+    });
+  }
   function event() {
     const listeners = new Set(); return { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener), hasListener: listener => listeners.has(listener), hasListeners: () => listeners.size, listeners, emit: (...args) => { for (const listener of [...listeners]) listener(...args); } };
   }
@@ -61,6 +125,28 @@
   globalThis.__GSM_DICTIONARY_SELECT__(own?.id||initial.id);
   globalThis.__GSM_DICTIONARY_FRAME__=frame;
   globalThis.__GSM_DICTIONARY_DISPATCH__=async(id,type,args,targetFrame)=>{
+    const popupTarget = popupFrames.get(targetFrame);
+    if (popupTarget?.id === id) return request(popupTarget.port, {type, args});
+    if (targetFrame === null && type === 'message' && popupFrames.size) {
+      const replies = [];
+      const children = Array.from(window.frames);
+      for (const [key, child] of popupFrames) {
+        if (!children.includes(child.source)) {
+          child.port.close();
+          popupFrames.delete(key);
+        } else if (child.id === id) {
+          replies.push(request(child.port, {type, args}));
+        }
+      }
+      if (replies.length) {
+        replies.push(globalThis.__GSM_DICTIONARY_DISPATCH__(id, type, args, frame));
+        return Promise.any(replies.map(async reply => {
+          const result = await reply;
+          if (result?.handled) return result;
+          throw Error('No listener responded');
+        })).catch(() => ({handled: false}));
+      }
+    }
     if(targetFrame!==null&&targetFrame!==frame){for(const child of window.frames){try{const result=await child.__GSM_DICTIONARY_DISPATCH__?.(id,type,args,targetFrame);if(result?.handled)return result;}catch{}}return {handled:false};}
     const context=contexts.get(id);if(!context)return {handled:false};const {api,call}=context;
     if(type==='storage'){api.storage.onChanged.emit(...args);api.storage[args[1]]?.onChanged.emit(args[0]);return;}

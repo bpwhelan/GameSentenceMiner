@@ -278,19 +278,34 @@ async fn text_queue_is_bounded_and_clear_cancels_retries() {
     runtime.call("text.clear", json!({})).await.unwrap();
     assert_eq!(runtime.call("text.count", json!({})).await.unwrap(), 0);
 }
-fn python() -> std::path::PathBuf {
-    std::env::var_os("GSM_TEST_PYTHON")
-        .map(Into::into)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(if cfg!(windows) {
-                "../../.venv/Scripts/python.exe"
-            } else {
-                "../../.venv/bin/python"
-            })
-        })
+const FIXTURE_ARGS: [&str; 4] = ["--ignored", "--exact", "tests::managed_process_fixture", "--nocapture"];
+
+fn process_spec(mode: &str) -> Value {
+    let mut env: HashMap<_, _> = std::env::vars().collect();
+    env.insert("GSM_PROCESS_TEST_MODE".into(), mode.into());
+    json!({
+        "id": "backend", "command": std::env::current_exe().unwrap(), "args": FIXTURE_ARGS,
+        "env": env, "windowsHide": true, "readyOn": "spawn"
+    })
 }
-fn spec(script: &str) -> Value {
-    json!({"id":"backend","command":python(),"args":["-u","-c",script],"env":std::env::vars().collect::<HashMap<_,_>>(),"windowsHide":true,"readyOn":"spawn"})
+
+#[test]
+#[ignore = "owned subprocess fixture"]
+fn managed_process_fixture() {
+    match std::env::var("GSM_PROCESS_TEST_MODE").as_deref() {
+        Ok("parent") => {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(FIXTURE_ARGS)
+                .env("GSM_PROCESS_TEST_MODE", "sleep")
+                .spawn()
+                .unwrap();
+            println!("\nworker={}", child.id());
+            std::io::Write::flush(&mut std::io::stdout()).unwrap();
+            child.wait().unwrap();
+        }
+        Ok("fail") => std::process::exit(7),
+        _ => std::thread::sleep(Duration::from_secs(90)),
+    }
 }
 
 #[tokio::test]
@@ -344,7 +359,7 @@ async fn process_stop_reaps_owned_workers_and_preserves_other_processes() {
         output.lock().unwrap().push((event.to_owned(), data))
     })
     .unwrap();
-    let result=runtime.call("process.start",spec("import subprocess,sys,time; p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(90)']); print('worker='+str(p.pid),flush=True); time.sleep(90)")).await.unwrap();
+    let result = runtime.call("process.start", process_spec("parent")).await.unwrap();
     assert!(result["pid"].as_u64().unwrap() > 0);
     runtime
         .call(
@@ -361,7 +376,7 @@ async fn process_stop_reaps_owned_workers_and_preserves_other_processes() {
         .await
         .is_err());
     let mut unrelated = process::OwnedChild::spawn(
-        &spec("import time; time.sleep(90)"),
+        &process_spec("sleep"),
         std::env::vars().collect(),
     )
     .unwrap();
@@ -391,7 +406,7 @@ async fn process_stop_reaps_owned_workers_and_preserves_other_processes() {
     let worker_handle =
         unsafe { windows_sys::Win32::System::Threading::OpenProcess(0x00100000, 0, worker) };
     assert!(runtime
-        .call("process.start", spec("print('duplicate')"))
+        .call("process.start", process_spec("sleep"))
         .await
         .is_err());
     runtime
@@ -430,7 +445,7 @@ async fn process_stop_reaps_owned_workers_and_preserves_other_processes() {
 #[tokio::test]
 async fn startup_failure_does_not_enter_runtime_crash_loop() {
     let runtime = runtime();
-    let mut options = spec("raise RuntimeError('startup failure')");
+    let mut options = process_spec("fail");
     options["recoverRuntimeCrashes"] = json!(true);
     runtime.call("process.start", options).await.unwrap();
     tokio::time::sleep(Duration::from_millis(500)).await;

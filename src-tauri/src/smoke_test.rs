@@ -996,12 +996,14 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         // Cross the browser's idle-worker deadline with Home hidden. This is
         // the first popup in this overlay document, with a stationary cursor.
         tokio::time::sleep(Duration::from_secs(65)).await;
+        #[cfg(not(windows))]
+        dictionary_smoke_key(app, false, true)?;
     }
     let hover_ms = evaluate_raw(
         app,
         &overlay,
         &format!("(async () => {{ if ({}) await window.__gsmSmokeOverlay.waitForManualState(true); return window.__gsmSmokeOverlay.lookup({}, {{stationary:true}}); }})()",
-            phase == "import", json!(reader)),
+            phase == "import" || !cfg!(windows), json!(reader)),
     )
     .await;
     if phase == "import" {
@@ -1045,7 +1047,14 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             }
         }
         // A successful setting change must retain real lookup capability.
+        wait_overlay_dictionary(app).await?;
         evaluate_raw(app, &overlay, include_str!("../smoke/overlay.js")).await?;
+        #[cfg(not(windows))]
+        {
+            // These platforms require Push to Show before OCR text is interactive.
+            dictionary_smoke_key(app, false, true)?;
+            evaluate_raw(app, &overlay, "window.__gsmSmokeOverlay.waitForManualState(true)").await?;
+        }
         evaluate_raw(
             app,
             &overlay,
@@ -2130,7 +2139,8 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         let settings_win =
             wait_window_ready(app, OVERLAY_SETTINGS_LABEL, Duration::from_secs(20)).await?;
         let mut visible = false;
-        for _ in 0..40 {
+        // A hidden WebKit view may defer paint until the 3s first-open fallback.
+        for _ in 0..200 {
             if settings_win.is_visible().map_err(|e| e.to_string())? {
                 visible = true;
                 break;
@@ -2294,7 +2304,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         })).unwrap(), true);
         host.handle_ws2_text(app, &json!({
             "type":"live_stats_update","scope":"today","reason":"refresh","game_name":"Guide game",
-            "updated_at":chrono::Utc::now().timestamp(),"period_end":chrono::Utc::now().timestamp()+3600,
+            "updated_at":chrono::Utc::now().timestamp_micros() as f64 / 1e6,"period_end":chrono::Utc::now().timestamp()+3600,
             "values":{"total_characters":927}
         }).to_string()).await;
         evaluate_raw(app, &main_win, r#"(async()=>{
@@ -2303,7 +2313,9 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
                 if (chars?.textContent === '927') return true;
                 await new Promise(resolve=>setTimeout(resolve,50));
             }
-            throw Error('Daily characters did not appear in the game overlay');
+            const widget = document.getElementById('gsm-live-stats');
+            throw Error('Daily characters did not appear in the game overlay: ' +
+                JSON.stringify({classes: widget?.className, text: widget?.textContent?.slice(0, 240)}));
         })()"#).await?;
         eprintln!("[smoke] Captured window transitions and visible Today character total passed");
 

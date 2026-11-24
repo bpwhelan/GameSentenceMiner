@@ -9,7 +9,7 @@ use tauri::http::{Request, Response};
 pub struct Assets(
     pub Mutex<HashMap<String, PathBuf>>,
     pub Mutex<HashMap<String, String>>,
-    pub Mutex<HashMap<String, Vec<u8>>>,
+    pub Mutex<HashMap<(String, String), Vec<u8>>>,
     pub Mutex<HashSet<String>>,
 );
 pub fn origin() -> &'static str {
@@ -37,7 +37,7 @@ impl Assets {
     pub fn unmount(&self, id: &str) {
         self.0.lock().unwrap().remove(id);
         self.1.lock().unwrap().remove(id);
-        self.2.lock().unwrap().remove(id);
+        self.2.lock().unwrap().retain(|(mount, _), _| mount != id);
     }
     pub fn mount(&self, id: &str, directory: &Path) -> Result<(), String> {
         if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -56,14 +56,14 @@ impl Assets {
         self.1.lock().unwrap().insert(id.into(), name.into());
         Ok(dictionary_origin(name))
     }
-    pub fn document(&self, id: &str, content: &str) -> Result<(), String> {
+    pub fn document(&self, id: &str, filename: &str, content: &str) -> Result<(), String> {
         if !self.0.lock().unwrap().contains_key(id) {
             return Err("Unknown dictionary".into());
         }
         self.2
             .lock()
             .unwrap()
-            .insert(id.into(), content.as_bytes().to_vec());
+            .insert((id.into(), filename.into()), content.as_bytes().to_vec());
         Ok(())
     }
     pub fn url(&self, value: &str) -> Result<url::Url, String> {
@@ -162,9 +162,10 @@ impl Assets {
                     .to_vec(),
             );
         }
-        if relative == "__gsm_background__.html" {
-            if let Some(bytes) = self.2.lock().unwrap().get(&id) {
-                return response(200, "text/html; charset=utf-8", bytes.clone());
+        if relative.starts_with("__gsm_") {
+            if let Some(bytes) = self.2.lock().unwrap().get(&(id.clone(), relative.clone())) {
+                let mime = mime_guess::from_path(&relative).first_or_octet_stream();
+                return response(200, mime.as_ref(), bytes.clone());
             }
         }
         let Some(root) = self.0.lock().unwrap().get(&id).cloned() else {
@@ -199,6 +200,16 @@ impl Assets {
         let Ok(bytes) = std::fs::read(&path) else {
             return response(404, "text/plain", vec![]);
         };
+        // WebKit does not install Tauri IPC in an embedded dictionary frame.
+        // Initialize the popup's dictionary API before its first module runs.
+        if is_yomitan && relative == "popup.html" {
+            let html = String::from_utf8_lossy(&bytes).replacen(
+                "<head>",
+                r#"<head><script src="/__gsm_popup_bridge__.js"></script>"#,
+                1,
+            );
+            return response(200, "text/html; charset=utf-8", html.into_bytes());
+        }
         response(
             200,
             mime_guess::from_path(&path)
