@@ -22,6 +22,7 @@ pub fn start(app: &AppHandle) {
             if reader == "hachidori" {
                 manager.ensure_hachidori_engine(&app, &extension).await?;
             }
+            let _ = manager.reconcile_jiten_extension(&app).await;
             Ok::<(), String>(())
         }
         .await;

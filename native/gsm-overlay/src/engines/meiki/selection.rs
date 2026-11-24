@@ -67,7 +67,8 @@ impl Detector {
     pub fn select(self, base: &Path) -> Result<()> {
         self.select_validated(base, || {
             let path = self.ensure(&base.join("ocr"))?;
-            crate::inference::Model::file(&path, 0)?;
+            let threads = std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4));
+            crate::inference::Model::file(&path, threads)?;
             Ok(())
         })
     }

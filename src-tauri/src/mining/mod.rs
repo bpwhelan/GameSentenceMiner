@@ -154,7 +154,10 @@ impl MiningService {
             beacon_rx: Mutex::new(Some(beacon_rx)),
             ai: Arc::new(AiService::new(http)),
             character_summary_attempts: Mutex::default(),
-            vad: Arc::new(VadSystem::new(asset_roots)),
+            vad: Arc::new(
+                VadSystem::new(asset_roots)
+                    .with_memory_probe(current_process_private_working_set),
+            ),
             pause_history: Arc::new(PauseHistory::new(&data_dir)),
             card_lane: Arc::new(tokio::sync::Mutex::new(())),
             results: Arc::new(Mutex::new(HashMap::new())),
@@ -390,7 +393,6 @@ impl MiningService {
         let mut monitor_mode = None;
 
         while !self.shutdown_flag.load(Ordering::SeqCst) {
-            self.vad.unload_default_idle();
             let snapshot = match self.refresh_profile(&app) {
                 Ok(settings) => { config_error = None; settings }
                 Err(error) => {
@@ -752,4 +754,14 @@ async fn probe_anki_version(client: &reqwest::Client, url: &reqwest::Url) -> boo
         .await
         .and_then(reqwest::Response::error_for_status)
         .is_ok()
+}
+
+#[cfg(windows)]
+fn current_process_private_working_set() -> Option<u64> {
+    crate::resource_usage::current_process_private_working_set()
+}
+
+#[cfg(not(windows))]
+fn current_process_private_working_set() -> Option<u64> {
+    None
 }

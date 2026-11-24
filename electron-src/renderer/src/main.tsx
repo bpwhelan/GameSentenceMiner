@@ -65,7 +65,6 @@ function loadWindow() {
     case "scene-switcher-picker":
       return import("./components/SceneSwitchConflictWindow").then(module => module.SceneSwitchConflictWindow);
     default:
-      document.documentElement.setAttribute("data-gsm-preload-dictionary-popup", "");
       return import("./App").then(module => module.default);
   }
 }

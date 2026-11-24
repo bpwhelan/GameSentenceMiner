@@ -18,12 +18,31 @@ use uuid::Uuid;
 
 type Asset = Arc<TempPath>;
 
+const MAX_CACHED_LINES: usize = 64;
+
 #[derive(Default)]
 struct State {
     lines: HashMap<String, [Option<Asset>; 2]>,
+    line_order: VecDeque<String>,
     tokens: VecDeque<(String, Asset)>,
     playing: Option<(String, Arc<Player>)>,
     generation: u64,
+}
+
+impl State {
+    fn cache_line(&mut self, id: String, vad: bool, file: Asset) {
+        if let Some(pos) = self.line_order.iter().position(|existing| existing == &id) {
+            self.line_order.remove(pos);
+        }
+        self.line_order.push_back(id.clone());
+        self.lines.entry(id).or_default()[vad as usize] = Some(file);
+        while self.lines.len() > MAX_CACHED_LINES {
+            let Some(oldest) = self.line_order.pop_front() else {
+                break;
+            };
+            self.lines.remove(&oldest);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -252,9 +271,7 @@ async fn prepare(
         .0
         .lock()
         .unwrap()
-        .lines
-        .entry(id)
-        .or_default()[vad as usize] = Some(file.clone());
+        .cache_line(id, vad, file.clone());
     Ok(file)
 }
 
@@ -339,5 +356,17 @@ mod tests {
             assert!(receive.try_recv().is_err());
             assert!(playback.0.lock().unwrap().playing.is_none());
         }
+    }
+
+    #[test]
+    fn audio_cache_evicts_oldest_lines_past_limit() {
+        let state = &mut State::default();
+        for i in 0..(MAX_CACHED_LINES + 10) {
+            let tmp = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+            state.cache_line(format!("line-{i}"), false, Arc::new(tmp));
+        }
+        assert_eq!(state.lines.len(), MAX_CACHED_LINES);
+        assert!(!state.lines.contains_key("line-0"));
+        assert!(state.lines.contains_key(&format!("line-{}", MAX_CACHED_LINES + 9)));
     }
 }

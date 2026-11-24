@@ -9,7 +9,11 @@ use crate::dictionary_host::{
 use reqwest::Method;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::time::Duration;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex as StdMutex,
+};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tokio::sync::Mutex as AsyncMutex;
@@ -22,6 +26,60 @@ pub const LEGACY_PREFS_LABEL: &str = "gsm-legacy-prefs";
 pub struct ReaderState {
     prepare_lock: AsyncMutex<()>,
     search_lock: AsyncMutex<()>,
+    last_used: Arc<StdMutex<Option<Instant>>>,
+    in_flight: Arc<AtomicUsize>,
+}
+
+struct LookupLease {
+    last_used: Arc<StdMutex<Option<Instant>>>,
+    in_flight: Arc<AtomicUsize>,
+}
+
+impl LookupLease {
+    fn acquire(state: &ReaderState) -> Self {
+        state.in_flight.fetch_add(1, Ordering::SeqCst);
+        *state.last_used.lock().unwrap() = Some(Instant::now());
+        Self {
+            last_used: state.last_used.clone(),
+            in_flight: state.in_flight.clone(),
+        }
+    }
+}
+
+impl Drop for LookupLease {
+    fn drop(&mut self) {
+        *self.last_used.lock().unwrap() = Some(Instant::now());
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+pub async fn release_idle_lookup(app: &AppHandle, idle_for: Duration) -> bool {
+    let Some(state) = app.try_state::<ReaderState>() else {
+        return false;
+    };
+    let Ok(_guard) = state.prepare_lock.try_lock() else {
+        return false;
+    };
+    if state.in_flight.load(Ordering::SeqCst) > 0 {
+        return false;
+    }
+    let expired = state
+        .last_used
+        .lock()
+        .unwrap()
+        .is_some_and(|at| at.elapsed() >= idle_for);
+    if !expired {
+        return false;
+    }
+    let Some(window) = app.get_webview_window(LOOKUP_PAGE_LABEL) else {
+        *state.last_used.lock().unwrap() = None;
+        return false;
+    };
+    if destroy_reader_window(app, &window).await.is_ok() {
+        *state.last_used.lock().unwrap() = None;
+        return true;
+    }
+    false
 }
 
 pub(crate) async fn destroy_reader_window(app: &AppHandle, window: &WebviewWindow) -> Result<(), String> {
@@ -355,9 +413,10 @@ fn extension_page_url(ext: &LoadedExtension, relative_page: &str) -> String {
 
 async fn prepare_reader(
     app: &AppHandle,
-) -> Result<(String, LoadedExtension, WebviewWindow), String> {
+) -> Result<(String, LoadedExtension, WebviewWindow, LookupLease), String> {
     let state = app.state::<ReaderState>();
     let _guard = state.prepare_lock.lock().await;
+    let lease = LookupLease::acquire(state.inner());
 
     let (reader, ext) = adopt_or_load_extension(app).await?;
     let manager = app.state::<DictionaryManager>();
@@ -378,7 +437,7 @@ async fn prepare_reader(
                 if reader == "hachidori" {
                     let _ = manager.ensure_hachidori_engine(app, &ext).await?;
                 }
-                return Ok((reader, ext, win));
+                return Ok((reader, ext, win, lease));
             }
             destroy_reader_window(app, &win).await?;
             true
@@ -432,7 +491,7 @@ async fn prepare_reader(
         if reader == "hachidori" {
             let _ = manager.ensure_hachidori_engine(app, &ext).await?;
         }
-        return Ok((reader, ext, win));
+        return Ok((reader, ext, win, lease));
     }
 
     unreachable!()
@@ -522,7 +581,7 @@ pub async fn lookup_reader_dictionary(app: &AppHandle, text: &str) -> Result<Val
     if text.trim().is_empty() || text.encode_utf16().count() > 200 {
         return Err("Select up to 200 characters to look up.".into());
     }
-    let (reader, _ext, host_page) = prepare_reader(app).await?;
+    let (reader, _ext, host_page, _lease) = prepare_reader(app).await?;
     let arg_json = json!(text).to_string();
     let script = if reader == "yomitan" {
         format!(
@@ -578,7 +637,7 @@ pub async fn open_reader_dictionary(
     }
     let state = app.state::<ReaderState>();
     let _search = state.search_lock.lock().await;
-    let (reader, ext, _) = prepare_reader(app).await?;
+    let (reader, ext, _, _lease) = prepare_reader(app).await?;
     let utf16_offset = find_utf16_offset(context, text);
 
     let mut search_url =
@@ -695,7 +754,7 @@ pub async fn handle_ws2_anki_setup(app: &AppHandle, msg: &Value) -> Value {
     }
     let input = msg.get("data").cloned().unwrap_or(Value::Null);
     let res = async {
-        let (reader, _ext, win) = prepare_reader(app).await?;
+        let (reader, _ext, win, _lease) = prepare_reader(app).await?;
         if reader != "yomitan" {
             return Err("Select Yomitan in dictionary settings, then retry.".to_string());
         }
@@ -902,7 +961,7 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
             })
             .unwrap_or(Value::Null);
 
-        let (reader, _ext, win) = prepare_reader(app).await?;
+        let (reader, _ext, win, _lease) = prepare_reader(app).await?;
         if reader == "hachidori" {
             let enable_existing = action == "install";
             if action == "install" && language != "ja" {

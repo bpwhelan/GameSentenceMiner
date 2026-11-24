@@ -899,6 +899,34 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         ));
     }
 
+    #[cfg(windows)]
+    if reader == "hachidori" && use_windows_native_extensions() {
+        let resources = evaluate_raw(app, &hub, r#"window.__GSM_INVOKE__("desktop_resource_usage", {})"#).await?;
+        let webviews = resources["groups"].as_array().into_iter().flatten()
+            .find(|row| row["group"] == "webview").ok_or("Missing WebView2 subtotal")?;
+        let processes = webviews["processes"].as_array().ok_or("Missing WebView2 processes")?;
+        let pids: std::collections::HashSet<_> = processes.iter().filter_map(|row| row["pid"].as_u64()).collect();
+        if processes.len() != pids.len()
+            || !processes.iter().any(|row| row["kind"] == "extension")
+            || !processes.iter().any(|row| row["kind"] == "renderer" && row["windowLabels"].as_array()
+                .is_some_and(|labels| labels.iter().any(|label| label == "gsm-hub")))
+            || !resources["extensions"].as_array().into_iter().flatten().any(|ext| ext["kind"] == "hachidori" && ext["enabled"] == true)
+        {
+            return Err(format!("Unexpected WebView2 resource attribution: {resources}"));
+        }
+        let memory = evaluate_raw(app, &hub, r#"window.__GSM_INVOKE__("desktop_hachidori_memory", {})"#).await?;
+        if memory["heapBytes"].as_u64().unwrap_or(0) == 0
+            || !memory["useLessRamByDefault"].is_boolean()
+            || !memory["dictionaries"].as_array().into_iter().flatten().any(|dict| {
+                dict["title"] == "hachidori-fixture" && dict["residentHashBytes"].is_u64()
+            })
+            || app.get_webview_window("gsm-hachidori-memory").is_some()
+        {
+            return Err(format!("Unexpected Hachidori memory sample: {memory}"));
+        }
+        eprintln!("[smoke] {reader}/{phase}: verified WebView2 and dictionary memory attribution");
+    }
+
     eprintln!("[smoke] {reader}/{phase}: checking Home Shift lookup");
     crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
     let _ = wait_window_ready(app, hub.label(), Duration::from_secs(25)).await?;

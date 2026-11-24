@@ -1561,7 +1561,7 @@
       "unavailable": "Unavailable",
       "component": "Component",
       "cpu": "CPU",
-      "memory": "Private RAM",
+      "memory": "Resident RAM",
       "cpuValue": "{value}%",
       "memoryValue": "{value} MiB",
       "desktop": "GSM desktop",
@@ -1570,7 +1570,61 @@
       "overlay": "Overlay helper",
       "textHook": "Text hook",
       "capture": "Capture and speech",
-      "total": "GSM total"
+      "total": "GSM total",
+      "commit": "Private commit",
+      "memoryScope": "Resident RAM is private memory currently in physical RAM. Private commit includes private memory Windows has committed, including pages outside RAM. WebView2 processes are included in the WebView2 subtotal.",
+      "process": {
+        "browser": "Browser process",
+        "gpu": "GPU process",
+        "renderer": "Page renderer",
+        "extension": "Extension renderer",
+        "utility": "Utility process",
+        "other": "Other WebView2 process",
+        "pid": "PID {value}"
+      },
+      "window": {
+        "overlay": "Overlay",
+        "overlaySettings": "Overlay settings",
+        "dictionaryController": "Dictionary controller",
+        "dictionarySearch": "Dictionary search",
+        "readerLookup": "Reader lookup"
+      },
+      "model": {
+        "title": "Loaded native models and dictionaries",
+        "empty": "No loaded models or dictionaries reported.",
+        "scope": "RAM estimates come from changes in the desktop process during loading. These resources are already part of the desktop process. A memory-mapped file can use shared pages, so its file size and resident RAM can differ.",
+        "name": "Model or dictionary",
+        "files": "File size",
+        "estimate": "RAM estimate",
+        "idle": "Idle",
+        "ocr": "OCR",
+        "vad": "Voice activity detection",
+        "dictionary": "Dictionary",
+        "mapped": "Memory-mapped",
+        "instances": "{value} instances",
+        "seconds": "{value} s",
+        "unloads": "Unloads when idle",
+        "persistent": "Stays loaded"
+      },
+      "extensions": {
+        "title": "Browser extensions",
+        "name": "Extension",
+        "status": "Status",
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "empty": "No browser extensions installed in this profile.",
+        "unavailable": "The dictionary profile has no extension inventory available."
+      },
+      "dictionary": {
+        "inspect": "Inspect dictionary memory",
+        "failed": "Could not inspect Hachidori memory. Try again when the dictionary engine is ready.",
+        "heap": "Hachidori engine heap · {value}",
+        "lowRam": "Use less RAM by default · {value}",
+        "empty": "No dictionaries loaded.",
+        "residentHash": "Resident hash index",
+        "paged": "Read from disk",
+        "resident": "Kept in memory"
+      }
     },
     "gpu": {
       "progress": {

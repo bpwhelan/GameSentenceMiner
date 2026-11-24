@@ -777,6 +777,7 @@ dependencies = [
 name = "gsm-sudachi"
 version = "0.1.0"
 dependencies = [
+ "memmap2",
  "regex",
  "reqwest",
  "rusqlite",

@@ -14,6 +14,7 @@ const files = new Map([
 const engineHostFiles = new Map([
     ['integrations/hachidori/engine-host.html', 'gsm/engine-host.html'],
     ['integrations/hachidori/engine-host.js', 'gsm/engine-host.js'],
+    ['integrations/hachidori/memory-probe.html', 'gsm/memory-probe.html'],
     ['integrations/hachidori/native-search.js', 'gsm/native-search.js'],
     ['integrations/hachidori/lookup-cache.mjs', 'gsm/lookup-cache.mjs'],
 ]);

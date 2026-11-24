@@ -69,6 +69,8 @@ pub fn snapshot_limit(request: &Value) -> usize {
         .clamp(1, 1000) as usize
 }
 
+const MAX_EXPIRED_ROWS: usize = 2000;
+
 #[derive(Default)]
 pub struct Reader {
     rows: Vec<Line>,
@@ -79,6 +81,47 @@ pub struct Reader {
 }
 
 impl Reader {
+    fn compact_expired(&mut self) {
+        let expired = self.rows.len().saturating_sub(self.active.len());
+        if expired <= MAX_EXPIRED_ROWS {
+            return;
+        }
+        let target_expired = MAX_EXPIRED_ROWS.saturating_sub(256);
+        let mut unselected_expired = Vec::with_capacity(expired);
+        for i in 0..self.rows.len() {
+            if !self.active.contains(&i) && !self.selected.contains(&i) {
+                unselected_expired.push(i);
+            }
+        }
+        let drop_count = unselected_expired.len().saturating_sub(target_expired);
+        if drop_count == 0 {
+            return;
+        }
+        let mut keep = vec![true; self.rows.len()];
+        for idx in unselected_expired.into_iter().take(drop_count) {
+            keep[idx] = false;
+        }
+        let old_rows = std::mem::take(&mut self.rows);
+        let old_active = std::mem::take(&mut self.active);
+        let old_selected = std::mem::take(&mut self.selected);
+        self.by_id.clear();
+        self.rows.reserve(old_rows.len() - drop_count);
+        for (old_idx, line) in old_rows.into_iter().enumerate() {
+            if !keep[old_idx] {
+                continue;
+            }
+            let new_idx = self.rows.len();
+            self.by_id.insert(line.id.clone(), new_idx);
+            if old_active.contains(&old_idx) {
+                self.active.insert(new_idx);
+            }
+            if old_selected.contains(&old_idx) {
+                self.selected.insert(new_idx);
+            }
+            self.rows.push(line);
+        }
+    }
+
     /// Returns true when the second distinct append expires a selection.
     pub fn observe(&mut self, event: &Event) -> bool {
         let r = match event {
@@ -121,6 +164,7 @@ impl Reader {
                 line.excluded = r.excluded_from_stats || r.stats_status == "skipped";
                 if matches!(event, Event::Expire(_)) {
                     self.active.remove(&i);
+                    self.compact_expired();
                 }
             }
         }
@@ -316,5 +360,45 @@ mod tests {
         assert_eq!(history.selected_ids(), vec![a.as_str()]);
         push(&mut history, "c", 3);
         assert!(history.selected_ids().is_empty());
+    }
+
+    #[test]
+    fn expired_rows_compact_while_preserving_active_and_selected_lines() {
+        let mut history = Reader::default();
+        let mut stream = Stream::default();
+        let mut append = |i: i64| -> Arc<Record> {
+            let mut events = vec![];
+            let ack = stream.ingest(
+                &json!({"source":"manual","text":format!("line-{i}")}),
+                &Policy::default(),
+                Clock {
+                    wall: Utc::now(),
+                    ns: i * 1_000_000,
+                },
+                &mut events,
+            );
+            for e in &events {
+                history.observe(e);
+            }
+            Arc::clone(stream.record(ack["line_id"].as_str().unwrap()).unwrap())
+        };
+
+        let records: Vec<_> = (1..=2100).map(&mut append).collect();
+        let selected = &records[0].line_id;
+        assert!(history.select(selected, true));
+        // Expire older rows except the last 50 (stay active).
+        for record in &records[..2050] {
+            let mut expired = (**record).clone();
+            expired.revision += 1;
+            expired.state = "expired";
+            history.observe(&Event::Expire(Arc::new(expired)));
+        }
+        assert!(history.get(&records.last().unwrap().line_id).is_some());
+        assert_eq!(history.active().count(), 50);
+        let expired_count = history.rows.len().saturating_sub(history.active.len());
+        assert!(expired_count <= MAX_EXPIRED_ROWS);
+        assert_eq!(history.selected_ids(), vec![selected.as_str()]);
+        assert!(history.get(&records[1].line_id).is_none());
+        assert!(history.get(&records[2049].line_id).is_some());
     }
 }

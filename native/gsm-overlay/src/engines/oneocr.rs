@@ -135,75 +135,100 @@ mod windows_impl {
         init_options: i64,
         pipeline: i64,
         process_options: i64,
+        reg: crate::engines::telemetry::ModelRegistration,
+    }
+
+    fn oneocr_file_bytes(directory: &std::path::Path) -> u64 {
+        [DLL_NAME, MODEL_NAME, "onnxruntime.dll"]
+            .into_iter()
+            .filter_map(|name| std::fs::metadata(directory.join(name)).ok())
+            .map(|m| m.len())
+            .sum()
     }
 
     impl Engine {
         pub(super) fn new() -> Result<Self> {
             let directory = crate::models::oneocr::directory()?;
             crate::models::oneocr::prepare(&directory, &|_, _| {})?;
+            let file_bytes = oneocr_file_bytes(&directory);
+            let ((api, init_options, pipeline, process_options), reg) =
+                crate::engines::telemetry::ModelRegistration::measure_load(
+                    "oneocr",
+                    "OneOCR",
+                    None,
+                    file_bytes,
+                    true,
+                    || {
+                        let api = Api::load(&directory)?;
+                        let mut init_options = 0_i64;
+                        check(
+                            unsafe { (api.create_init_options)(&mut init_options) },
+                            "create init options",
+                        )?;
+                        check(
+                            unsafe { (api.set_delay_load)(init_options, 0) },
+                            "configure model loading",
+                        )?;
 
-            let api = Api::load(&directory)?;
-            let mut init_options = 0_i64;
-            check(
-                unsafe { (api.create_init_options)(&mut init_options) },
-                "create init options",
-            )?;
-            check(
-                unsafe { (api.set_delay_load)(init_options, 0) },
-                "configure model loading",
-            )?;
+                        let model_path = CString::new(
+                            directory.join(MODEL_NAME).to_string_lossy().as_bytes(),
+                        )
+                        .context("encode OneOCR model path")?;
+                        let model_key =
+                            CString::new(MODEL_KEY).context("encode OneOCR model key")?;
+                        let mut pipeline = 0_i64;
+                        if let Err(error) = check(
+                            unsafe {
+                                (api.create_pipeline)(
+                                    model_path.as_ptr(),
+                                    model_key.as_ptr(),
+                                    init_options,
+                                    &mut pipeline,
+                                )
+                            },
+                            "create pipeline",
+                        ) {
+                            unsafe { (api.release_init_options)(init_options) };
+                            return Err(error);
+                        }
 
-            let model_path = CString::new(directory.join(MODEL_NAME).to_string_lossy().as_bytes())
-                .context("encode OneOCR model path")?;
-            let model_key = CString::new(MODEL_KEY).context("encode OneOCR model key")?;
-            let mut pipeline = 0_i64;
-            if let Err(error) = check(
-                unsafe {
-                    (api.create_pipeline)(
-                        model_path.as_ptr(),
-                        model_key.as_ptr(),
-                        init_options,
-                        &mut pipeline,
-                    )
-                },
-                "create pipeline",
-            ) {
-                unsafe { (api.release_init_options)(init_options) };
-                return Err(error);
-            }
-
-            let mut process_options = 0_i64;
-            if let Err(error) = check(
-                unsafe { (api.create_process_options)(&mut process_options) },
-                "create process options",
-            ) {
-                unsafe {
-                    (api.release_pipeline)(pipeline);
-                    (api.release_init_options)(init_options);
-                }
-                return Err(error);
-            }
-            if let Err(error) = check(
-                unsafe { (api.set_max_line_count)(process_options, 1000) },
-                "configure maximum line count",
-            ) {
-                unsafe {
-                    (api.release_process_options)(process_options);
-                    (api.release_pipeline)(pipeline);
-                    (api.release_init_options)(init_options);
-                }
-                return Err(error);
-            }
+                        let mut process_options = 0_i64;
+                        if let Err(error) = check(
+                            unsafe { (api.create_process_options)(&mut process_options) },
+                            "create process options",
+                        ) {
+                            unsafe {
+                                (api.release_pipeline)(pipeline);
+                                (api.release_init_options)(init_options);
+                            }
+                            return Err(error);
+                        }
+                        if let Err(error) = check(
+                            unsafe { (api.set_max_line_count)(process_options, 1000) },
+                            "configure maximum line count",
+                        ) {
+                            unsafe {
+                                (api.release_process_options)(process_options);
+                                (api.release_pipeline)(pipeline);
+                                (api.release_init_options)(init_options);
+                            }
+                            return Err(error);
+                        }
+                        Ok((api, init_options, pipeline, process_options))
+                    },
+                )?;
 
             Ok(Self {
                 api,
                 init_options,
                 pipeline,
                 process_options,
+                reg,
             })
         }
 
         pub(super) fn recognize(&self, image: &RgbaImage) -> Result<Recognition> {
+            self.reg.touch();
             let structure = ImageStructure {
                 image_type: 3,
                 width: image.width() as i32,

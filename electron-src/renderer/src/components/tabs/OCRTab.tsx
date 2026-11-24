@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import "./OCRTab.css";
-import { startVisiblePolling } from '../../lib/visiblePolling';
+import { startVisiblePolling, isDocumentVisible, NATIVE_VISIBILITY_EVENT } from '../../lib/visiblePolling';
 import { OCRCaptureMap, type CaptureMapConfig } from "./OCRCaptureMap";
 import { OCRTextFeed } from "./OCRTextFeed";
 import { VitaOcrModel } from "./VitaOcrModel";
@@ -1381,7 +1381,7 @@ export function OCRTab({ active }: OcrTabProps) {
   }, [notice]);
 
   const fitTerminal = useCallback(() => {
-    if (!terminalVisibleRef.current || document.visibilityState === "hidden") return;
+    if (!terminalVisibleRef.current || !isDocumentVisible()) return;
     if (resizeTimerRef.current) {
       clearTimeout(resizeTimerRef.current);
     }
@@ -1419,7 +1419,7 @@ export function OCRTab({ active }: OcrTabProps) {
     fitAddonRef.current = fitAddon;
     const output = createBufferedTerminalWriter(
       (data) => terminal.write(data),
-      () => terminalVisibleRef.current && document.visibilityState !== "hidden",
+      () => terminalVisibleRef.current && isDocumentVisible(),
     );
     terminalWriterRef.current = output;
 
@@ -1458,11 +1458,13 @@ export function OCRTab({ active }: OcrTabProps) {
     window.addEventListener("resize", handleResize);
     window.addEventListener(THEME_CHANGED_EVENT, handleThemeChange);
     document.addEventListener("visibilitychange", output.flush);
+    window.addEventListener(NATIVE_VISIBILITY_EVENT, output.flush);
 
     return () => {
       window.removeEventListener("resize", handleResize);
       window.removeEventListener(THEME_CHANGED_EVENT, handleThemeChange);
       document.removeEventListener("visibilitychange", output.flush);
+      window.removeEventListener(NATIVE_VISIBILITY_EVENT, output.flush);
       terminalElementRef.current?.removeEventListener(
         "contextmenu",
         handleContextMenu

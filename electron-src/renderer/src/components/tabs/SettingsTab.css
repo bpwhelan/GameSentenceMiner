@@ -470,6 +470,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+.settings-resource-usage {
+  max-width: 56rem;
+}
+
+.settings-resource-usage section {
+  margin-block-start: 1.5rem;
+}
+
+.settings-resource-usage section .btn {
+  margin-block: 0.75rem;
+}
+
 .settings-resource-table :is(th, td) {
   padding: 0.625rem 0.5rem;
   text-align: start;
@@ -481,6 +493,16 @@
 
 .settings-resource-table tbody th {
   font-weight: inherit;
+  overflow-wrap: anywhere;
+}
+
+.settings-resource-table small {
+  display: block;
+  color: var(--gsm-text-muted);
+}
+
+.settings-resource-process th {
+  padding-inline-start: 1.25rem;
 }
 
 .settings-resource-table tfoot {

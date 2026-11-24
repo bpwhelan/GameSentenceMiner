@@ -14,11 +14,11 @@ use crate::overlay_magpie::{
     renderer_signature, sample_pointer, select_target_display, source_focused, DisplayInfo,
     MagpieInfo,
 };
+use crate::overlay_pointer::PointerPacer;
 use crate::overlay_preload::{
     overlay_main_init_script, overlay_settings_init_script, overlay_simple_ipc_init_script,
     overlay_vn_guide_hud_init_script,
 };
-use crate::overlay_pointer::PointerPacer;
 use crate::overlay_settings::{
     apply_backend_profile_state, apply_gsm_owned_config_update, backend_profile_name,
     build_profile_snapshot, default_user_settings_map, is_modifier_only_hotkey, is_mouse_hotkey,
@@ -164,7 +164,12 @@ enum ManualHotkeyAction {
 }
 
 impl ManualHotkeyMachine {
-    fn signal(&mut self, mode: ManualModeType, pressed: bool, popup_open: bool) -> Option<ManualHotkeyAction> {
+    fn signal(
+        &mut self,
+        mode: ManualModeType,
+        pressed: bool,
+        popup_open: bool,
+    ) -> Option<ManualHotkeyAction> {
         if self.key_down == pressed {
             return None;
         }
@@ -579,7 +584,11 @@ impl OverlayHost {
         }
         let mut inner = self.inner.lock().unwrap();
         inner.last_text_payload = payload.clone();
-        if Self::is_unbacked_scan(payload) && !app.state::<Arc<crate::mining::MiningService>>().is_enabled() {
+        if Self::is_unbacked_scan(payload)
+            && !app
+                .state::<Arc<crate::mining::MiningService>>()
+                .is_enabled()
+        {
             if let Some(tx) = &inner.ws2_tx {
                 let _ = tx.send(Ws2Outbound::Direct(
                     json!({"type":"native-overlay-result", "data":payload}),
@@ -633,7 +642,11 @@ impl OverlayHost {
         Ok(())
     }
 
-    pub async fn reload_browser_dictionary(&self, app: &AppHandle, reader: &str) -> Result<(), String> {
+    pub async fn reload_browser_dictionary(
+        &self,
+        app: &AppHandle,
+        reader: &str,
+    ) -> Result<(), String> {
         let _guard = self.reader_switch.lock().await;
         if !dictionary_host::use_windows_native_extensions()
             || dictionary_host::reader_selection(&dictionary_host::overlay_data_path(app)) != reader
@@ -644,7 +657,8 @@ impl OverlayHost {
         self.reset_dictionary_attachment(app);
         // The previous extension may have been disabled during a failed switch.
         // Reload its documents on rollback even when the extension ID matches.
-        app.state::<DictionaryManager>().invalidate_reader_attachments();
+        app.state::<DictionaryManager>()
+            .invalidate_reader_attachments();
         self.attach_selected_dictionary(app).await?;
         self.push_preload_settings(app);
         self.push_settings_to_main(app);
@@ -701,7 +715,10 @@ impl OverlayHost {
                     "gamepad_manual_pause" => true,
                     _ => false,
                 };
-            if (!enabled && !crate::app_lifecycle::native_session_requested()) || !inner.ws2_connected || !inner.pause_sources.insert(source.into()) {
+            if (!enabled && !crate::app_lifecycle::native_session_requested())
+                || !inner.ws2_connected
+                || !inner.pause_sources.insert(source.into())
+            {
                 return;
             }
         } else if !inner.pause_sources.remove(source) {
@@ -733,7 +750,10 @@ impl OverlayHost {
             };
             if return_overlay {
                 if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                    if window.hwnd().is_ok_and(|hwnd| previous == (hwnd.0 as usize).to_string()) {
+                    if window
+                        .hwnd()
+                        .is_ok_and(|hwnd| previous == (hwnd.0 as usize).to_string())
+                    {
                         let _ = window.set_focusable(true);
                         let _ = window_platform::apply(&window, "focus", &Value::Null);
                         return true;
@@ -797,9 +817,7 @@ impl OverlayHost {
         let focus = {
             let mut inner = self.inner.lock().unwrap();
             let pending = inner.manual_focus_deadline.take().is_some();
-            pending
-                && Self::capture_available(&inner)
-                && Self::interaction_active(&inner)
+            pending && Self::capture_available(&inner) && Self::interaction_active(&inner)
         };
         if focus {
             if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
@@ -916,7 +934,9 @@ impl OverlayHost {
         inner.capture_available = Some(available);
         // Hide on startup applies to the waiting window. The first usable game
         // capture must reveal the automatic overlay even before any text arrives.
-        if inner.startup_hidden && available && !Self::manual_mode(inner)
+        if inner.startup_hidden
+            && available
+            && !Self::manual_mode(inner)
             && matches!(inner.game_state.state.as_str(), "active" | "background")
         {
             inner.startup_hidden = false;
@@ -943,7 +963,9 @@ impl OverlayHost {
         if !Self::capture_available(inner) || inner.is_afk {
             return (true, false);
         }
-        if inner.resize_mode || inner.pinned || inner.navigation_active
+        if inner.resize_mode
+            || inner.pinned
+            || inner.navigation_active
             || (inner.yomitan_showing && !Self::routes_text_hover(inner))
         {
             return (false, true);
@@ -957,7 +979,11 @@ impl OverlayHost {
         } else {
             inner.text_hover_ignoring.unwrap_or(true)
         };
-        (ignore, inner.lookup_focus_owned || (!ignore && (inner.navigation_active || inner.yomitan_showing)))
+        (
+            ignore,
+            inner.lookup_focus_owned
+                || (!ignore && (inner.navigation_active || inner.yomitan_showing)),
+        )
     }
 
     fn request_or_toggle_translation(&self, app: &AppHandle) -> Result<(), String> {
@@ -1411,22 +1437,33 @@ impl OverlayHost {
         let _reader = self.reader_switch.lock().await;
         {
             let inner = self.inner.lock().unwrap();
-            if inner.running || inner.worker_gen != generation { return; }
+            if inner.running || inner.worker_gen != generation {
+                return;
+            }
         }
         if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
             if let Err(error) = window.destroy() {
-                crate::desktop_log::warn(app, "memory", format!("Could not release idle overlay: {error}"));
+                crate::desktop_log::warn(
+                    app,
+                    "memory",
+                    format!("Could not release idle overlay: {error}"),
+                );
                 return;
             }
             // Destruction is queued. Keep start serialized until its old label
             // and attachment bookkeeping are gone.
             for _ in 0..250 {
-                if app.get_webview_window(OVERLAY_MAIN_LABEL).is_none() { break; }
+                if app.get_webview_window(OVERLAY_MAIN_LABEL).is_none() {
+                    break;
+                }
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
-            if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() { return; }
+            if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() {
+                return;
+            }
         }
-        app.state::<DictionaryManager>().forget_window(app, OVERLAY_MAIN_LABEL);
+        app.state::<DictionaryManager>()
+            .forget_window(app, OVERLAY_MAIN_LABEL);
         self.unregister_window_access(app, OVERLAY_MAIN_LABEL);
         let mut inner = self.inner.lock().unwrap();
         inner.dictionary_ready = false;
@@ -1574,10 +1611,15 @@ impl OverlayHost {
             dm.ensure_hachidori_engine(app, &ext).await?;
         }
         let jiten = self.inner.lock().unwrap().user_settings["enableJitenReader"] == true;
-        let jiten_ext = if jiten { Some(dm.load_jiten_extension(app).await?) } else { None };
+        let jiten_ext = if jiten {
+            Some(dm.load_jiten_extension(app).await?)
+        } else {
+            None
+        };
         if let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
             let will_reload = dictionary_host::use_windows_native_extensions()
-                && dm.get_home_reader_extension(OVERLAY_MAIN_LABEL).as_deref() != Some(ext.id.as_str());
+                && dm.get_home_reader_extension(OVERLAY_MAIN_LABEL).as_deref()
+                    != Some(ext.id.as_str());
             dm.attach_reader_window(app, &win, &ext).await?;
             if will_reload {
                 // The next document-ready handshake completes attachment.
@@ -1587,8 +1629,13 @@ impl OverlayHost {
             if !dictionary_host::use_windows_native_extensions() {
                 if let Some(jiten_ext) = jiten_ext {
                     let url = win.url().map_err(|e| e.to_string())?;
-                    win.eval(&dm.portable_preload_for_window(OVERLAY_MAIN_LABEL, &jiten_ext, url.as_str(), 1))
-                        .map_err(|e| e.to_string())?;
+                    win.eval(&dm.portable_preload_for_window(
+                        OVERLAY_MAIN_LABEL,
+                        &jiten_ext,
+                        url.as_str(),
+                        1,
+                    ))
+                    .map_err(|e| e.to_string())?;
                     dm.inject_portable_content(app, &win, &jiten_ext).await?;
                 }
             }
@@ -1596,7 +1643,12 @@ impl OverlayHost {
         self.inner.lock().unwrap().dictionary_ready = true;
         self.push_settings_to_main(app);
         if jiten {
-            desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "settings-updated", &[json!({"jitenReaderLoaded":true})]);
+            desktop_state::emit_to_window(
+                app,
+                OVERLAY_MAIN_LABEL,
+                "settings-updated",
+                &[json!({"jitenReaderLoaded":true})],
+            );
         }
         Ok(())
     }
@@ -1627,12 +1679,16 @@ impl OverlayHost {
         let url = url::Url::parse(&format!("{base_url}settings.html"))
             .map_err(|e| format!("Invalid settings URL: {e}"))?;
 
-        let win = WebviewWindowBuilder::new(app, OVERLAY_SETTINGS_LABEL, WebviewUrl::External(url))
-            .title("GSM Overlay Settings")
-            .inner_size(980.0, 760.0)
-            .min_inner_size(720.0, 520.0)
-            .visible(false)
-            .initialization_script(&init_script)
+        let overlay_data = dictionary_host::overlay_data_path(app);
+        let builder = dictionary_host::apply_shared_webview_options(
+            WebviewWindowBuilder::new(app, OVERLAY_SETTINGS_LABEL, WebviewUrl::External(url))
+                .title("GSM Overlay Settings")
+                .inner_size(980.0, 760.0)
+                .min_inner_size(720.0, 520.0)
+                .visible(false)
+                .initialization_script(&init_script),
+        );
+        let win = dictionary_host::apply_profile_data_directory(builder, &overlay_data)?
             .build()
             .map_err(|e| format!("Failed to create overlay settings window: {e}"))?;
 
@@ -1690,6 +1746,8 @@ impl OverlayHost {
         }
         if let Some(win) = app.get_webview_window(OVERLAY_TEXTHOOKER_LABEL) {
             let _ = win.show();
+            crate::memory::sync_visibility(&win);
+            crate::memory::restore(&win);
             let _ = win.set_focus();
             self.set_process_pause("texthooker_hotkey", true);
             return Ok(());
@@ -1761,6 +1819,9 @@ impl OverlayHost {
                 }
             }
             let _ = window.hide();
+            if label == OVERLAY_TEXTHOOKER_LABEL {
+                crate::memory::sync_visibility(&window);
+            }
         }
         if label == OVERLAY_TEXTHOOKER_LABEL {
             self.set_process_pause("texthooker_hotkey", false);
@@ -1792,30 +1853,34 @@ impl OverlayHost {
         let loaded_host = self.clone();
         let loaded_app = app.clone();
         let loaded_label = label.to_owned();
-        let win = WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
-            .title(title)
-            .inner_size(width, height)
-            .always_on_top(true)
-            .visible(true)
-            .initialization_script(&init_script)
-            .on_page_load(move |_, event| {
-                if event.event() != tauri::webview::PageLoadEvent::Finished {
-                    return;
-                }
-                let payload = {
-                    let inner = loaded_host.inner.lock().unwrap();
-                    json!({"game":inner.game_state.game,"initial":inner.user_settings,
-                        "runtimeState":{"manualHotkeyBackend":inner.manual_hotkey_backend,
-                            "manualHotkeyKeyboardAvailable":inner.keyboard_available,
-                            "manualHotkeyKeyboardError":inner.keyboard_error}})
-                };
-                let channel = match loaded_label.as_str() {
-                    OVERLAY_REC_MANUAL_LABEL => "preload-manual-mode-recommendation",
-                    OVERLAY_REC_FS_LABEL => "preload-fullscreen-mode-recommendation",
-                    _ => return,
-                };
-                desktop_state::emit_to_window(&loaded_app, &loaded_label, channel, &[payload]);
-            })
+        let overlay_data = dictionary_host::overlay_data_path(app);
+        let builder = dictionary_host::apply_shared_webview_options(
+            WebviewWindowBuilder::new(app, label, WebviewUrl::External(url))
+                .title(title)
+                .inner_size(width, height)
+                .always_on_top(true)
+                .visible(true)
+                .initialization_script(&init_script)
+                .on_page_load(move |_, event| {
+                    if event.event() != tauri::webview::PageLoadEvent::Finished {
+                        return;
+                    }
+                    let payload = {
+                        let inner = loaded_host.inner.lock().unwrap();
+                        json!({"game":inner.game_state.game,"initial":inner.user_settings,
+                            "runtimeState":{"manualHotkeyBackend":inner.manual_hotkey_backend,
+                                "manualHotkeyKeyboardAvailable":inner.keyboard_available,
+                                "manualHotkeyKeyboardError":inner.keyboard_error}})
+                    };
+                    let channel = match loaded_label.as_str() {
+                        OVERLAY_REC_MANUAL_LABEL => "preload-manual-mode-recommendation",
+                        OVERLAY_REC_FS_LABEL => "preload-fullscreen-mode-recommendation",
+                        _ => return,
+                    };
+                    desktop_state::emit_to_window(&loaded_app, &loaded_label, channel, &[payload]);
+                }),
+        );
+        let win = dictionary_host::apply_profile_data_directory(builder, &overlay_data)?
             .build()
             .map_err(|e| format!("Failed creating {label}: {e}"))?;
 
@@ -1847,7 +1912,10 @@ impl OverlayHost {
             let inner = self.inner.lock().unwrap();
             let mut settings = inner.user_settings.clone();
             settings.insert("manualMode".into(), json!(Self::manual_mode(&inner)));
-            settings.insert("vnGuideChoiceClickThroughActive".into(), json!(inner.vn_guide_choice_click_through));
+            settings.insert(
+                "vnGuideChoiceClickThroughActive".into(),
+                json!(inner.vn_guide_choice_click_through),
+            );
             settings
         };
         settings.insert(
@@ -2210,7 +2278,11 @@ impl OverlayHost {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(error) = host.refresh_dictionary(&app, previous_reader).await {
-                    crate::desktop_log::warn(&app, "overlay", format!("Dictionary switch: {error}"));
+                    crate::desktop_log::warn(
+                        &app,
+                        "overlay",
+                        format!("Dictionary switch: {error}"),
+                    );
                 }
             });
         }
@@ -2235,6 +2307,21 @@ impl OverlayHost {
                         "dictionary-reader-error",
                         &[json!(error)],
                     ),
+                }
+            });
+        } else if jiten_was_enabled && applied.get("enableJitenReader") == Some(&json!(false)) {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(error) = app
+                    .state::<DictionaryManager>()
+                    .disable_jiten_extension(&app)
+                    .await
+                {
+                    crate::desktop_log::warn(
+                        &app,
+                        "overlay",
+                        format!("Disable Jiten Reader: {error}"),
+                    );
                 }
             });
         }
@@ -2302,11 +2389,17 @@ impl OverlayHost {
         };
         let (ignore, focusable, forward) = {
             let inner = self.inner.lock().unwrap();
-            let (ignore, focusable) = if inner.running { Self::mouse_policy(&inner) } else { (true, false) };
+            let (ignore, focusable) = if inner.running {
+                Self::mouse_policy(&inner)
+            } else {
+                (true, false)
+            };
             // Continue tracking across dictionary frames and transparent pixels,
             // even while a control owns clicks. Magpie has its own pointer feed.
-            let forward = inner.running && Self::capture_available(&inner)
-                && !inner.is_afk && inner.magpie_info.is_none();
+            let forward = inner.running
+                && Self::capture_available(&inner)
+                && !inner.is_afk
+                && inner.magpie_info.is_none();
             (ignore, focusable, forward)
         };
         let _ = win.set_focusable(focusable);
@@ -2558,7 +2651,9 @@ impl OverlayHost {
             }
         }
         let mode = ManualModeType::from_settings(&inner.user_settings);
-        inner.manual_hotkey.signal(mode, pressed, inner.yomitan_showing)
+        inner
+            .manual_hotkey
+            .signal(mode, pressed, inner.yomitan_showing)
     }
 
     fn handle_manual_hotkey(&self, app: &AppHandle, pressed: bool) {
@@ -2577,20 +2672,25 @@ impl OverlayHost {
             })
         };
         match transition {
-            Some(ManualHotkeyAction::SetActive(active)) => self.emit_manual_hotkey_state(app, active),
+            Some(ManualHotkeyAction::SetActive(active)) => {
+                self.emit_manual_hotkey_state(app, active)
+            }
             Some(ManualHotkeyAction::CheckPopup(id)) => {
                 let host = self.clone();
                 let app_handle = app.clone();
                 if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
-                    let evaluation = window.eval_with_callback("window.isManualLookupVisible?.() === true", move |result| {
-                        // WebView2 invokes this on the UI thread. Releasing input can
-                        // synchronously wait for window operations on that same thread.
-                        let host = host.clone();
-                        let app = app_handle.clone();
-                        tauri::async_runtime::spawn_blocking(move || {
-                            host.finish_manual_popup_check(&app, id, result == "true");
-                        });
-                    });
+                    let evaluation = window.eval_with_callback(
+                        "window.isManualLookupVisible?.() === true",
+                        move |result| {
+                            // WebView2 invokes this on the UI thread. Releasing input can
+                            // synchronously wait for window operations on that same thread.
+                            let host = host.clone();
+                            let app = app_handle.clone();
+                            tauri::async_runtime::spawn_blocking(move || {
+                                host.finish_manual_popup_check(&app, id, result == "true");
+                            });
+                        },
+                    );
                     if evaluation.is_ok() {
                         return;
                     }
@@ -2841,7 +2941,11 @@ impl OverlayHost {
             tauri::async_runtime::spawn(async move {
                 if let Some(dm) = app_c.try_state::<DictionaryManager>() {
                     if let Err(error) = dm.open_jiten_options(&app_c).await {
-                        crate::desktop_log::warn(&app_c, "overlay", format!("Jiten settings: {error}"));
+                        crate::desktop_log::warn(
+                            &app_c,
+                            "overlay",
+                            format!("Jiten settings: {error}"),
+                        );
                     }
                 }
             });
@@ -3233,10 +3337,18 @@ impl OverlayHost {
                 inner.vn_guide_choice_click_through = active;
                 inner.magpie_pointer_pending = None;
             }
-            (inner.running && snap["visible"] == true, changed.then_some(active))
+            (
+                inner.running && snap["visible"] == true,
+                changed.then_some(active),
+            )
         };
         if let Some(active) = click_through_change {
-            desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "vn-guide-choice-click-through", &[json!(active)]);
+            desktop_state::emit_to_window(
+                app,
+                OVERLAY_MAIN_LABEL,
+                "vn-guide-choice-click-through",
+                &[json!(active)],
+            );
         }
         if !visible {
             if let Some(win) = app.get_webview_window(OVERLAY_VN_GUIDE_LABEL) {
@@ -3290,7 +3402,8 @@ impl OverlayHost {
         let Ok(url) = url::Url::parse(&format!("{base_url}vn_guide_hud.html")) else {
             return;
         };
-        if let Ok(win) =
+        let overlay_data = dictionary_host::overlay_data_path(app);
+        let builder = dictionary_host::apply_shared_webview_options(
             WebviewWindowBuilder::new(app, OVERLAY_VN_GUIDE_LABEL, WebviewUrl::External(url))
                 .title("VN Guide")
                 .transparent(true)
@@ -3304,21 +3417,23 @@ impl OverlayHost {
                 .position(x as f64, y as f64)
                 .inner_size(w as f64, h as f64)
                 .visible(false)
-                .initialization_script(&init_script)
-                .build()
-        {
-            let _ = window_platform::apply(&win, "frameless", &Value::Null);
-            let _ = window_platform::apply(
-                &win,
-                "ignoreCursor",
-                &json!({"ignore": snap["displayStyle"] == "text", "forward": false}),
-            );
-            desktop_state::emit_to_window(
-                app,
-                OVERLAY_VN_GUIDE_LABEL,
-                "vn-guide-state",
-                &[snap.clone()],
-            );
+                .initialization_script(&init_script),
+        );
+        if let Ok(builder) = dictionary_host::apply_profile_data_directory(builder, &overlay_data) {
+            if let Ok(win) = builder.build() {
+                let _ = window_platform::apply(&win, "frameless", &Value::Null);
+                let _ = window_platform::apply(
+                    &win,
+                    "ignoreCursor",
+                    &json!({"ignore": snap["displayStyle"] == "text", "forward": false}),
+                );
+                desktop_state::emit_to_window(
+                    app,
+                    OVERLAY_VN_GUIDE_LABEL,
+                    "vn-guide-state",
+                    &[snap.clone()],
+                );
+            }
         }
     }
 
@@ -3327,7 +3442,9 @@ impl OverlayHost {
     pub fn handle_window_pointer(&self, app: &AppHandle, label: &str, point: &Value) {
         let forward = {
             let inner = self.inner.lock().unwrap();
-            inner.running && Self::capture_available(&inner) && !inner.is_afk
+            inner.running
+                && Self::capture_available(&inner)
+                && !inner.is_afk
                 && inner.magpie_info.is_none()
         };
         if label == OVERLAY_MAIN_LABEL && forward {
@@ -3655,7 +3772,8 @@ impl OverlayHost {
                     ))
                     .await;
 
-                let mut capture = Some(crate::text_intake::overlay_control::CaptureConfig::default());
+                let mut capture =
+                    Some(crate::text_intake::overlay_control::CaptureConfig::default());
                 let native = crate::app_lifecycle::native_session_requested();
                 let mut refresh = tokio::time::interval(Duration::from_secs(1));
                 refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -3881,12 +3999,16 @@ impl OverlayHost {
                         .unwrap_or(Value::Null);
                 }
                 if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
-                    if (self.inner.lock().unwrap().running && app.get_webview_window(OVERLAY_MAIN_LABEL).is_some())
+                    if (self.inner.lock().unwrap().running
+                        && app.get_webview_window(OVERLAY_MAIN_LABEL).is_some())
                         || msg["action"] == "stop"
                     {
                         if let Ok(result) = overlay.command(OVERLAY_MAIN_LABEL, msg.clone()) {
-                            if msg["action"]=="configure" && msg["config"]["available"]==true {
-                                app.state::<crate::text_intake::Intake>().overlay_ready(app,msg["config"]["scene"].as_str().unwrap_or(""));
+                            if msg["action"] == "configure" && msg["config"]["available"] == true {
+                                app.state::<crate::text_intake::Intake>().overlay_ready(
+                                    app,
+                                    msg["config"]["scene"].as_str().unwrap_or(""),
+                                );
                             }
                             if result["clear"] == true {
                                 crate::overlay::clear(app, OVERLAY_MAIN_LABEL);
@@ -3924,16 +4046,18 @@ impl OverlayHost {
             }
             "window_state" => {
                 if msg["desktop_projection"] != true {
-                    self.present_window(app,raw_txt,&msg).await;
+                    self.present_window(app, raw_txt, &msg).await;
                 }
             }
             "capture_status" => {
                 if msg["desktop_projection"] != true {
-                    self.present_capture(app,&msg).await;
+                    self.present_capture(app, &msg).await;
                 }
             }
             "gsm-overlay-config-updated" | "gsm_overlay_config" | "gsm-overlay-config" => {
-                if msg["type"] == "gsm-overlay-config-updated" && msg["settings"]["showRecycledIndicator"].is_boolean() {
+                if msg["type"] == "gsm-overlay-config-updated"
+                    && msg["settings"]["showRecycledIndicator"].is_boolean()
+                {
                     app.state::<crate::obs::Obs>().refresh_session();
                 }
                 if let Some(cfg_map) = msg
@@ -4023,7 +4147,10 @@ impl OverlayHost {
                 self.stop(app).await;
             }
             "anki-confirmation-closed" => {
-                self.restore_after_confirmation(app, msg["previousForegroundHwnd"].as_str().unwrap_or(""));
+                self.restore_after_confirmation(
+                    app,
+                    msg["previousForegroundHwnd"].as_str().unwrap_or(""),
+                );
             }
             "restore-focus-result" => {
                 if msg["success"] == true {
@@ -4362,9 +4489,10 @@ impl OverlayHost {
                     continue;
                 };
 
-                if !can_track || !app
-                    .get_webview_window(OVERLAY_MAIN_LABEL)
-                    .is_some_and(|window| window.is_visible().unwrap_or(false))
+                if !can_track
+                    || !app
+                        .get_webview_window(OVERLAY_MAIN_LABEL)
+                        .is_some_and(|window| window.is_visible().unwrap_or(false))
                 {
                     host.inner.lock().unwrap().magpie_pointer_pending = None;
                     pointer = PointerPacer::default();
@@ -4457,7 +4585,13 @@ impl OverlayHost {
         // Only initialization/diagnostics are meaningful without a session.
         if label == OVERLAY_MAIN_LABEL
             && !self.inner.lock().unwrap().running
-            && !matches!(channel, "overlay-settings-ready" | "config-received" | "native-overlay-error" | "reply-current-settings")
+            && !matches!(
+                channel,
+                "overlay-settings-ready"
+                    | "config-received"
+                    | "native-overlay-error"
+                    | "reply-current-settings"
+            )
         {
             return true;
         }
@@ -4529,7 +4663,8 @@ impl OverlayHost {
                     let focus = showing
                         && inner.user_settings["focusOverlayOnYomitanLookup"] == true
                         && Self::capture_available(&inner);
-                    let restore = !showing && !release
+                    let restore = !showing
+                        && !release
                         && inner.lookup_focus_owned
                         && !inner.navigation_active
                         && !inner.manual_hotkey.active;
@@ -4563,7 +4698,9 @@ impl OverlayHost {
                         || !first.is_boolean()
                         || !Self::routes_text_hover(&inner)
                         || inner.magpie_info.is_some()
-                        || preference != (inner.vn_guide_choice_click_through || inner.user_settings["textHoverClickThrough"] == true)
+                        || preference
+                            != (inner.vn_guide_choice_click_through
+                                || inner.user_settings["textHoverClickThrough"] == true)
                     {
                         return true;
                     }
@@ -4756,8 +4893,12 @@ impl OverlayHost {
                                 "dictionary",
                                 format!("Overlay attachment failed: {error}"),
                             );
-                            desktop_state::emit_to_window(&attach_app, OVERLAY_SETTINGS_LABEL,
-                                "dictionary-reader-error", &[json!(error)]);
+                            desktop_state::emit_to_window(
+                                &attach_app,
+                                OVERLAY_SETTINGS_LABEL,
+                                "dictionary-reader-error",
+                                &[json!(error)],
+                            );
                         }
                     });
                     let previous = self.inner.lock().unwrap().last_window_state.clone();
@@ -4804,10 +4945,16 @@ impl OverlayHost {
                 true
             }
             "open-ai-settings" | "open-gsm-profile-settings" => {
-                let tab = if channel == "open-ai-settings" { "ai" } else { "profiles" };
+                let tab = if channel == "open-ai-settings" {
+                    "ai"
+                } else {
+                    "profiles"
+                };
                 let handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    if let Err(error) = crate::mining_settings::open(&handle, tab.into(), String::new()).await {
+                    if let Err(error) =
+                        crate::mining_settings::open(&handle, tab.into(), String::new()).await
+                    {
                         crate::desktop_log::warn(&handle, "settings", error);
                     }
                 });
@@ -4867,7 +5014,8 @@ impl OverlayHost {
                 self.set_navigation(app, true);
                 let can_focus = {
                     let inner = self.inner.lock().unwrap();
-                    inner.navigation_active && !Self::focus_neutral_manual_mode(&inner)
+                    inner.navigation_active
+                        && !Self::focus_neutral_manual_mode(&inner)
                         && inner.manual_focus_deadline.is_none()
                 };
                 if !can_focus {
@@ -4892,7 +5040,9 @@ impl OverlayHost {
                 true
             }
             "gamepad-forward-enter" | "gamepad-forward-key" | "gamepad-forward-click" => {
-                self.forward_game_input(channel, &first, |message| self.deliver_game_input(app, message));
+                self.forward_game_input(channel, &first, |message| {
+                    self.deliver_game_input(app, message)
+                });
                 true
             }
             "gamepad-translate" => {
@@ -5093,7 +5243,10 @@ impl OverlayHost {
                     .get("message")
                     .cloned()
                     .unwrap_or_else(|| first.clone());
-                if (!self.inner.lock().unwrap().running || app.get_webview_window(target_label).is_none()) && message["action"] != "stop" {
+                if (!self.inner.lock().unwrap().running
+                    || app.get_webview_window(target_label).is_none())
+                    && message["action"] != "stop"
+                {
                     return Some(Err("Overlay session is disabled".into()));
                 }
                 self.sync_native_context(app, &message);
@@ -5251,10 +5404,28 @@ impl OverlayHost {
                 .await;
                 Some(res)
             }
-            "overlay-meiki-model" => Some(crate::ocr_coordinator::meiki::invoke(app,
-                if first["model"].is_null() { json!({}) } else { first }).await),
-            "overlay-vita-model" => Some(crate::ocr_coordinator::vocr::invoke(app,
-                if first["model"].is_null() { json!({}) } else { first }).await),
+            "overlay-meiki-model" => Some(
+                crate::ocr_coordinator::meiki::invoke(
+                    app,
+                    if first["model"].is_null() {
+                        json!({})
+                    } else {
+                        first
+                    },
+                )
+                .await,
+            ),
+            "overlay-vita-model" => Some(
+                crate::ocr_coordinator::vocr::invoke(
+                    app,
+                    if first["model"].is_null() {
+                        json!({})
+                    } else {
+                        first
+                    },
+                )
+                .await,
+            ),
             "sudachi-setup" => {
                 let port = {
                     let inner = self.inner.lock().unwrap();
@@ -5334,7 +5505,9 @@ mod tests {
         let (tx, rx) = mpsc::unbounded_channel();
         {
             let mut inner = host.inner.lock().unwrap();
-            inner.user_settings.insert("gamepadEnabled".into(), json!(true));
+            inner
+                .user_settings
+                .insert("gamepadEnabled".into(), json!(true));
             inner.game_state.state = "active".into();
             inner.game_state.pid = Some(99);
             inner.target_hwnd = Some(42);
@@ -5348,7 +5521,9 @@ mod tests {
     #[test]
     fn automatic_overlay_reveals_on_first_showable_capture_without_text() {
         let mut inner = OverlayInner::default();
-        inner.user_settings.insert("platformOverride".into(), json!("win32"));
+        inner
+            .user_settings
+            .insert("platformOverride".into(), json!("win32"));
         inner.startup_hidden = true;
         for (state, available) in [("closed", false), ("obscured", true)] {
             inner.game_state.state = state.into();
@@ -5359,14 +5534,22 @@ mod tests {
         inner.user_settings.insert("manualMode".into(), json!(true));
         OverlayHost::set_capture_available(&mut inner, true);
         assert!(inner.startup_hidden);
-        inner.user_settings.insert("manualMode".into(), json!(false));
+        inner
+            .user_settings
+            .insert("manualMode".into(), json!(false));
         OverlayHost::set_capture_available(&mut inner, true);
         assert!(!inner.startup_hidden);
     }
 
     fn send_test_input(host: &OverlayHost, message: Value) {
-        host.inner.lock().unwrap().ws2_tx.as_ref().unwrap()
-            .send(Ws2Outbound::Direct(message)).unwrap();
+        host.inner
+            .lock()
+            .unwrap()
+            .ws2_tx
+            .as_ref()
+            .unwrap()
+            .send(Ws2Outbound::Direct(message))
+            .unwrap();
     }
 
     #[test]
@@ -5390,12 +5573,18 @@ mod tests {
                     }) else {
                         panic!("Game input must be sent immediately");
                     };
-                    assert_eq!(message, json!({
-                        "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
-                        "key": expected_key, "source": "gamepad", "activateWindow": true,
-                        "targetPid": 99, "expected_target_hwnd": 42,
-                    }));
-                    assert!(rx.try_recv().is_err(), "Each press must forward exactly once");
+                    assert_eq!(
+                        message,
+                        json!({
+                            "type": if channel == "gamepad-forward-click" { "send-click-request" } else { "send-key-request" },
+                            "key": expected_key, "source": "gamepad", "activateWindow": true,
+                            "targetPid": 99, "expected_target_hwnd": 42,
+                        })
+                    );
+                    assert!(
+                        rx.try_recv().is_err(),
+                        "Each press must forward exactly once"
+                    );
                 }
             }
         }
@@ -5404,13 +5593,24 @@ mod tests {
     #[test]
     fn forwarded_game_input_keeps_capture_settings_and_input_test_guards() {
         for navigation_active in [false, true] {
-            for blocked in ["disabled", "unavailable", "input-test", "disconnected", "minimized", "missing"] {
+            for blocked in [
+                "disabled",
+                "unavailable",
+                "input-test",
+                "disconnected",
+                "minimized",
+                "missing",
+            ] {
                 let (host, mut rx) = game_input_host();
                 {
                     let mut inner = host.inner.lock().unwrap();
                     inner.navigation_active = navigation_active;
                     match blocked {
-                        "disabled" => { inner.user_settings.insert("gamepadEnabled".into(), json!(false)); }
+                        "disabled" => {
+                            inner
+                                .user_settings
+                                .insert("gamepadEnabled".into(), json!(false));
+                        }
                         "unavailable" => inner.capture_available = Some(false),
                         "input-test" => inner.hotkey_suppressed_for_input_test = true,
                         "disconnected" => inner.ws2_connected = false,
@@ -5423,7 +5623,10 @@ mod tests {
                     ("gamepad-forward-click", Value::Null),
                 ] {
                     host.forward_game_input(channel, &first, |m| send_test_input(&host, m));
-                    assert!(rx.try_recv().is_err(), "Forwarded {channel} while {blocked}");
+                    assert!(
+                        rx.try_recv().is_err(),
+                        "Forwarded {channel} while {blocked}"
+                    );
                 }
             }
         }
@@ -5451,12 +5654,27 @@ mod tests {
         inner.game_state.state = "active".into();
         inner.capture_available = Some(true);
         inner.text_hover_ignoring = Some(true);
-        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "Navigation owns input before the renderer replies");
+        assert_eq!(
+            OverlayHost::mouse_policy(&inner),
+            (false, true),
+            "Navigation owns input before the renderer replies"
+        );
         assert_eq!(OverlayHost::reveal_transition(&mut inner), Some(true));
-        assert_eq!(OverlayHost::reveal_transition(&mut inner), None, "Focus and state events must not repeat reveal/scan");
-        inner.manual_hotkey.signal(ManualModeType::Hold, true, false);
-        inner.manual_hotkey.signal(ManualModeType::Hold, false, false);
-        assert!(OverlayHost::interaction_active(&inner), "Releasing the hotkey must preserve controller navigation");
+        assert_eq!(
+            OverlayHost::reveal_transition(&mut inner),
+            None,
+            "Focus and state events must not repeat reveal/scan"
+        );
+        inner
+            .manual_hotkey
+            .signal(ManualModeType::Hold, true, false);
+        inner
+            .manual_hotkey
+            .signal(ManualModeType::Hold, false, false);
+        assert!(
+            OverlayHost::interaction_active(&inner),
+            "Releasing the hotkey must preserve controller navigation"
+        );
         assert_eq!(OverlayHost::reveal_transition(&mut inner), None);
         inner.navigation_active = false;
         assert!(!OverlayHost::interaction_active(&inner));
@@ -5521,7 +5739,9 @@ mod tests {
         assert!(OverlayHost::mouse_policy(&inner).0);
         // Inactive manual mode and mouseleave both leave this value set.
         inner.text_hover_ignoring = Some(true);
-        inner.manual_hotkey.signal(ManualModeType::Hold, true, false);
+        inner
+            .manual_hotkey
+            .signal(ManualModeType::Hold, true, false);
         assert!(!OverlayHost::mouse_policy(&inner).0);
         inner.capture_available = Some(false);
         inner.yomitan_showing = true;
@@ -5531,30 +5751,53 @@ mod tests {
     #[test]
     fn automatic_popup_only_captures_its_hovered_surface() {
         let mut inner = OverlayInner::default();
-        inner.user_settings.insert("platformOverride".into(), json!("win32"));
+        inner
+            .user_settings
+            .insert("platformOverride".into(), json!("win32"));
         inner.game_state.state = "active".into();
         inner.capture_available = Some(true);
         inner.yomitan_showing = true;
         inner.text_hover_ignoring = Some(true);
-        assert!(OverlayHost::mouse_policy(&inner).0, "An open dictionary must not swallow game clicks");
+        assert!(
+            OverlayHost::mouse_policy(&inner).0,
+            "An open dictionary must not swallow game clicks"
+        );
         inner.lookup_focus_owned = true;
-        assert_eq!(OverlayHost::mouse_policy(&inner), (true, true), "Explicit keyboard focus is independent of clickthrough");
+        assert_eq!(
+            OverlayHost::mouse_policy(&inner),
+            (true, true),
+            "Explicit keyboard focus is independent of clickthrough"
+        );
         inner.lookup_focus_owned = false;
         inner.text_hover_ignoring = Some(false);
-        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "The popup remains interactive and focusable");
+        assert_eq!(
+            OverlayHost::mouse_policy(&inner),
+            (false, true),
+            "The popup remains interactive and focusable"
+        );
         inner.magpie_info = Some(MagpieInfo::default());
-        assert!(OverlayHost::mouse_policy(&inner).0, "Magpie must use the projected hit instead");
+        assert!(
+            OverlayHost::mouse_policy(&inner).0,
+            "Magpie must use the projected hit instead"
+        );
         inner.magpie_hovering = true;
         assert_eq!(OverlayHost::mouse_policy(&inner), (false, true));
         inner.user_settings.insert("manualMode".into(), json!(true));
-        assert_eq!(OverlayHost::mouse_policy(&inner), (false, true), "Manual lookups retain explicit input ownership");
+        assert_eq!(
+            OverlayHost::mouse_policy(&inner),
+            (false, true),
+            "Manual lookups retain explicit input ownership"
+        );
     }
 
     #[test]
     fn repeated_native_keydown_does_not_toggle_off_until_released() {
         use ManualHotkeyAction::SetActive;
         let mut machine = ManualHotkeyMachine::default();
-        assert_eq!(machine.signal(ManualModeType::Toggle, true, false), Some(SetActive(true)));
+        assert_eq!(
+            machine.signal(ManualModeType::Toggle, true, false),
+            Some(SetActive(true))
+        );
         assert_eq!(machine.signal(ManualModeType::Toggle, true, false), None);
         assert_eq!(machine.signal(ManualModeType::Toggle, false, false), None);
         assert_eq!(
@@ -5625,8 +5868,14 @@ mod tests {
         assert!(!m.popup_closed(mode));
         assert_eq!(m.signal(mode, true, false), Some(SetActive(true)));
         assert_eq!(m.signal(mode, false, false), Some(CheckPopup(2)));
-        assert!(!m.finish_popup_check(2, mode, true), "popup already painted in renderer");
-        assert!(!m.finish_popup_check(1, mode, false), "reply from a previous hold");
+        assert!(
+            !m.finish_popup_check(2, mode, true),
+            "popup already painted in renderer"
+        );
+        assert!(
+            !m.finish_popup_check(1, mode, false),
+            "reply from a previous hold"
+        );
         assert!(m.active);
         assert_eq!(m.signal(mode, true, true), None);
         assert!(!m.popup_closed(mode), "a second hold owns the reveal");
@@ -5641,17 +5890,29 @@ mod tests {
         use ManualHotkeyAction::SetActive;
         let mut m = ManualHotkeyMachine::default();
         // Hold mode
-        assert_eq!(m.signal(ManualModeType::Hold, true, false), Some(SetActive(true)));
+        assert_eq!(
+            m.signal(ManualModeType::Hold, true, false),
+            Some(SetActive(true))
+        );
         assert_eq!(m.signal(ManualModeType::Hold, true, false), None); // idempotent repeat
         assert!(m.active);
-        assert_eq!(m.signal(ManualModeType::Hold, false, false), Some(SetActive(false)));
+        assert_eq!(
+            m.signal(ManualModeType::Hold, false, false),
+            Some(SetActive(false))
+        );
         assert!(!m.active);
 
         // Toggle mode
-        assert_eq!(m.signal(ManualModeType::Toggle, true, false), Some(SetActive(true)));
+        assert_eq!(
+            m.signal(ManualModeType::Toggle, true, false),
+            Some(SetActive(true))
+        );
         assert_eq!(m.signal(ManualModeType::Toggle, false, false), None);
         assert!(m.active);
-        assert_eq!(m.signal(ManualModeType::Toggle, true, false), Some(SetActive(false)));
+        assert_eq!(
+            m.signal(ManualModeType::Toggle, true, false),
+            Some(SetActive(false))
+        );
         assert_eq!(m.signal(ManualModeType::Toggle, false, false), None);
         assert!(!m.active);
     }
@@ -5709,7 +5970,9 @@ mod tests {
             inner
                 .user_settings
                 .insert("manualModeType".into(), json!(mode));
-            inner.user_settings.insert("showHotkey".into(), json!("Shift"));
+            inner
+                .user_settings
+                .insert("showHotkey".into(), json!("Shift"));
             inner.overlay_focused = true;
             assert_eq!(
                 OverlayHost::manual_hotkey_signal(&mut inner, true, || false),

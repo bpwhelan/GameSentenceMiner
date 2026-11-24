@@ -190,6 +190,8 @@ pub fn overlay_main_init_script(
     out
 }
 
+pub(crate) const DISABLE_READER_SCOPE_JS: &str = "try{document.documentElement.dataset.gsmReaderScope='disabled';}catch{}document.addEventListener('DOMContentLoaded',()=>{try{document.documentElement.dataset.gsmReaderScope='disabled';}catch{}},{once:true});";
+
 /// Initialization script for `settings.html`, adding `window.require('electron')` and the
 /// in-page find-in-page controller (`__GSM_FIND__` + `find-in-page-preload.js`).
 pub fn overlay_settings_init_script(token: &str, overlay_root: &Path) -> String {
@@ -200,7 +202,7 @@ pub fn overlay_settings_init_script(token: &str, overlay_root: &Path) -> String 
         FIND_IN_PAGE_PRELOAD_JS,
     );
     format!(
-        "{base}\n;{FIND_IN_PAGE_JS}\n;(() => {{\n  const electronShim = {{ ipcRenderer: window.ipcRenderer, clipboard: window.clipboard }};\n  const req = id => {{ if (id === 'electron') return electronShim; throw new Error('Unsupported require(' + id + ')'); }};\n  window.require = req;\n  globalThis.require = req;\n}})();\n;(() => {{\n{find_preload}\n}})();\n"
+        "{base}\n;{DISABLE_READER_SCOPE_JS}\n;{FIND_IN_PAGE_JS}\n;(() => {{\n  const electronShim = {{ ipcRenderer: window.ipcRenderer, clipboard: window.clipboard }};\n  const req = id => {{ if (id === 'electron') return electronShim; throw new Error('Unsupported require(' + id + ')'); }};\n  window.require = req;\n  globalThis.require = req;\n}})();\n;(() => {{\n{find_preload}\n}})();\n"
     )
 }
 
@@ -209,7 +211,7 @@ pub fn overlay_settings_init_script(token: &str, overlay_root: &Path) -> String 
 pub fn overlay_simple_ipc_init_script(token: &str) -> String {
     let base = desktop_base_preload(token);
     format!(
-        "{base}\n;(() => {{\n  const electronShim = {{ ipcRenderer: window.ipcRenderer, clipboard: window.clipboard }};\n  const req = id => {{ if (id === 'electron') return electronShim; throw new Error('Unsupported require(' + id + ')'); }};\n  window.require = req;\n  globalThis.require = req;\n}})();\n"
+        "{base}\n;{DISABLE_READER_SCOPE_JS}\n;(() => {{\n  const electronShim = {{ ipcRenderer: window.ipcRenderer, clipboard: window.clipboard }};\n  const req = id => {{ if (id === 'electron') return electronShim; throw new Error('Unsupported require(' + id + ')'); }};\n  window.require = req;\n  globalThis.require = req;\n}})();\n"
     )
 }
 
@@ -223,6 +225,7 @@ pub fn overlay_vn_guide_hud_init_script(token: &str, overlay_root: &Path) -> Str
     format!(
         r#"(() => {{
 {base}
+  {DISABLE_READER_SCOPE_JS}
   const localIpc = window.ipcRenderer;
   try {{ delete window.ipcRenderer; delete window.clipboard; delete window.require; }} catch {{}}
   const contextBridge = {{

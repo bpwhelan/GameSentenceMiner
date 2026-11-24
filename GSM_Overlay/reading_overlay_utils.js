@@ -23,23 +23,31 @@
   }
 
   let PinyinPro = null;
-  try {
-    PinyinPro = (typeof require === 'function') ? require('pinyin-pro') : null;
-  } catch (e) {
-    PinyinPro = null;
-  }
-  if (!PinyinPro && root && root.pinyinPro) {
-    PinyinPro = root.pinyinPro;
+  let pinyinLookupAttempted = false;
+  function resolvePinyinPro() {
+    if (PinyinPro) return PinyinPro;
+    if (!pinyinLookupAttempted) {
+      pinyinLookupAttempted = true;
+      try {
+        PinyinPro = (typeof require === 'function') ? require('pinyin-pro') : null;
+      } catch (e) {
+        PinyinPro = null;
+      }
+    }
+    if (!PinyinPro && root && root.pinyinPro) {
+      PinyinPro = root.pinyinPro;
+    }
+    return PinyinPro;
   }
 
-  const api = factory(FuriganaUtils, PinyinPro);
+  const api = factory(FuriganaUtils, resolvePinyinPro);
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.GSMReadingOverlay = api;
   }
-}(typeof window !== 'undefined' ? window : globalThis, function (FuriganaUtils, PinyinPro) {
+}(typeof window !== 'undefined' ? window : globalThis, function (FuriganaUtils, resolvePinyinPro) {
   const LANGUAGE = Object.freeze({
     JAPANESE: 'japanese',
     CHINESE: 'chinese',
@@ -65,8 +73,13 @@
     return text === LANGUAGE.CHINESE ? LANGUAGE.CHINESE : LANGUAGE.JAPANESE;
   }
 
+  function getPinyinPro() {
+    return typeof resolvePinyinPro === 'function' ? resolvePinyinPro() : null;
+  }
+
   function pinyinAvailable() {
-    return !!(PinyinPro && typeof PinyinPro.pinyin === 'function');
+    const mod = getPinyinPro();
+    return !!(mod && typeof mod.pinyin === 'function');
   }
 
   // Languages that need an external tokenizer backend (Sudachi/Yomitan/etc.)
@@ -157,11 +170,12 @@
   // Per-character pinyin objects, 1:1 with the source string indices.
   // Each entry is { origin, pinyin, isZh, num, ... } from pinyin-pro.
   function pinyinCharObjects(lineText) {
-    if (!pinyinAvailable()) {
+    const mod = getPinyinPro();
+    if (!mod || typeof mod.pinyin !== 'function') {
       return [];
     }
     try {
-      const result = PinyinPro.pinyin(lineText, { type: 'all', toneType: PINYIN_TONE_TYPE });
+      const result = mod.pinyin(lineText, { type: 'all', toneType: PINYIN_TONE_TYPE });
       return Array.isArray(result) ? result : [];
     } catch (e) {
       return [];
@@ -192,7 +206,8 @@
   }
 
   function buildPinyinAnnotationsByWord(lineText) {
-    if (!pinyinAvailable() || typeof PinyinPro.segment !== 'function') {
+    const mod = getPinyinPro();
+    if (!mod || typeof mod.pinyin !== 'function' || typeof mod.segment !== 'function') {
       return buildPinyinAnnotationsByCharacter(lineText);
     }
 
@@ -202,7 +217,7 @@
 
     let segments;
     try {
-      segments = PinyinPro.segment(lineText);
+      segments = mod.segment(lineText);
     } catch (e) {
       return buildPinyinAnnotationsByCharacter(lineText);
     }

@@ -156,7 +156,8 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
     let mut capture_state = Capture::default();
     let mut deadline = Instant::now();
     let mut quiet_until = Instant::now();
-    let mut last_use = Instant::now();
+    let mut last_capture_use = Instant::now();
+    let mut last_ocr_use = Instant::now();
     let mut last_text = String::new();
     let mut last_cursor = None;
     let mut observed_generation = 0;
@@ -207,15 +208,14 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             focus_context = state.config.clone();
         }
         if engines.is_some()
-            && (state.label.is_empty()
-                || (watch.is_none() && last_use.elapsed() > Duration::from_secs(300)))
+            && (state.label.is_empty() || last_ocr_use.elapsed() > Duration::from_secs(120))
         {
             engines = None;
         }
         if state.label.is_empty()
             || state.paused
             || !available(&state.config)
-            || last_use.elapsed() > Duration::from_secs(30)
+            || last_capture_use.elapsed() > Duration::from_secs(30)
         {
             capture_state.clear();
             OBS_CAPTURE.with(|capture| capture.borrow_mut().clear());
@@ -254,17 +254,20 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             let config = state.config.clone();
             drop(state);
             let mut current = watch.take().unwrap();
-            last_use = Instant::now();
+            last_capture_use = Instant::now();
             let result = poll_watch(
                 &mut current,
                 &config,
                 &mut capture_state,
-                &mut engines.as_mut().unwrap().1,
+                &mut engines,
             );
             let state = lock.lock().unwrap();
             if state.generation == generation && state.label == label && !state.closed {
                 match result {
-                    Ok(events) => {
+                    Ok((events, ran_ocr)) => {
+                        if ran_ocr {
+                            last_ocr_use = Instant::now();
+                        }
                         current.failures = 0;
                         if !events.is_empty() {
                             focus.clear();
@@ -366,7 +369,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             if engines.as_ref().is_none_or(|(p, _)| p != &profile) {
                 engines = Some((profile.clone(), Engines::new(&profile)));
             }
-            last_use = Instant::now();
+            last_capture_use = Instant::now();
             if request["action"] == "background" {
                 if config["settings"]["manual_mode_desktop_background"] == "off" {
                     return Ok(());
@@ -525,6 +528,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                                 return Err("Scan cancelled".into());
                             }
                             let start = Instant::now();
+                            last_ocr_use = start;
                             let result = engines
                                 .as_mut()
                                 .unwrap()
@@ -917,23 +921,37 @@ fn poll_watch(
     watch: &mut Watch,
     config: &Value,
     capture_state: &mut Capture,
-    engines: &mut Engines,
-) -> Result<Vec<Value>, String> {
+    engines: &mut Option<(PathBuf, Engines)>,
+) -> Result<(Vec<Value>, bool), String> {
     watch.deadline = Instant::now() + PRESENCE_POLL_INTERVAL;
     let (mut image, projection, _) = capture(config, false, capture_state)?;
     mask_areas(&mut image, &projection, config);
-    check_watch(
+    let mut ran_ocr = false;
+    let events = check_watch(
         watch,
         config,
         &image,
         &projection,
         |input, engine, language| {
+            ran_ocr = true;
+            let profile = PathBuf::from(
+                config["profile"]
+                    .as_str()
+                    .ok_or("Overlay profile is unavailable")?,
+            );
+            if engines.as_ref().is_none_or(|(p, _)| p != &profile) {
+                *engines = Some((profile.clone(), Engines::new(&profile)));
+            }
             engines
+                .as_mut()
+                .unwrap()
+                .1
                 .recognize(input, engine, language)
                 .map(|r| r.lines)
                 .map_err(|e| format!("{e:#}"))
         },
-    )
+    )?;
+    Ok((events, ran_ocr))
 }
 
 fn check_watch(

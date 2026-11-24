@@ -48,7 +48,8 @@ fn presentation_view(label: &str, scope: Option<&str>, overlay_running: bool) ->
     }
     // Dictionary controllers, lookup pages, background/offscreen hosts, and OBS
     // service windows must be ready even while no UI is visible.
-    matches!(scope, Some("desktop" | "overlay" | "vn-guide" | "remote"))
+    label == crate::overlay_host::OVERLAY_TEXTHOOKER_LABEL
+        || matches!(scope, Some("desktop" | "overlay" | "vn-guide" | "remote"))
         || label.starts_with("docs-")
 }
 
@@ -113,10 +114,18 @@ pub fn start(app: &AppHandle) {
             {
                 break;
             }
-            let _ = tauri::async_runtime::spawn_blocking(|| {
+            let vad = models_app
+                .try_state::<std::sync::Arc<crate::mining::MiningService>>()
+                .map(|service| service.vad.clone());
+            let _ = tauri::async_runtime::spawn_blocking(move || {
                 gsm_overlay::engines::release_idle_models(Duration::from_secs(60));
+                if let Some(vad) = vad {
+                    vad.unload_default_idle();
+                }
             })
             .await;
+            crate::reader_service::release_idle_lookup(&models_app, Duration::from_secs(120))
+                .await;
         }
     });
     #[cfg(windows)]
@@ -146,7 +155,9 @@ pub fn start(app: &AppHandle) {
                         let mut states = policy.0.lock().unwrap();
                         states.retain(|label, _| windows.contains_key(label));
                         for (label, window) in windows {
-                            if desktop.window_scope(&label).as_deref() == Some("desktop") {
+                            if desktop.window_scope(&label).as_deref() == Some("desktop")
+                                || label == crate::overlay_host::OVERLAY_TEXTHOOKER_LABEL
+                            {
                                 sync_visibility(&window);
                             }
                             let visible = window.is_visible().unwrap_or(true)
@@ -215,5 +226,10 @@ mod tests {
         assert!(!presentation_view("obs-service", None, false));
         assert!(presentation_view("gsm-hub", Some("desktop"), true));
         assert!(presentation_view("docs-1", None, true));
+        assert!(presentation_view(
+            crate::overlay_host::OVERLAY_TEXTHOOKER_LABEL,
+            None,
+            true,
+        ));
     }
 }

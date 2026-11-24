@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-const VAD_IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(10 * 60);
+const VAD_IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(3 * 60);
 
 const FIRERED_FRAME_LENGTH_S: f64 = 0.025;
 const FIRERED_FRAME_SHIFT_S: f64 = 0.010;
@@ -801,17 +801,32 @@ struct FireRedEngine {
     session: Session,
     fbank: KaldiFbank,
     last_used: Instant,
+    file_bytes: u64,
+    estimated_ram_bytes: Option<u64>,
 }
 
 struct SileroEngine {
     session: Session,
     last_used: Instant,
+    file_bytes: u64,
+    estimated_ram_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VadModelSnapshot {
+    pub id: &'static str,
+    pub name: &'static str,
+    pub file_bytes: u64,
+    pub estimated_ram_bytes: Option<u64>,
+    pub idle_seconds: u64,
 }
 
 pub struct VadSystem {
     assets_roots: Vec<PathBuf>,
     firered: Mutex<Option<FireRedEngine>>,
     silero: Mutex<Option<SileroEngine>>,
+    memory_probe: Option<fn() -> Option<u64>>,
 }
 
 impl VadSystem {
@@ -820,15 +835,21 @@ impl VadSystem {
             assets_roots,
             firered: Mutex::new(None),
             silero: Mutex::new(None),
+            memory_probe: None,
         }
     }
 
+    pub fn with_memory_probe(mut self, probe: fn() -> Option<u64>) -> Self {
+        self.memory_probe = Some(probe);
+        self
+    }
+
     /// Release resident ONNX sessions that have been idle longer than `idle_timeout`
-    /// (default 10 minutes), freeing ONNX Runtime arena memory when not mining.
+    /// (default 3 minutes), freeing ONNX Runtime memory when not mining.
     pub fn unload_if_idle(&self, idle_timeout: Duration) -> bool {
         let now = Instant::now();
         let mut unloaded = false;
-        if let Ok(mut guard) = self.firered.lock() {
+        if let Ok(mut guard) = self.firered.try_lock() {
             if guard
                 .as_ref()
                 .is_some_and(|e| now.saturating_duration_since(e.last_used) >= idle_timeout)
@@ -837,7 +858,7 @@ impl VadSystem {
                 unloaded = true;
             }
         }
-        if let Ok(mut guard) = self.silero.lock() {
+        if let Ok(mut guard) = self.silero.try_lock() {
             if guard
                 .as_ref()
                 .is_some_and(|e| now.saturating_duration_since(e.last_used) >= idle_timeout)
@@ -847,6 +868,34 @@ impl VadSystem {
             }
         }
         unloaded
+    }
+
+    pub fn loaded_models_snapshot(&self) -> Vec<VadModelSnapshot> {
+        let now = Instant::now();
+        let mut models = Vec::new();
+        if let Ok(guard) = self.firered.try_lock() {
+            if let Some(eng) = guard.as_ref() {
+                models.push(VadModelSnapshot {
+                    id: "vad_firered",
+                    name: "FireRedVAD",
+                    file_bytes: eng.file_bytes,
+                    estimated_ram_bytes: eng.estimated_ram_bytes,
+                    idle_seconds: now.saturating_duration_since(eng.last_used).as_secs(),
+                });
+            }
+        }
+        if let Ok(guard) = self.silero.try_lock() {
+            if let Some(eng) = guard.as_ref() {
+                models.push(VadModelSnapshot {
+                    id: "vad_silero",
+                    name: "Silero VAD v6",
+                    file_bytes: eng.file_bytes,
+                    estimated_ram_bytes: eng.estimated_ram_bytes,
+                    idle_seconds: now.saturating_duration_since(eng.last_used).as_secs(),
+                });
+            }
+        }
+        models
     }
 
     pub fn unload_default_idle(&self) -> bool {
@@ -883,10 +932,22 @@ impl VadSystem {
         }
         let model_path = self.find_asset("fireredvad/fireredvad_vad.onnx")?;
         let cmvn_path = self.find_asset("fireredvad/cmvn.ark")?;
+        let file_bytes = std::fs::metadata(&model_path)
+            .map(|m| m.len())
+            .unwrap_or(0)
+            .saturating_add(std::fs::metadata(&cmvn_path).map(|m| m.len()).unwrap_or(0));
+        let before = self.memory_probe.and_then(|probe| probe());
         let intra = std::thread::available_parallelism()
             .map(|n| n.get().clamp(1, 4))
             .unwrap_or(2);
         let session = Session::builder()
+            .map_err(|e| e.to_string())?
+            .with_no_environment_execution_providers()
+            .map_err(|e| e.to_string())?
+            .with_execution_providers([ort::ep::CPU::default()
+                .with_arena_allocator(false)
+                .build()
+                .error_on_failure()])
             .map_err(|e| e.to_string())?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
             .map_err(|e| e.to_string())?
@@ -894,13 +955,22 @@ impl VadSystem {
             .map_err(|e| e.to_string())?
             .with_inter_threads(1)
             .map_err(|e| e.to_string())?
+            .with_intra_op_spinning(false)
+            .map_err(|e| e.to_string())?
+            .with_inter_op_spinning(false)
+            .map_err(|e| e.to_string())?
+            .with_memory_pattern(false)
+            .map_err(|e| e.to_string())?
             .commit_from_file(&model_path)
             .map_err(|e| format!("Loading FireRedVAD ONNX {}: {e}", model_path.display()))?;
         let fbank = KaldiFbank::new(&cmvn_path)?;
+        let after = self.memory_probe.and_then(|probe| probe());
         *guard = Some(FireRedEngine {
             session,
             fbank,
             last_used: Instant::now(),
+            file_bytes,
+            estimated_ram_bytes: before.zip(after).map(|(b, a)| a.saturating_sub(b)),
         });
         Ok(())
     }
@@ -912,7 +982,16 @@ impl VadSystem {
             return Ok(());
         }
         let model_path = self.find_asset("silero/silero_vad_v6.onnx")?;
+        let file_bytes = std::fs::metadata(&model_path).map(|m| m.len()).unwrap_or(0);
+        let before = self.memory_probe.and_then(|probe| probe());
         let session = Session::builder()
+            .map_err(|e| e.to_string())?
+            .with_no_environment_execution_providers()
+            .map_err(|e| e.to_string())?
+            .with_execution_providers([ort::ep::CPU::default()
+                .with_arena_allocator(false)
+                .build()
+                .error_on_failure()])
             .map_err(|e| e.to_string())?
             .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)
             .map_err(|e| e.to_string())?
@@ -920,11 +999,20 @@ impl VadSystem {
             .map_err(|e| e.to_string())?
             .with_inter_threads(1)
             .map_err(|e| e.to_string())?
+            .with_intra_op_spinning(false)
+            .map_err(|e| e.to_string())?
+            .with_inter_op_spinning(false)
+            .map_err(|e| e.to_string())?
+            .with_memory_pattern(false)
+            .map_err(|e| e.to_string())?
             .commit_from_file(&model_path)
             .map_err(|e| format!("Loading Silero VAD ONNX {}: {e}", model_path.display()))?;
+        let after = self.memory_probe.and_then(|probe| probe());
         *guard = Some(SileroEngine {
             session,
             last_used: Instant::now(),
+            file_bytes,
+            estimated_ram_bytes: before.zip(after).map(|(b, a)| a.saturating_sub(b)),
         });
         Ok(())
     }
@@ -983,7 +1071,7 @@ impl VadSystem {
         let mut h = vec![0.0f32; 128];
         let mut c = vec![0.0f32; 128];
         let mut all_probs = Vec::with_capacity(num_chunks);
-        let batch_limit = 10_000usize;
+        let batch_limit = 2_048usize;
 
         for start_chunk in (0..num_chunks).step_by(batch_limit) {
             let count = (num_chunks - start_chunk).min(batch_limit);
@@ -1368,5 +1456,12 @@ mod tests {
         let si = vad.detect_silero_wav(&wav).unwrap();
         assert!(fr.is_empty(), "silence should produce no FireRed speech: {fr:?}");
         assert!(si.is_empty(), "silence should produce no Silero speech: {si:?}");
+    }
+
+    #[test]
+    fn loaded_models_snapshot_and_idle_unload_do_not_block() {
+        let vad = VadSystem::new(vec![]);
+        assert!(vad.loaded_models_snapshot().is_empty());
+        assert!(!vad.unload_if_idle(Duration::ZERO));
     }
 }

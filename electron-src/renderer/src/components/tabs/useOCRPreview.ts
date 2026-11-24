@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OcrPreviewFrame } from "../../../../shared/ocr_preview";
 import { invokeIpc } from "../../lib/ipc";
+import { isDocumentVisible, NATIVE_VISIBILITY_EVENT } from "../../lib/visiblePolling";
 
-const documentVisible = () => document.visibilityState !== "hidden";
 const LIVE_INTERVAL_MS = 1000;
 const IDLE_INTERVAL_MS = 3000;
 
@@ -44,7 +44,11 @@ export function useOCRPreview({
 
   useEffect(() => {
     setRefreshing(false);
-    if (!active || !sceneId) return;
+    if (!active || !sceneId) {
+      latestFrame.current = null;
+      setFrame(null);
+      return;
+    }
     let cancelled = false;
     let pending = false;
     let interval = LIVE_INTERVAL_MS;
@@ -56,7 +60,7 @@ export function useOCRPreview({
       }
     };
     const capture = async (manual = false) => {
-      if (cancelled || pending || !documentVisible()) return;
+      if (cancelled || pending || !isDocumentVisible()) return;
       pending = true;
       // Live responses that haven't changed must not cause busy-state renders.
       if (manual) setRefreshing(true);
@@ -66,7 +70,7 @@ export function useOCRPreview({
           sceneName,
           includeBoxes
         });
-        if (!cancelled && documentVisible()) {
+        if (!cancelled && isDocumentVisible()) {
           const valid = next?.sceneId === sceneId && next.sceneName === sceneName;
           if (valid) {
             if (sameFrame(latestFrame.current, next)) {
@@ -82,7 +86,7 @@ export function useOCRPreview({
           updateUnavailable(!valid);
         }
       } catch {
-        if (!cancelled && documentVisible()) {
+        if (!cancelled && isDocumentVisible()) {
           interval = IDLE_INTERVAL_MS;
           updateUnavailable(true);
         }
@@ -90,7 +94,7 @@ export function useOCRPreview({
         pending = false;
         if (!cancelled) {
           if (manual) setRefreshing(false);
-          if (!paused && documentVisible()) timer = setTimeout(() => void capture(), interval);
+          if (!paused && isDocumentVisible()) timer = setTimeout(() => void capture(), interval);
         }
       }
     };
@@ -102,15 +106,17 @@ export function useOCRPreview({
     const onVisibility = () => {
       clearTimeout(timer);
       interval = LIVE_INTERVAL_MS;
-      if (documentVisible() && !paused) void capture();
+      if (isDocumentVisible() && !paused) void capture();
     };
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(NATIVE_VISIBILITY_EVENT, onVisibility);
     if (!paused) void capture();
     return () => {
       cancelled = true;
       refreshNow.current = () => {};
       clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(NATIVE_VISIBILITY_EVENT, onVisibility);
     };
   }, [active, paused, sceneId, sceneName, includeBoxes]);
 

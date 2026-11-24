@@ -59,8 +59,10 @@ fn main() -> Result<()> {
         .collect::<std::io::Result<Vec<_>>>()?;
     paths.retain(|p| p.extension().is_some_and(|e| e == "png"));
     paths.sort();
+    let cache = tempfile::tempdir()?;
     vocr::set_asset_directory(
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../GameSentenceMiner/assets/vocr"),
+        cache.path().to_owned(),
     )?;
     let mut engines = Engines::new(Path::new(&args[2]));
     let warmup = image::open(paths.last().context("No PNGs in the input folder")?)?.to_rgba8();

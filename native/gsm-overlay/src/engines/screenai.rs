@@ -243,6 +243,19 @@ mod native_impl {
 
     struct Engine {
         api: Api,
+        _reg: super::super::telemetry::ModelRegistration,
+    }
+
+    fn resource_total_bytes(dir: &std::path::Path) -> u64 {
+        std::fs::read_dir(dir)
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter_map(|e| e.metadata().ok())
+            .filter(|m| m.is_file())
+            .map(|m| m.len())
+            .sum()
     }
 
     impl Engine {
@@ -258,23 +271,35 @@ mod native_impl {
                     resource_dir.display()
                 );
             }
+            let file_bytes = resource_total_bytes(&resource_dir);
             let _ = RESOURCES.set(ResourceState { root: resource_dir });
 
-            let api = Api::load(&library_path)?;
-            unsafe {
-                (api.set_file_content_functions)(
-                    resource_size as *mut c_void,
-                    resource_data as *mut c_void,
-                );
-            }
-            if unsafe { (api.init_ocr)() } == 0 {
-                bail!("ScreenAI InitOCRUsingCallback returned false");
-            }
-            unsafe { (api.set_light_mode)(0) };
-            Ok(Self { api })
+            let (api, reg) = super::super::telemetry::ModelRegistration::measure_load(
+                "screenai",
+                "Chrome ScreenAI",
+                None,
+                file_bytes,
+                false,
+                || {
+                    let api = Api::load(&library_path)?;
+                    unsafe {
+                        (api.set_file_content_functions)(
+                            resource_size as *mut c_void,
+                            resource_data as *mut c_void,
+                        );
+                    }
+                    if unsafe { (api.init_ocr)() } == 0 {
+                        bail!("ScreenAI InitOCRUsingCallback returned false");
+                    }
+                    unsafe { (api.set_light_mode)(0) };
+                    Ok(api)
+                },
+            )?;
+            Ok(Self { api, _reg: reg })
         }
 
         fn recognize(&self, image: &RgbaImage) -> Result<Recognition> {
+            self._reg.touch();
             let mut pixels = image.as_raw().clone();
             let bitmap = SkBitmap {
                 pixel_ref: std::ptr::null_mut(),

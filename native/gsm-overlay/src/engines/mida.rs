@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! rtr46's MIDA horizontal detector. Geometry follows the meikipop MIDA provider
 //! at 0bb61ca117667faccb485f034e5e6b1d489569c0 (adapted from vita-vn-ocr).
-use super::{meiki, vocr::LineBox};
+use super::{meiki, telemetry::ModelRegistration, vocr::LineBox};
 use crate::{inference::Model, models};
 use anyhow::{Result, ensure};
 use image::RgbaImage;
 use std::path::Path;
 
-pub(super) struct Finder(Model);
+pub(super) struct Finder {
+    model: Model,
+    reg: ModelRegistration,
+}
 
 impl Finder {
     pub fn new(root: &Path) -> Result<Self> {
@@ -18,10 +21,20 @@ impl Finder {
             "mida_l_alpha_v0.0.2.onnx",
             "7a09988b2596ef3fda2e5dfa815bfebbba6d3dcc385cc905cbb329cd8c95a4fa",
         )?;
+        let file_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
-        Ok(Self(Model::file(&path, threads)?))
+        let (model, reg) = ModelRegistration::measure_load(
+            "mida_detector",
+            "MIDA Detector",
+            None,
+            file_bytes,
+            true,
+            || Model::file_with_pattern(&path, threads, false),
+        )?;
+        Ok(Self { model, reg })
     }
     pub fn detect(&mut self, image: &RgbaImage) -> Result<Vec<LineBox>> {
+        self.reg.touch();
         let (w, h) = image.dimensions();
         ensure!(w > 0 && h > 0, "Empty MIDA input");
         let scale = (960. / w as f64).min(544. / h as f64);
@@ -30,7 +43,7 @@ impl Finder {
             .round_ties_even()
             .clamp(1., 1920.) as u32;
         let input = meiki::resize_tensor(image, width, height, width, height, [2, 1, 0])?;
-        self.0.infer(|session| {
+        self.model.infer(|session| {
             let output = session.run(ort::inputs!["images" => &input])?;
             let (shape, maps) = output["maps"].try_extract_tensor::<f32>()?;
             let (rows, cols) = (height.div_ceil(8) as usize, width.div_ceil(8) as usize);

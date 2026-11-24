@@ -151,6 +151,42 @@ describe("SettingsTab data folder controls", () => {
     }
   });
 
+  it("shows memory attribution without adding it to the process totals", async () => {
+    const mib = 2 ** 20;
+    const nativeInvoke = vi.fn(async (command: string) => command === "desktop_hachidori_memory" ? {
+      heapBytes: 200 * mib,
+      useLessRamByDefault: false,
+      dictionaries: [{ id: "example", title: "Example Dictionary", residentHashBytes: 48 * mib, hashIndexStorage: "resident" }],
+    } : {
+      groups: [
+        { group: "desktop", cpuPercent: 1, privateWorkingSetBytes: 128 * mib, privateCommitBytes: 192 * mib },
+        { group: "webview", cpuPercent: 2, privateWorkingSetBytes: 512 * mib, privateCommitBytes: 640 * mib,
+          processes: [{ pid: 42, kind: "extension", windowLabels: [], cpuPercent: 2, privateWorkingSetBytes: 512 * mib, privateCommitBytes: 640 * mib }] },
+      ],
+      models: [{ id: "sudachi", name: "Sudachi", category: "dictionary", detail: "core", instances: 1, fileBytes: 192 * mib,
+        estimatedRamBytes: null, idleSeconds: 3, unloadsOnIdle: true, storage: "mmap" }],
+      extensions: [{ id: "example", name: "Hachidori", enabled: true, kind: "hachidori" }],
+    });
+    Object.defineProperty(window, "gsmEnv", { configurable: true, value: { platform: "win32", shell: "tauri" } });
+    Object.defineProperty(window, "__GSM_INVOKE__", { configurable: true, value: nativeInvoke });
+    try {
+      await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+      await act(async () => container.querySelector<HTMLButtonElement>("#settings-nav-resources")!.click());
+      expect(container.querySelector(".settings-resource-table tfoot")?.textContent).toBe("GSM total3%640 MiB832 MiB");
+      expect(container.textContent).toContain("Extension renderer");
+      expect(container.textContent).toContain("Sudachi");
+      expect(nativeInvoke).not.toHaveBeenCalledWith("desktop_hachidori_memory", {});
+      const inspect = Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Inspect dictionary memory")!;
+      await act(async () => inspect.click());
+      expect(nativeInvoke).toHaveBeenCalledWith("desktop_hachidori_memory", {});
+      expect(container.textContent).toContain("200 MiB");
+      expect(container.textContent).toContain("Example Dictionary");
+      expect(container.textContent).toContain("48 MiB");
+    } finally {
+      Reflect.deleteProperty(window, "__GSM_INVOKE__");
+    }
+  });
+
   it("moves Python tools into Settings without probing Python before the section opens", async () => {
     const openLogs = vi.fn();
     await act(async () => root.render(<I18nProvider><SettingsTab active onRequestConsole={openLogs} /></I18nProvider>));

@@ -156,13 +156,26 @@ pub async fn desktop_resource_usage(
     authorize(&window, &token)?;
     #[cfg(windows)]
     {
-        let usage = tauri::async_runtime::spawn_blocking(crate::resource_usage::measure)
-            .await
-            .map_err(|error| error.to_string())??;
+        let usage = crate::resource_usage::measure(window.app_handle()).await?;
         serde_json::to_value(usage).map_err(|error| error.to_string())
     }
     #[cfg(not(windows))]
     Err("Resource usage is currently available on Windows".into())
+}
+
+#[tauri::command]
+pub async fn desktop_hachidori_memory(
+    token: String,
+    window: tauri::WebviewWindow,
+) -> Result<Value, String> {
+    authorize(&window, &token)?;
+    #[cfg(windows)]
+    {
+        window.state::<crate::dictionary_host::DictionaryManager>()
+            .inspect_hachidori_memory(window.app_handle()).await
+    }
+    #[cfg(not(windows))]
+    Err("Dictionary memory inspection is currently available on Windows".into())
 }
 #[derive(Deserialize)]
 #[serde(tag="action",rename_all="camelCase")]

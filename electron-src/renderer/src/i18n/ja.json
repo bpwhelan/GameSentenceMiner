@@ -1555,7 +1555,7 @@
       "unavailable": "取得できません",
       "component": "コンポーネント",
       "cpu": "CPU",
-      "memory": "専用メモリ",
+      "memory": "常駐メモリ",
       "cpuValue": "{value}%",
       "memoryValue": "{value} MiB",
       "desktop": "GSM デスクトップ",
@@ -1564,7 +1564,61 @@
       "overlay": "オーバーレイ補助プロセス",
       "textHook": "テキストフック",
       "capture": "キャプチャと音声認識",
-      "total": "GSM の合計"
+      "total": "GSM の合計",
+      "commit": "プライベート コミット",
+      "memoryScope": "常駐メモリは物理 RAM 上にあるプロセス専用のメモリです。プライベート コミットには、RAM の外にあるページも含め、Windows が確保した専用メモリが含まれます。各 WebView2 プロセスは WebView2 の小計に含まれます。",
+      "process": {
+        "browser": "ブラウザープロセス",
+        "gpu": "GPU プロセス",
+        "renderer": "ページレンダラー",
+        "extension": "拡張機能レンダラー",
+        "utility": "ユーティリティプロセス",
+        "other": "その他の WebView2 プロセス",
+        "pid": "PID {value}"
+      },
+      "window": {
+        "overlay": "オーバーレイ",
+        "overlaySettings": "オーバーレイ設定",
+        "dictionaryController": "辞書コントローラー",
+        "dictionarySearch": "辞書検索",
+        "readerLookup": "リーダーの辞書参照"
+      },
+      "model": {
+        "title": "読み込み済みのネイティブモデルと辞書",
+        "empty": "読み込み済みのモデルや辞書は報告されていません。",
+        "scope": "推定 RAM 使用量は、読み込み時のデスクトッププロセスのメモリ使用量の変化を基に算出します。これらのリソースはデスクトッププロセスに含まれています。メモリマップされたファイルは共有ページを利用できるため、ファイルサイズと常駐メモリ使用量は異なる場合があります。",
+        "name": "モデルまたは辞書",
+        "files": "ファイルサイズ",
+        "estimate": "推定 RAM 使用量",
+        "idle": "待機時間",
+        "ocr": "OCR",
+        "vad": "音声区間検出",
+        "dictionary": "辞書",
+        "mapped": "メモリマップ",
+        "instances": "{value} インスタンス",
+        "seconds": "{value} 秒",
+        "unloads": "未使用時に解放",
+        "persistent": "読み込んだまま"
+      },
+      "extensions": {
+        "title": "ブラウザー拡張機能",
+        "name": "拡張機能",
+        "status": "状態",
+        "enabled": "有効",
+        "disabled": "無効",
+        "empty": "このプロファイルにインストール済みのブラウザー拡張機能はありません。",
+        "unavailable": "辞書プロファイルの拡張機能一覧を取得できません。"
+      },
+      "dictionary": {
+        "inspect": "辞書のメモリ使用量を調べる",
+        "failed": "Hachidori のメモリ使用量を取得できませんでした。辞書エンジンの準備ができたら、もう一度お試しください。",
+        "heap": "Hachidori エンジンのヒープ · {value}",
+        "lowRam": "デフォルトで RAM 使用量を抑える · {value}",
+        "empty": "読み込み済みの辞書はありません。",
+        "residentHash": "常駐ハッシュインデックス",
+        "paged": "ディスクから読み込む",
+        "resident": "メモリに保持"
+      }
     },
     "gpu": {
       "progress": {

@@ -10,7 +10,7 @@ use ort::{
 };
 use std::path::Path;
 
-fn builder(threads: usize) -> ort::Result<SessionBuilder> {
+fn builder(threads: usize, memory_pattern: bool) -> ort::Result<SessionBuilder> {
     Ok(Session::builder()?
         .with_no_environment_execution_providers()?
         .with_execution_providers([CPU::default()
@@ -21,13 +21,17 @@ fn builder(threads: usize) -> ort::Result<SessionBuilder> {
         .with_inter_threads(1)?
         .with_intra_op_spinning(false)?
         .with_inter_op_spinning(false)?
+        .with_memory_pattern(memory_pattern)?
         .with_optimization_level(GraphOptimizationLevel::Level3)?)
 }
 
 pub struct Model(Session);
 impl Model {
     pub fn file(path: &Path, threads: usize) -> Result<Self> {
-        Ok(Self(builder(threads)?.commit_from_file(path)?))
+        Self::file_with_pattern(path, threads, true)
+    }
+    pub fn file_with_pattern(path: &Path, threads: usize, memory_pattern: bool) -> Result<Self> {
+        Ok(Self(builder(threads, memory_pattern)?.commit_from_file(path)?))
     }
     pub fn infer<T>(&mut self, run: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
         run(&mut self.0)

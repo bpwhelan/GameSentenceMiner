@@ -1957,7 +1957,7 @@ pub(crate) fn apply_shared_webview_options<'a>(
         builder = builder
             .browser_extensions_enabled(true)
             .additional_browser_args(
-                "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --autoplay-policy=no-user-gesture-required",
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --autoplay-policy=no-user-gesture-required",
             );
     }
     builder
@@ -3400,6 +3400,48 @@ impl DictionaryManager {
         Ok(())
     }
 
+    #[cfg(windows)]
+    pub(crate) async fn inspect_hachidori_memory(&self, app: &AppHandle) -> Result<Value, String> {
+        let _guard = self.hachidori_engine_lock.try_lock()
+            .map_err(|_| "The dictionary engine is starting".to_owned())?;
+        let controller = app.get_webview_window(EXTENSION_CONTROLLER_LABEL)
+            .ok_or("The dictionary profile is closed")?;
+        let extensions = tokio::time::timeout(Duration::from_secs(1), crate::browser_extensions::list(&controller))
+            .await.map_err(|_| "The dictionary profile did not respond")??;
+        let id = extensions.as_array().into_iter().flatten().find_map(|extension| {
+            let name = extension["name"].as_str()?;
+            let id = extension["id"].as_str()?;
+            (extension["enabled"] == true && extension_kind(name) == "hachidori" && is_valid_extension_id(id))
+                .then_some(id)
+        }).ok_or("Hachidori is disabled")?;
+
+        // The probe page carries no imports and does not initialize a second engine.
+        let url = format!("chrome-extension://{id}/gsm/memory-probe.html");
+        let probe = self.create_managed_window(
+            app, "gsm-hachidori-memory", &url, "Hachidori", 1.0, 1.0, false,
+            &overlay_data_path(app), "dictionary", None,
+        )?;
+        let result = tokio::time::timeout(Duration::from_secs(8), async {
+            wait_for_chrome_extension_url(&probe).await;
+            let script = format!(r#"
+                if (location.href !== {expected}) throw new Error('Dictionary memory page is unavailable');
+                const reply = await chrome.runtime.sendMessage({{ target: 'hoshidicts-offscreen', type: 'hd_memory', requestId: crypto.randomUUID() }});
+                if (reply?.ok !== true || !Number.isFinite(reply.heapBytes) || !Array.isArray(reply.dictionaries)) {{
+                    throw new Error('Dictionary memory is unavailable');
+                }}
+                return {{
+                    heapBytes: reply.heapBytes,
+                    useLessRamByDefault: reply.useLessRamByDefault ?? null,
+                    dictionaries: reply.dictionaries.map(({{ id, title, residentHashBytes, hashIndexStorage }}) =>
+                        ({{ id, title, residentHashBytes, hashIndexStorage }})),
+                }};
+            "#, expected = json!(url));
+            crate::browser_extensions::evaluate(&probe, script).await
+        }).await;
+        crate::reader_service::destroy_reader_window(app, &probe).await?;
+        result.map_err(|_| "Dictionary memory inspection timed out".to_owned())?
+    }
+
     pub async fn ensure_hachidori_engine(
         &self,
         app: &AppHandle,
@@ -3538,6 +3580,89 @@ impl DictionaryManager {
         let source = resolve_extension_source(&data, &overlay_resources_root(app), "jiten.reader", use_windows_native_extensions())?;
         if use_windows_native_extensions() { self.load_windows_extension(app, &source).await }
         else { self.load_portable_extension(app, &source).await }
+    }
+
+    pub async fn disable_jiten_extension(&self, app: &AppHandle) -> Result<(), String> {
+        #[cfg(windows)]
+        if use_windows_native_extensions() {
+            let _guard = self.windows_lock.lock().await;
+            let overlay_data = overlay_data_path(app);
+            let Some(controller) = app.get_webview_window(EXTENSION_CONTROLLER_LABEL) else {
+                return Ok(());
+            };
+            let _ = &overlay_data;
+            let list = crate::browser_extensions::list(&controller).await?;
+            if let Some(items) = list.as_array() {
+                let assets = app.state::<crate::desktop_state::DesktopState>().assets.clone();
+                for item in items {
+                    let oid = item["id"].as_str().unwrap_or_default();
+                    let enabled = item["enabled"].as_bool().unwrap_or(false);
+                    let oname = item["name"].as_str().unwrap_or_default();
+                    if enabled && extension_kind(oname) == "jiten" && !oid.is_empty() {
+                        crate::browser_extensions::enable(&controller, oid.to_string(), false)
+                            .await?;
+                        self.windows_extensions.lock().unwrap().remove(oid);
+                        assets.3.lock().unwrap().remove(oid);
+                    }
+                }
+            }
+            return Ok(());
+        }
+
+        let ids: Vec<String> = self
+            .portable_extensions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, ext)| extension_kind(&ext.name) == "jiten")
+            .map(|(id, _)| id.clone())
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let assets = app.state::<crate::desktop_state::DesktopState>().assets.clone();
+        let mut labels = Vec::new();
+        {
+            let mut contexts = self.contexts.lock().unwrap();
+            let keys: Vec<String> = contexts
+                .iter()
+                .filter(|(_, ctx)| ids.iter().any(|id| id == &ctx.extension_id))
+                .map(|(label, _)| label.clone())
+                .collect();
+            for label in keys {
+                contexts.remove(&label);
+                labels.push(label);
+            }
+        }
+        {
+            let mut portable = self.portable_extensions.lock().unwrap();
+            let mut assets_guard = assets.3.lock().unwrap();
+            for id in &ids {
+                portable.remove(id);
+                assets_guard.remove(id);
+            }
+        }
+        for label in labels {
+            if let Some(win) = app.get_webview_window(&label) {
+                let _ = win.destroy();
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn reconcile_jiten_extension(&self, app: &AppHandle) -> Result<(), String> {
+        let overlay_data = overlay_data_path(app);
+        let raw = match fs::read_to_string(overlay_data.join("settings.json")) {
+            Ok(raw) => raw,
+            Err(_) => return Ok(()),
+        };
+        let Ok(parsed) = serde_json::from_str::<Value>(&raw) else {
+            return Ok(());
+        };
+        if parsed.get("enableJitenReader").and_then(Value::as_bool) == Some(false) {
+            self.disable_jiten_extension(app).await?;
+        }
+        Ok(())
     }
 
     pub async fn open_selected_extension_options(&self, app: &AppHandle) -> Result<(), String> {

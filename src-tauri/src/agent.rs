@@ -168,20 +168,28 @@ async fn show_ui(app: &tauri::AppHandle, refresh: bool) -> Result<(), String> {
         return Ok(());
     }
     let token = uuid::Uuid::new_v4().to_string();
-    let preload = include_str!("../preloads/agent_preload.js")
-        .replace("__GSM_AGENT_TOKEN__", &json!(token).to_string())
-        .replace("__GSM_AGENT_SESSION__", &json!(id).to_string());
+    let preload = format!(
+        "{}\n;{}",
+        include_str!("../preloads/agent_preload.js")
+            .replace("__GSM_AGENT_TOKEN__", &json!(token).to_string())
+            .replace("__GSM_AGENT_SESSION__", &json!(id).to_string()),
+        crate::overlay_preload::DISABLE_READER_SCOPE_JS
+    );
     desktop.register_window_with_token(&label, "agent-ui", token);
     let title = PathBuf::from(content["scriptPath"].as_str().unwrap_or("Agent"));
     let title = title.file_name().unwrap_or_default().to_string_lossy();
     let origin = url.origin();
     let prefix = format!("/{label}/");
-    let window = tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url))
-        .title(format!("Agent UI - {title}"))
-        .inner_size(800., 720.)
-        .min_inner_size(800., 500.)
-        .initialization_script(preload)
-        .on_navigation(move |url| url.origin() == origin && url.path().starts_with(&prefix))
+    let overlay_data = crate::dictionary_host::overlay_data_path(app);
+    let builder = crate::dictionary_host::apply_shared_webview_options(
+        tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::External(url))
+            .title(format!("Agent UI - {title}"))
+            .inner_size(800., 720.)
+            .min_inner_size(800., 500.)
+            .initialization_script(preload)
+            .on_navigation(move |url| url.origin() == origin && url.path().starts_with(&prefix)),
+    );
+    let window = crate::dictionary_host::apply_profile_data_directory(builder, &overlay_data)?
         .build()
         .map_err(|e| e.to_string())?;
     let app = app.clone();

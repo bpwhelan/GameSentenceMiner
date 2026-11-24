@@ -326,33 +326,38 @@ pub fn open_docs_window(
     let parsed = url::Url::parse(raw_url.trim()).map_err(|e| e.to_string())?;
     let label = app.state::<DesktopState>().next_docs_label();
 
-    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
-        .title("GameSentenceMiner Documentation")
-        .inner_size(1280.0, 920.0)
-        .min_inner_size(800.0, 500.0)
-        .menu(tauri::menu::Menu::new(app).map_err(|e| e.to_string())?)
-        .on_navigation(|url| {
-            if is_allowed_docs_url(url.as_str()) {
-                true
-            } else {
-                let _ = crate::native::shell_open_external(url.as_str());
-                false
-            }
-        })
-        .on_new_window({
-            let app = app.clone();
-            let label = label.clone();
-            move |url, _| {
+    let mut builder = crate::dictionary_host::apply_shared_webview_options(
+        WebviewWindowBuilder::new(app, &label, WebviewUrl::External(parsed))
+            .title("GameSentenceMiner Documentation")
+            .inner_size(1280.0, 920.0)
+            .min_inner_size(800.0, 500.0)
+            .menu(tauri::menu::Menu::new(app).map_err(|e| e.to_string())?)
+            .initialization_script(crate::overlay_preload::DISABLE_READER_SCOPE_JS)
+            .on_navigation(|url| {
                 if is_allowed_docs_url(url.as_str()) {
-                    if let Some(win) = app.get_webview_window(&label) {
-                        let _ = win.navigate(url);
-                    }
+                    true
                 } else {
                     let _ = crate::native::shell_open_external(url.as_str());
+                    false
                 }
-                tauri::webview::NewWindowResponse::Deny
-            }
-        });
+            })
+            .on_new_window({
+                let app = app.clone();
+                let label = label.clone();
+                move |url, _| {
+                    if is_allowed_docs_url(url.as_str()) {
+                        if let Some(win) = app.get_webview_window(&label) {
+                            let _ = win.navigate(url);
+                        }
+                    } else {
+                        let _ = crate::native::shell_open_external(url.as_str());
+                    }
+                    tauri::webview::NewWindowResponse::Deny
+                }
+            }),
+    );
+    let overlay_data = crate::dictionary_host::overlay_data_path(app);
+    builder = crate::dictionary_host::apply_profile_data_directory(builder, &overlay_data)?;
 
     if let Some(parent) = app.get_webview_window(parent_label) {
         builder = builder.parent(&parent).map_err(|e| e.to_string())?;

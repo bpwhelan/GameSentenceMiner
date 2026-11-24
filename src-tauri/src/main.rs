@@ -646,6 +646,7 @@ fn main() {
             commands::dictionary_service,
             commands::backend_lifecycle,
             commands::desktop_resource_usage,
+            commands::desktop_hachidori_memory,
             commands::open_python_dialog,
             commands::python_environment,
             commands::installation_session,

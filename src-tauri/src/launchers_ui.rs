@@ -348,13 +348,21 @@ fn open_game_config_window(app: &AppHandle) -> Result<(), String> {
         .parse()
         .map_err(|e| format!("Invalid game_config URL: {e}"))?;
     let token = uuid::Uuid::new_v4().to_string();
-    let preload = crate::overlay_preload::render_desktop_preload(&token);
+    let preload = format!(
+        "{}\n;{}",
+        crate::overlay_preload::render_desktop_preload(&token),
+        crate::overlay_preload::DISABLE_READER_SCOPE_JS
+    );
     desktop.register_window_with_token("game-config", "desktop", token);
-    let win = WebviewWindowBuilder::new(app, "game-config", WebviewUrl::External(parsed))
-        .title("Game Configuration")
-        .inner_size(1280.0, 1000.0)
-        .min_inner_size(800.0, 500.0)
-        .initialization_script(preload)
+    let overlay_data = crate::dictionary_host::overlay_data_path(app);
+    let builder = crate::dictionary_host::apply_shared_webview_options(
+        WebviewWindowBuilder::new(app, "game-config", WebviewUrl::External(parsed))
+            .title("Game Configuration")
+            .inner_size(1280.0, 1000.0)
+            .min_inner_size(800.0, 500.0)
+            .initialization_script(preload),
+    );
+    let win = crate::dictionary_host::apply_profile_data_directory(builder, &overlay_data)?
         .build()
         .map_err(|e| format!("Failed opening game config window: {e}"))?;
     let _ = win.show();

@@ -14133,6 +14133,8 @@ class AJB {
         _integration_registry__WEBPACK_IMPORTED_MODULE_13__.Registry.statusBar?.recalculateStats();
     }
 }
+const gsmScope = document.documentElement?.dataset?.gsmReaderScope;
+if (location.href === 'about:blank' || gsmScope === 'disabled' || gsmScope === 'feed') return;
 new AJB();
 
 })();

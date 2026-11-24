@@ -681,9 +681,16 @@
     window.GSMWindowOcclusion?.refresh(overlayLayer);
   }
 
+  const MAX_POOLED_SEGMENTS = 64;
+
   function hideAllSegments() {
     for (const el of overlaySegments) {
       el.style.display = 'none';
+    }
+    if (overlaySegments.length > MAX_POOLED_SEGMENTS) {
+      for (const extra of overlaySegments.splice(MAX_POOLED_SEGMENTS)) {
+        extra.remove();
+      }
     }
   }
 
@@ -713,6 +720,9 @@
       runningSignature = null;
     }
     hideAllSegments();
+    if (parseContainer && parseContainer.childNodes.length > 0) {
+      parseContainer.replaceChildren();
+    }
     clearTimeout(pendingParseTimer);
     pendingParseTimer = null;
     currentLines = null;

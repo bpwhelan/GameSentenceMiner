@@ -1,6 +1,10 @@
-use serde::Serialize;
+mod webview;
+
+use gsm_overlay::engines::ModelUsageSnapshot;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Manager};
 use windows::core::Owned;
 use windows::Win32::{
     Foundation::{FILETIME, HANDLE},
@@ -94,7 +98,7 @@ fn cpu_time(process: HANDLE) -> windows::core::Result<u64> {
     Ok(filetime_ticks(kernel) + filetime_ticks(user))
 }
 
-fn private_working_set(process: HANDLE) -> Option<u64> {
+fn process_memory(process: HANDLE) -> Option<(u64, u64)> {
     let mut counters = PROCESS_MEMORY_COUNTERS_EX2 {
         cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS_EX2>() as u32,
         ..Default::default()
@@ -107,19 +111,82 @@ fn private_working_set(process: HANDLE) -> Option<u64> {
         )
     }
     .ok()
-    .map(|()| counters.PrivateWorkingSetSize as u64)
+    .map(|()| {
+        (
+            counters.PrivateWorkingSetSize as u64,
+            counters.PrivateUsage as u64,
+        )
+    })
+}
+
+/// Private working set of the GSM desktop process, used to attribute model load deltas.
+pub(crate) fn current_process_private_working_set() -> Option<u64> {
+    let process = unsafe { windows::Win32::System::Threading::GetCurrentProcess() };
+    process_memory(process).map(|(resident, _)| resident)
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum WebviewKind {
+    Browser,
+    Gpu,
+    Renderer,
+    Extension,
+    Utility,
+    Other,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct GroupUsage {
-    group: Group,
-    cpu_percent: Option<f64>,
-    private_working_set_bytes: Option<u64>,
+struct WebviewUsage {
+    pid: u32,
+    kind: WebviewKind,
+    window_labels: Vec<String>,
+    #[serde(flatten)]
+    usage: ProcessUsage,
 }
 
-pub(crate) fn measure() -> Result<Vec<GroupUsage>, String> {
-    let processes = managed_processes(std::process::id()).map_err(|error| error.to_string())?;
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GroupUsage {
+    group: Group,
+    #[serde(flatten)]
+    usage: ProcessUsage,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    processes: Vec<WebviewUsage>,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessUsage {
+    cpu_percent: Option<f64>,
+    private_working_set_bytes: Option<u64>,
+    private_commit_bytes: Option<u64>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ExtensionUsage {
+    id: String,
+    name: String,
+    enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    kind: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ResourceUsage {
+    groups: Vec<GroupUsage>,
+    models: Vec<ModelUsageSnapshot>,
+    extensions: Option<Vec<ExtensionUsage>>,
+}
+
+fn measure_groups(
+    mut webviews: BTreeMap<u32, webview::Process>,
+) -> Result<Vec<GroupUsage>, String> {
+    let mut processes = managed_processes(std::process::id()).map_err(|error| error.to_string())?;
+    for &pid in webviews.keys() {
+        processes.entry(pid).or_insert(Group::Webview);
+    }
     let processes: Vec<_> = processes
         .into_iter()
         .map(|(pid, group)| {
@@ -127,13 +194,13 @@ pub(crate) fn measure() -> Result<Vec<GroupUsage>, String> {
                 OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
                     .map(|handle| Owned::new(handle))
             };
-            (group, handle.ok())
+            (pid, group, handle.ok())
         })
         .collect();
     let started = Instant::now();
     let initial: Vec<_> = processes
         .iter()
-        .map(|(_, process)| process.as_ref().and_then(|handle| cpu_time(**handle).ok()))
+        .map(|(_, _, process)| process.as_ref().and_then(|handle| cpu_time(**handle).ok()))
         .collect();
     std::thread::sleep(Duration::from_millis(400));
     let elapsed = started.elapsed().as_secs_f64();
@@ -141,28 +208,128 @@ pub(crate) fn measure() -> Result<Vec<GroupUsage>, String> {
     let cpu_scale = 100.0 / (10_000_000.0 * elapsed * f64::from(logical_cores));
 
     let mut totals = BTreeMap::new();
-    for ((group, process), before) in processes.into_iter().zip(initial) {
+    for ((pid, group, process), before) in processes.into_iter().zip(initial) {
         let row = totals.entry(group).or_insert(GroupUsage {
             group,
-            cpu_percent: Some(0.0),
-            private_working_set_bytes: Some(0),
+            usage: ProcessUsage {
+                cpu_percent: Some(0.0),
+                private_working_set_bytes: Some(0),
+                private_commit_bytes: Some(0),
+            },
+            processes: Vec::new(),
         });
         let cpu = process.as_ref().and_then(|handle| cpu_time(**handle).ok());
-        row.cpu_percent = row
+        let memory = process.as_ref().and_then(|handle| process_memory(**handle));
+        let usage = ProcessUsage {
+            cpu_percent: before
+                .zip(cpu)
+                .map(|(before, after)| after.saturating_sub(before) as f64 * cpu_scale),
+            private_working_set_bytes: memory.map(|(resident, _)| resident),
+            private_commit_bytes: memory.map(|(_, commit)| commit),
+        };
+        row.usage.cpu_percent = row
+            .usage
             .cpu_percent
-            .zip(before)
-            .zip(cpu)
-            .map(|((total, before), after)| {
-                total + after.saturating_sub(before) as f64 * cpu_scale
-            });
-
-        let memory = process
-            .as_ref()
-            .and_then(|handle| private_working_set(**handle));
-        row.private_working_set_bytes = row
+            .zip(usage.cpu_percent)
+            .map(|(total, value)| total + value);
+        row.usage.private_working_set_bytes = row
+            .usage
             .private_working_set_bytes
-            .zip(memory)
-            .map(|(total, bytes)| total + bytes);
+            .zip(usage.private_working_set_bytes)
+            .map(|(total, value)| total + value);
+        row.usage.private_commit_bytes = row
+            .usage
+            .private_commit_bytes
+            .zip(usage.private_commit_bytes)
+            .map(|(total, value)| total + value);
+
+        if group == Group::Webview {
+            let metadata = webviews.remove(&pid).unwrap_or_default();
+            let kind = webview::classify(metadata.kind, process.as_deref().copied());
+            row.processes.push(WebviewUsage {
+                pid,
+                kind,
+                window_labels: metadata.window_labels,
+                usage,
+            });
+        }
     }
     Ok(totals.into_values().collect())
+}
+
+async fn installed_extensions(app: &AppHandle) -> Option<Vec<ExtensionUsage>> {
+    let controller = app.get_webview_window(crate::dictionary_host::EXTENSION_CONTROLLER_LABEL)?;
+    let result = tokio::time::timeout(
+        Duration::from_secs(1),
+        crate::browser_extensions::list(&controller),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    let mut extensions: Vec<ExtensionUsage> = serde_json::from_value(result).ok()?;
+    for extension in &mut extensions {
+        if crate::dictionary_host::extension_kind(&extension.name) == "hachidori" {
+            extension.kind = Some("hachidori".into());
+        }
+    }
+    extensions.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(extensions)
+}
+
+fn loaded_models(app: &AppHandle) -> Vec<ModelUsageSnapshot> {
+    let mut models = gsm_overlay::engines::loaded_models_snapshot();
+    if let Some(service) = app.try_state::<std::sync::Arc<crate::mining::MiningService>>() {
+        models.extend(
+            service
+                .vad
+                .loaded_models_snapshot()
+                .into_iter()
+                .map(|model| ModelUsageSnapshot {
+                    id: model.id.to_owned(),
+                    category: "vad",
+                    name: model.name.to_owned(),
+                    detail: None,
+                    instances: 1,
+                    file_bytes: model.file_bytes,
+                    estimated_ram_bytes: model.estimated_ram_bytes,
+                    idle_seconds: model.idle_seconds,
+                    unloads_on_idle: true,
+                    storage: "ram",
+                }),
+        );
+    }
+    if let Some(model) = app
+        .try_state::<std::sync::Arc<gsm_sudachi::LanguageService>>()
+        .and_then(|service| service.memory_snapshot())
+        .filter(|snapshot| snapshot.loaded)
+    {
+        models.push(ModelUsageSnapshot {
+            id: "sudachi".into(),
+            category: "dictionary",
+            name: "Sudachi".into(),
+            detail: Some(model.edition),
+            instances: 1,
+            file_bytes: model.file_bytes,
+            estimated_ram_bytes: model.estimated_ram_bytes,
+            idle_seconds: model.idle_seconds.unwrap_or_default(),
+            unloads_on_idle: true,
+            storage: model.storage,
+        });
+    }
+    models
+}
+
+pub(crate) async fn measure(app: &AppHandle) -> Result<ResourceUsage, String> {
+    let groups = async {
+        let webviews = webview::processes(app).await;
+        tauri::async_runtime::spawn_blocking(move || measure_groups(webviews))
+            .await
+            .map_err(|error| error.to_string())?
+    };
+    let (groups, extensions) = tokio::join!(groups, installed_extensions(app));
+    Ok(ResourceUsage {
+        groups: groups?,
+        models: loaded_models(app),
+        extensions,
+    })
 }

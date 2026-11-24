@@ -1398,7 +1398,7 @@ background: rgba(202, 12, 12, 0.692);
   }
   
   setInterval(() => {
-    if (dictionaryReader === 'hachidori') {
+    if (dictionaryReader === 'hachidori' || document.visibilityState === 'hidden' || window.__GSM_NATIVE_WINDOW_VISIBLE__ === false) {
       return;
     }
     if (syncYomitanPopupStateFromDom('stale-check')) {
@@ -2434,7 +2434,13 @@ background: rgba(202, 12, 12, 0.692);
       if (!best || span > best.span) best = { wordId, readingIndex, span };
     }
     const result = best ? { wordId: best.wordId, readingIndex: best.readingIndex } : null;
-    if (result) jitenWordRefMemo.set(memoK, result);
+    if (result) {
+      if (jitenWordRefMemo.size >= 2000) {
+        const oldestKey = jitenWordRefMemo.keys().next().value;
+        if (oldestKey !== undefined) jitenWordRefMemo.delete(oldestKey);
+      }
+      jitenWordRefMemo.set(memoK, result);
+    }
     return result;
   }
 
@@ -4570,6 +4576,8 @@ background: rgba(202, 12, 12, 0.692);
     let isMouseOverInteractiveElement = false;
 
     interactiveElements.forEach((element) => {
+      if (element.dataset.gsmInteractiveBound === '1') return;
+      element.dataset.gsmInteractiveBound = '1';
       element.addEventListener('mouseenter', (event) => {
         if (isManualInteractionSuppressed()) {
           restoreOverlayPassThrough('manual-interaction-suppressed-mouseenter');
@@ -4588,6 +4596,8 @@ background: rgba(202, 12, 12, 0.692);
 
     halfInteractiveElements.forEach((element) => {
       if (!element.classList.contains("interactive")) {
+        if (element.dataset.gsmHalfInteractiveBound === '1') return;
+        element.dataset.gsmHalfInteractiveBound = '1';
         element.addEventListener('mouseenter', () => {
           if (isManualInteractionSuppressed()) {
             restoreOverlayPassThrough('manual-interaction-suppressed-half-enter');
@@ -4600,6 +4610,8 @@ background: rgba(202, 12, 12, 0.692);
     });
 
     bigInteractiveAreas.forEach((area) => {
+      if (area.dataset.gsmBigAreaBound === '1') return;
+      area.dataset.gsmBigAreaBound = '1';
       area.addEventListener('click', (event) => {
         if (isManualInteractionSuppressed()) {
           event.preventDefault();

@@ -126,14 +126,16 @@ fn recover_numbered_menu(
 pub struct Meiki {
     root: PathBuf,
     detector: Model,
-    horizontal: Option<Model>,
-    vertical: Option<Model>,
+    detector_reg: super::telemetry::ModelRegistration,
+    horizontal: Option<(Model, super::telemetry::ModelRegistration)>,
+    vertical: Option<(Model, super::telemetry::ModelRegistration)>,
     cache: LineCache,
     pub model: Detector,
 }
 
 fn session(path: &Path) -> Result<Model> {
-    Model::file(path, 0)
+    let threads = std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4));
+    Model::file(path, threads)
 }
 
 pub fn install(root: &Path, recognition: bool) -> Result<()> {
@@ -229,10 +231,20 @@ impl Meiki {
     }
     pub fn with_model(root: &Path, model: Detector) -> Result<Self> {
         let path = model.ensure(root)?;
-        let detector = session(&path)?;
+        let file_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let (width, height) = model.dimensions();
+        let (detector, detector_reg) = super::telemetry::ModelRegistration::measure_load(
+            "meiki_detector",
+            "MeikiOCR Detector",
+            Some(format!("{width}x{height}")),
+            file_bytes,
+            true,
+            || session(&path),
+        )?;
         Ok(Self {
             root: root.to_path_buf(),
             detector,
+            detector_reg,
             horizontal: None,
             vertical: None,
             cache: LineCache::default(),
@@ -252,6 +264,7 @@ impl Meiki {
         image: &RgbaImage,
         threshold: f32,
     ) -> Result<Vec<([f64; 4], f32)>> {
+        self.detector_reg.touch();
         let mut timer = crate::timing::Timer::new("meiki.detect");
         let (w, h) = image.dimensions();
         let (det_width, det_height) = self.model.dimensions();
@@ -362,14 +375,26 @@ impl Meiki {
             &mut self.horizontal
         };
         if target.is_none() {
-            let session = session(&models::model(
-                &self.root,
-                "rtr46/meiki.txt.recognition.v0",
-                if vertical { VREC } else { REC },
-            )?)?;
-            *target = Some(session);
+            let model_name = if vertical { VREC } else { REC };
+            let rec_path = models::model(&self.root, "rtr46/meiki.txt.recognition.v0", model_name)?;
+            let file_bytes = std::fs::metadata(&rec_path).map(|m| m.len()).unwrap_or(0);
+            let (id, label) = if vertical {
+                ("meiki_rec_vertical", "MeikiOCR Vertical Rec")
+            } else {
+                ("meiki_rec_horizontal", "MeikiOCR Horizontal Rec")
+            };
+            let (session, reg) = super::telemetry::ModelRegistration::measure_load(
+                id,
+                label,
+                None,
+                file_bytes,
+                true,
+                || session(&rec_path),
+            )?;
+            *target = Some((session, reg));
         }
-        let session = target.as_mut().unwrap();
+        let (session, reg) = target.as_mut().unwrap();
+        reg.touch();
         let (tw, th) = if vertical { (32, 480) } else { (960, 32) };
         let mut segments = vec![(y1 as u32, y2 as u32)];
         // Long vertical lines overlap by 64 model pixels; NMS below merges them.

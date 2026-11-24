@@ -1525,6 +1525,41 @@ fn open_add_area(app: tauri::AppHandle) {
     });
 }
 
+fn scan_scene_engine_candidates(config: &Value, oneocr_available: bool) -> Vec<&'static str> {
+    let mut candidates = Vec::with_capacity(4);
+    for key in ["ocr2", "ocr1"] {
+        if let Some(engine) = config.get(key).and_then(Value::as_str) {
+            let releasable = match engine {
+                "oneocr" => Some("oneocr"),
+                "meikiocr" => Some("meikiocr"),
+                "vitaocr" => Some("vitaocr"),
+                _ => None,
+            };
+            if let Some(name) = releasable {
+                if !candidates.contains(&name) {
+                    candidates.push(name);
+                }
+            }
+        }
+    }
+    if oneocr_available && !candidates.contains(&"oneocr") {
+        candidates.push("oneocr");
+    }
+    candidates.push("screenai");
+    candidates
+}
+
+fn oneocr_runtime_installed() -> bool {
+    #[cfg(windows)]
+    {
+        return dirs::home_dir()
+            .map(|home| home.join(".config/oneocr/oneocr.dll").is_file())
+            .unwrap_or(false);
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 pub async fn scan_scene_text(
     app: &tauri::AppHandle,
     scene: &str,
@@ -1545,10 +1580,20 @@ pub async fn scan_scene_text(
         if cancelled() {
             return Ok(Vec::new());
         }
-        let recognition = gsm_overlay::engines::Engines::new(&profile)
-            .recognize(&frame, "screenai", language)
-            .map_err(|err| err.to_string())?;
-        Ok(gsm_overlay::pipeline::text_blocks(recognition, language))
+        let candidates = scan_scene_engine_candidates(&config, oneocr_runtime_installed());
+        let mut engines = gsm_overlay::engines::Engines::new(&profile);
+        let mut last_error = None;
+        for candidate in candidates {
+            match engines.recognize(&frame, candidate, language) {
+                Ok(recognition) => {
+                    return Ok(gsm_overlay::pipeline::text_blocks(recognition, language));
+                }
+                Err(err) => {
+                    last_error = Some(err.to_string());
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| "Scene OCR failed".to_string()))
     })
     .await
     .map_err(|err| err.to_string())?
@@ -2452,5 +2497,30 @@ mod tests {
             "[bench] ocr_coordinator revision_5k_ms={rev_ms:.3} backup_15_rotated_ms={backup_ms:.3}"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn scan_scene_text_prefers_releasable_local_engines_before_screenai() {
+        let meiki = json!({ "ocr1": "screenai", "ocr2": "meikiocr" });
+        assert_eq!(
+            scan_scene_engine_candidates(&meiki, true),
+            vec!["meikiocr", "oneocr", "screenai"]
+        );
+
+        let cloud_with_oneocr = json!({ "ocr1": "oneocr", "ocr2": "glens" });
+        assert_eq!(
+            scan_scene_engine_candidates(&cloud_with_oneocr, true),
+            vec!["oneocr", "screenai"]
+        );
+
+        let cloud_without_oneocr = json!({ "ocr1": "screenai", "ocr2": "glens" });
+        assert_eq!(
+            scan_scene_engine_candidates(&cloud_without_oneocr, false),
+            vec!["screenai"]
+        );
+        assert_eq!(
+            scan_scene_engine_candidates(&cloud_without_oneocr, true),
+            vec!["oneocr", "screenai"]
+        );
     }
 }

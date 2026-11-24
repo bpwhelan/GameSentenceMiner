@@ -28,6 +28,7 @@ pub(super) struct Engine {
     classifier: Model,
     decoders: HashMap<String, Decoder>,
     cache: LineCache,
+    reg: crate::engines::telemetry::ModelRegistration,
 }
 
 fn resource(root: &Path, rel: &Value) -> Result<PathBuf> {
@@ -47,7 +48,15 @@ fn model(root: &Path, entry: &Value) -> Result<Model> {
         .filter(|n| *n > 0)
         .unwrap_or(4)
         .min(std::thread::available_parallelism().map_or(4, usize::from));
-    Model::file(&path, threads).with_context(|| format!("Load OneOCR model {}", path.display()))
+    Model::file_with_pattern(&path, threads, false)
+        .with_context(|| format!("Load OneOCR model {}", path.display()))
+}
+fn file_bytes(root: &Path, entry: &Value) -> u64 {
+    resource(root, &entry["model_pack"]["onnx"]["model_path"])
+        .ok()
+        .and_then(|p| fs::metadata(p).ok())
+        .map(|m| m.len())
+        .unwrap_or(0)
 }
 fn tensor(image: &RgbaImage, bgr: bool, scale: f32) -> Result<Tensor<f32>> {
     let (w, h) = (image.width() as usize, image.height() as usize);
@@ -88,8 +97,16 @@ impl Engine {
                 config.display()
             )
         })?)?;
-        let detector = model(&root, &manifest["det_model"][0])?;
-        let classifier = model(&root, &manifest["aux_mlt_cls_model"][0])?;
+        let base_bytes = file_bytes(&root, &manifest["det_model"][0])
+            .saturating_add(file_bytes(&root, &manifest["aux_mlt_cls_model"][0]));
+        let ((detector, classifier), reg) = crate::engines::telemetry::ModelRegistration::measure_load(
+            "oneocr",
+            "OneOCR",
+            Some("portable".into()),
+            base_bytes,
+            true,
+            || Ok((model(&root, &manifest["det_model"][0])?, model(&root, &manifest["aux_mlt_cls_model"][0])?)),
+        )?;
         Ok(Self {
             root,
             manifest,
@@ -97,6 +114,7 @@ impl Engine {
             classifier,
             decoders: HashMap::new(),
             cache: LineCache::default(),
+            reg,
         })
     }
 
@@ -145,6 +163,7 @@ impl Engine {
     }
 
     pub(super) fn recognize(&mut self, image: &RgbaImage) -> Result<Recognition> {
+        self.reg.touch();
         self.cache.begin();
         let lines = detector::detect(&mut self.detector, image, &self.manifest["det_model"][0])?;
         let mut text = Vec::with_capacity(lines.len());

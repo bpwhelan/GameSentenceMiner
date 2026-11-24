@@ -16,6 +16,7 @@ use image::{RgbaImage, imageops};
 use ort::{ep::CPU, session::Session, value::Tensor};
 use selection::Tier;
 use serde_json::Value;
+#[allow(unused_imports)]
 use sha2::{Digest, Sha256};
 use std::{
     path::{Path, PathBuf},
@@ -87,7 +88,7 @@ fn model_hash(filename: &str) -> Result<&'static str> {
         .map(|(_, hash)| hash)
         .context("Unknown VOCR model")
 }
-fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
+fn verified_model_path(directory: &Path, filename: &str) -> Result<PathBuf> {
     let hash = model_hash(filename)?;
     let bundled = directory.join(filename);
     let model = match ASSET_LOCATIONS.get() {
@@ -98,25 +99,29 @@ fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
         }
         None => bundled,
     };
-    let bytes = std::fs::read(model).with_context(|| format!("Read VOCR model {filename}"))?;
-    ensure!(
-        format!("{:x}", Sha256::digest(&bytes)) == hash,
-        "VOCR model checksum failed"
-    );
-    Ok(bytes)
+    crate::models::verify_sha256(&model, hash).context("VOCR model checksum failed")?;
+    Ok(model)
+}
+
+#[cfg(test)]
+fn verified_model(directory: &Path, filename: &str) -> Result<Vec<u8>> {
+    let path = verified_model_path(directory, filename)?;
+    std::fs::read(&path).with_context(|| format!("Read VOCR model {filename}"))
 }
 
 pub fn verify_bundled() -> Result<()> {
     let directory = asset_directory()?;
     for filename in [SMALL, NORMAL, LARGE, LARGE_FAST, DETECTOR] {
-        verified_model(&directory, filename)?;
+        verified_model_path(&directory, filename)?;
     }
     Ok(())
 }
-fn session(filename: &str, kind: &str, source: &str) -> Result<(Session, Value)> {
-    // Verify the bytes actually used by this session, including subsequent
-    // loads, so missing or modified resources cannot silently change the model.
-    let bytes = verified_model(&asset_directory()?, filename)?;
+fn session(filename: &str, kind: &str, source: &str) -> Result<(Session, Value, u64)> {
+    // Verify the bytes on disk before creating the session so missing or
+    // modified resources cannot silently change the model, without keeping a
+    // second copy of the file in heap memory.
+    let path = verified_model_path(&asset_directory()?, filename)?;
+    let file_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     let load = || -> ort::Result<Session> {
         Session::builder()?
             .with_no_environment_execution_providers()?
@@ -125,7 +130,8 @@ fn session(filename: &str, kind: &str, source: &str) -> Result<(Session, Value)>
             .with_inter_threads(1)?
             .with_intra_op_spinning(false)?
             .with_inter_op_spinning(false)?
-            .commit_from_memory(&bytes)
+            .with_memory_pattern(false)?
+            .commit_from_file(&path)
     };
     let session = load().context("Load bundled VOCR model")?;
     let metadata: Value = serde_json::from_str(
@@ -147,27 +153,45 @@ fn session(filename: &str, kind: &str, source: &str) -> Result<(Session, Value)>
             && metadata["source_sha256"] == source,
         "VOCR model metadata is incompatible"
     );
-    Ok((session, metadata))
+    Ok((session, metadata, file_bytes))
 }
 pub struct Finder {
     session: Session,
     tags: usize,
+    reg: super::telemetry::ModelRegistration,
 }
 impl Finder {
     pub fn new() -> Result<Self> {
-        let (session, data) = session(
-            DETECTOR,
-            "detector",
-            "e129d41adfa02c658a7d13d6f98064e6ab6ce9a2bc8c7a56da700a21357b5e1c",
+        let ((session, data), reg) = super::telemetry::ModelRegistration::measure_load(
+            "vocr_detector",
+            "VitaOCR Detector",
+            None,
+            std::fs::metadata(verified_model_path(&asset_directory()?, DETECTOR)?)
+                .map(|m| m.len())
+                .unwrap_or(0),
+            true,
+            || {
+                let (session, data, _) = session(
+                    DETECTOR,
+                    "detector",
+                    "e129d41adfa02c658a7d13d6f98064e6ab6ce9a2bc8c7a56da700a21357b5e1c",
+                )?;
+                ensure!(
+                    data["stride"] == 4
+                        && data["tags"] == 4
+                        && data["min_cells"] == 2
+                        && data["conf_min"] == 1,
+                    "Unsupported VOCR detector geometry"
+                );
+                Ok((session, data))
+            },
         )?;
-        ensure!(
-            data["stride"] == 4
-                && data["tags"] == 4
-                && data["min_cells"] == 2
-                && data["conf_min"] == 1,
-            "Unsupported VOCR detector geometry"
-        );
-        Ok(Self { session, tags: 4 })
+        let _ = data;
+        Ok(Self {
+            session,
+            tags: 4,
+            reg,
+        })
     }
     fn detect_maps(&mut self, grey: &image::GrayImage) -> Result<(Vec<i64>, usize, usize)> {
         let reduced = pixels::halve(grey);
@@ -186,6 +210,7 @@ impl Finder {
         decode::maps(values, shape, height, width, self.tags)
     }
     pub fn detect(&mut self, image: &RgbaImage) -> Result<Vec<decode::Box>> {
+        self.reg.touch();
         pixels::dimensions(image.width(), image.height())?;
         let scale = (960. / image.width() as f64)
             .min(544. / image.height() as f64)
@@ -231,6 +256,7 @@ impl Finder {
 struct Recognizer {
     session: Session,
     vocab: Vec<String>,
+    reg: super::telemetry::ModelRegistration,
 }
 impl Recognizer {
     fn new(tier: Tier, fast: bool) -> Result<Self> {
@@ -248,22 +274,45 @@ impl Recognizer {
                 "65310013e8f990886e4e8097b2fe55eb98cdf082d7193eea510601fc0ac26c82",
             ),
         };
-        let (session, data) = session(bytes, "recognizer", hash)?;
-        ensure!(
-            data["tier"] == tier.name()
-                && data["height"] == 32
-                && data["stride"] == 8
-                && data["max_width"] == 1024,
-            "Unsupported VOCR recognizer geometry"
-        );
-        let vocab: Vec<String> = serde_json::from_value(data["vocab"].clone())?;
-        ensure!(
-            !vocab.is_empty() && vocab.len() <= 65536 && vocab.iter().all(|v| v.len() <= 16),
-            "Invalid VOCR vocabulary"
-        );
-        Ok(Self { session, vocab })
+        let detail = if fast {
+            "large-fast".to_string()
+        } else {
+            tier.name().to_string()
+        };
+        let file_bytes = std::fs::metadata(verified_model_path(&asset_directory()?, bytes)?)
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let ((session, vocab), reg) = super::telemetry::ModelRegistration::measure_load(
+            "vocr_recognizer",
+            "VitaOCR Recognizer",
+            Some(detail),
+            file_bytes,
+            true,
+            || {
+                let (session, data, _) = session(bytes, "recognizer", hash)?;
+                ensure!(
+                    data["tier"] == tier.name()
+                        && data["height"] == 32
+                        && data["stride"] == 8
+                        && data["max_width"] == 1024,
+                    "Unsupported VOCR recognizer geometry"
+                );
+                let vocab: Vec<String> = serde_json::from_value(data["vocab"].clone())?;
+                ensure!(
+                    !vocab.is_empty() && vocab.len() <= 65536 && vocab.iter().all(|v| v.len() <= 16),
+                    "Invalid VOCR vocabulary"
+                );
+                Ok((session, vocab))
+            },
+        )?;
+        Ok(Self {
+            session,
+            vocab,
+            reg,
+        })
     }
     fn recognize(&mut self, image: &RgbaImage, dark: Option<bool>) -> Result<TextBox> {
+        self.reg.touch();
         let grey = pixels::grey(image);
         let dark = dark.unwrap_or_else(|| {
             decode::dark(
@@ -331,6 +380,23 @@ impl Vocr {
             cache: LineCache::default(),
             recognizer: None,
         })
+    }
+    pub(super) fn with_finder(model: Tier, finder: Finder) -> Self {
+        Self {
+            model,
+            finder: Some(finder),
+            cache: LineCache::default(),
+            recognizer: None,
+        }
+    }
+    pub(super) fn has_finder(&self) -> bool {
+        self.finder.is_some()
+    }
+    pub(super) fn detect(&mut self, image: &RgbaImage) -> Result<Vec<decode::Box>> {
+        self.finder
+            .as_mut()
+            .context("VOCR reader requires an external line detector")?
+            .detect(image)
     }
     pub(super) fn large_fast() -> Result<Self> {
         Ok(Self {

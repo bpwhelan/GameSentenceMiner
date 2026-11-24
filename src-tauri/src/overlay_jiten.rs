@@ -476,14 +476,14 @@ impl JitenParseCache {
                 ),
             );
         }
-        if inner.vocabulary_states.len() > MAX_CACHE_ENTRIES * 32 {
+        if inner.vocabulary_states.len() > MAX_CACHE_ENTRIES * 4 {
             inner
                 .vocabulary_states
                 .retain(|_, (at, _, _)| now.saturating_duration_since(*at) < STATE_TTL);
             let excess = inner
                 .vocabulary_states
                 .len()
-                .saturating_sub(MAX_CACHE_ENTRIES * 32);
+                .saturating_sub(MAX_CACHE_ENTRIES * 4);
             if excess > 0 {
                 let mut oldest: Vec<_> = inner
                     .vocabulary_states

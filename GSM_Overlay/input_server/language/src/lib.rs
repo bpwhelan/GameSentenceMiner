@@ -6,7 +6,7 @@ pub mod mining;
 mod sudachi;
 mod vocabulary;
 
-pub use sudachi::LanguageService;
+pub use sudachi::{LanguageService, SudachiMemorySnapshot};
 pub use vocabulary::Request as VocabularyRequest;
 
 use serde::{Deserialize, Serialize};

@@ -1,11 +1,14 @@
 use crate::{vocabulary, Request, VocabularyRequest};
+use memmap2::Mmap;
 use reqwest::Client as HttpClient;
+use serde::Serialize;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs::{self, File};
-use std::io::{BufWriter, Cursor, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sudachi::analysis::stateless_tokenizer::StatelessTokenizer;
 use sudachi::analysis::{Mode as SudachiMode, Tokenize as SudachiTokenize};
 use sudachi::config::Config as SudachiConfig;
@@ -64,6 +67,17 @@ impl SudachiDictionaryKind {
     }
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SudachiMemorySnapshot {
+    pub loaded: bool,
+    pub edition: String,
+    pub storage: &'static str,
+    pub file_bytes: u64,
+    pub estimated_ram_bytes: Option<u64>,
+    pub idle_seconds: Option<u64>,
+}
+
 pub struct LanguageService {
     sudachi: Mutex<SudachiService>,
     vocabulary: Arc<StdMutex<Option<vocabulary::Store>>>,
@@ -87,6 +101,13 @@ impl LanguageService {
 
     pub fn from_env() -> Self {
         Self::new(resolve_sudachi_data_dir(), resolve_sudachi_user_dicts_dir())
+    }
+
+    pub fn memory_snapshot(&self) -> Option<SudachiMemorySnapshot> {
+        self.sudachi
+            .try_lock()
+            .ok()
+            .map(|service| service.memory_snapshot())
     }
 
     pub async fn unload_when_idle(service: Weak<Self>) {
@@ -130,12 +151,13 @@ impl LanguageService {
                 let Ok(mut service) = self.sudachi.try_lock() else {
                     return Ok(json!({"type": "sudachi_status", "state": "installing"}));
                 };
-                // Verify an existing install without downloading or replacing it.
-                if service.last_error.is_none() && service.dictionary_path().is_file() {
-                    if let Err(error) = service.ensure_tokenizer().await {
-                        service.last_error = Some(error);
+                // Verify an existing install without pinning the dictionary in memory
+                // or resetting the idle unload timer.
+                if service.dictionary.is_none() && service.last_error.is_none() {
+                    let path = service.dictionary_path();
+                    if path.is_file() {
+                        service.verify_installed_file(&path).await;
                     }
-                    service.last_request_at = Some(Instant::now());
                 }
                 Ok(service.status())
             }
@@ -207,6 +229,9 @@ struct SudachiService {
     dictionary_kind: SudachiDictionaryKind,
     dictionary: Option<Arc<JapaneseDictionary>>,
     loaded_signature: Option<String>,
+    storage_kind: &'static str,
+    file_bytes: u64,
+    verified_file: Option<(PathBuf, u64, Option<SystemTime>)>,
     last_request_at: Option<Instant>,
     last_error: Option<String>,
 }
@@ -244,14 +269,53 @@ impl SudachiService {
             dictionary_kind,
             dictionary: None,
             loaded_signature: None,
+            storage_kind: "mmap",
+            file_bytes: 0,
+            verified_file: None,
             last_request_at: None,
             last_error: None,
+        }
+    }
+
+    fn memory_snapshot(&self) -> SudachiMemorySnapshot {
+        let loaded = self.dictionary.is_some();
+        let file_bytes = if loaded && self.file_bytes > 0 {
+            self.file_bytes
+        } else if loaded {
+            fs::metadata(self.dictionary_path())
+                .map(|m| m.len())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        SudachiMemorySnapshot {
+            loaded,
+            edition: self.dictionary_kind.as_str().to_string(),
+            storage: self.storage_kind,
+            file_bytes,
+            estimated_ram_bytes: if loaded && self.storage_kind == "heap" {
+                Some(file_bytes)
+            } else {
+                None
+            },
+            idle_seconds: if loaded {
+                Some(
+                    self.last_request_at
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or(0),
+                )
+            } else {
+                None
+            },
         }
     }
 
     fn disable(&mut self) {
         self.dictionary = None;
         self.loaded_signature = None;
+        self.storage_kind = "mmap";
+        self.file_bytes = 0;
+        self.verified_file = None;
         self.last_request_at = None;
         info!("sudachi capability released");
     }
@@ -276,6 +340,8 @@ impl SudachiService {
         }
         self.dictionary = None;
         self.loaded_signature = None;
+        self.storage_kind = "mmap";
+        self.file_bytes = 0;
         self.last_request_at = None;
         info!(
             "sudachi dictionary unloaded after {} seconds without requests",
@@ -297,6 +363,38 @@ impl SudachiService {
         );
     }
 
+    async fn verify_installed_file(&mut self, path: &Path) {
+        let Ok(meta) = fs::metadata(path) else {
+            return;
+        };
+        let len = meta.len();
+        let modified = meta.modified().ok();
+        if self
+            .verified_file
+            .as_ref()
+            .is_some_and(|(p, l, m)| p == path && *l == len && *m == modified)
+        {
+            return;
+        }
+        let check_path = path.to_path_buf();
+        let check = tokio::task::spawn_blocking(move || load_sudachi_dictionary(&check_path, &[]).map(|_| ()))
+            .await;
+        match check {
+            Ok(Ok(())) => {
+                self.file_bytes = len;
+                self.verified_file = Some((path.to_path_buf(), len, modified));
+            }
+            Ok(Err(error)) => {
+                self.verified_file = None;
+                self.last_error = Some(error);
+            }
+            Err(error) => {
+                self.verified_file = None;
+                self.last_error = Some(format!("sudachi dictionary task failed: {error}"));
+            }
+        }
+    }
+
     async fn ensure_tokenizer(&mut self) -> Result<(), String> {
         let dict_path = self.dictionary_path();
         if !dict_path.is_file() {
@@ -314,13 +412,25 @@ impl SudachiService {
             return Ok(());
         }
         let dict_path_for_load = dict_path.clone();
-        let dictionary = tokio::task::spawn_blocking(move || {
-            load_sudachi_dictionary(&dict_path_for_load, &user_dict_paths)
+        let (dictionary, storage_kind, file_bytes) = tokio::task::spawn_blocking(move || {
+            let (dictionary, storage_kind) =
+                load_sudachi_dictionary_with_storage(&dict_path_for_load, &user_dict_paths)?;
+            let mut total_bytes = fs::metadata(&dict_path_for_load)
+                .map(|m| m.len())
+                .unwrap_or(0);
+            for user_path in &user_dict_paths {
+                total_bytes = total_bytes.saturating_add(
+                    fs::metadata(user_path).map(|m| m.len()).unwrap_or(0),
+                );
+            }
+            Ok::<_, String>((dictionary, storage_kind, total_bytes))
         })
         .await
         .map_err(|e| format!("sudachi dictionary task failed: {e}"))??;
         self.dictionary = Some(dictionary);
         self.loaded_signature = Some(signature);
+        self.storage_kind = storage_kind;
+        self.file_bytes = file_bytes;
         self.last_error = None;
         Ok(())
     }
@@ -438,15 +548,38 @@ impl SudachiService {
 
         let total_size = response.content_length();
         let mut downloaded: u64 = 0;
-        let mut zip_bytes = Vec::with_capacity(total_size.unwrap_or(0) as usize);
+        let archive_part_path =
+            version_dir.join(format!("download-{}.zip.part", std::process::id()));
+        if archive_part_path.exists() {
+            let _ = fs::remove_file(&archive_part_path);
+        }
+        struct TempArchiveGuard(PathBuf);
+        impl Drop for TempArchiveGuard {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+        let _archive_guard = TempArchiveGuard(archive_part_path.clone());
+        let archive_file = File::create(&archive_part_path).map_err(|e| {
+            let msg = format!("failed to create Sudachi download file: {e}");
+            emit_sudachi_progress("error", 0, total_size, Some(&msg));
+            msg
+        })?;
+        let mut archive_writer = BufWriter::with_capacity(64 * 1024, archive_file);
+        let mut hasher = Sha256::new();
         let mut last_progress_pct: u64 = 0;
 
-        // Stream download with progress
+        // Stream download to disk with incremental hashing to avoid buffering 50-150 MB in RAM.
         loop {
             match response.chunk().await {
                 Ok(Some(chunk)) => {
                     downloaded += chunk.len() as u64;
-                    zip_bytes.extend_from_slice(&chunk);
+                    hasher.update(&chunk);
+                    if let Err(e) = archive_writer.write_all(&chunk) {
+                        let msg = format!("failed to write Sudachi dictionary archive: {e}");
+                        emit_sudachi_progress("error", 0, total_size, Some(&msg));
+                        return Err(msg);
+                    }
                     if let Some(total) = total_size {
                         if total > 0 {
                             let pct = (downloaded * 100) / total;
@@ -466,9 +599,15 @@ impl SudachiService {
                 }
             }
         }
+        archive_writer.flush().map_err(|e| {
+            let msg = format!("failed to flush Sudachi dictionary archive: {e}");
+            emit_sudachi_progress("error", 0, total_size, Some(&msg));
+            msg
+        })?;
+        drop(archive_writer);
 
         emit_sudachi_progress("verifying", 100, total_size, None);
-        let digest = sha256_hex(&zip_bytes);
+        let digest = format_sha256_hex(&hasher.finalize());
         if digest != self.dictionary_kind.zip_sha256() {
             let msg = format!(
                 "Sudachi dictionary checksum mismatch: expected {}, got {digest}",
@@ -480,8 +619,9 @@ impl SudachiService {
 
         emit_sudachi_progress("extracting", 100, total_size, None);
         let dict_path_for_extract = dict_path.clone();
+        let archive_path_for_extract = archive_part_path.clone();
         tokio::task::spawn_blocking(move || {
-            extract_sudachi_dictionary(&zip_bytes, &dict_path_for_extract)
+            extract_sudachi_dictionary_from_file(&archive_path_for_extract, &dict_path_for_extract)
         })
         .await
         .map_err(|e| {
@@ -587,10 +727,7 @@ fn resolve_sudachi_user_dicts_dir() -> PathBuf {
         .join("sudachi")
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-
-    let digest = Sha256::digest(bytes);
+fn format_sha256_hex(digest: &[u8]) -> String {
     let mut out = String::with_capacity(digest.len() * 2);
     for byte in digest {
         out.push_str(&format!("{byte:02x}"));
@@ -598,7 +735,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     out
 }
 
-fn extract_sudachi_dictionary(zip_bytes: &[u8], dict_path: &Path) -> Result<(), String> {
+fn sha256_hex(bytes: &[u8]) -> String {
+    format_sha256_hex(&Sha256::digest(bytes))
+}
+
+fn extract_sudachi_dictionary_from_file(zip_path: &Path, dict_path: &Path) -> Result<(), String> {
     let parent = dict_path
         .parent()
         .ok_or_else(|| format!("invalid Sudachi dictionary path: {}", dict_path.display()))?;
@@ -619,7 +760,8 @@ fn extract_sudachi_dictionary(zip_bytes: &[u8], dict_path: &Path) -> Result<(), 
         let _ = fs::remove_file(&partial_path);
     }
 
-    let reader = Cursor::new(zip_bytes);
+    let reader = File::open(zip_path)
+        .map_err(|e| format!("failed to open Sudachi zip archive: {e}"))?;
     let mut archive =
         ZipArchive::new(reader).map_err(|e| format!("failed to open Sudachi zip archive: {e}"))?;
 
@@ -843,16 +985,27 @@ fn prepare_sudachi_user_dictionaries(
     Ok((compiled_paths, signature))
 }
 
-pub(crate) fn load_sudachi_dictionary(
+pub(crate) fn load_sudachi_dictionary_with_storage(
     dict_path: &Path,
     user_dict_paths: &[PathBuf],
-) -> Result<Arc<JapaneseDictionary>, String> {
-    let dictionary_bytes =
-        fs::read(dict_path).map_err(|e| format!("failed to read Sudachi dictionary: {e}"))?;
+) -> Result<(Arc<JapaneseDictionary>, &'static str), String> {
     let config = SudachiConfig::new_embedded()
         .map_err(|e| format!("failed to build Sudachi embedded config: {e}"))?
         .with_system_dic(dict_path.to_path_buf());
-    let mut storage = SudachiDicData::new(SudachiStorage::Owned(dictionary_bytes));
+    let (system_storage, storage_kind) = match File::open(dict_path)
+        .ok()
+        .and_then(|file| unsafe { Mmap::map(&file) }.ok())
+    {
+        Some(mmap) => (SudachiStorage::File(mmap), "mmap"),
+        None => {
+            let dictionary_bytes = fs::read(dict_path)
+                .map_err(|e| format!("failed to read Sudachi dictionary: {e}"))?;
+            (SudachiStorage::Owned(dictionary_bytes), "heap")
+        }
+    };
+    let mut storage = SudachiDicData::new(system_storage);
+    // User dictionaries stay small and are owned in RAM so CSV recompilation
+    // on Windows never collides with a memory-mapped file lock.
     for user_dict_path in user_dict_paths {
         let user_dict_bytes = fs::read(user_dict_path).map_err(|e| {
             format!(
@@ -864,7 +1017,14 @@ pub(crate) fn load_sudachi_dictionary(
     }
     let dictionary = JapaneseDictionary::from_cfg_storage_with_embedded_chardef(&config, storage)
         .map_err(|e| format!("failed to load Sudachi dictionary: {e}"))?;
-    Ok(Arc::new(dictionary))
+    Ok((Arc::new(dictionary), storage_kind))
+}
+
+pub(crate) fn load_sudachi_dictionary(
+    dict_path: &Path,
+    user_dict_paths: &[PathBuf],
+) -> Result<Arc<JapaneseDictionary>, String> {
+    load_sudachi_dictionary_with_storage(dict_path, user_dict_paths).map(|(dict, _)| dict)
 }
 
 fn has_kanji(text: &str) -> bool {
@@ -1148,5 +1308,54 @@ mod tests {
         assert!(resident.upgrade().is_some());
         assert!(service.unload_if_idle(used + Duration::from_secs(300), SUDACHI_IDLE_UNLOAD_AFTER));
         assert!(resident.upgrade().is_none());
+    }
+
+    #[tokio::test]
+    async fn status_poll_does_not_pin_invalid_or_missing_dictionary_or_reset_idle() {
+        let root = std::env::temp_dir().join(format!("gsm-sudachi-status-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let service = LanguageService::new(root.clone(), root.join("user"));
+        let status = service.execute(Request::Status).await.unwrap();
+        assert_eq!(status["state"], "setup_required");
+        let snap = service.memory_snapshot().unwrap();
+        assert!(!snap.loaded);
+        assert_eq!(snap.file_bytes, 0);
+
+        let dict_path = {
+            let sudachi = service.sudachi.lock().await;
+            assert!(service.memory_snapshot().is_none());
+            sudachi.dictionary_path()
+        };
+        fs::create_dir_all(dict_path.parent().unwrap()).unwrap();
+        fs::write(&dict_path, vec![0u8; 256]).unwrap();
+        let status = service.execute(Request::Status).await.unwrap();
+        assert_eq!(status["state"], "error");
+        let snap = service.memory_snapshot().unwrap();
+        assert!(!snap.loaded);
+        assert_eq!(snap.idle_seconds, None);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[ignore = "requires GSM_TEST_SUDACHI_DICTIONARY pointing to an installed system dictionary"]
+    fn system_dictionary_loads_via_mmap_and_reports_snapshot() {
+        let path = PathBuf::from(std::env::var_os("GSM_TEST_SUDACHI_DICTIONARY").unwrap());
+        let (dictionary, storage) = load_sudachi_dictionary_with_storage(&path, &[]).unwrap();
+        assert_eq!(storage, "mmap");
+        let mut service = SudachiService::new(
+            PathBuf::from("unused"),
+            PathBuf::from("unused"),
+            SudachiDictionaryKind::Small,
+        );
+        service.dictionary = Some(dictionary);
+        service.storage_kind = storage;
+        service.file_bytes = fs::metadata(&path).unwrap().len();
+        service.last_request_at = Some(Instant::now());
+        let snap = service.memory_snapshot();
+        assert!(snap.loaded);
+        assert_eq!(snap.storage, "mmap");
+        assert!(snap.file_bytes > 0);
+        assert_eq!(snap.estimated_ram_bytes, None);
     }
 }

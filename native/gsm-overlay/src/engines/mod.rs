@@ -8,11 +8,17 @@ mod mida;
 mod oneocr;
 mod remote;
 mod screenai;
+pub mod telemetry;
 pub mod vocr;
 use crate::pipeline::Recognition;
 use anyhow::{Result, bail};
 use image::RgbaImage;
 use std::path::{Path, PathBuf};
+pub use telemetry::ModelUsageSnapshot;
+
+pub fn loaded_models_snapshot() -> Vec<ModelUsageSnapshot> {
+    telemetry::snapshot()
+}
 
 /// OneOCR is shared by capture workers. Its explicit destructor can release the
 /// process-wide pipeline once neither worker has used it for the idle interval.
@@ -134,33 +140,39 @@ impl Engines {
             "vitaocr" => {
                 let selected = vocr::selection::Tier::read(&self.root)?;
                 if self.vocr.as_ref().is_none_or(|m| m.model != selected) {
-                    self.vocr = Some(vocr::Vocr::new(selected)?);
+                    self.vocr = Some(if let Some(finder) = self.finder.take() {
+                        vocr::Vocr::with_finder(selected, finder)
+                    } else {
+                        vocr::Vocr::new(selected)?
+                    });
                 }
                 let mut result = self.vocr.as_mut().unwrap().recognize(image)?;
                 result.model = serde_json::json!({"size":selected,"revision":vocr::selection::REVISION,"backend":"onnx"});
                 Ok(result)
             }
             "vocr_detector" => {
-                if self.finder.is_none() {
-                    self.finder = Some(vocr::Finder::new()?);
-                }
+                let boxes = if let Some(vocr) = self.vocr.as_mut().filter(|v| v.has_finder()) {
+                    vocr.detect(image)?
+                } else {
+                    if self.finder.is_none() {
+                        self.finder = Some(vocr::Finder::new()?);
+                    }
+                    self.finder.as_mut().unwrap().detect(image)?
+                };
                 Ok(Recognition {
-                    detections: self
-                        .finder
-                        .as_mut()
-                        .unwrap()
-                        .detect(image)?
-                        .iter()
-                        .map(|b| b.edges())
-                        .collect(),
+                    detections: boxes.iter().map(|b| b.edges()).collect(),
                     ..Default::default()
                 })
             }
             "vocr_lens" => {
-                if self.finder.is_none() {
-                    self.finder = Some(vocr::Finder::new()?);
-                }
-                let boxes = self.finder.as_mut().unwrap().detect(image)?;
+                let boxes = if let Some(vocr) = self.vocr.as_mut().filter(|v| v.has_finder()) {
+                    vocr.detect(image)?
+                } else {
+                    if self.finder.is_none() {
+                        self.finder = Some(vocr::Finder::new()?);
+                    }
+                    self.finder.as_mut().unwrap().detect(image)?
+                };
                 let mut lines = Vec::new();
                 for batch in
                     composite::pack(image, &boxes.iter().map(|b| b.edges()).collect::<Vec<_>>())

@@ -376,6 +376,7 @@ fn run(app: tauri::AppHandle, shared: Shared) {
         if engines.as_ref().is_none_or(|(p, _)| *p != profile) {
             engines = Some((profile.clone(), Engines::new(&profile)));
         }
+        let before_inference = inference_calls;
         let mut activity = None;
         let result = (|| -> Result<Option<(Recognition, Value)>, String> {
             let (image, mut dimensions) = if action == "clipboard_ocr" {
@@ -586,7 +587,11 @@ fn run(app: tauri::AppHandle, shared: Shared) {
                 json!({"engine":selected,"size":dimensions,"capturedAt":captured_at,"capture_ms":capture_ms,"first_pass_ms":first_ms,"ocr_ms":ocr_start.elapsed().as_secs_f64()*1000.,"total_ms":start.elapsed().as_secs_f64()*1000.}),
             )))
         })();
-        last_inference = Instant::now();
+        if inference_calls != before_inference {
+            last_inference = Instant::now();
+        } else if last_inference.elapsed() >= Duration::from_secs(180) {
+            engines = None;
+        }
         // No catch-up bursts when inference takes longer than the scan interval.
         deadline = Instant::now() + period;
         let mut s = lock.lock().unwrap();
