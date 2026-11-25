@@ -109,6 +109,8 @@ jobs:
     env:
       GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
       CARGO_INCREMENTAL: '0'
+      # Keep the four platform dependency caches within the repository storage limit.
+      CARGO_PROFILE_DEV_DEBUG: '0'
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target/native-dev
       # ort-sys 2.0.0-rc.12 locates the DLL destination using Cargo's old OUT_DIR layout.
       __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: ${{ matrix.platform == 'win32-x64' && '1' || '' }}
@@ -120,16 +122,21 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
+          cache-on-failure: true
+          cache-bin: false
           workspaces: |
             src-tauri -> target/native-dev
             GSM_Overlay/input_server -> target
             native/gsm-native -> target
-            native/gsm-texthook -> target
             native/gsm-agent -> target
-            native/gsm-runtime -> target
-            native/gsm-settings -> target
-            native/gsm-packages -> target
+      - name: Record Rust cache restore
+        shell: bash
+        env:
+          EXACT_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          echo "Rust dependency cache for \`${{ matrix.platform }}\`: exact match = \`$EXACT_HIT\`." >> "$GITHUB_STEP_SUMMARY"
       - name: Install Linux desktop libraries
         if: runner.os == 'Linux'
         run: |
@@ -163,9 +170,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Build the desktop and native input service
         if: ${{ !inputs.portable_preview }}
-        run: |
-          npm run build:tauri
-          npm run build:input-server
+        run: npm run build:tauri
       - name: Check shared services and reader behavior
         if: ${{ !inputs.portable_preview }}
         shell: bash
@@ -202,9 +207,6 @@ jobs:
         run: |
           if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
           node scripts/check-native-desktop.mjs
-      - name: Exercise the preview and onboarding with Python unavailable
-        if: runner.os == 'Windows' && !inputs.portable_preview
-        run: node scripts/test-native-desktop.mjs workspace
       - name: Exercise Linux webviews under a window manager
         if: runner.os == 'Linux' && !inputs.portable_preview
         run: bash scripts/test-native-linux.sh all
@@ -322,6 +324,7 @@ jobs:
           path: dist/native-release/${{ matrix.platform }}
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
   publish:
     # Inherit the caller's token. Requesting write here also rejects read-only

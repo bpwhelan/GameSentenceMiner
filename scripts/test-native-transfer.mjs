@@ -24,7 +24,9 @@ async function run(executable,args,env) {
 const kind = process.env.GSM_LEGACY_KIND || 'yomitan';
 if (!['yomitan', 'hachidori'].includes(kind)) throw Error('Unknown transfer fixture');
 const archive = path.join(root, 'scripts', 'fixtures', `transfer-${kind}.tar.gz`);
-await run('tar', ['-xzf', archive, '-C', fixture], environment);
+// Git Bash tar interprets an absolute Windows drive letter as a remote host.
+const tar = process.platform === 'win32' ? path.join(process.env.SystemRoot, 'System32', 'tar.exe') : 'tar';
+await run(tar, ['-xzf', archive, '-C', fixture], environment);
 const profile = path.join(fixture, 'legacy-overlay');
 const [id] = await fs.readdir(path.join(profile, 'Local Extension Settings'));
 const source = {kind, id, profile, extensionPath: path.join(fixture, 'extension')};
