@@ -82,12 +82,13 @@ test('native engine ownership waits for persisted dictionaries to finish loading
       assert.equal(message.type, 'hd_status');
       ++requests;
       if (requests === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
-      return { ok: true, ready: requests > 2, loading: requests === 2 };
+      if (requests === 2) return new Promise(() => {});
+      return { ok: true, ready: requests > 3, loading: requests === 3 };
     } } },
-    setTimeout, clearTimeout,
+    setTimeout: (callback, delay) => setTimeout(callback, delay === 5000 ? 15 : 1), clearTimeout,
     Date,
   });
   vm.runInContext(engineHost, context);
   assert.equal(await context.GsmHachidoriEngineHost, true);
-  assert.equal(requests, 3);
+  assert.equal(requests, 4);
 });

@@ -1102,7 +1102,9 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     }
     // Imports, lookups and settings belong to the app, even without an overlay.
     let after_stop = crate::reader_service::lookup_reader_dictionary(app, "食べる").await?;
-    if after_stop != lookup { return Err("Disabling overlay changed dictionary lookup".into()); }
+    if after_stop != lookup {
+        return Err(format!("Disabling overlay changed dictionary lookup from {lookup} to {after_stop}"));
+    }
     let setup = crate::dictionary_service::handle_request(app, "dictionary.setup", &json!({
         "request_id":"independent-dictionary", "deadline":std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() + 30_000,
         "data":{"action":"status", "language":"ja"}

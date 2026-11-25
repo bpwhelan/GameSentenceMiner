@@ -4180,7 +4180,11 @@ impl DictionaryManager {
                     Some(tid) => stable_window_id(&t.label) == tid,
                 })
                 .collect();
-            let prefer_kind = if message["target"].as_str() == Some("hoshidicts-offscreen") {
+            // Hachidori's background first resolves the request's dictionary profile.
+            // Only its forwarded copy is handled by the offscreen engine.
+            let prefer_kind = if message["relayed"] == true
+                && message["target"].as_str() == Some("hoshidicts-offscreen")
+            {
                 "offscreen"
             } else {
                 "background"

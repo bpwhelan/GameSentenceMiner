@@ -502,8 +502,10 @@ fn main() {
                     );
                 }
             })?;
-            let root = app_root_override()
-                .unwrap_or(app.path().resource_dir()?.join("app"));
+            let root = match app_root_override() {
+                Some(root) => root,
+                None => app.path().resource_dir()?.join("app"),
+            };
             gsm_overlay::engines::vocr::set_asset_directory(
                 root.join("GameSentenceMiner/assets/vocr"),
                 gsm_packages::download_cache().map_err(std::io::Error::other)?,

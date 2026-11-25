@@ -23,7 +23,9 @@ globalThis.GsmHachidoriEngineHost = (async () => {
         if (/Receiving end does not exist/i.test(String(error?.message ?? error))) return null;
         throw error;
       }),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('Dictionary engine status timed out')), 5000); }),
+      // The worker may start before the offscreen document is able to answer.
+      // Recheck readiness until the startup deadline, including after a lost reply.
+      new Promise(resolve => { timer = setTimeout(() => resolve(null), Math.min(5000, deadline - Date.now())); }),
     ]).finally(() => clearTimeout(timer));
     if (status?.ok && status.ready && !status.loading) return true;
     if (status?.error) throw new Error(String(status.error));
