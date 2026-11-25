@@ -7,7 +7,7 @@ use serde_json::json;
 use std::{
     collections::HashMap,
     fs,
-    io::{Read, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::TcpListener,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -42,12 +42,19 @@ impl Server {
         let thread = std::thread::spawn(move || {
             while !stopping.load(Ordering::Relaxed) {
                 if let Ok((mut stream, _)) = listener.accept() {
+                    stream.set_nonblocking(false).unwrap();
                     stream
                         .set_read_timeout(Some(std::time::Duration::from_secs(2)))
                         .unwrap();
-                    let mut bytes = [0; 8192];
-                    let count = stream.read(&mut bytes).unwrap_or(0);
-                    let request = String::from_utf8_lossy(&bytes[..count]);
+                    let mut lines = BufReader::new(&stream).lines().map_while(Result::ok);
+                    let Some(request) = lines.next() else {
+                        continue;
+                    };
+                    for header in lines {
+                        if header.is_empty() {
+                            break;
+                        }
+                    }
                     let path = request.split_whitespace().nth(1).unwrap_or("");
                     let body = routes.get(path);
                     let data = body.map(Vec::as_slice).unwrap_or(b"missing");
@@ -217,6 +224,20 @@ fn agent_update_keeps_edits_metadata_and_offline_copy() {
     drop(server);
     assert_eq!(scripts.ensure(true).unwrap()["installed"], true);
 }
+
+#[test]
+fn fixture_server_reads_a_fragmented_request_line() {
+    let server = scripts_server();
+    let address = server.url.strip_prefix("http://").unwrap();
+    let mut client = std::net::TcpStream::connect(address).unwrap();
+    client.write_all(b"GET /comm").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    client.write_all(b"its/main HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+    let mut reply = String::new();
+    client.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200 OK"), "{reply}");
+}
+
 #[test]
 fn data_paths_read_existing_pointer_without_rewriting() {
     let dir = tempfile::tempdir().unwrap();

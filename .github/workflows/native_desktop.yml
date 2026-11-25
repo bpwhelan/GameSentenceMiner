@@ -172,7 +172,7 @@ jobs:
         run: |
           if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
           npm run test:ts -- --maxWorkers=2 electron-src/renderer/ electron-src/shared/ release_build_contract.test.ts vocr_package.test.ts
-          node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs
+          node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs GSM_Overlay/tests/native_dictionary_transport.test.cjs
           node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
           cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
           cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml

@@ -26,10 +26,10 @@ test('the desktop preload scopes the feed and suppresses the external Shift-clic
   assert.deepEqual(load('https://example.org/', { desktop: false }), { scope: undefined, shiftClick: true });
 });
 
-function setup() {
+function setup(invoke = async () => null) {
   const timers = new Map(); let next = 0;
   const config = {id: 'fixture', base: 'http://gsm-hachidori.localhost', manifest: {name: 'Hachidori'}};
-  const context = vm.createContext({__GSM_INVOKE__: async () => null,
+  const context = vm.createContext({__GSM_INVOKE__: invoke, crypto: require('node:crypto'),
     __GSM_DICTIONARY_CONFIG__: {...config, extensions: [config]},
     location: new URL(`${config.base}/offscreen.html`), navigator: {language: 'en'},
     document: {readyState: 'complete'}, frames: [], fetch: async () => {}, console,
@@ -38,9 +38,34 @@ function setup() {
   });
   vm.runInContext('globalThis.window = globalThis; window.top = window;', context);
   vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../../src-tauri/preloads/dictionary_preload.js'), 'utf8'), context);
-  return {timers, onMessage: context.chrome.runtime.onMessage,
-    dispatch: () => context.__GSM_DICTIONARY_DISPATCH__('fixture', 'message', [{type: 'lookup'}, {}], null)};
+  return {timers, tabs: context.chrome.tabs, onMessage: context.chrome.runtime.onMessage,
+    dispatch: (message = {type: 'lookup'}) => context.__GSM_DICTIONARY_DISPATCH__('fixture', 'message', [message, {}], null)};
 }
+
+test('a cross-frame port reply reaches the caller after both onConnect events', async () => {
+  const deliveries = [];
+  const f = setup((_command, {params}) => {
+    assert.equal(params.operation, 'tabs.connect');
+    return new Promise(resolve => deliveries.push(resolve));
+  });
+  f.onMessage.addListener((_message, _sender, respond) => {
+    f.tabs.connect(1, {frameId: 0});
+    f.tabs.connect(1, {frameId: 2});
+    respond('connected');
+  });
+  let replied = false;
+  const pending = f.dispatch({action: 'openCrossFramePort'}).then(result => {
+    replied = true;
+    return result.value;
+  });
+  assert.equal(deliveries.length, 2);
+  deliveries[0]();
+  await new Promise(setImmediate);
+  assert.equal(replied, false);
+  deliveries[1]();
+  assert.equal(await pending, 'connected');
+  assert.equal(f.timers.size, 0);
+});
 
 test('successful dictionary replies release their timeout immediately, including busy sessions', async () => {
   const f = setup();

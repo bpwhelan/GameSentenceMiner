@@ -73,6 +73,7 @@
     const listeners = new Set(); return { addListener: listener => listeners.add(listener), removeListener: listener => listeners.delete(listener), hasListener: listener => listeners.has(listener), hasListeners: () => listeners.size, listeners, emit: (...args) => { for (const listener of [...listeners]) listener(...args); } };
   }
   function create(config) {
+    const openingTabPorts = new Set();
     const call = (operation,args) => invoke({extension:config.id,operation,args,frame});
     const method = operation => (...args) => {
       const callback = typeof args.at(-1)==='function' ? args.pop() : null;
@@ -83,7 +84,13 @@
     };
     const connect = (operation,info,tabId) => {
       const id=crypto.randomUUID();const port=makePort(id,info?.name||'',null,call);
-      port.ready=call(operation,[id,info||{},tabId]);return port;
+      port.ready = call(operation, [id, info || {}, tabId]);
+      if (operation === 'tabs.connect') {
+        openingTabPorts.add(port.ready);
+        const delivered = () => openingTabPorts.delete(port.ready);
+        port.ready.then(delivered, delivered);
+      }
+      return port;
     };
     const api={
       runtime:{id:config.id,getURL:file=>config.base+'/'+String(file||'').replace(/^\//,''),getManifest:()=>config.manifest,
@@ -111,7 +118,7 @@
       // persistent background and lookup pages on every desktop webview.
       delete Object.getPrototypeOf(navigator).serviceWorker;
     }
-    contexts.set(config.id,{api,config,call});return api;
+    contexts.set(config.id,{api,config,call,openingTabPorts});return api;
   }
   function makePort(id,name,sender,call) {
     const port={name,sender,onMessage:event(),onDisconnect:event(),ready:Promise.resolve(),
@@ -157,7 +164,14 @@
     if(type==='port-disconnect'){const port=ports.get(args[0]);port?.onDisconnect.emit(port);ports.delete(args[0]);return;}
     if(type!=='message')return;
     let finish;const response=new Promise(resolve=>{finish=resolve;});let asynchronous=false,answered=false;
-    const respond=value=>{if(!answered){answered=true;finish({handled:true,value:value??null});}};
+    const respond = value => {
+      if (answered) return;
+      answered = true;
+      const reply = {handled: true, value: value ?? null};
+      // A listener can open ports to both frames before replying. Native IPC
+      // must finish delivering their onConnect events before the caller uses them.
+      finish(context.openingTabPorts.size ? Promise.all(context.openingTabPorts).then(() => reply) : reply);
+    };
     for(const listener of [...api.runtime.onMessage.listeners]){
       try {const result=listener(args[0],args[1],respond);if(result===true)asynchronous=true;else if(result&&typeof result.then==='function'){asynchronous=true;result.then(value=>{if(value!==undefined)respond(value);else if(!answered)finish({handled:false});},error=>respond({error:String(error)}));}}
       catch(error){console.error('Dictionary message failed',error);}
