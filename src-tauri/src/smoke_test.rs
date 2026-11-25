@@ -116,18 +116,15 @@ pub fn spawn_if_requested(app: AppHandle) {
 }
 
 async fn window_document_state(_app: &AppHandle, win: &WebviewWindow) -> Result<String, String> {
-    const PROBE: &str = "location.href === 'about:blank' ? 'about:blank' : document.readyState";
     #[cfg(windows)]
     {
         // WebView2 extension pages require the native extension evaluator.
-        evaluate_raw(_app, win, PROBE)
-            .await?
-            .as_str()
-            .map(str::to_owned)
-            .ok_or_else(|| "Unexpected document state".to_owned())
+        let ready = evaluate_raw(_app, win, "document.readyState === 'complete'").await?;
+        Ok(if ready == true { "complete" } else { "loading" }.to_owned())
     }
     #[cfg(not(windows))]
     {
+        const PROBE: &str = "location.href === 'about:blank' ? 'about:blank' : document.readyState";
         // A hidden WebKit view can answer native evaluations before it services
         // the asynchronous renderer IPC used by the later behavioral assertions.
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
@@ -153,13 +150,17 @@ async fn wait_window_ready(
     // A ready document returns immediately on every platform.
     #[cfg(target_os = "macos")]
     let timeout = timeout.max(Duration::from_secs(45));
+    #[cfg(windows)]
+    let probe_timeout = Duration::from_millis(800);
+    #[cfg(not(windows))]
+    let probe_timeout = Duration::from_secs(3);
     let deadline = Instant::now() + timeout;
     let mut last_state = "window has not opened".to_owned();
     while Instant::now() < deadline {
         if let Some(win) = app.get_webview_window(label) {
             let remaining = deadline.saturating_duration_since(Instant::now());
             last_state = match tokio::time::timeout(
-                remaining.min(Duration::from_secs(3)),
+                remaining.min(probe_timeout),
                 window_document_state(app, &win),
             )
             .await

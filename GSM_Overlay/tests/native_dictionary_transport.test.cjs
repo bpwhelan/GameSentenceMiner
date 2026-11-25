@@ -4,6 +4,32 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+test('Windows Yomitan lookups share a successful backend handshake and can retry a failed one', async () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../src-tauri/preloads/yomitan_lookup.js'), 'utf8');
+  const calls = [];
+  let acknowledge;
+  const lookup = vm.runInNewContext(source, {setTimeout, clearTimeout, chrome: {runtime: {
+    async sendMessage({action, params}) {
+      calls.push(action);
+      if (action === 'requestBackendReadySignal') {
+        if (calls.length === 1) throw Error('worker is starting');
+        await new Promise(resolve => { acknowledge = resolve; });
+        return {result: true};
+      }
+      assert.equal(action, 'termsFind');
+      assert.equal(params.optionsContext.current, true);
+      return {result: params.text};
+    },
+  }}});
+  await assert.rejects(lookup('最初'), /worker is starting/);
+  const concurrent = [lookup('日本'), lookup('辞書')];
+  assert.deepEqual(calls, ['requestBackendReadySignal', 'requestBackendReadySignal']);
+  acknowledge();
+  assert.deepEqual(await Promise.all(concurrent), ['日本', '辞書']);
+  assert.equal(await lookup('読む'), '読む');
+  assert.deepEqual(calls.slice(2), ['termsFind', 'termsFind', 'termsFind']);
+});
+
 test('the desktop preload scopes the feed and suppresses the external Shift-click bridge in embedded pages', () => {
   const preload = fs.readFileSync(path.resolve(__dirname, '../../src-tauri/preloads/desktop_preload.js'), 'utf8');
   function load(url, { desktop = true, frame = false } = {}) {

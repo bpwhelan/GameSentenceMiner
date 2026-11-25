@@ -583,7 +583,9 @@ pub async fn lookup_reader_dictionary(app: &AppHandle, text: &str) -> Result<Val
     }
     let (reader, _ext, host_page, _lease) = prepare_reader(app).await?;
     let arg_json = json!(text).to_string();
-    let script = if reader == "yomitan" {
+    let script = if reader == "yomitan" && use_windows_native_extensions() {
+        format!("{}({arg_json})", include_str!("../preloads/yomitan_lookup.js").trim())
+    } else if reader == "yomitan" {
         format!(
             "(async () => {{\nconst {{API}} = await import('./js/comm/api.js');\nconst {{WebExtension}} = await import('./js/extension/web-extension.js');\nconst api = globalThis.__gsmReaderDictionaryApi ??= new API(new WebExtension());\nreturn api.termsFind({arg_json}, {{}}, {{current: true}});\n}})()"
         )
