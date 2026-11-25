@@ -114,6 +114,8 @@ struct DownloadRecord {
 pub struct DictionaryManager {
     portable_extensions: Mutex<HashMap<String, LoadedExtension>>,
     windows_extensions: Mutex<HashMap<String, LoadedExtension>>,
+    #[cfg(windows)]
+    inactive_reader: Mutex<Option<LoadedExtension>>,
     contexts: Mutex<HashMap<String, ExtensionContext>>,
     content_contexts: Mutex<HashMap<(String, String), ContentContext>>,
     ports: Mutex<HashMap<String, PortState>>,
@@ -137,6 +139,8 @@ impl Default for DictionaryManager {
         Self {
             portable_extensions: Mutex::new(HashMap::new()),
             windows_extensions: Mutex::new(HashMap::new()),
+            #[cfg(windows)]
+            inactive_reader: Mutex::new(None),
             contexts: Mutex::new(HashMap::new()),
             content_contexts: Mutex::new(HashMap::new()),
             ports: Mutex::new(HashMap::new()),
@@ -2366,16 +2370,34 @@ impl DictionaryManager {
                 .filter(|id| crate::browser_dictionary::valid_id(id))
                 .map(|id| imports.join(id).join("extension"))
                 .filter(|dir| dir.join("manifest.json").is_file());
-            if let Some(existing) = self.windows_extensions.lock().unwrap().values().find(|ext| {
-                ext.source_path == canonical_source && match &imported {
+            let matches_selection = |ext: &LoadedExtension| {
+                ext.source_path == canonical_source && ext.version == version && match &imported {
                     Some(path) => &ext.path == path,
                     None => !ext.path.starts_with(&imports),
                 }
-            }).cloned() {
+            };
+            if let Some(existing) = self.windows_extensions.lock().unwrap().values()
+                .find(|ext| matches_selection(ext)).cloned() {
                 return Ok(existing);
             }
 
             prepare_windows_profile(&overlay_data)?;
+            let controller = self
+                .ensure_windows_controller(app, &overlay_data)
+                .await
+                .map_err(|e| format!("ensure_windows_controller: {e}"))?;
+            let inactive = self.inactive_reader.lock().unwrap().as_ref()
+                .filter(|ext| matches_selection(ext)).cloned();
+            if let Some(ext) = inactive {
+                // Adding the folder again reinstalls it. Re-enable the existing
+                // registration so a live switch preserves its service worker.
+                let installed = crate::browser_extensions::list(&controller).await?;
+                if installed.as_array().is_some_and(|list| list.iter().any(|item| item["id"] == ext.id)) {
+                    crate::browser_extensions::enable(&controller, ext.id.clone(), true).await?;
+                    self.select_windows_extension(app, &controller, &ext).await?;
+                    return Ok(ext);
+                }
+            }
             let mut active_dir = canonical_source.clone();
             let mut expected = extension_id_for_directory(&active_dir, &manifest, true);
             let legacy = if imported.is_none() {
@@ -2416,10 +2438,6 @@ impl DictionaryManager {
                         .then_some((directory, pending))
                 });
             let use_existing_storage = matches!(&retained_stage, Some((_, false)));
-            let controller = self
-                .ensure_windows_controller(app, &overlay_data)
-                .await
-                .map_err(|e| format!("ensure_windows_controller: {e}"))?;
             let mut staged = false;
             if let Some(path) = imported {
                 active_dir = path;
@@ -2592,36 +2610,6 @@ impl DictionaryManager {
                     .await
                     .map_err(|e| format!("browser_extensions::enable: {e}"))?;
             }
-            if matches!(extension_kind(&name), "yomitan" | "hachidori") {
-                let list = crate::browser_extensions::list(&controller).await?;
-                if let Some(items) = list.as_array() {
-                    for other in items {
-                        let oid = other["id"].as_str().unwrap_or_default();
-                        let enabled = other["enabled"].as_bool().unwrap_or(false);
-                        let oname = other["name"].as_str().unwrap_or_default();
-                        if oid != installed_id
-                            && enabled
-                            && matches!(extension_kind(oname), "yomitan" | "hachidori")
-                        {
-                            let _ = crate::browser_extensions::enable(
-                                &controller,
-                                oid.to_string(),
-                                false,
-                            )
-                            .await;
-                            self.windows_extensions.lock().unwrap().remove(oid);
-                            self.hachidori_engine_ready.lock().unwrap().remove(oid);
-                            app.state::<crate::desktop_state::DesktopState>()
-                                .assets
-                                .3
-                                .lock()
-                                .unwrap()
-                                .remove(oid);
-                        }
-                    }
-                }
-            }
-
             let loaded = LoadedExtension {
                 id: installed_id.clone(),
                 name: installed["name"]
@@ -2634,12 +2622,35 @@ impl DictionaryManager {
                 manifest,
                 base: format!("chrome-extension://{installed_id}"),
             };
-            self.windows_extensions
-                .lock()
-                .unwrap()
-                .insert(loaded.id.clone(), loaded.clone());
+            self.select_windows_extension(app, &controller, &loaded).await?;
             Ok(loaded)
         }
+    }
+
+    #[cfg(windows)]
+    async fn select_windows_extension(
+        &self, app: &AppHandle, controller: &WebviewWindow, selected: &LoadedExtension,
+    ) -> Result<(), String> {
+        let desktop = app.state::<crate::desktop_state::DesktopState>();
+        if matches!(extension_kind(&selected.name), "yomitan" | "hachidori") {
+            let list = crate::browser_extensions::list(controller).await?;
+            for other in list.as_array().into_iter().flatten() {
+                let Some(id) = other["id"].as_str() else { continue };
+                if id == selected.id || other["enabled"] != true
+                    || !matches!(extension_kind(other["name"].as_str().unwrap_or_default()), "yomitan" | "hachidori") {
+                    continue;
+                }
+                crate::browser_extensions::enable(controller, id.to_owned(), false).await?;
+                if let Some(previous) = self.windows_extensions.lock().unwrap().remove(id) {
+                    *self.inactive_reader.lock().unwrap() = Some(previous);
+                }
+                self.hachidori_engine_ready.lock().unwrap().remove(id);
+                desktop.assets.3.lock().unwrap().remove(id);
+            }
+        }
+        desktop.assets.3.lock().unwrap().insert(selected.id.clone());
+        self.windows_extensions.lock().unwrap().insert(selected.id.clone(), selected.clone());
+        Ok(())
     }
 
     pub async fn load_portable_extension(
