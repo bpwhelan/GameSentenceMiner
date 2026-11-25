@@ -115,29 +115,65 @@ pub fn spawn_if_requested(app: AppHandle) {
     });
 }
 
+async fn window_document_state(_app: &AppHandle, win: &WebviewWindow) -> Result<String, String> {
+    const PROBE: &str = "location.href === 'about:blank' ? 'about:blank' : document.readyState";
+    #[cfg(windows)]
+    {
+        // WebView2 extension pages require the native extension evaluator.
+        evaluate_raw(_app, win, PROBE)
+            .await?
+            .as_str()
+            .map(str::to_owned)
+            .ok_or_else(|| "Unexpected document state".to_owned())
+    }
+    #[cfg(not(windows))]
+    {
+        // A hidden WebKit view can answer native evaluations before it services
+        // the asynchronous renderer IPC used by the later behavioral assertions.
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        win.eval_with_callback(PROBE, move |state| {
+            let _ = tx.try_send(state);
+        })
+        .map_err(|e| e.to_string())?;
+        let state = rx
+            .recv()
+            .await
+            .ok_or("WebKit dropped the document probe during navigation")?;
+        serde_json::from_str(&state)
+            .map_err(|e| format!("Invalid WebKit document state {state:?}: {e}"))
+    }
+}
+
 async fn wait_window_ready(
     app: &AppHandle,
     label: &str,
     timeout: Duration,
 ) -> Result<WebviewWindow, String> {
+    // Hosted Intel Macs sometimes need longer to start a hidden WebKit process.
+    // A ready document returns immediately on every platform.
+    #[cfg(target_os = "macos")]
+    let timeout = timeout.max(Duration::from_secs(45));
     let deadline = Instant::now() + timeout;
+    let mut last_state = "window has not opened".to_owned();
     while Instant::now() < deadline {
         if let Some(win) = app.get_webview_window(label) {
-            if let Ok(Ok(val)) = tokio::time::timeout(
-                Duration::from_millis(800),
-                evaluate_raw(app, &win, "document.readyState === 'complete'"),
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            last_state = match tokio::time::timeout(
+                remaining.min(Duration::from_secs(3)),
+                window_document_state(app, &win),
             )
             .await
             {
-                if val.as_bool() == Some(true) {
-                    return Ok(win);
-                }
-            }
+                Ok(Ok(state)) if state == "complete" => return Ok(win),
+                Ok(Ok(state)) => state,
+                Ok(Err(error)) => error,
+                Err(_) => "document probe did not return".to_owned(),
+            };
         }
         tokio::time::sleep(Duration::from_millis(75)).await;
     }
     Err(format!(
-        "Timed out waiting for window {label} to become ready"
+        "Timed out waiting for window {label} to become ready ({last_state})"
     ))
 }
 
