@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {runNativeSmokeProcess} from './run-native-smoke-process.mjs';
 import fs from 'node:fs/promises';
 import {createServer} from 'node:net';
 import {createServer as createHttpServer} from 'node:http';
@@ -263,14 +263,7 @@ for(const mode of targets) {
       delete env.GSM_INPUT_SERVER_URL;
       delete env.GSM_MIGRATION_PYTHON;
     }
-    await new Promise((resolve,reject)=>{
-      const child=spawn(executable,[],{cwd:appRoot,env,windowsHide:true,stdio:'inherit'});
-      const timer=setTimeout(()=>{child.kill();reject(Error(`Native smoke timed out (${mode}/${phase})`));},180000);
-      child.on('error',error=>{clearTimeout(timer);reject(error);});
-      child.on('exit',code=>{clearTimeout(timer);code===0?resolve():reject(Error(`Native smoke failed (${mode}/${phase}: ${code})`));});
-    });
-    const result=JSON.parse(await fs.readFile(resultFile,'utf8'));
-    if(result.code!==0)throw Error(`Native smoke did not finish cleanly (${mode}/${phase}): ${result.error||''}`);
+    const result = await runNativeSmokeProcess(executable, appRoot, env, mode, phase);
     if (cardReview && reviewedSentence !== '小説を読む') {
       throw Error(`Session review did not update the fixture note: ${reviewedSentence}`);
     }

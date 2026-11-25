@@ -420,6 +420,9 @@ async fn prepare_reader(
 
     let (reader, ext) = adopt_or_load_extension(app).await?;
     let manager = app.state::<DictionaryManager>();
+    if reader == "hachidori" {
+        manager.ensure_hachidori_engine(app, &ext).await?;
+    }
     let overlay_data = overlay_data_path(app);
     let page_rel = if reader == "yomitan" {
         "templates-display.html"
@@ -434,9 +437,6 @@ async fn prepare_reader(
         Some(win) => {
             let cur = win.url().map(|u| u.to_string()).unwrap_or_default();
             if cur.starts_with(&prefix_ext) || cur.starts_with(&prefix_base) {
-                if reader == "hachidori" {
-                    let _ = manager.ensure_hachidori_engine(app, &ext).await?;
-                }
                 return Ok((reader, ext, win, lease));
             }
             destroy_reader_window(app, &win).await?;
@@ -487,9 +487,6 @@ async fn prepare_reader(
         if !matches!(document_ready, Ok(Ok(()))) {
             let _ = destroy_reader_window(app, &win).await;
             return Err("Dictionary page did not finish loading".into());
-        }
-        if reader == "hachidori" {
-            let _ = manager.ensure_hachidori_engine(app, &ext).await?;
         }
         return Ok((reader, ext, win, lease));
     }

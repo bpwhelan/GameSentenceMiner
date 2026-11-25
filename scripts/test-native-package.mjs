@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {spawn} from 'node:child_process';
+import {runNativeSmokeProcess} from './run-native-smoke-process.mjs';
 import {createDictionaryFixture} from './dictionary-fixture.mjs';
 import {nativeTargetDirectory} from './native-paths.mjs';
 
@@ -56,14 +56,7 @@ for(const scenario of scenarios.length?scenarios:['windows','workspace','setting
     delete environment.GSM_NATIVE_DEPS;
     delete environment.GSM_TEST_SERVICE;
     delete environment.NODE_PATH;
-    const code=await new Promise((resolve,reject)=>{
-      const child=spawn(executable,[],{cwd:app,env:environment,stdio:'inherit',windowsHide:true});
-      const timer=setTimeout(()=>{console.error(`Packaged ${scenario} timed out`);child.kill();},180000);
-      child.on('error',error=>{clearTimeout(timer);reject(error);});
-      child.on('exit',code=>{clearTimeout(timer);resolve(code??1);});
-    });
-    const result=await fs.readFile(resultFile,'utf8').then(JSON.parse,()=>null);
-    if(code!==0||result?.code!==0)throw Error(`Packaged ${scenario}/${phase} failed (${result?.error||'exit '+code}); evidence: ${profile}`);
+    await runNativeSmokeProcess(executable, app, environment, scenario, phase);
   }
   console.log(`PASS packaged ${scenario}`);
 }

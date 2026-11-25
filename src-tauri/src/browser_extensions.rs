@@ -52,7 +52,9 @@ pub async fn load(window: &WebviewWindow, directory: String) -> Result<Value, St
                     let extension = extension.ok_or_else(|| windows::core::Error::from_hresult(windows::core::HRESULT(0x80004005u32 as i32)))?;
                     let mut id = PWSTR::null(); let mut name = PWSTR::null();
                     extension.Id(&mut id)?; extension.Name(&mut name)?;
-                    Ok(json!({"id":webview2_com::take_pwstr(id),"name":webview2_com::take_pwstr(name)}))
+                    let mut enabled = windows::core::BOOL::default();
+                    extension.IsEnabled(&mut enabled)?;
+                    Ok(json!({"id":webview2_com::take_pwstr(id),"name":webview2_com::take_pwstr(name),"enabled":enabled.as_bool()}))
                 })().map_err(|e|e.to_string());
                 if let Some(tx)=completed.lock().unwrap().take(){let _=tx.send(result);}
                 Ok(())

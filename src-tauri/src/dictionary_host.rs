@@ -2587,9 +2587,11 @@ impl DictionaryManager {
                 .map_err(|e| format!("browser_extensions::load(post-relocate): {e}"))?;
             }
 
-            crate::browser_extensions::enable(&controller, installed_id.clone(), true)
-                .await
-                .map_err(|e| format!("browser_extensions::enable: {e}"))?;
+            if installed["enabled"] != true {
+                crate::browser_extensions::enable(&controller, installed_id.clone(), true)
+                    .await
+                    .map_err(|e| format!("browser_extensions::enable: {e}"))?;
+            }
             if matches!(extension_kind(&name), "yomitan" | "hachidori") {
                 let list = crate::browser_extensions::list(&controller).await?;
                 if let Some(items) = list.as_array() {
