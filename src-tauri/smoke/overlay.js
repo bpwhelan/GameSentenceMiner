@@ -108,9 +108,13 @@
         const box = document.querySelector('.text-box');
         check(box, 'No text to look up');
         const range = document.createRange();
-        range.selectNodeContents(box);
+        // Aim inside the first character even if the fixture word wraps.
+        const first = document.createTreeWalker(box, NodeFilter.SHOW_TEXT).nextNode();
+        check(first?.textContent.startsWith('食'), 'Missing first character of the overlay fixture');
+        range.setStart(first, 0);
+        range.setEnd(first, 1);
         const rect = range.getBoundingClientRect();
-        const x = rect.left + 2, y = rect.top + rect.height / 2;
+        const x = rect.left + rect.width / 4, y = rect.top + rect.height / 2;
         lookupPoint = {x, y};
         window.addEventListener(shownEvent, onShown);
         const hoveredAt = performance.now();

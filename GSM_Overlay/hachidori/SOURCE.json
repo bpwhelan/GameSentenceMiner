@@ -4,7 +4,7 @@
   "commit": "bf1a78f8298b621ce582accbff12f6caa0970806",
   "gsmIntegration": {
     "version": 1,
-    "sha256": "9bb4e4ecb6fda42069198802e3646f5fe18c7fc793d6d505426ca7c6dd180207"
+    "sha256": "e33dd1cee74417d9c9395500d67455db29e98737a7b91a5eaa7151f9493b0535"
   },
   "release": {
     "tag": "0.5.0",

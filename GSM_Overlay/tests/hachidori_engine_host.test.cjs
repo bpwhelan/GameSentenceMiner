@@ -77,7 +77,7 @@ test('native engine ownership waits for persisted dictionaries to finish loading
   let requests = 0;
   const context = vm.createContext({
     chromeOffscreenSupported: () => true,
-    ensureChromeOffscreen: async () => {},
+    ensureChromeOffscreen: async () => assert.fail('the background relay owns offscreen creation'),
     chrome: { runtime: { sendMessage: async message => {
       assert.equal(message.type, 'hd_status');
       ++requests;

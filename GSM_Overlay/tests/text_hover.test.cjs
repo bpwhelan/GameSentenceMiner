@@ -142,6 +142,24 @@ test('projected hover supplies dictionary pointer movement without synthesizing 
   assert.deepEqual(f.ignores, [], 'projected ownership is acknowledged through its sequenced native session');
 });
 
+test('a newly attached reader gets the stationary forwarded hover that preceded its listeners', async () => {
+  const f = setup();
+  const point = { x: 20, y: 20, shiftKey: true };
+  f.controller.forward(point);
+  f.target.events.length = 0;
+  f.listeners.get('gsm-overlay-hover-request')();
+  await Promise.resolve();
+  const moves = () => f.target.events.filter(event => event.type === 'pointermove');
+  assert.equal(moves().length, 1);
+  assert.equal(moves()[0].shiftKey, true);
+  f.controller.forward(point);
+  assert.equal(moves().length, 1, 'later stationary polls must still be deduplicated');
+  f.controller.reset();
+  f.listeners.get('gsm-overlay-hover-request')();
+  await Promise.resolve();
+  assert.equal(moves().length, 1, 'a new reader must not replay a cleared hover');
+});
+
 test('raw source-coordinate movement cannot race projected movement', () => {
   const f = setup();
   f.controller.project({ x: 200, y: 100 });

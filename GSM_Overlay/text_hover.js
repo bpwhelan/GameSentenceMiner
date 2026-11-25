@@ -47,7 +47,18 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
     hoverState = next;
     emitHoverState();
   }
-  win.addEventListener('gsm-overlay-hover-request', emitHoverState);
+  function onReaderReady() {
+    emitHoverState();
+    // The first forwarded move can precede the scanner on a cold WebView.
+    // Replay it once on attachment, even if the cursor has stayed on the word.
+    queueMicrotask(() => {
+      if (hoverState?.overText && lastPoint && !lastPoint.buttons) {
+        lastSignature = '';
+        update(lastPoint, true);
+      }
+    });
+  }
+  win.addEventListener('gsm-overlay-hover-request', onReaderReady);
 
   function update(point, synthesize) {
     const { x, y } = point;
@@ -105,7 +116,8 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
       return;
     }
     if (!event.type.startsWith('pointer')) return;
-    update({ x: event.clientX, y: event.clientY, buttons: event.buttons || 0 }, false);
+    update({ x: event.clientX, y: event.clientY, buttons: event.buttons || 0,
+      shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, altKey: event.altKey, metaKey: event.metaKey }, false);
   }
   for (const name of events) win.addEventListener(name, onEvent, true);
   return {
@@ -146,7 +158,7 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
       publishHoverState({ active: false });
       popupFrames.clear();
       win.removeEventListener('message', onPopupStateRequest);
-      win.removeEventListener('gsm-overlay-hover-request', emitHoverState);
+      win.removeEventListener('gsm-overlay-hover-request', onReaderReady);
       for (const name of events) win.removeEventListener(name, onEvent, true);
     },
   };
