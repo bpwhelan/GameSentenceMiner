@@ -312,10 +312,14 @@ describe('MiningSettings Qt rules parity', () => {
         expect(sentAppend.disabled).toBe(true);
 
         const noteType = document.getElementById('mining-field-anki.note_type') as HTMLInputElement;
-        await setInputValue(noteType, 'Lapis');
-        await act(async () => {
-            await new Promise((r) => setTimeout(r, 300));
-        });
+        vi.useFakeTimers();
+        try {
+            await setInputValue(noteType, 'Lapis');
+            // Run the field lookup debounce before the separate draft autosave.
+            await act(async () => { await vi.advanceTimersToNextTimerAsync(); });
+        } finally {
+            vi.useRealTimers();
+        }
         expect(node.textContent).toContain('Suggested field mappings for "Lapis"');
         await clickButton('Update fields');
         expect((document.getElementById('mining-field-anki.word.name') as HTMLInputElement).value).toBe('Expression');

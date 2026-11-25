@@ -1086,9 +1086,26 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             if !ready {
                 return Err(format!("Live dictionary switch to {next} did not finish"));
             }
+            wait_overlay_dictionary(app).await?;
+            let probe = if next == "hachidori" {
+                "window.gsmHachidoriBridge.capabilities({timeoutMs:500})"
+            } else {
+                "window.gsmYomitanBridge.yomitanVersion({timeoutMs:500})"
+            };
+            loop {
+                let error = match evaluate_raw(app, &overlay, probe).await {
+                    Ok(value) if !value.is_null() => break,
+                    Ok(_) => "bridge returned no response".to_owned(),
+                    Err(error) => error,
+                };
+                if Instant::now() >= deadline {
+                    return Err(format!("Overlay bridge failed after switching to {next}: {error}"));
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            eprintln!("[smoke] Live switch to {next} passed the overlay bridge check");
         }
         // A successful setting change must retain real lookup capability.
-        wait_overlay_dictionary(app).await?;
         evaluate_raw(app, &overlay, include_str!("../smoke/overlay.js")).await?;
         #[cfg(not(windows))]
         {
