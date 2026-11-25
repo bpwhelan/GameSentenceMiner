@@ -635,7 +635,9 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
         if live { runtime.call("process.stop",json!({"id":"backend"})).await?; }
         return Ok(json!({"elapsed_ms":elapsed}));
     }
-    run_suite_smoke(app, &suite).await
+    // The suite dispatcher covers every native feature. Keep its future off
+    // the Tokio worker's default stack in unoptimized Windows builds.
+    Box::pin(run_suite_smoke(app, &suite)).await
 }
 
 #[cfg(windows)]
@@ -2574,7 +2576,7 @@ async fn smoke_overlay_unclipped(app: &AppHandle, window: &WebviewWindow) -> Res
 }
 
 async fn service_call(app: &AppHandle, channel: &str, args: &[Value]) -> Result<Value, String> {
-    crate::desktop_services::invoke(app, "gsm-hub", channel, args)
+    Box::pin(crate::desktop_services::invoke(app, "gsm-hub", channel, args))
         .await
         .ok_or_else(|| format!("Native service did not handle {channel}"))?
 }

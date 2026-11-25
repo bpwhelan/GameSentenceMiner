@@ -2551,6 +2551,13 @@ impl DictionaryManager {
                 fs::write(active_dir.join("manifest.json"), active_manifest.to_string())
                     .map_err(|e| e.to_string())?;
             }
+            // A browser import disables its temporary transfer extension before
+            // replacing the manifest. AddBrowserExtension can report an enabled
+            // result while the profile still retains that disabled registration.
+            let registrations = crate::browser_extensions::list(&controller).await?;
+            let was_disabled = registrations.as_array().is_some_and(|items| {
+                items.iter().any(|item| item["id"] == expected && item["enabled"] == false)
+            });
             let mut installed = crate::browser_extensions::load(
                 &controller,
                 active_dir.to_string_lossy().into_owned(),
@@ -2605,7 +2612,7 @@ impl DictionaryManager {
                 .map_err(|e| format!("browser_extensions::load(post-relocate): {e}"))?;
             }
 
-            if installed["enabled"] != true {
+            if was_disabled || installed["enabled"] != true {
                 crate::browser_extensions::enable(&controller, installed_id.clone(), true)
                     .await
                     .map_err(|e| format!("browser_extensions::enable: {e}"))?;
