@@ -67,7 +67,21 @@ for(const phase of phases) {
     await fs.writeFile(path.join(fixture, 'fixture.json'), JSON.stringify(source));
   }
   const resultFile=path.join(fixture,`result-${phase}.json`);
-  await run(executable,[],{...environment,GSM_SMOKE_PHASE:phase,GSM_TEST_RESULT:resultFile});
+  const phaseEnvironment = {...environment, GSM_SMOKE_PHASE: phase, GSM_TEST_RESULT: resultFile};
+  try {
+    await run(executable, [], phaseEnvironment);
+  } catch (error) {
+    const result = await fs.readFile(resultFile, 'utf8').then(JSON.parse).catch(() => null);
+    const droppedProbe = 'Timed out waiting for window gsm-transfer-portable-smoke to become ready (WebKit dropped the document probe during navigation)';
+    if (process.platform !== 'darwin' || !['import', 'reopen'].includes(phase) || result?.error !== droppedProbe) {
+      throw error;
+    }
+    // Migration has finished, but the verifier never reached its first IndexedDB read.
+    // Check the same data in a new process without reseeding the import fixture.
+    await fs.rename(resultFile, path.join(fixture, 'navigation-failure-' + phase + '.json'));
+    console.warn('WebKit dropped the transfer verifier. Reopening the same fixture:', fixture);
+    await run(executable, [], {...phaseEnvironment, GSM_SMOKE_PHASE: phase === 'import' ? 'verify-import' : phase});
+  }
   const result=JSON.parse(await fs.readFile(resultFile,'utf8'));
   if(result.code!==0)throw Error(`Native transfer verification failed: ${result.error||''}`);
 }

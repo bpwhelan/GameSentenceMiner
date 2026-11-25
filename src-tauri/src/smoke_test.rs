@@ -1400,7 +1400,7 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
         }
     }
 
-    if phase != "reopen" {
+    if !matches!(phase.as_str(), "reopen" | "verify-import") {
         if kind == "hachidori" {
             let portable_dir = profile_path.join("portable-dictionaries");
             std::fs::create_dir_all(&portable_dir).map_err(|e| e.to_string())?;
