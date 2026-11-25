@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+const DOCUMENT_ID: &str = "(document.__gsmSmokeDocumentId ??= crypto.randomUUID())";
+
 #[path = "smoke/memory.rs"]
 mod memory;
 #[path = "smoke/archive_files.rs"]
@@ -184,7 +186,7 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
     let mut previous_document = Value::Null;
     let mut stable = 0;
     for _ in 0..100 {
-        let document = evaluate_raw(app, hub, "document.readyState === 'complete' ? performance.timeOrigin : null").await?;
+        let document = evaluate_raw(app, hub, &format!("document.readyState === 'complete' ? {DOCUMENT_ID} : null")).await?;
         if !document.is_null() && document == previous_document {
             stable += 1;
             if stable == 3 { break; }
@@ -220,7 +222,7 @@ async fn smoke_close_to_tray(app: &AppHandle, hub: &WebviewWindow) -> Result<(),
         if count != json!(cycle) {
             return Err(format!("Reopening the hub lost its renderer state: cycle {cycle}, count {count}"));
         }
-        if evaluate_raw(app, hub, "performance.timeOrigin").await? != previous_document {
+        if evaluate_raw(app, hub, DOCUMENT_ID).await? != previous_document {
             return Err("Reopening the hub reloaded its document".into());
         }
     }
@@ -511,6 +513,7 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
                             continue;
                         };
                         if message["event"] == "text_v2_snapshot_request" {
+                            eprintln!("[smoke] Reader requested its transcript snapshot");
                             let mut snapshot = json!({"event":"text_v2_snapshot","session_id":"smoke",
                                 "snapshot_sequence":1,"lines":[{"id":"home-word","text":"食べる",
                                 "session_id":"smoke","sequence":1,"revision":1}]});
@@ -930,13 +933,14 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     eprintln!("[smoke] {reader}/{phase}: checking Home Shift lookup");
     crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
     let _ = wait_window_ready(app, hub.label(), Duration::from_secs(25)).await?;
-    hub.show().map_err(|e| e.to_string())?;
+    // Home renders incoming lines when the native window is presented.
+    crate::desktop_state::focus_window(&hub)?;
     evaluate_raw(app, &hub, include_str!("../smoke/home.js")).await?;
     evaluate_raw(app, &hub, &format!("window.__gsmSmokeHome.lookup({})", json!(reader))).await?;
-    let home_document = evaluate_raw(app, &hub, "performance.timeOrigin").await?;
+    let home_document = evaluate_raw(app, &hub, DOCUMENT_ID).await?;
     crate::reader_service::attach_home_dictionary(app, hub.label()).await?;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    if evaluate_raw(app, &hub, "performance.timeOrigin").await? != home_document {
+    if evaluate_raw(app, &hub, DOCUMENT_ID).await? != home_document {
         return Err("Reentering Home reloaded an already attached dictionary".into());
     }
     hub.hide().map_err(|e| e.to_string())?;
@@ -1028,7 +1032,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             "yomitan"
         };
         for next in [other, reader] {
-            let previous_document = evaluate_raw(app, &overlay, "performance.timeOrigin").await?;
+            let previous_document = evaluate_raw(app, &overlay, DOCUMENT_ID).await?;
             host.apply_setting_updates(
                 app,
                 serde_json::from_value(json!({"dictionaryReaderSelection":next})).unwrap(),
@@ -1038,7 +1042,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
             let mut ready = false;
             while Instant::now() < deadline {
                 tokio::time::sleep(Duration::from_millis(150)).await;
-                if evaluate_raw(app, &overlay, &format!("performance.timeOrigin !== {} && document.readyState === 'complete' && typeof dictionaryReader !== 'undefined' && dictionaryReader === {}", previous_document, json!(next))).await == Ok(json!(true)) {
+                if evaluate_raw(app, &overlay, &format!("document.__gsmSmokeDocumentId !== {} && document.readyState === 'complete' && typeof dictionaryReader !== 'undefined' && dictionaryReader === {}", previous_document, json!(next))).await == Ok(json!(true)) {
                     ready = true; break;
                 }
             }
@@ -1095,7 +1099,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
         #[cfg(not(windows))]
         dictionary_smoke_key(app, false, false)?;
     }
-    let document = evaluate_raw(app, &overlay, "performance.timeOrigin").await?;
+    let document = evaluate_raw(app, &overlay, DOCUMENT_ID).await?;
     host.stop(app).await;
     if overlay.is_visible().unwrap_or(true) || host.status()["isRunning"] != false {
         return Err("Disabled overlay remained active".into());
@@ -1113,7 +1117,7 @@ async fn run_dictionary_smoke(app: &AppHandle, reader: &str) -> Result<Value, St
     let activation = Instant::now();
     host.start(app, Some(false), "smoke").await?;
     let elapsed = activation.elapsed();
-    if evaluate_raw(app, &overlay, "performance.timeOrigin").await? != document {
+    if evaluate_raw(app, &overlay, DOCUMENT_ID).await? != document {
         return Err("Warm overlay activation reloaded its document".into());
     }
     eprintln!("[architecture] {reader} warm overlay activation: {:.2} ms", elapsed.as_secs_f64() * 1000.0);

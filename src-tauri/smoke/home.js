@@ -14,7 +14,14 @@
   };
   for (let i = 0; i < 100 && !document.querySelector('.reading-text'); i++) await wait(100);
   const text = document.querySelector('.reading-text');
-  if (text?.textContent !== '食べる' || text.dataset.gsmReaderScan !== 'shift') throw Error('Home transcript/Shift marker missing');
+  if (text?.textContent !== '食べる' || text.dataset.gsmReaderScan !== 'shift') {
+    throw Error('Home transcript/Shift marker missing: ' + JSON.stringify({
+      visibility: document.visibilityState, nativeVisible: window.__GSM_NATIVE_WINDOW_VISIBLE__,
+      tab: document.querySelector('.tab-button.active')?.textContent,
+      text: text?.textContent, scan: text?.dataset.gsmReaderScan,
+      page: document.body.innerText.slice(0, 650), blocked,
+    }));
+  }
   text.scrollIntoView({block: 'center'});
   const move = (element, shiftKey) => {
     const range = document.createRange();
