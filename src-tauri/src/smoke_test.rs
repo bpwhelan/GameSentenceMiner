@@ -1468,12 +1468,34 @@ async fn run_legacy_transfer_smoke(app: &AppHandle, fixture_dir: &Path) -> Resul
     let preload_base = crate::overlay_preload::render_desktop_preload(&token);
     let dict_preload = dm.portable_preload_for_window(label, &ext, &target_url, 999_050);
     let mut builder = apply_shared_webview_options(
-        WebviewWindowBuilder::new(app, label, WebviewUrl::External(parsed))
-            .visible(false)
+        WebviewWindowBuilder::new(app, label, WebviewUrl::External(parsed.clone()))
+            .visible(cfg!(target_os = "macos"))
+            .focused(false)
             .initialization_script_for_all_frames(format!("{preload_base}\n;{dict_preload}")),
     );
+    #[cfg(target_os = "macos")]
+    let (started, mut navigation) = tokio::sync::watch::channel(false);
+    #[cfg(target_os = "macos")]
+    {
+        let target = parsed.clone();
+        builder = builder.on_page_load(move |_, event| {
+            if event.url() == &target {
+                started.send_replace(true);
+            }
+        });
+    }
     builder = apply_profile_data_directory(builder, &profile_path)?;
     let page = builder.build().map_err(|e| e.to_string())?;
+    // WebKit can drop the verifier's initial navigation when the migration
+    // window closes. Reissue it on the attached view before touching IndexedDB.
+    #[cfg(target_os = "macos")]
+    if tokio::time::timeout(Duration::from_secs(4), navigation.wait_for(|started| *started))
+        .await
+        .is_err()
+    {
+        eprintln!("[smoke] Restarting uncommitted transfer verifier navigation");
+        page.navigate(parsed).map_err(|e| e.to_string())?;
+    }
     let _ = wait_window_ready(app, label, Duration::from_secs(20)).await?;
 
     let summary_path = profile_path
