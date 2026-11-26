@@ -1,5 +1,13 @@
 (async () => {
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  // Home polls OBS for its selected game before reading that game's SQLite history.
+  const scene = {id: 'dictionary-fixture', name: 'Dictionary fixture'};
+  const invoke = window.ipcRenderer.invoke;
+  window.ipcRenderer.invoke = (channel, ...args) => {
+    if (channel === 'obs.getScenes') return Promise.resolve([scene]);
+    if (channel === 'obs.getActiveScene') return Promise.resolve(scene);
+    return invoke(channel, ...args);
+  };
   let shown = false;
   const blocked = [];
   document.addEventListener('securitypolicyviolation', event => blocked.push(`${event.violatedDirective}: ${event.blockedURI}`));

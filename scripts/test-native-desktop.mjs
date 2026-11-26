@@ -240,7 +240,17 @@ for(const mode of targets) {
         advanced:{direct_websocket_port:0}}},
     }));
   }
-  if(mode==='yomitan'||mode==='hachidori')await createDictionaryFixture(root,path.join(profile,'dictionary.zip'));
+  if (mode === 'yomitan' || mode === 'hachidori') {
+    await createDictionaryFixture(root, path.join(profile, 'dictionary.zip'));
+    const {DatabaseSync} = await import('node:sqlite');
+    const db = new DatabaseSync(path.join(profile, 'gsm.db'));
+    try {
+      db.exec('CREATE TABLE game_lines(id TEXT PRIMARY KEY, line_text TEXT, timestamp REAL, game_name TEXT, game_id TEXT, translation TEXT)');
+      db.prepare('INSERT INTO game_lines(id, line_text, timestamp, game_name) VALUES (?, ?, ?, ?)').run('home-word', '食べる', 1, 'Dictionary fixture');
+    } finally {
+      db.close();
+    }
+  }
   const phases=pythonless ? ['install','reopen'] : mode==='yomitan'||mode==='hachidori'?['import','reopen']:['run'];
   let toolStamps;
   for(const phase of phases) {
