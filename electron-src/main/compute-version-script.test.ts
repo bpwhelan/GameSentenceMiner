@@ -9,11 +9,18 @@ const {
     computeStableVersion: (options?: { tags?: string[] }) => string;
     computePreReleaseVersion: (options: {
         preReleaseId?: string;
+        afterPublished?: boolean;
         tags?: string[];
     }) => string;
 };
 
 describe('compute-version script', () => {
+    it('publishes a beta newer than the native preview and continues that beta sequence', () => {
+        const tags = ['v2026.11.0', 'v2026.11.1-preview.1'];
+        const beta = computePreReleaseVersion({tags, afterPublished: true});
+        expect(beta).toBe('2026.11.2-beta.1');
+        expect(computePreReleaseVersion({tags: [...tags, 'v' + beta], afterPublished: true})).toBe('2026.11.2-beta.2');
+    });
     it('increments the patch segment from the latest stable release tag', () => {
         expect(computeStableVersion({ tags: ['v2026.3.22.2', 'v2026.3.23', 'v2026.3.23-beta.2'] })).toBe(
             '2026.3.24',

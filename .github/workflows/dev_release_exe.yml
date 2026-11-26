@@ -3,6 +3,10 @@ name: Publish Tauri desktop preview
 on:
   workflow_dispatch:
     inputs:
+      electron_beta:
+        description: Offer the Tauri release to existing Electron beta users
+        type: boolean
+        default: false
       portable_only:
         description: Build portable test ZIPs as workflow artifacts only
         type: boolean
@@ -22,6 +26,7 @@ jobs:
   preview:
     uses: ./.github/workflows/native_desktop.yml
     with:
+      electron_beta: ${{ inputs.electron_beta }}
       portable_preview: ${{ inputs.portable_only }}
       prerelease: true
       publish: ${{ !inputs.portable_only }}

@@ -19,7 +19,7 @@ if (process.platform === 'win32' && !portablePreview && !args.includes('--no-bun
   environment.GSM_HANDOFF_HELPER = path.join(await nativeTargetDirectory({env: environment}), 'release/gsm-handoff.exe');
 }
 const desktopConfig = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json')));
-const publishedPreview = desktopConfig.version.includes('-preview.');
+const publishedPrerelease = /-(?:beta|preview)\./.test(desktopConfig.version);
 const stagedApp = path.join(root, 'build/native-desktop/app');
 await auditNativePackage(stagedApp);
 if (portablePreview) await fs.access(path.join(stagedApp, 'native/agent-runtime.zip'));
@@ -34,7 +34,7 @@ if (portablePreview) {
   config.identifier = 'com.beangate.gamesentenceminer.preview';
   if (process.platform === 'darwin') config.bundle.macOS = {signingIdentity: '-'};
 }
-if (signed && process.platform === 'darwin' && publishedPreview
+if (signed && process.platform === 'darwin' && publishedPrerelease
     && !environment.APPLE_SIGNING_IDENTITY && !environment.APPLE_CERTIFICATE) {
   config.bundle.macOS = {signingIdentity: '-'};
 }
@@ -65,7 +65,7 @@ await new Promise((resolve,reject)=>{
 if(process.platform==='win32'&&!args.includes('--debug')&&!portablePreview) {
   const target=await nativeTargetDirectory({env:environment});
   const executable=path.join(target,'release/gsm-desktop.exe');
-  const executableLimitMiB = publishedPreview ? 88 : 50;
+  const executableLimitMiB = publishedPrerelease ? 88 : 50;
   if ((await fs.stat(executable)).size > executableLimitMiB * 1024 ** 2) {
     throw Error(`Desktop executable exceeds the ${executableLimitMiB} MiB budget. Check for duplicated embedded resources.`);
   }

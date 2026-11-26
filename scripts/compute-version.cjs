@@ -162,10 +162,20 @@ function computeStableVersion({ tags = [] } = {}) {
     return formatVersionParts(nextVersionParts);
 }
 
-function computePreReleaseVersion({ preReleaseId = 'beta', tags = [] } = {}) {
+function computePreReleaseVersion({ preReleaseId = 'beta', tags = [], afterPublished = false } = {}) {
     validatePreReleaseId(preReleaseId);
 
-    const stableVersion = computeStableVersion({ tags });
+    let stableVersion = computeStableVersion({ tags });
+    if (afterPublished) {
+        // Native beta clients select the largest semver across preview and beta tags.
+        // A beta following a preview on the same patch needs the next patch.
+        const newest = getLatestVersionBase(tags);
+        if (newest && compareVersionParts(newest.parts, parseVersionParts(stableVersion)) >= 0) {
+            const higherChannel = tags.map(parsePreReleaseTag).some((tag) =>
+                tag && tag.version === newest.version && tag.preReleaseId > preReleaseId);
+            stableVersion = higherChannel ? formatVersionParts(bumpPatch(newest.parts)) : newest.version;
+        }
+    }
     let highestPreRelease = 0;
 
     for (const tag of tags) {
@@ -207,7 +217,7 @@ function runCli(argv = process.argv.slice(2)) {
         return;
     }
 
-    process.stdout.write(computePreReleaseVersion({ preReleaseId, tags }));
+    process.stdout.write(computePreReleaseVersion({ preReleaseId, tags, afterPublished: argv.includes('--after-published') }));
 }
 
 if (require.main === module) {

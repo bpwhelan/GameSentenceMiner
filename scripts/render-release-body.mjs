@@ -168,6 +168,8 @@ export function renderPrereleaseBody({ repo = DEFAULT_REPO, version }) {
     "> This is not the latest stable release and should only be downloaded if you know what you are doing.",
     `> Most users should use the latest stable release: https://github.com/${repo}/releases/latest`,
     "",
+    windowsMigrationNotice,
+    "",
     "## Downloads",
     "",
     ...renderDownloadTable({ repo, version }),

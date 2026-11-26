@@ -16,6 +16,7 @@ describe('coordinated native release',()=>{
         expect(preview.jobs.preview.uses).toBe(stable.uses);
         expect(preview.on.workflow_dispatch.inputs.portable_only.default).toBe(false);
         expect(preview.jobs.preview.with).toEqual({
+            electron_beta: '${{ inputs.electron_beta }}',
             portable_preview: '${{ inputs.portable_only }}',
             prerelease: true,
             publish: '${{ !inputs.portable_only }}',
@@ -42,6 +43,11 @@ describe('coordinated native release',()=>{
             if: '${{ !inputs.portable_preview }}',
             run: expect.stringContaining('cargo test --locked --manifest-path src-tauri/Cargo.toml'),
         }));
+    });
+    it('exercises the final Windows installer before publishing an Electron beta',()=>{
+        const handoff = native.jobs.build.steps.filter((step:{run?:string})=>step.run?.includes('scripts/windows-handoff-test/'));
+        expect(handoff).toHaveLength(2);
+        for (const step of handoff) expect(step.if).toBe("inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'");
     });
     it('uses a dedicated preview tag and exports notes under the name the app reads',()=>{
         expect(native.jobs.version.steps.at(-1).run).toContain('--preid preview');
