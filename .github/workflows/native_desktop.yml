@@ -245,8 +245,6 @@ jobs:
       - name: Exercise Linux webviews under a window manager
         if: runner.os == 'Linux' && !inputs.portable_preview
         run: bash scripts/test-native-linux.sh all
-        env:
-          GSM_NATIVE_TEST_EXECUTABLE: ${{ github.workspace }}/src-tauri/target/native-dev/debug/gsm-desktop
       - name: Build preview resources and check packaging contracts
         if: inputs.portable_preview
         shell: bash

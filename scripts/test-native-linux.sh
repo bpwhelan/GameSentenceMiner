@@ -7,7 +7,6 @@ openbox >/dev/null 2>&1 &
 window_manager=$!
 trap 'kill "$window_manager" 2>/dev/null || true' EXIT
 repo_root=$(cd -- "$(dirname -- "$0")/.." && pwd)
-export GSM_NATIVE_TEST_EXECUTABLE=${GSM_NATIVE_TEST_EXECUTABLE:-$HOME/.cache/gsm-tauri-target/debug/gsm-desktop}
 if [[ -d $HOME/.cache/gsm-native-node/node_modules ]]; then export GSM_NATIVE_DEPS=$HOME/.cache/gsm-native-node; fi
 cd "$repo_root"
 if [[ ${1:-} == all ]]; then node scripts/check-native-desktop.mjs; else node scripts/test-native-desktop.mjs "$@"; fi
