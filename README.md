@@ -91,6 +91,16 @@ Track your immersion habits with the stats dashboard.
 
 For full setup guides and configuration details, check the [Wiki](https://docs.gamesentenceminer.com/) (Currently WIP).
 
+### Sending text from a local script
+
+Send one line at a time to `POST /api/text` on GSM's HTTP port, which defaults to `7275`.
+
+```sh
+curl -H 'Content-Type: application/json' --data-binary '{"text":"本を読む。"}' http://127.0.0.1:7275/api/text
+```
+
+You can also send UTF-8 text with `Content-Type: text/plain` or use `sentence` in place of `text` in JSON. GSM processes the line through the same intake pipeline as WebSocket sources. The response includes an intake status such as `accepted` or `duplicate` (HTTP 200), `rejected` (HTTP 422), or `backpressured` (HTTP 503).
+
 ## ❤️ Acknowledgements
 
 *   [OwOCR](https://github.com/AuroraWright/owocr) & [MeikiOCR](https://github.com/rtr46/meikiocr) for the OCR backend.

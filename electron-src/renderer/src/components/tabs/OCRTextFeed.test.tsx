@@ -20,9 +20,9 @@ describe("OCR captured text", () => {
   const result = (text: string, extra: Record<string, unknown> = {}) => {
     emit("ocr-ipc-message", { event: "ocr_result", data: { text, ...extra } });
   };
-  const render = async (running = true, paused = false, manual = false) => {
+  const render = async (running = true, paused = false, manual = false, viewerTarget?: HTMLElement) => {
     await act(async () => {
-      root.render(<I18nProvider><OCRTextFeed running={running} paused={paused} manual={manual} /></I18nProvider>);
+      root.render(<I18nProvider><OCRTextFeed viewerTarget={viewerTarget} running={running} paused={paused} manual={manual} /></I18nProvider>);
     });
   };
 
@@ -56,6 +56,21 @@ describe("OCR captured text", () => {
     await act(async () => root.unmount());
     container.remove();
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = false;
+  });
+
+  it("keeps past and incoming captures when the same feed moves into the viewer and back", async () => {
+    await render();
+    await act(async () => result("First line"));
+    const viewer = document.createElement("div");
+    await render(true, false, false, viewer);
+    expect(container.querySelector(".desk-text-feed")).toBeNull();
+    expect(viewer.querySelector(".desk-text-content")?.textContent).toBe("First line");
+    await act(async () => result("Second line"));
+    expect(viewer.querySelector(".desk-text-content")?.textContent).toBe("Second line");
+    expect(listeners.get("ocr-ipc-message")?.size).toBe(1);
+    await render();
+    expect(viewer.childElementCount).toBe(0);
+    expect([...container.querySelectorAll(".desk-text-content")].map(line => line.textContent)).toEqual(["Second line", "First line"]);
   });
 
   it("shows only delivered text, preserving multiline output and keeping the newest capture first", async () => {

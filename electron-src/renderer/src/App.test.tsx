@@ -510,6 +510,69 @@ describe('App install-session integration', () => {
         expect(container.querySelector('iframe[title="stats"]')).toBeNull();
     });
 
+    it('normalizes statsEndpoint paths and retries after transient probe failures', async () => {
+        vi.useFakeTimers();
+        try {
+            let attempts = 0;
+            const fetchMock = vi.fn(async () => {
+                attempts += 1;
+                if (attempts === 1) {
+                    throw new TypeError('Failed to fetch');
+                }
+                return { ok: true };
+            });
+            vi.stubGlobal('fetch', fetchMock);
+
+            invokeMock.mockImplementation(async (channel: string) => {
+                if (channel === 'install-session.getActive') return null;
+                if (channel === 'changelog.getPendingDesktopUpdate') return null;
+                if (channel === 'settings.getSettings') {
+                    return {
+                        hasCompletedSetup: true,
+                        statsEndpoint: '/stats',
+                        singlePort: 7275,
+                    };
+                }
+                if (channel === 'state.set') return null;
+                return {};
+            });
+
+            const { default: App } = await import('./App.js');
+            await act(async () => {
+                root.render(<App />);
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            const statsButton = Array.from(container.querySelectorAll('button')).find(
+                (button) => button.textContent === 'Stats'
+            );
+            await act(async () => {
+                statsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(container.querySelector('iframe[title="stats"]')).toBeNull();
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(2000);
+            });
+
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock).toHaveBeenLastCalledWith(
+                'http://localhost:7275/stats',
+                expect.objectContaining({ signal: expect.any(AbortSignal) })
+            );
+            expect(container.querySelector('iframe[title="stats"]')?.getAttribute('src')).toBe(
+                'http://localhost:7275/stats'
+            );
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('reloads an already-mounted stats iframe when GSM finishes initializing', async () => {
         vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true })));
 

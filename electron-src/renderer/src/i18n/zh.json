@@ -1,5 +1,30 @@
 {
-  "mining": { "fields": { "ai_auto_generate_character_summary": "自动生成角色简介" } },
+  "sceneSwitcher": {
+    "buildFromText": "从窗口标题文本生成正则表达式",
+    "literalPlaceholder": "例如 youtube",
+    "matchAnywhere": "包含",
+    "matchExactly": "完全匹配",
+    "startsWith": "开头匹配",
+    "endsWith": "结尾匹配"
+  },
+  "nativeDialogs": {
+    "area": {
+      "tips": {
+        "normal": "自动 OCR 会读取这个区域内的对话。请框住游戏的对话框。",
+        "exclusion": "忽略中心落在框内的文字行。可用来排除说话人姓名或界面标签。",
+        "secondary": "使用菜单 OCR 快捷键读取这个区域。适合菜单和对话选项。",
+        "exclusive": "当一行文字完全落在框内时，自动 OCR 只保留专属区域内的文字行。适合读取叠在对话框上的选项。",
+        "blackHole": "当识别到的文字与这个区域重叠时，丢弃本次识别的全部结果。可框住暂停画面或菜单标题。"
+      }
+    }
+  },
+  "mining": {
+    "newProfile": "新建配置文件",
+    "renameProfile": "重命名配置文件",
+    "deleteProfile": "删除配置文件",
+    "newSceneProfile": "新建场景专用配置文件",
+    "fields": { "ai_auto_generate_character_summary": "自动生成角色简介" }
+  },
   "gameLauncher": {
     "mode": "启动方式",
     "modeExecutable": "游戏可执行文件",
@@ -21,7 +46,7 @@
     "gameFolder": "游戏文件夹（默认）",
     "launcherPath": "自定义启动器（可选）",
     "launcherArguments": "启动器参数",
-    "launcherHelp": "通过已安装的启动器运行，如Special K的SKIF或Locale Emulator。留空则直接启动游戏。",
+    "launcherHelp": "留空时，GSM 会通过 Steam 启动识别出的 Steam 游戏，其他游戏则直接启动。如需使用 SKIF 或 Locale Emulator 等自定义启动器，请在此选择。",
     "templateHelp": "用{game}表示游戏路径，{args}表示游戏参数。默认：\"{game}\" {args}。LEProc示例：-run \"{game}\" {args}。请将{args}作为独立参数。不会展开Shell命令或环境变量。",
     "browse": "浏览",
     "browseField": "浏览：{field}",
@@ -180,6 +205,10 @@
       "statusRunning": "运行中",
       "statusStopped": "未运行",
       "guide": "设置指南",
+      "runWithActiveGame": "随当前游戏打开和关闭",
+      "runWithActiveGameTooltip": "检测到游戏时打开叠加层，会话结束时关闭。启用后将关闭随 GSM 启动选项。",
+      "settingsError": "无法加载或保存叠加层设置。请重新打开此选项卡后重试。",
+      "startupSettings": "叠加层启动设置",
       "runOnStartup": "启动时运行",
       "runOnStartupTooltip": "GSM 启动时自动启动 GSM 覆盖层。"
     },
@@ -638,6 +667,8 @@
       "globalHint": "适用于所有游戏和配置。在此统一设置通知声音与横幅。"
     },
     "workspace": {
+      "desktopCategory": "桌面",
+      "miningCategory": "挖掘",
       "brandHint": "偏好设置与工具",
       "general": "常规",
       "generalHelp": "选择外观、语言和启动行为。",

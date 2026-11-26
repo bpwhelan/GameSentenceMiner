@@ -55,7 +55,7 @@ def test_preview_lease_avoids_work_without_a_viewer_and_clears_old_scene_boxes()
     preview.update(payload(), scene_name="Game", source_name="Window")
     assert preview.snapshot({"enabled": True, "sceneName": "Game"})["boxes"]
     assert preview.snapshot({"enabled": True, "sceneName": "Other game"}) is None
-    now[0] = 10
+    now[0] = 25
     assert not preview.enabled
     assert preview.snapshot({"enabled": True, "sceneName": "Game"}) is None
 
@@ -73,7 +73,7 @@ def test_preview_geometry_lease_covers_slow_capture_and_live_refresh_gaps():
     preview = PreviewGeometry(clock=lambda: now[0])
     preview.snapshot({"enabled": True, "sceneName": "Game"})
     preview.update(payload(), scene_name="Game", source_name="Window")
-    now[0] = 5.5
+    now[0] = 19.5
     assert preview.snapshot({"enabled": True, "sceneName": "Game"})["boxes"]
 
 

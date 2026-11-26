@@ -140,6 +140,11 @@
   font-size: 12px;
   margin-top: 0;
 }
+.scene-switcher-settings__helpers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .automation-desk .scene-switcher-settings__toggle {
   grid-column: 1 / -1;
   font-size: 12px;

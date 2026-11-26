@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::Manager;
 
+#[cfg(windows)]
+mod steam;
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct GameLaunchOptions {
@@ -580,6 +583,16 @@ async fn launch_inner(app: &tauri::AppHandle, scene_id: &str) -> Result<u32, Lau
         return Err(LaunchError::code("invalidWorkingDirectory"));
     }
     let command = build_game_launch_command(&options)?;
+    #[cfg(windows)]
+    let command = tauri::async_runtime::spawn_blocking(move || {
+        let mut command = command;
+        steam::route_launch(&options, &mut command, || {
+            steamlocate::SteamDir::locate().ok()
+        });
+        command
+    })
+    .await
+    .map_err(|e| LaunchError::failed(e.to_string()))?;
     if crate::game_privileges::current_process_is_elevated() == Some(true) {
         launch_via_desktop_com(command).await
     } else {

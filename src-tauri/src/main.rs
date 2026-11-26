@@ -600,6 +600,10 @@ fn main() {
             );
             let mining_http = desktop_state.http.clone();
             app.manage(desktop_state);
+            ocr_coordinator::sync_overlay_thread_policy(
+                app.handle(),
+                &ocr_coordinator::read_ocr_config(app.handle()),
+            );
             app.manage(mining::MiningService::new(&root, active_dir, mining_http));
             app.manage(app_lifecycle::AppLifecycle::default());
             app.manage(app_identity::IconPresentation::new());

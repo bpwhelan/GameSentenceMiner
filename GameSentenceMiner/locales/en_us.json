@@ -29,6 +29,7 @@
       },
       "tabs": {
         "session_review": {
+          "open_on_card_queued": "Open review in the background when a card is queued",
           "title": "Review After Session",
           "description": "Mine without interruption. GSM updates cards during play and keeps their replay, audio, screenshots, and dialogue for editing after the game closes. Pending reviews survive restarts.",
           "enabled": "Review Anki cards after session",

@@ -5,8 +5,6 @@ pub(super) struct Switcher {
     pub collection: String,
     pub connected_at: Option<Instant>,
     foreground: Value,
-    changed_at: Option<Instant>,
-    evaluated_at: Option<Instant>,
     rules_present: Option<(String, std::time::SystemTime, bool)>,
     manual_hold: String,
     resolved_context: String,
@@ -15,6 +13,28 @@ pub(super) struct Switcher {
 }
 fn context(snapshot: &Value) -> String {
     json!([snapshot["hwnd"], snapshot["title"]]).to_string()
+}
+impl Switcher {
+    fn update_foreground(&mut self, snapshot: Value) -> bool {
+        if snapshot["capturedAt"].as_i64().unwrap_or(0)
+            < self.foreground["capturedAt"].as_i64().unwrap_or(0)
+        {
+            return false;
+        }
+        let changed = context(&snapshot) != context(&self.foreground);
+        self.foreground = snapshot;
+        if changed {
+            self.manual_hold.clear();
+            self.resolved_context.clear();
+            self.conflict = Value::Null;
+        }
+        changed
+    }
+
+    fn can_auto_switch(&self, foreground: &Value) -> bool {
+        let key = context(foreground);
+        key == context(&self.foreground) && key != self.manual_hold && key != self.resolved_context
+    }
 }
 fn executable(raw: &str) -> String {
     raw.trim()
@@ -268,67 +288,66 @@ impl Obs {
             return;
         }
         crate::capture_windows::record_focus(&snapshot);
-        let (changed, fg_pid, fg_exe) = {
+        let (fg_pid, fg_exe, title) = {
             let mut state = self.0.state.lock().unwrap();
             let s = &mut state.switcher;
-            if snapshot["capturedAt"].as_i64().unwrap_or(0)
-                < s.foreground["capturedAt"].as_i64().unwrap_or(0)
-            {
+            if !s.update_foreground(snapshot) {
                 return;
             }
-            let changed = context(&snapshot) != context(&s.foreground);
-            if changed {
-                s.changed_at = Some(Instant::now());
-                s.manual_hold.clear();
-                s.resolved_context.clear();
-                s.conflict = Value::Null;
-            }
-            let pid = snapshot["pid"].as_u64().and_then(|p| u32::try_from(p).ok());
-            let exe = snapshot["executableName"].as_str().map(str::to_owned);
-            s.foreground = snapshot;
-            (changed, pid, exe)
+            let pid = s.foreground["pid"]
+                .as_u64()
+                .and_then(|p| u32::try_from(p).ok());
+            let exe = s.foreground["executableName"].as_str().map(str::to_owned);
+            (pid, exe, text(&s.foreground, "title").to_owned())
         };
-        if changed {
-            let fg_exe_for_auto = fg_exe.clone().unwrap_or_default();
-            let fg_title_for_auto = self.0.state.lock().unwrap().switcher.foreground["title"]
-                .as_str()
-                .unwrap_or("")
-                .to_owned();
-            crate::auto_launcher::notify_foreground_changed(
-                app,
-                &fg_exe_for_auto,
-                &fg_title_for_auto,
-            );
-            crate::game_privileges::handle_foreground(app, fg_pid, fg_exe.as_deref());
-            #[cfg(windows)]
-            if let Some(pid) = fg_pid { crate::obs::game_audio::focus(app,pid); }
-            if let Some(window) = app.get_webview_window("obs-scene-conflict") {
-                let _ = window.destroy();
+        if let Some(window) = app.get_webview_window("obs-scene-conflict") {
+            let _ = window.destroy();
+        }
+        self.0.scene_switch_requested.notify_one();
+        crate::auto_launcher::notify_foreground_changed(
+            app,
+            fg_exe.as_deref().unwrap_or(""),
+            &title,
+        );
+        crate::game_privileges::handle_foreground(app, fg_pid, fg_exe.as_deref());
+        #[cfg(windows)]
+        if let Some(pid) = fg_pid {
+            crate::obs::game_audio::focus(app, pid);
+        }
+        self.emit(app, "scene-switcher.stateChanged", Value::Null);
+    }
+    #[cfg(windows)]
+    pub(super) async fn run_scene_switcher(self, app: tauri::AppHandle) {
+        loop {
+            // One worker serializes OBS requests. A focus change during a request
+            // leaves a permit for the latest window. Idle checks reconcile rule edits and retries.
+            let _ = tokio::time::timeout(
+                Duration::from_secs(1),
+                self.0.scene_switch_requested.notified(),
+            )
+            .await;
+            if self.0.shutting_down.load(Ordering::Acquire) {
+                return;
             }
-            self.emit(app, "scene-switcher.stateChanged", Value::Null);
+            if !self.0.client.has_primary()
+                || self.0.suspended.load(Ordering::SeqCst)
+                || self.0.updating.load(Ordering::SeqCst)
+            {
+                continue;
+            }
+            if let Err(error) = self.evaluate_scene_switch(&app).await {
+                crate::desktop_log::warn(&app, "obs", format!("Scene switcher: {error}"));
+            }
         }
     }
-    pub(super) async fn tick_switcher(&self, app: &tauri::AppHandle) -> Result<(), String> {
-        if !cfg!(windows) {
-            return Ok(());
-        }
-        if !self.0.session.has_window_hooks() {
-            if let Some(snapshot) = process::foreground() {
-                self.foreground(app, snapshot);
-            }
-        }
+    #[cfg(windows)]
+    async fn evaluate_scene_switch(&self, app: &tauri::AppHandle) -> Result<(), String> {
         let (foreground, needs_collection) = {
-            let mut state = self.0.state.lock().unwrap();
-            let s = &mut state.switcher;
-            if s.foreground.is_null()
-                || s.changed_at
-                    .is_some_and(|t| t.elapsed() < Duration::from_millis(200))
-                || s.evaluated_at
-                    .is_some_and(|t| t.elapsed() < Duration::from_secs(1))
-            {
+            let state = self.0.state.lock().unwrap();
+            let s = &state.switcher;
+            if s.foreground.is_null() {
                 return Ok(());
             }
-            s.evaluated_at = Some(Instant::now());
             (s.foreground.clone(), s.collection.is_empty())
         };
         if needs_collection {
@@ -397,14 +416,6 @@ impl Obs {
             }
             rules
         };
-        {
-            let state = self.0.state.lock().unwrap();
-            let s = &state.switcher;
-            let key = context(&foreground);
-            if key == s.manual_hold || key == s.resolved_context || key != context(&s.foreground) {
-                return Ok(());
-            }
-        }
         let mut candidates: Vec<Value> = vec![];
         for rule in rules {
             let result = matches(&rule, &foreground);
@@ -422,13 +433,25 @@ impl Obs {
             let conflict = json!({"requestId":uuid::Uuid::new_v4().to_string(),"foreground":foreground,"candidates":candidates});
             {
                 let mut state = self.0.state.lock().unwrap();
-                if !state.switcher.conflict.is_null() {
+                if !state.switcher.conflict.is_null()
+                    || !state.switcher.can_auto_switch(&foreground)
+                {
                     return Ok(());
                 }
                 state.switcher.conflict = conflict;
             }
             self.show_conflict(app)?;
         } else if let Some(candidate) = candidates.first() {
+            if !self
+                .0
+                .state
+                .lock()
+                .unwrap()
+                .switcher
+                .can_auto_switch(&foreground)
+            {
+                return Ok(());
+            }
             self.switch_for_foreground(app, text(candidate, "sceneUuid"), &foreground)
                 .await?;
         }
@@ -634,6 +657,21 @@ impl Obs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rapid_focus_changes_replace_pending_matches_and_preserve_manual_holds_on_duplicates() {
+        let mut s = Switcher::default();
+        let first = json!({"hwnd":"1","title":"Game A","capturedAt":100});
+        let next = json!({"hwnd":"2","title":"Game B","capturedAt":101});
+        assert!(s.update_foreground(first.clone()));
+        s.manual_hold = context(&first);
+        assert!(!s.update_foreground(first.clone()));
+        assert!(!s.can_auto_switch(&first));
+        assert!(s.update_foreground(next.clone()));
+        assert!(!s.update_foreground(first.clone()));
+        assert!(!s.can_auto_switch(&first));
+        assert!(s.can_auto_switch(&next));
+    }
+
     #[test]
     fn javascript_lookaround_and_executable_matching_survive_migration() {
         let rule = json!({"titlePattern":"(?<=prefix )日本語(?= -)","executableName":"C:\\Games\\game.exe","enabled":true});

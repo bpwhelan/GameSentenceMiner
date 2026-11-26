@@ -8,7 +8,8 @@ type Point = [number, number];
 type Bounds = [number, number, number, number];
 type Mode = 'normal' | 'exclusion' | 'secondary' | 'exclusive' | 'blackHole';
 type Flags = { excluded?: boolean; secondary?: boolean; exclusive?: boolean; blackHole?: boolean };
-type Area = Flags & { xywh: Bounds; monitor?: number };
+export type SelectorArea = Flags & { xywh: Bounds; monitor?: number };
+type Area = SelectorArea;
 type Frame = { image: string; rects: Area[]; width: number; height: number; monitor?: number };
 type Options = { obs: boolean; single: boolean; overlay: boolean; monitorOnly: boolean; live: boolean; help: boolean };
 type Action = { index: number; area: Area; add: boolean };
@@ -53,7 +54,20 @@ function apply(areas: Area[], { add, area, index }: Action) {
     return result;
 }
 
-export function OcrAreaSelector() {
+export interface InlineSelectorHost {
+    load: () => Promise<{help: boolean; capture: Frame}>;
+    save: (areas: SelectorArea[]) => Promise<void>;
+    close: (saved: boolean) => void;
+    refresh: () => void;
+}
+
+export function OcrAreaSelector({ active = true, host, preview, autoRefresh: viewerAutoRefresh, onAutoRefreshChange }: {
+    active?: boolean;
+    host?: InlineSelectorHost;
+    autoRefresh?: boolean;
+    onAutoRefreshChange?: (enabled: boolean) => void;
+    preview?: {imageData: string; width: number; height: number};
+} = {}) {
     const t = useTranslation();
     const [options, setOptions] = useState<Options>();
     const [frame, setFrame] = useState<Frame>();
@@ -66,7 +80,7 @@ export function OcrAreaSelector() {
     const [highlight, setHighlight] = useState(-1);
     const [help, setHelp] = useState(true);
     const [dimHelp, setDimHelp] = useState(false);
-    const [live, setLive] = useState(false);
+    const [live, setLive] = useState(Boolean(host));
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [error, setError] = useState('');
     const [closing, setClosing] = useState(false);
@@ -90,25 +104,36 @@ export function OcrAreaSelector() {
     useEffect(() => {
         let active = true;
         setError('');
-        void invokeIpc<Options>('ocrArea.options').then(async (next) => {
-            if (!active) return;
-            setOptions(next);
-            setLive(next.live);
-            setHelp(next.help);
-            const capture = await invokeIpc<Frame>('ocrArea.capture');
-            if (!active) return;
+        const load = async () => {
+            let capture: Frame;
+            if (host) {
+                const layout = await host.load();
+                if (!active) return;
+                setOptions({obs:true, single:false, overlay:false, monitorOnly:false, live:false, help:layout.help});
+                setHelp(layout.help);
+                capture = layout.capture;
+            } else {
+                const next = await invokeIpc<Options>('ocrArea.options');
+                if (!active) return;
+                setOptions(next);
+                setLive(next.live);
+                setHelp(next.help);
+                capture = await invokeIpc<Frame>('ocrArea.capture');
+                if (!active) return;
+            }
             undo.current = capture.rects.map((area, index) => ({ area, index, add: true }));
             redo.current = [];
             areaRef.current = capture.rects;
             setAreas(capture.rects);
             setImage(capture.image);
             setFrame(capture);
-        }).catch((e) => { if (active) report(e); });
+        };
+        void load().catch((e) => { if (active) report(e); });
         return () => { active = false; };
-    }, [captureNonce]);
+    }, [captureNonce, host]);
     useEffect(() => {
-        void invokeIpc('ocrArea.title', requestedTitle).catch(() => {});
-    }, [requestedTitle]);
+        if (!host) void invokeIpc('ocrArea.title', requestedTitle).catch(() => {});
+    }, [host, requestedTitle]);
     useEffect(() => {
         if (!stage.current) return;
         const observer = new ResizeObserver(([entry]) => {
@@ -120,8 +145,9 @@ export function OcrAreaSelector() {
     useLayoutEffect(() => {
         if (!menu || !menuBox.current) return;
         const element = menuBox.current;
-        element.style.left = `${Math.max(0, Math.min(menu.x, window.innerWidth - element.offsetWidth))}px`;
-        element.style.top = `${Math.max(0, Math.min(menu.y, window.innerHeight - element.offsetHeight))}px`;
+        const bounds = element.parentElement!.getBoundingClientRect();
+        element.style.left = `${Math.max(0, Math.min(menu.x - bounds.left, bounds.width - element.offsetWidth))}px`;
+        element.style.top = `${Math.max(0, Math.min(menu.y - bounds.top, bounds.height - element.offsetHeight))}px`;
         element.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
     }, [menu]);
     useEffect(() => () => {
@@ -130,6 +156,7 @@ export function OcrAreaSelector() {
     }, []);
 
     const refresh = useCallback(async (manual: boolean) => {
+        if (host) { host.refresh(); return; }
         if (refreshing.current || finishing.current) return;
         refreshing.current = true;
         try {
@@ -144,18 +171,19 @@ export function OcrAreaSelector() {
         } finally {
             refreshing.current = false;
         }
-    }, []);
+    }, [host]);
     useEffect(() => {
-        if (!frame || !autoRefresh) return;
+        if (host || !frame || !autoRefresh) return;
         const timer = window.setInterval(() => void refresh(false), 1000);
         return () => window.clearInterval(timer);
-    }, [autoRefresh, frame, refresh]);
+    }, [autoRefresh, frame, refresh, host]);
 
     const liveSave = useCallback(() => {
         window.clearTimeout(liveTimer.current);
         if (finishing.current) return;
-        void invokeIpc('ocrArea.save', { rects: areaRef.current }).catch(report);
-    }, []);
+        const rects = areaRef.current;
+        void (host ? host.save(rects) : invokeIpc('ocrArea.save', { rects })).catch(report);
+    }, [host]);
 
     const finish = useCallback(async (save: boolean, single?: Area) => {
         if (finishing.current) return;
@@ -164,16 +192,20 @@ export function OcrAreaSelector() {
         setClosing(true);
         const rects = options?.single ? (single ? [single] : []) : areaRef.current;
         try {
-            if (!frame || (options?.single && !single)) await invokeIpc('ocrArea.cancel');
+            if (host) {
+                const applyAreas = Boolean(frame && (save || (live && rects !== frame.rects)));
+                if (applyAreas) await host.save(rects);
+                host.close(applyAreas);
+            } else if (!frame || (options?.single && !single)) await invokeIpc('ocrArea.cancel');
             else await invokeIpc(save || live ? 'ocrArea.finish' : 'ocrArea.dismiss', { rects });
         } catch (e) {
             report(e);
             finishing.current = false;
             setClosing(false);
         }
-    }, [frame, live, options?.single]);
+    }, [host, frame, live, options?.single]);
 
-    useEffect(() => onIpc('ocrArea.requestClose', () => void finish(false)), [finish]);
+    useEffect(() => host ? undefined : onIpc('ocrArea.requestClose', () => void finish(false)), [finish, host]);
 
     function update(next: Area[]) {
         areaRef.current = next;
@@ -216,7 +248,7 @@ export function OcrAreaSelector() {
     function toggleHelp() {
         const show = !help;
         setHelp(show);
-        void invokeIpc('ocrArea.help', show).catch(report);
+        if (!host) void invokeIpc('ocrArea.help', show).catch(report);
     }
 
     function closeMenu() {
@@ -225,10 +257,14 @@ export function OcrAreaSelector() {
     }
 
     useEffect(() => {
+        if (!active) return;
+        const workspace = stage.current?.closest(".ocr-selector-workspace");
         function key(event: KeyboardEvent) {
+            if (workspace && event.target instanceof Node && !workspace.contains(event.target)) return;
             if (event.defaultPrevented || closing) return;
             const control = event.ctrlKey || event.metaKey;
             const code = event.key.toLowerCase();
+            if (code !== 'escape' && event.target instanceof Element && event.target.closest('.ocr-selector-feed, .ocr-line-menu')) return;
             if (code === 'escape') {
                 if (menu) closeMenu();
                 else void finish(false);
@@ -258,6 +294,8 @@ export function OcrAreaSelector() {
     function pointerDown(event: ReactPointerEvent) {
         if (!frame || !options || closing || !imageBox.current || drag.current) return;
         event.preventDefault();
+        // A pointer press on the canvas should return keyboard shortcuts to the editor.
+        event.currentTarget.closest<HTMLElement>('.ocr-selector-workspace')?.focus({preventScroll: true});
         if (menu) { closeMenu(); return; }
         if (event.button === 1 && !options.single) { void finish(true); return; }
         const start = point(event.clientX, event.clientY, event.button === 0);
@@ -316,7 +354,8 @@ export function OcrAreaSelector() {
     }
 
     const availableModes = modes.slice(0, options?.overlay ? 2 : options?.monitorOnly ? 1 : 5);
-    const fit = frame ? Math.min(stageSize[0] / frame.width, stageSize[1] / frame.height) : 0;
+    const display = preview ?? frame;
+    const fit = display ? Math.min(stageSize[0] / display.width, stageSize[1] / display.height) : 0;
     const instructionMode = options?.single ? 'single' : options?.overlay ? 'overlay' : options?.monitorOnly ? 'monitor' : 'standard';
     const menuAction = (callback: () => void) => { closeMenu(); callback(); };
     const putBox = ({ xywh: [x, y, w, h], ...flags }: Area, index: number) => (
@@ -332,7 +371,8 @@ export function OcrAreaSelector() {
         <main className="ocr-selector" onContextMenu={(e) => e.preventDefault()}>
             {frame && options && <header className="ocr-selector-toolbar">
                 {availableModes.map((id) => <button type="button" key={id} disabled={closing}
-                    aria-pressed={(mode ?? 'normal') === id} onClick={() => setMode(id)}>{glyphs[id]} {modeLabel(id)}</button>)}
+                    title={t('nativeDialogs.area.tips.' + id)}
+                    aria-pressed={(mode ?? 'normal') === id} onClick={() => setMode(mode === id ? null : id)}>{glyphs[id]} {modeLabel(id)}</button>)}
                 <i />
                 {options.single ? <span>{t('nativeDialogs.area.singleHint')}</span> : <>
                     <button type="button" disabled={closing} onClick={() => history(true)}>{t('nativeDialogs.area.undo')}</button>
@@ -349,14 +389,17 @@ export function OcrAreaSelector() {
                             else liveSave();
                             setLive(!live);
                         }}>{t('nativeDialogs.area.autoSend')}</button>
-                    {options.obs && <button type="button" className="live" disabled={closing} aria-pressed={autoRefresh}
-                        title={t('nativeDialogs.area.autoRefreshTip')} onClick={() => setAutoRefresh(!autoRefresh)}>
+                    {options.obs && <button type="button" className="live" disabled={closing} aria-pressed={viewerAutoRefresh ?? autoRefresh}
+                        title={t('nativeDialogs.area.autoRefreshTip')} onClick={() => onAutoRefreshChange ? onAutoRefreshChange(!viewerAutoRefresh) : setAutoRefresh(!autoRefresh)}>
                         {t('nativeDialogs.area.autoRefresh')}
                     </button>}
                 </>}
                 <div className="ocr-selector-space" />
+                {host && <button type="button" disabled={closing} onClick={() => void finish(false)}>
+                    {t(live ? 'nativeDialogs.close' : 'nativeDialogs.cancel')}
+                </button>}
                 <button type="button" disabled={closing} onClick={() => void finish(!options.single)}>
-                    {t(options.single ? 'nativeDialogs.cancel' : 'nativeDialogs.area.save')}
+                    {t(options.single ? 'nativeDialogs.cancel' : host ? 'ocr.desk.editor.save' : 'nativeDialogs.area.save')}
                 </button>
             </header>}
             <div ref={stage} className="ocr-selector-stage" onPointerDown={pointerDown} onPointerMove={pointerMove}
@@ -365,8 +408,8 @@ export function OcrAreaSelector() {
                     if (frame && !options?.single && !hits(areas, point(e.clientX, e.clientY, false)).length) void finish(true);
                 }}>
                 {frame ? <>
-                    <div ref={imageBox} className="ocr-selector-image" style={{ width: frame.width * fit, height: frame.height * fit }}>
-                        <img src={image} alt={t('nativeDialogs.preview.screenshot')} draggable={false} />
+                    <div ref={imageBox} className="ocr-selector-image" style={{ width: (display?.width ?? 0) * fit, height: (display?.height ?? 0) * fit }}>
+                        <img src={preview?.imageData ?? image} alt={t('nativeDialogs.preview.screenshot')} draggable={false} />
                         <div className="ocr-selector-image-border" />
                         {areas.map(putBox)}
                         {draft && putBox(draft, -2)}

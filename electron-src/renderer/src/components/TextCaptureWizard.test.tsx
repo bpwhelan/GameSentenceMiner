@@ -436,7 +436,13 @@ describe("TextCaptureWizard", () => {
 
   it("runs one OCR scan after area selection and previews the captured text", async () => {
     const scene = { id: "scene-1", name: "Example Game" };
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-preview") return {sceneId:scene.id,sceneName:scene.name,sourceName:"Capture",
+        width:800,height:400,imageData:"data:image/jpeg;base64,YQ==",boxes:[]};
+      if (channel === "ocr.preview-layout") return {rects:[],revision:"1",help:false};
+      if (channel === "ocr.apply-preview-layout") return {revision:"2",config:{}};
+
       if (channel === "obs.getActiveScene") return scene;
       if (channel === "texthook.getActiveCapture") {
         return {
@@ -462,12 +468,11 @@ describe("TextCaptureWizard", () => {
     await clickButton(container, "OCR");
     await clickButton(container, "Select OCR area");
 
-    expect(sendMock).toHaveBeenCalledWith("ocr.run-screen-selector");
-
-    await act(async () => {
-      emitIpc("ocr-screen-selector-finished", { success: true });
-      await flushAsyncWork();
-    });
+    expect(container.querySelector("dialog .ocr-selector")).not.toBeNull();
+    const autoRefresh = [...container.querySelectorAll("dialog button")].find(button => button.textContent?.includes("Auto-Refresh"));
+    expect(autoRefresh?.getAttribute("aria-pressed")).toBe("false");
+    await clickButton(container, "Save areas");
+    vi.unstubAllGlobals();
     expect(sendMock).toHaveBeenCalledWith("ocr.start-ocr-ss-only");
 
     await act(async () => {

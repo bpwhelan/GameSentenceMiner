@@ -6,6 +6,17 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
 
 impl Obs {
+    pub(crate) async fn preview_jpeg(&self, app: &tauri::AppHandle, source: &str) -> Option<String> {
+        // Specifying just the width preserves the source aspect ratio in OBS.
+        let mut response = self.call(app, "GetSourceScreenshot", json!({
+            "sourceName": source, "imageFormat": "jpeg", "imageWidth": 960, "imageCompressionQuality": 70
+        })).await.ok()?;
+        match response["imageData"].take() {
+            Value::String(data) => Some(data),
+            _ => None,
+        }
+    }
+
     pub(crate) async fn area_scene(&self, app: &tauri::AppHandle) -> String {
         let scene = self.current_scene_name();
         if !scene.is_empty() {

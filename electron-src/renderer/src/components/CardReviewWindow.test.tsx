@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { I18nProvider } from "../i18n";
 import { CardReviewWindow } from "./CardReviewWindow";
 import { keepRanges } from "./cardReviewAudio";
+import * as reviewAudio from "./cardReviewAudio";
 
 const invoke = vi.fn();
 const form = {
@@ -92,6 +93,45 @@ it("advances while saving and keeps both drafts if the first card fails to save"
 
 it("skips overlapping audio cuts without repeating or dropping adjacent samples", () => {
   expect(keepRanges([2, 10], [[4, 6], [3, 5], [8, 12]])).toEqual([[2, 3], [6, 8]]);
+});
+
+it("keeps a live queue open after saving and appends arrivals without replacing edits", async () => {
+  vi.useFakeTimers();
+  window.history.replaceState(null, "", "/?window=session-review&live=1");
+  let pending = entries.slice(0, 1);
+  const playback = vi.spyOn(reviewAudio, "useReviewAudio");
+  invoke.mockImplementation(async (channel: string, options) => {
+    if (channel === "cardDialog.list") return { entries: pending, autoAdvance: true };
+    if (channel === "cardDialog.form") return { ...form, preferences: { ...form.preferences, autoplay: true } };
+    if (channel === "cardDialog.save") {
+      pending = pending.filter(entry => entry.id !== options.entry);
+      return "saved";
+    }
+  });
+  try {
+    await render();
+    expect(invoke).toHaveBeenCalledWith("cardDialog.ready", expect.objectContaining({ live: true }));
+    expect(document.activeElement).not.toBe(container.querySelector("input[type=search]"));
+    expect(playback.mock.lastCall?.[3]).toBe(false);
+    await type("My draft");
+    pending = [...entries];
+    await act(async () => { vi.advanceTimersByTime(2100); });
+    expect(playback.mock.lastCall?.[3]).toBe(false);
+    expect(container.querySelector("textarea")?.value).toBe("My draft");
+    expect(container.querySelectorAll(".cr-queue button")).toHaveLength(2);
+    await click("Save");
+    expect(playback.mock.lastCall?.[3]).toBe(true);
+    await click("Save");
+    expect(invoke).not.toHaveBeenCalledWith("cardDialog.close", expect.anything());
+    expect(container.querySelectorAll(".cr-queue button")).toHaveLength(0);
+    pending = entries.slice(0, 1);
+    await act(async () => { vi.advanceTimersByTime(2100); });
+    expect(container.querySelector("textarea")?.value).toBe(form.sentence);
+    expect(playback.mock.lastCall?.[3]).toBe(false);
+  } finally {
+    playback.mockRestore();
+    vi.useRealTimers();
+  }
 });
 
 it("edits and removes automatic cuts, restores them on reset, and saves the previewed filter", async () => {

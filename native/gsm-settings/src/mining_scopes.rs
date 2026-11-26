@@ -466,17 +466,20 @@ pub fn apply(path: &Path, req: &Value) -> Result<Value> {
         if target.is_some_and(|n| !doc["configs"][n].is_object()) {
             return Err("Profile no longer exists".into());
         }
+        let requested_name = || {
+            req["name"]
+                .as_str()
+                .map(str::trim)
+                .filter(|n| !n.is_empty() && !n.chars().any(char::is_control))
+                .ok_or("Enter a name")
+        };
         match req["op"].as_str() {
             Some(op @ ("createProfile" | "createScene")) => {
                 let base = req["base"]
                     .as_str()
                     .filter(|n| doc["configs"][*n].is_object() && parent(&doc, n).is_none())
                     .ok_or("Choose a base profile")?;
-                let name = req["name"]
-                    .as_str()
-                    .map(str::trim)
-                    .filter(|n| !n.is_empty() && !n.chars().any(char::is_control))
-                    .ok_or("Enter a name")?;
+                let name = requested_name()?;
                 let scene = op == "createScene";
                 let scene_id = req["sceneId"].as_str().filter(|id| !id.is_empty());
                 let mut id = name.to_owned();
@@ -523,6 +526,33 @@ pub fn apply(path: &Path, req: &Value) -> Result<Value> {
                 return Ok(result);
             }
             Some("edit") => edit_fields(&mut doc, target, &req["changes"], view)?,
+            Some("rename") => {
+                let old = target.ok_or("Choose a profile")?;
+                if old == "Default" {
+                    return Err("Keep the default profile name".into());
+                }
+                let name = requested_name()?;
+                if profiles(&doc)?.contains_key(name) {
+                    return Err("Name already in use".into());
+                }
+                let configs = doc["configs"].as_object_mut().unwrap();
+                let mut profile = configs.remove(old).unwrap();
+                profile["name"] = json!(name);
+                configs.insert(name.to_owned(), profile);
+                let scenes = doc[LAYERS]["scenes"]
+                    .as_object_mut()
+                    .ok_or("Invalid scene collection")?;
+                if let Some(binding) = scenes.remove(old) {
+                    scenes.insert(name.to_owned(), binding);
+                }
+                for binding in scenes.values_mut().filter(|link| link["parent"] == old) {
+                    binding["parent"] = json!(name);
+                }
+                if doc["current_profile"] == old {
+                    doc["current_profile"] = json!(name);
+                }
+                target = Some(name);
+            }
             Some("delete") => {
                 let name = target.ok_or("Choose a profile")?;
                 if name == "Default"

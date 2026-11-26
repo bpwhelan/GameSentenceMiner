@@ -6,6 +6,7 @@ use gsm_overlay::{
     engines::Engines,
     ocr::{self, flag, number, Stability},
     pipeline::Recognition,
+    scheduling::ThreadPolicy,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -243,37 +244,6 @@ fn milliseconds() -> u128 {
         .unwrap_or_default()
         .as_millis()
 }
-pub fn capture_preview(config: Value, request: Value) -> Result<Value, String> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    static LOCK: Mutex<()> = Mutex::new(());
-    let Ok(_guard) = LOCK.try_lock() else {
-        return Ok(Value::Null);
-    };
-    if request["sceneName"] != config["scene"] || config["available"] != true {
-        return Ok(Value::Null);
-    }
-    let mut capture = Capture::default();
-    let mut obs = gsm_capture::obs::Capture::default();
-    let image = if config["capture_kind"] == "obs" {
-        (*obs.grab(
-            &config["obs"],
-            config["capture_source"].as_str().unwrap_or(""),
-        )?)
-        .clone()
-    } else {
-        capture_frame(&config, &mut capture)?
-    };
-    let image = image::DynamicImage::ImageRgba8(image)
-        .thumbnail(960, 720)
-        .into_rgb8();
-    let mut bytes = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 70)
-        .encode_image(&image)
-        .map_err(|e| e.to_string())?;
-    Ok(
-        json!({"sceneId":request["sceneId"],"sceneName":config["scene"],"sourceName":config["source_name"],"width":image.width(),"height":image.height(),"imageData":format!("data:image/jpeg;base64,{}",STANDARD.encode(bytes)),"capturedAt":milliseconds(),"boxes":[]}),
-    )
-}
 fn run(app: tauri::AppHandle, shared: Shared) {
     let (lock, wake) = &*shared;
     let mut engines: Option<(PathBuf, Engines)> = None;
@@ -288,6 +258,7 @@ fn run(app: tauri::AppHandle, shared: Shared) {
     let mut settled_frame = None;
     let mut pending_frame: Option<(ocr::Prepared, Recognition, u128, (u32, u32))> = None;
     let (mut captured_frames, mut inference_calls, mut unchanged_frames) = (0u64, 0u64, 0u64);
+    let mut applied_policy: Option<ThreadPolicy> = None;
     loop {
         let mut s = lock.lock().unwrap();
         if s.closed {
@@ -339,11 +310,14 @@ fn run(app: tauri::AppHandle, shared: Shared) {
             last_error.clear();
             settled_frame = None;
             pending_frame = None;
-            priority(
-                s.config["settings"]["processPriority"]
-                    .as_str()
-                    .unwrap_or("normal"),
-            );
+            let policy = ThreadPolicy::from_ocr_settings(&s.config["settings"]);
+            if applied_policy.as_ref() != Some(&policy) {
+                policy.apply_to_current_thread();
+                if let Some((_, ref mut eng)) = engines {
+                    eng.set_thread_policy(policy.clone());
+                }
+                applied_policy = Some(policy);
+            }
         }
         if s.pending.is_none() && Instant::now() < deadline {
             // Release capture when the context lease expires, even at a slow
@@ -373,8 +347,14 @@ fn run(app: tauri::AppHandle, shared: Shared) {
         let start = Instant::now();
         let mut captured_at = milliseconds();
         let profile = PathBuf::from(config["profile"].as_str().unwrap_or_default());
+        let active_policy = applied_policy
+            .clone()
+            .unwrap_or_else(|| ThreadPolicy::from_ocr_settings(settings));
         if engines.as_ref().is_none_or(|(p, _)| *p != profile) {
-            engines = Some((profile.clone(), Engines::new(&profile)));
+            engines = Some((
+                profile.clone(),
+                Engines::with_thread_policy(&profile, active_policy),
+            ));
         }
         let before_inference = inference_calls;
         let mut activity = None;
@@ -711,22 +691,6 @@ fn image_hash(image: &image::RgbaImage) -> u64 {
     hash.finish()
 }
 use gsm_capture::capture_window as capture_frame;
-#[cfg(windows)]
-fn priority(value: &str) {
-    use windows::Win32::System::Threading::*;
-    let value = match value {
-        "low" => THREAD_PRIORITY_LOWEST,
-        "below_normal" => THREAD_PRIORITY_BELOW_NORMAL,
-        "above_normal" => THREAD_PRIORITY_ABOVE_NORMAL,
-        "high" => THREAD_PRIORITY_HIGHEST,
-        _ => THREAD_PRIORITY_NORMAL,
-    };
-    unsafe {
-        let _ = SetThreadPriority(GetCurrentThread(), value);
-    }
-}
-#[cfg(not(windows))]
-fn priority(_value: &str) {}
 
 #[cfg(test)]
 mod tests {

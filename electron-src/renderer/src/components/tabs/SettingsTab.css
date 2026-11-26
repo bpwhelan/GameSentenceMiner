@@ -1,3 +1,54 @@
+.settings-tab > .settings-category-panel {
+  flex: 1;
+  min-height: 0;
+}
+.settings-tab > .settings-category-panel[hidden] {
+  display: none;
+}
+.settings-categories,
+.settings-general-pages {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.settings-categories {
+  flex-shrink: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--gsm-border-subtle);
+  background: var(--gsm-surface-1);
+}
+.settings-categories button,
+.settings-desk .settings-general-pages button {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gsm-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-categories button:hover,
+.settings-desk .settings-general-pages button:hover {
+  background: var(--gsm-surface-hover);
+}
+.settings-categories button[aria-pressed="true"],
+.settings-desk .settings-general-pages button[aria-pressed="true"] {
+  border-color: var(--gsm-accent-border);
+  background: var(--gsm-accent-soft);
+  color: var(--gsm-accent-text);
+}
+.settings-categories button:focus-visible {
+  outline: 2px solid var(--gsm-accent);
+}
+.settings-desk .ws-main:has(> .settings-general-pages) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.settings-general-pages {
+  margin: 0 clamp(16px, 4%, 36px) 14px;
+}
 .settings-desk .settings-workspace-search {
   position: relative;
   margin: 0 5px 24px;

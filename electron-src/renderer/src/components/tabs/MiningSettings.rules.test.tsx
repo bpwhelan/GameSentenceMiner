@@ -65,6 +65,7 @@ function buildRichFields() {
         makeField('anki.autoplay_audio', false),
         makeField('features.full_auto', true),
         makeField('features.review_after_session.enabled', false),
+        makeField('features.review_after_session.open_on_card_queued', true),
         makeField('features.review_after_session.max_future_context_lines', 3, { range: [0, 100] }),
         makeField('screenshot.enabled', true),
         makeField('screenshot.animated', false),
@@ -289,6 +290,10 @@ describe('MiningSettings Qt rules parity', () => {
         await act(async () => afterRadio.click());
         expect(document.getElementById('mining-field-anki.skip_confirmation_for_unvoiced')).toBeNull();
         expect(document.getElementById('mining-field-features.review_after_session.max_future_context_lines')).toBeTruthy();
+        const liveReview = document.getElementById('mining-field-features.review_after_session.open_on_card_queued') as HTMLInputElement;
+        expect(liveReview.checked).toBe(true);
+        await act(async () => liveReview.click());
+        expect(liveReview.checked).toBe(false);
         expect(document.getElementById('mining-field-anki.autoplay_audio')).toBeTruthy();
     });
 

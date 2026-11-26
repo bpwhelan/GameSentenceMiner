@@ -17,6 +17,7 @@ start_ipc_listener, send_event, announce_*) so gsm_ocr.py doesn't need to change
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -157,16 +158,23 @@ def start_ipc_listener() -> Optional[threading.Thread]:
     legacy stdin reader thread.
     """
     global _stopping
+    from GameSentenceMiner.ocr.preview import PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview
+
     with _text_outbox_lock:
         _stopping = False
     if _use_bus():
         client = bus_client.start_bus()
-        from GameSentenceMiner.ocr.preview import PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview
-
         client.handle(PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview)
         client.subscribe(OCR_COMMAND_TOPIC, _on_bus_command)
         logger.info("OCR IPC listener started (message bus)")
         return None
+
+    if os.environ.get("GSM_OBS_READER_PORT"):
+        from GameSentenceMiner.obs import desktop_session
+
+        # Tauri sends commands over stdin. Its existing OBS reader connection
+        # also serves on-demand snapshots of the last completed OCR pass.
+        desktop_session.reader_bus().handle(PREVIEW_GEOMETRY_TOPIC, handle_geometry_preview)
 
     global _stdin_thread
     if _stdin_thread and _stdin_thread.is_alive():

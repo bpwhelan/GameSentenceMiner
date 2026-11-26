@@ -115,6 +115,36 @@ pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
     {
         return Err("Invalid pause value was accepted".into());
     }
+    let text_url = format!("{base}/api/text");
+    for (content_type, body, status) in [
+        ("application/json", "{", 400),
+        ("text/plain", "   ", 400),
+        ("application/octet-stream", "text", 415),
+    ] {
+        let response = http
+            .post(&text_url)
+            .header("Content-Type", content_type)
+            .body(body)
+            .send()
+            .await
+            .map_err(err)?;
+        if response.status().as_u16() != status {
+            return Err(format!(
+                "Expected {status} from text intake, got {}",
+                response.status()
+            ));
+        }
+    }
+    let browser = http
+        .post(&text_url)
+        .header("Origin", "https://example.invalid")
+        .json(&json!({"text":"第四行"}))
+        .send()
+        .await
+        .map_err(err)?;
+    if browser.status().as_u16() != 403 {
+        return Err("Text intake accepted a browser-origin request".into());
+    }
     let set_pause = |paused| {
         let request = http
             .post(format!("{base}/set_text_intake_paused"))
@@ -152,10 +182,25 @@ pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
                 return Err("Reloading the learning language lost live intake state".into());
             }
         }
-        let ack =
-            crate::text_intake::submit(app, json!({"source":"texthook","text":text}), None).await?;
-        if ack["status"] != "accepted" {
-            return Err(format!("Text intake failed: {ack}"));
+        let request = http.post(&text_url);
+        let request = match text {
+            "第一行" => request.json(&json!({"sentence":text})),
+            "第二行" => request
+                .header("Content-Type", "text/plain; charset=utf-8")
+                .body(text),
+            _ => request.json(&json!({"text":text})),
+        };
+        let ack: Value = request
+            .send()
+            .await
+            .map_err(err)?
+            .error_for_status()
+            .map_err(err)?
+            .json()
+            .await
+            .map_err(err)?;
+        if ack["status"] != "accepted" || ack["raw_text"] != text {
+            return Err(format!("HTTP text intake failed: {ack}"));
         }
     }
     for (enabled, text) in [(false, "第四行"), (true, "第五行")] {
@@ -184,7 +229,16 @@ pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
         ))
         .await
         .map_err(|e| e.to_string())?;
-        let _snapshot = next_event(&mut feed, "event", "text_v2_snapshot").await?;
+        let snapshot = next_event(&mut feed, "event", "text_v2_snapshot").await?;
+        if !snapshot["lines"].as_array().is_some_and(|lines| {
+            lines.iter().any(|line| {
+                line["text"] == "第三行"
+                    && line["source_display_name"] == "HTTP"
+                    && line["relay_only"] == false
+            })
+        }) {
+            return Err(format!("HTTP text missing from Text Feed: {snapshot}"));
+        }
         crate::runtime::observe_hook(
             app,
             json!({"engine":"agent","hookId":"agent","exeName":"fixture.exe","text":text}),

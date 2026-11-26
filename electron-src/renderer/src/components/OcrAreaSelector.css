@@ -100,3 +100,57 @@
 }
 .ocr-selector-menu button { text-align: left; border-color: transparent; background: transparent; }
 .ocr-selector-menu hr { width: 100%; border: 0; border-top: 1px solid #555; margin: 3px 0; }
+
+.ocr-selector-dialog {
+    position: fixed;
+    inset: 0;
+    width: calc(100vw - 24px);
+    height: calc(100dvh - 24px);
+    max-width: none;
+    max-height: none;
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--gsm-border-strong);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--gsm-surface-0);
+}
+.ocr-selector-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+:is(.ocr-selector-dialog, .ocr-selector-workspace) .ocr-selector { height: 100%; }
+:is(.ocr-selector-dialog, .ocr-selector-workspace) .ocr-selector-toolbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: 8px;
+    white-space: normal;
+    overflow: visible;
+}
+:is(.ocr-selector-dialog, .ocr-selector-workspace) .ocr-selector-toolbar > button:last-child { position: static; }
+:is(.ocr-selector-dialog, .ocr-selector-workspace) .ocr-selector-toolbar button { min-height: 28px; }
+
+.ocr-desk:has(> .ocr-selector-workspace) > :is(.desk-sidebar, .desk-workspace) { display: none; }
+.ocr-selector-workspace .ocr-selector-menu-dismiss { position: absolute; }
+.ocr-selector-workspace {
+    position: relative;
+    grid-column: 1 / -1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(220px, 24vw, 360px);
+    grid-template-rows: minmax(0, 1fr);
+}
+.ocr-selector-feed {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+    padding: 8px;
+    background: var(--gsm-surface-0);
+}
+.ocr-selector-feed .desk-text-feed { flex: 1; }
+.ocr-desk .ocr-selector-feed .desk-text-panel { flex: 1; height: auto; }
+@media (max-width: 760px) {
+    .ocr-selector-workspace {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr) minmax(120px, 28%);
+    }
+}

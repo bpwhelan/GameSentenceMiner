@@ -5,7 +5,7 @@ from datetime import timedelta
 from functools import wraps
 from pathlib import Path
 
-from PyQt6.QtCore import QSignalBlocker, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QSignalBlocker, Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -54,7 +54,7 @@ class ReviewEditor(AnkiConfirmationDialog):
 
     def showEvent(self, event):
         QDialog.showEvent(self, event)
-        if getattr(get_config().anki, "confirmation_gamepad_enabled", False):
+        if self.window().isActiveWindow() and getattr(get_config().anki, "confirmation_gamepad_enabled", False):
             self._start_gamepad_capture()
 
     def accept(self):
@@ -184,8 +184,11 @@ class SessionReviewWindow(QDialog):
     work_finished = pyqtSignal(object, object)
     card_work_finished = pyqtSignal(str, object, object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, live=False):
         super().__init__(parent)
+        self.live = live
+        self._quiet_selection = live
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, live)
         self.setWindowTitle("Review Anki cards after session")
         self.resize(1180, 790)
         self.entries = []
@@ -282,6 +285,14 @@ class SessionReviewWindow(QDialog):
         self.refresh_timer.timeout.connect(self._append_new_entries)
         self.refresh_timer.start()
         self.refresh()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and hasattr(self, "editor") and self.editor.isVisible():
+            if not self.isActiveWindow():
+                self.editor._stop_gamepad_capture()
+            elif getattr(get_config().anki, "confirmation_gamepad_enabled", False):
+                self.editor._start_gamepad_capture()
 
     def _remember_draft(self):
         if self.current_entry and self.prepared and not self.busy and self.current_entry.id not in self.pending_saves:
@@ -381,6 +392,9 @@ class SessionReviewWindow(QDialog):
         self._update_count()
         self._filter(self.search.text())
         self._refresh_future_context(update_controls=True)
+        if self.live and not known and self.entries and get_config().features.review_after_session.auto_advance:
+            self._quiet_selection = True
+            self._select_next(0)
 
     def _refresh_future_context(self, *, update_controls=False):
         if not self.prepared or self.prepared.future_clip is not None or self.prepared.future_context_access_denied:
@@ -445,8 +459,9 @@ class SessionReviewWindow(QDialog):
         self.editor.show()
         self.editor.setEnabled(True)
         # Restoring a draft cancels pending playback, so queue it only after restoration.
-        if self.editor.autoplay_checkbox.isChecked():
+        if self.editor.autoplay_checkbox.isChecked() and not self._quiet_selection:
             self.editor._queue_autoplay(require_enabled=True)
+        self._quiet_selection = False
         self.status.setText(
             f"{entry.data['scene']} · {entry.data['created_at'][:16].replace('T', ' ')} · edits save to Anki"
         )
@@ -657,7 +672,9 @@ class SessionReviewWindow(QDialog):
     def _close_if_finished(self):
         if self._finished_any and not self.entries and not self.pending_saves and not self.busy:
             self._append_new_entries()
-            if not self.entries:
+            if not self.entries and self.live:
+                self.status.setText("All caught up. New cards will appear here after mining.")
+            elif not self.entries:
                 self.close()
 
     def closeEvent(self, event):
@@ -735,21 +752,38 @@ class SessionReviewController:
                 if QApplication.activeModalWidget() is not None:
                     return
                 self.pending_scene = None
-                self.show()
+                if not settings.open_on_card_queued or self.window is None or not self.window.isVisible():
+                    self.show()
         except Exception:  # noqa: BLE001 - A transient capture error must not escape a Qt timer callback.
             logger.exception("Could not check for session reviews.")
 
-    def show(self):
+    def card_queued(self, entry):
+        config = get_config()
+        settings = config.features.review_after_session
+        if (
+            settings.enabled
+            and settings.open_on_card_queued
+            and config.name == entry.data["profile_name"]
+            and config.anki.url == entry.data["anki_url"]
+        ):
+            self.show(live=True)
+
+    def show(self, *, live=False):
         if self.window is not None and self.window.isVisible():
-            self.window.raise_()
-            self.window.activateWindow()
+            if live:
+                self.window.live = True
+                self.window._append_new_entries()
+            else:
+                self.window.raise_()
+                self.window.activateWindow()
             return
         if self.window is not None:
             self.window.deleteLater()
-        self.window = SessionReviewWindow()
+        self.window = SessionReviewWindow(live=live)
         self.window.show()
-        self.window.raise_()
-        self.window.activateWindow()
+        if not live:
+            self.window.raise_()
+            self.window.activateWindow()
 
 
 def open_session_review():

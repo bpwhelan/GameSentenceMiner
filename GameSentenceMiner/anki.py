@@ -2097,6 +2097,10 @@ def update_anki_card(
         finally:
             if review_entry:
                 session_review.release_entry(review_entry)
+                manager = gsm_state.dialog_manager
+                controller = getattr(manager, "session_review_controller", None)
+                if controller is not None:
+                    manager._execute_on_gui_thread.emit(lambda: controller.card_queued(review_entry))
 
     try:
         submit_background_work(background_update)

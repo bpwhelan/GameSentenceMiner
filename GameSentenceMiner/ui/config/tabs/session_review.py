@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QFormLayout, QLabel, QPushButton, QSpinBox, QWidget
+from PyQt6.QtWidgets import QCheckBox, QFormLayout, QLabel, QPushButton, QSpinBox, QWidget
 
 from ..labels import LabelColor, style_label
 
@@ -16,6 +16,9 @@ def build_session_review_settings(window, binder, i18n):
     )
     description.setWordWrap(True)
     layout.addRow(description)
+    open_on_queue = QCheckBox(labels.get("open_on_card_queued", "Open review when a card is queued"))
+    binder.bind(("profile", "features", "review_after_session", "open_on_card_queued"), open_on_queue)
+    layout.addRow(open_on_queue)
     future_lines = QSpinBox()
     future_lines.setRange(0, 100)
     future_lines.setToolTip(

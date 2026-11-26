@@ -2,8 +2,9 @@
 //! control window. Game scripts never receive the desktop service credential.
 use serde_json::{json, Value};
 use std::{
+    ffi::OsStr,
     fs,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tauri::Manager;
@@ -28,6 +29,46 @@ impl Agent {
         }
     }
 }
+fn resolve_local_runtime_archive(
+    helper: &Path,
+    desktop: &Path,
+    root: &Path,
+    filename: &str,
+    cargo_target_dir: Option<&OsStr>,
+) -> PathBuf {
+    let mut candidates = Vec::new();
+    // Prefer the archive directory recorded when this build's helpers were staged so
+    // launches without CARGO_TARGET_DIR in their environment still find the archive.
+    if let Ok(recorded) = fs::read_to_string(helper.with_file_name("agent-runtime-dir.txt")) {
+        let trimmed = recorded.trim();
+        if !trimmed.is_empty() {
+            let dir = PathBuf::from(trimmed);
+            let dir = if dir.is_absolute() { dir } else { root.join(dir) };
+            candidates.push(dir.join(filename));
+        }
+    }
+    if let Some(target_dir) = cargo_target_dir.filter(|v| !v.is_empty()) {
+        let dir = PathBuf::from(target_dir);
+        let dir = if dir.is_absolute() { dir } else { root.join(dir) };
+        candidates.push(dir.join("runtime").join(filename));
+    }
+    for ancestor in desktop.ancestors().skip(1).take(3) {
+        candidates.push(ancestor.join("runtime").join(filename));
+    }
+    for relative in [
+        "target/runtime",
+        "src-tauri/target/native-dev/runtime",
+        "native/gsm-agent/target/runtime",
+    ] {
+        candidates.push(root.join(relative).join(filename));
+    }
+    candidates
+        .iter()
+        .find(|path| path.is_file())
+        .cloned()
+        .unwrap_or_else(|| candidates.into_iter().next().unwrap())
+}
+
 /// Called on a blocking worker, only when a new Agent/Wine session needs Frida.
 pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let name = "agent-runtime.json";
@@ -42,7 +83,23 @@ pub fn helper_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         let manifest = gsm_packages::agent_runtime::Manifest::read(&helper)?;
         let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
         let filename = manifest.archive.url.rsplit('/').next().ok_or("Missing runtime archive name")?;
-        runtime.ensure_from_archive(&manifest, &root.join("native/gsm-agent/target/runtime").join(filename))?
+        let archive = resolve_local_runtime_archive(
+            &helper,
+            &desktop,
+            root,
+            filename,
+            std::env::var_os("CARGO_TARGET_DIR").as_deref(),
+        );
+        runtime.ensure_from_archive(&manifest, &archive).map_err(|error| {
+            if !archive.is_file() {
+                format!(
+                    "Local Agent runtime archive not found at {} ({error}). Run `npm run build:helpers` or `npm run build:tauri`.",
+                    archive.display()
+                )
+            } else {
+                error
+            }
+        })?
     } else {
         let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
         let manifest = gsm_packages::agent_runtime::Manifest::read(&root.join("native/agent-runtime.json"))?;
@@ -232,4 +289,88 @@ pub async fn agent_ui_call(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_local_runtime_archive;
+    use std::{ffi::OsStr, fs, path::PathBuf};
+
+    #[test]
+    fn resolves_local_runtime_archive_across_target_layouts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let snapshot = root.join("src-tauri/target/desktop-runs/win32-x64-01234567890123456789");
+        fs::create_dir_all(&snapshot).unwrap();
+        let helper = snapshot.join("agent-runtime.json");
+        let desktop = snapshot.join("gsm-desktop.exe");
+        let filename = "gsm-agent-runtime-win32-x64-test.zip";
+
+        let legacy = root.join("native/gsm-agent/target/runtime").join(filename);
+        fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        fs::write(&legacy, b"legacy").unwrap();
+        assert_eq!(
+            resolve_local_runtime_archive(&helper, &desktop, root, filename, None),
+            legacy
+        );
+
+        let workspace = root.join("target/runtime").join(filename);
+        fs::create_dir_all(workspace.parent().unwrap()).unwrap();
+        fs::write(&workspace, b"workspace").unwrap();
+        assert_eq!(
+            resolve_local_runtime_archive(&helper, &desktop, root, filename, None),
+            workspace
+        );
+
+        let dev_target = root.join("custom-dev-target");
+        let dev_desktop = dev_target.join("debug/gsm-desktop.exe");
+        let dev_archive = dev_target.join("runtime").join(filename);
+        fs::create_dir_all(dev_archive.parent().unwrap()).unwrap();
+        fs::write(&dev_archive, b"dev").unwrap();
+        assert_eq!(
+            resolve_local_runtime_archive(
+                &dev_desktop.with_file_name("agent-runtime.json"),
+                &dev_desktop,
+                root,
+                filename,
+                None,
+            ),
+            dev_archive
+        );
+
+        let env_target = root.join("shared-target");
+        let env_archive = env_target.join("runtime").join(filename);
+        fs::create_dir_all(env_archive.parent().unwrap()).unwrap();
+        fs::write(&env_archive, b"env").unwrap();
+        assert_eq!(
+            resolve_local_runtime_archive(
+                &helper,
+                &desktop,
+                root,
+                filename,
+                Some(OsStr::new("shared-target")),
+            ),
+            env_archive
+        );
+
+        let recorded_dir = root.join("recorded-runtime");
+        let recorded_archive = recorded_dir.join(filename);
+        fs::create_dir_all(&recorded_dir).unwrap();
+        fs::write(&recorded_archive, b"recorded").unwrap();
+        fs::write(
+            helper.with_file_name("agent-runtime-dir.txt"),
+            format!("{}\n", recorded_dir.display()),
+        )
+        .unwrap();
+        assert_eq!(
+            resolve_local_runtime_archive(&helper, &desktop, root, filename, None),
+            recorded_archive
+        );
+
+        let missing = "missing.zip";
+        assert_eq!(
+            resolve_local_runtime_archive(&helper, &desktop, root, missing, None),
+            PathBuf::from(&recorded_dir).join(missing)
+        );
+    }
 }

@@ -302,32 +302,13 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
     if suite == "longplay" { return longplay::run(app).await; }
     if suite == "mining-settings" {
         let timeout = Duration::from_secs(25);
-        let label = crate::mining_settings::WINDOW_LABEL;
         crate::app_lifecycle::create_hub_window(app)?;
         let hub = wait_window_ready(app, crate::app_lifecycle::HUB_WINDOW_LABEL, timeout).await?;
         evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"audio"})"#).await?;
-        let editor = wait_window_ready(app, label, timeout).await?;
-        let result = evaluate_raw(app, &editor, include_str!("../smoke/mining_settings.js")).await?;
-        if evaluate_raw(app, &hub, "!!document.querySelector('.mining-editor')").await? == true {
-            return Err("Settings mounted inside the hub".into());
+        let result = evaluate_raw(app, &hub, include_str!("../smoke/mining_settings.js")).await?;
+        if app.get_webview_window("mining-settings").is_some() {
+            return Err("Mining settings opened a second window".into());
         }
-        editor.close().map_err(|e| e.to_string())?;
-        tokio::time::timeout(timeout, async {
-            while app.get_webview_window(label).is_some() {
-                tokio::time::sleep(Duration::from_millis(40)).await;
-            }
-        }).await.map_err(|_| "Settings window did not close")?;
-        evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"audio"})"#).await?;
-        let reopened = wait_window_ready(app, label, timeout).await?;
-        let value = evaluate_raw(app, &reopened, r#"(async () => {
-            for(let i=0; i<150; i++) {
-                const field=document.getElementById('mining-field-audio.enabled');
-                if (field) return field.checked;
-                await new Promise(r => setTimeout(r,60));
-            }
-            throw Error('No audio setting after reopening');
-        })()"#).await?;
-        if value != result["audio"] {return Err("Saved audio setting changed after reopening".into());}
         evaluate_raw(app, &hub, r#"window.ipcRenderer.invoke("settings.openGSMSettings", {rootTabKey:"obs"})"#).await?;
         evaluate_raw(app, &hub, r#"(async () => {
             for (let i=0; i<150; i++) {
@@ -1636,6 +1617,50 @@ async fn run_ocr_flow_smoke(app: &AppHandle, bus_info: &Value) -> Result<Value, 
     let hwnd = window.hwnd().map_err(|e| e.to_string())?.0 as usize as u64;
     let scene = "Native OCR Smoke";
     app.state::<crate::obs::Obs>().set_smoke_target(scene,hwnd);
+    if std::env::var("GSM_SMOKE_SUITE").as_deref() == Ok("ocr-preview") {
+        // Exercise the same IPC and browser image decoder as the OCR tab, with OCR stopped.
+        crate::app_lifecycle::create_hub_window(app)?;
+        let hub = wait_window_ready(app, crate::app_lifecycle::HUB_WINDOW_LABEL, Duration::from_secs(15)).await?;
+        let read_frame = r#"
+            const request = {sceneId: 'smoke', sceneName: 'Native OCR Smoke', includeBoxes: true};
+            const capture = () => window.ipcRenderer.invoke('ocr.get-preview', request);
+            const start = performance.now();
+            const frame = await capture();
+            if (frame?.sceneId !== request.sceneId || frame.sceneName !== request.sceneName ||
+                !Array.isArray(frame.boxes) || !frame.imageData?.startsWith('data:image/jpeg;base64,'))
+                throw Error('Missing OCR preview frame');
+            const image = new Image();
+            image.src = frame.imageData;
+            await image.decode();
+            if (image.naturalWidth !== frame.width || image.naturalHeight !== frame.height ||
+                frame.width > 960 || frame.height > 720) throw Error('Incorrect preview dimensions');
+            request.sceneId = 'obsolete';
+            if (await capture() !== null) throw Error('Preview returned for obsolete scene');
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(image, 0, 0, 1, 1);
+            return {brightness: ctx.getImageData(0, 0, 1, 1).data[0],
+                    width: frame.width, height: frame.height, elapsedMs: performance.now() - start};
+        "#;
+        let result = async {
+            let first = desktop.evaluate(&hub, read_frame).await?;
+            window.eval("document.body.style.background = 'black'").map_err(|e| e.to_string())?;
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            let next = desktop.evaluate(&hub, read_frame).await?;
+            if first["brightness"].as_u64().unwrap_or_default() < 180 ||
+                next["brightness"].as_u64().unwrap_or(255) > 50 {
+                return Err(format!("Expected the preview to change from white to black: {first} -> {next}"));
+            }
+            crate::tray::show_main_window(app);
+            wait_hub_visibility(app, true).await?;
+            let editor = desktop.evaluate(&hub, include_str!("../smoke/ocr_area_preview.js")).await?;
+            Ok(json!({"first":first,"next":next,"editor":editor}))
+        }.await;
+        let _ = window.close();
+        desktop.unregister_window("gsm-ocr-smoke-target");
+        desktop.assets.unmount("ocr-smoke");
+        return result;
+    }
     let area_path = paths.active.join("ocr_config/NativeOCRSmoke.json");
     std::fs::create_dir_all(area_path.parent().unwrap()).map_err(|e| e.to_string())?;
     std::fs::write(&area_path, json!({"scene":scene,"coordinate_system":"percentage","rectangles":[{"coordinates":[0.0,0.0,1.0,1.0],"is_excluded":false}]}).to_string()).map_err(|e| e.to_string())?;
@@ -1783,6 +1808,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             | "agent"
             | "ocr"
             | "ocr-flow"
+            | "ocr-preview"
             | "ocr-hotkeys"
             | "input"
             | "notifications"
@@ -1827,7 +1853,7 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         return Err("ocr.get-running-state did not return an object".into());
     }
 
-    if matches!(suite, "ocr-flow" | "ocr-hotkeys") {
+    if matches!(suite, "ocr-flow" | "ocr-hotkeys" | "ocr-preview") {
         return run_ocr_flow_smoke(app, &bus_info).await;
     }
 
@@ -2482,11 +2508,22 @@ async fn smoke_overlay_clickthrough(app: &AppHandle, window: &WebviewWindow) -> 
         let mut matched = false;
         for _ in 0..40 {
             tokio::time::sleep(Duration::from_millis(25)).await;
-            if ignores_cursor()? == expected_ignore { matched = true; break; }
+            let interval = crate::windows_input::forwarding_interval(window);
+            let lookup_ms = crate::overlay_pointer::LOOKUP_INTERVAL.as_millis() as u32;
+            if ignores_cursor()? == expected_ignore
+                && interval.is_some_and(|ms| (ms == lookup_ms) == (target == "text")) {
+                matched = true;
+                break;
+            }
         }
-        if !matched { return Err(format!("Native clickthrough failed over {target} with buttons={buttons}")); }
-        if crate::windows_input::forwarding_interval(window).is_none() {
-            return Err("Pointer feed stopped while the overlay was interactive".into());
+        if !matched { return Err(format!("Native clickthrough ownership or polling interval failed over {target} with buttons={buttons}")); }
+        if target == "popup" {
+            host.handle_send(app, OVERLAY_MAIN_LABEL, "text-received", &[json!("新しい台詞")]).await;
+            tokio::time::sleep(Duration::from_millis(350)).await;
+            if crate::windows_input::forwarding_interval(window)
+                != Some(crate::overlay_pointer::ACTIVE_INTERVAL.as_millis() as u32) {
+                return Err("Fresh overlay text did not keep off-text cursor polling active".into());
+            }
         }
     }
     host.apply_setting_updates(app, serde_json::from_value(json!({"textHoverClickThrough":false})).unwrap(), true);

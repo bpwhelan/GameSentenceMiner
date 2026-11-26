@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale, useTranslation } from "../../i18n";
 import { onIpc } from "../../lib/ipc";
@@ -14,6 +15,7 @@ const SOURCE_KEYS = new Map([
 
 interface OCRTextFeedProps {
   active?: boolean;
+  viewerTarget?: HTMLElement | null;
   running: boolean;
   paused: boolean;
   manual: boolean;
@@ -68,7 +70,7 @@ function activityFromLog(payload: unknown): Activity | null {
   return null;
 }
 
-export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextFeedProps) {
+export function OCRTextFeed({ active = true, running, paused, manual, viewerTarget }: OCRTextFeedProps) {
   const t = useTranslation();
   const [locale] = useLocale();
   const [captures, setCaptures] = useBufferedState<Capture[]>([], active);
@@ -81,7 +83,7 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
   const closeMenu = useCallback(() => setLineMenu(null), []);
   const timeLocale = locale === "ukr" ? "uk" : locale;
 
-  useEffect(() => { if (!active) setLineMenu(null); }, [active]);
+  useEffect(() => { setLineMenu(null); }, [active, viewerTarget]);
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(null), 4000);
@@ -174,7 +176,7 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
     : "watching";
   const autoStatusKey = state === "watching" && activity !== "error" ? autoActivityKey : null;
 
-  return (
+  const feed = (
     <section className="desk-text-feed" aria-labelledby="ocr-text-title">
       <div className="desk-section-heading">
         <div>
@@ -267,4 +269,5 @@ export function OCRTextFeed({ active = true, running, paused, manual }: OCRTextF
         onSaved={removed => setNotice(t(removed ? "sentenceExclusions.removed" : "sentenceExclusions.added", { game: lineMenu.capture.game }))} />}
     </section>
   );
+  return viewerTarget ? createPortal(feed, viewerTarget) : feed;
 }

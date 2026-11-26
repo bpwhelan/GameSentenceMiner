@@ -89,9 +89,8 @@ class PreviewGeometry:
         with self._lock:
             if self._expires <= self._clock() or not request.get("enabled"):
                 self._latest = None
-            # Live previews can wait three seconds between captures, plus the
-            # capture request timeout. Keep geometry alive across that gap.
-            self._expires = self._clock() + 10 if request.get("enabled") else 0
+            # An unfocused desktop polls every 15 seconds. Allow time for capture and IPC.
+            self._expires = self._clock() + 25 if request.get("enabled") else 0
             if self._latest and self._latest["sceneName"] == request.get("sceneName"):
                 return self._latest
             return None

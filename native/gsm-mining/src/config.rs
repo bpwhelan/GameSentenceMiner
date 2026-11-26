@@ -324,8 +324,10 @@ impl AnkiConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ReviewAfterSessionConfig {
     pub enabled: bool,
+    pub open_on_card_queued: bool,
     pub open_on_game_close: bool,
     pub delay_seconds: i64,
     pub auto_advance: bool,
@@ -338,6 +340,7 @@ impl Default for ReviewAfterSessionConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            open_on_card_queued: true,
             open_on_game_close: true,
             delay_seconds: 3,
             auto_advance: true,
@@ -1131,6 +1134,9 @@ impl ProfileConfig {
             if let Some(r) = f.get("review_after_session").and_then(Value::as_object) {
                 if let Some(v) = get_bool(r, "enabled") {
                     cfg.features.review_after_session.enabled = v;
+                }
+                if let Some(v) = get_bool(r, "open_on_card_queued") {
+                    cfg.features.review_after_session.open_on_card_queued = v;
                 }
                 if let Some(v) = get_bool(r, "open_on_game_close") {
                     cfg.features.review_after_session.open_on_game_close = v;
@@ -1944,6 +1950,18 @@ pub fn resolve_media_tool(tool: &str, app_dir: Option<&Path>) -> PathBuf {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn live_review_defaults_on_and_can_be_disabled_per_profile() {
+        for (review, expected) in [
+            (json!({"enabled": true}), true),
+            (json!({"enabled": true, "open_on_card_queued": false}), false),
+        ] {
+            let profile = json!({"features": {"review_after_session": review}});
+            let parsed = ProfileConfig::from_profile_object("Game", profile.as_object().unwrap());
+            assert_eq!(parsed.features.review_after_session.open_on_card_queued, expected);
+        }
+    }
 
     #[test]
     fn parses_profile_defaults_and_normalizes_fields() {

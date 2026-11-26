@@ -57,7 +57,13 @@ async function openAddGameDialog(container: HTMLElement) {
   return container.querySelector<HTMLElement>("#home-new-capture")!;
 }
 
+async function openLibrary(container: HTMLElement) {
+  const toggle = container.querySelector<HTMLButtonElement>(".home-library-toggle")!;
+  if (toggle.getAttribute("aria-expanded") === "false") await act(async () => toggle.click());
+}
+
 async function openGameMenu(container: HTMLElement, sceneId: string) {
+  await openLibrary(container);
   const trigger = container.querySelector<HTMLButtonElement>(`[data-game-menu-id="${sceneId}"]`)!;
   await act(async () => { trigger.focus(); trigger.click(); await flushAsyncWork(); });
   return document.querySelector<HTMLElement>("#home-game-menu")!;
@@ -268,20 +274,25 @@ describe("HomeTab", () => {
     });
 
     const overlayCard = container.querySelector(".home-overlay-card");
-    const utilities = container.querySelector(".home-quick-actions");
+    const settingsLink = container.querySelector(".home-settings-link");
     const statusCard = container.querySelector(".home-status-card");
+    const library = container.querySelector("#home-game-library");
 
     expect(container.querySelector("#home-new-capture")).toBeNull();
+    expect(container.querySelector(".home-library-toggle")).toBeNull();
+    expect(library).not.toBeNull();
+    expect(library?.hasAttribute("hidden")).toBe(false);
     expect(container.querySelector("#home-empty-game-heading")?.textContent).toBe("No games added yet.");
     expect(overlayCard).not.toBeNull();
-    expect(utilities).not.toBeNull();
+    expect(settingsLink).not.toBeNull();
     expect(statusCard).not.toBeNull();
 
     expect(overlayCard?.textContent).toContain("Overlay");
     expect(overlayCard?.querySelector('[role="switch"]')).not.toBeNull();
     expect(overlayCard?.textContent).toContain("Run on startup");
-    expect(utilities?.textContent).toContain("Text feed");
-    expect(utilities?.textContent).not.toContain("Run Overlay");
+    expect(overlayCard?.textContent).toContain("Open and close with active game");
+    expect(overlayCard?.textContent).not.toContain("Look up words and mine sentences");
+    expect(settingsLink?.textContent).toContain("GSM Settings");
 
     const guideButton = container.querySelector(".home-overlay-guide-btn");
     expect(guideButton).toBeInstanceOf(HTMLButtonElement);
@@ -295,6 +306,52 @@ describe("HomeTab", () => {
       "open-external-link",
       "https://docs.gamesentenceminer.com/docs/features/overlay",
     );
+  });
+
+  it("shows the selected game's profile and assigns a new one from Home", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    const scenes = [
+      { id: "g1", name: "Game 1" },
+      { id: "g2", name: "Game 2" },
+    ];
+    let assigned = "Japanese";
+    invokeMock.mockImplementation(async (channel: string, input) => {
+      if (channel === "obs.getScenes") return scenes;
+      if (channel === "obs.getActiveScene") return scenes[0];
+      if (channel === "settings.listGSMProfiles") {
+        return { profiles: ["Default", "Japanese"], profileScenes: { [assigned]: ["Game 1"] } };
+      }
+      if (channel === "settings.relateSceneToProfile") assigned = input.profileName;
+      return fallback(channel);
+    });
+    await act(async () => {
+      root.render(<HomeTab active />);
+      await flushAsyncWork();
+    });
+    const picker = container.querySelector<HTMLSelectElement>("#home-scene-profile-select")!;
+    expect(picker?.value).toBe("Japanese");
+    await act(async () => setElementValue(picker, "Default", "change"));
+    expect(invokeMock).toHaveBeenCalledWith("settings.relateSceneToProfile", {
+      sceneName: "Game 1", profileName: "Default", createNew: false,
+    });
+    expect(picker.value).toBe("Default");
+    expect(container.querySelector(".home-library-search")).toBeNull();
+  });
+
+  it("switches the active profile when Home has no game to assign", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    let currentProfile = "Japanese";
+    invokeMock.mockImplementation(async (channel: string, input) => {
+      if (channel === "settings.listGSMProfiles") return { profiles: ["Default", "Japanese"], currentProfile, profileScenes: {} };
+      if (channel === "settings.mining.activate") currentProfile = input.name;
+      return fallback(channel);
+    });
+    await act(async () => root.render(<HomeTab active />));
+    const picker = container.querySelector<HTMLSelectElement>("#home-scene-profile-select")!;
+    expect(picker.value).toBe("Japanese");
+    await act(async () => setElementValue(picker, "Default", "change"));
+    expect(invokeMock).toHaveBeenCalledWith("settings.mining.activate", { name: "Default" });
+    expect(picker.value).toBe("Default");
   });
 
   it("keeps sidebar statuses visible and updates them without a disclosure", async () => {
@@ -335,6 +392,10 @@ describe("HomeTab", () => {
         root.render(<HomeTab active />);
         await flushAsyncWork();
       });
+      expect(container.querySelector(".home-game-button")).toBeNull();
+      expect(container.querySelector(".home-library-search")).toBeNull();
+      expect(container.querySelector(".home-add-game")?.closest("[hidden]")).toBeNull();
+      await openLibrary(container);
       expect(container.querySelectorAll(".home-game-button")).toHaveLength(50);
       expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
       const search = container.querySelector<HTMLInputElement>(".home-library-search input")!;
@@ -375,7 +436,7 @@ describe("HomeTab", () => {
     expect(setup.getAttribute("aria-modal")).toBe("true");
     expect(document.activeElement).toBe(container.querySelector("#home-window-search"));
     expect(container.querySelector<HTMLElement>(".home-current-game")?.hidden).toBe(false);
-    expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("Saved Game");
+    expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Saved Game");
     await act(async () => {
       selectCaptureTarget(container, "window-1");
     });
@@ -440,10 +501,12 @@ describe("HomeTab", () => {
     await act(async () => addGame.click());
     expect(container.querySelector("#home-new-capture")?.getAttribute("role")).toBe("dialog");
     await act(async () => container.querySelector<HTMLElement>("#home-new-capture")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await openLibrary(container);
     await act(async () => container.querySelector<HTMLButtonElement>('[data-scene-id="second"]')!.click());
     expect(invokeMock).toHaveBeenCalledWith("obs.switchScene.id", "second");
     expect(container.querySelector("#home-new-capture")).toBeNull();
     expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("Second Game");
+    expect(container.querySelector(".home-library-toggle")?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("returns to the add-game prompt after the last saved game is removed", async () => {
@@ -519,6 +582,7 @@ describe("HomeTab", () => {
     expect(attempt).toBe(2);
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.querySelector("#home-current-game-heading")?.textContent).toBe("My Game");
+    await openLibrary(container);
     expect(container.querySelector('[aria-current="true"]')?.textContent).toBe("My Game");
   });
 
@@ -641,8 +705,6 @@ describe("HomeTab", () => {
       if (channel === "settings.saveSettings") {
         if (failSave) return { success: false };
         saved = { ...saved, ...patch };
-        if (patch.runOverlayOnStartup) saved.runOverlayWithActiveGame = false;
-        if (patch.runOverlayWithActiveGame) saved.runOverlayOnStartup = false;
         return { success: true, settings: saved };
       }
       return fallback(channel);
@@ -653,7 +715,7 @@ describe("HomeTab", () => {
     expect(startup.checked).toBe(true);
     expect(activeGame.checked).toBe(false);
     await act(async () => activeGame.click());
-    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", { runOverlayWithActiveGame: true });
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", { runOverlayWithActiveGame: true, runOverlayOnStartup: false });
     expect(startup.checked).toBe(false);
     expect(activeGame.checked).toBe(true);
     failSave = true;
@@ -665,26 +727,6 @@ describe("HomeTab", () => {
     await act(async () => startup.click());
     expect(startup.checked).toBe(true);
     expect(activeGame.checked).toBe(false);
-  });
-
-  it("persists the overlay startup toggle from the overlay card", async () => {
-    await act(async () => {
-      root.render(<HomeTab active />);
-      await flushAsyncWork();
-    });
-
-    const startupToggle = container.querySelector("#home-overlay-startup-toggle");
-    expect(startupToggle).toBeInstanceOf(HTMLInputElement);
-
-    await act(async () => {
-      (startupToggle as HTMLInputElement).click();
-      await flushAsyncWork();
-    });
-
-    expect(invokeMock).toHaveBeenCalledWith(
-      "settings.saveSettings",
-      { runOverlayOnStartup: true },
-    );
   });
 
   it("toggles the integrated overlay in both directions and keeps settings separate", async () => {

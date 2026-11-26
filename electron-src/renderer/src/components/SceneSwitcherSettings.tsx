@@ -3,6 +3,14 @@ import { invokeIpc, onIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
 import type { ObsScene } from "../types/models";
 import type { WindowSceneSwitcherState } from "../../../shared/window_scene_switcher";
+import { escapeRegexCharacters } from "../../../shared/capture_window_policy";
+
+const titleMatchHelpers = [
+  { labelKey: "sceneSwitcher.matchAnywhere", prefix: "", suffix: "" },
+  { labelKey: "sceneSwitcher.matchExactly", prefix: "^", suffix: "$" },
+  { labelKey: "sceneSwitcher.startsWith", prefix: "^", suffix: "" },
+  { labelKey: "sceneSwitcher.endsWith", prefix: "", suffix: "$" },
+] as const;
 
 interface SceneSwitcherSettingsProps {
   scene: ObsScene;
@@ -31,6 +39,7 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
   const t = useTranslation();
   const [state, setState] = useState<WindowSceneSwitcherState | null>(null);
   const [titlePattern, setTitlePattern] = useState("");
+  const [literalTitle, setLiteralTitle] = useState("");
   const [ruleEnabled, setRuleEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -61,14 +70,14 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
   const patternError = useMemo(() => getPatternError(titlePattern), [titlePattern]);
   const hasValidPattern = Boolean(titlePattern.trim()) && !patternError;
 
-  const save = useCallback(async (enabled: boolean) => {
-    if (!hasValidPattern || saving) return false;
+  const save = useCallback(async (enabled: boolean, pattern: string) => {
+    if (!pattern.trim() || getPatternError(pattern) || saving) return false;
     setSaving(true);
     try {
       const result = await invokeIpc<SaveRuleResponse>("scene-switcher.saveRule", {
         sceneUuid: scene.id,
         sceneName: scene.name,
-        titlePattern,
+        titlePattern: pattern,
         enabled,
       });
       if (!result.success) {
@@ -85,7 +94,7 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
     } finally {
       setSaving(false);
     }
-  }, [hasValidPattern, load, saving, scene.id, scene.name, t, titlePattern]);
+  }, [load, saving, scene.id, scene.name, t]);
 
   const savePattern = useCallback(async () => {
     if (!dirtyRef.current || patternError) return;
@@ -104,16 +113,16 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
       }
       return;
     }
-    await save(ruleEnabled);
+    await save(ruleEnabled, titlePattern);
   }, [load, patternError, ruleEnabled, save, scene.id, t, titlePattern]);
 
   const toggleRule = useCallback(async (enabled: boolean) => {
     const previous = ruleEnabled;
     setRuleEnabled(enabled);
-    if (!(await save(enabled))) {
+    if (!(await save(enabled, titlePattern))) {
       setRuleEnabled(previous);
     }
-  }, [ruleEnabled, save]);
+  }, [ruleEnabled, save, titlePattern]);
 
   const useCaptureSource = useCallback(async () => {
     if (loadingCaptureSource || saving) return;
@@ -189,6 +198,36 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
           aria-invalid={Boolean(patternError)}
         />
         {patternError && <span className="scene-switcher-settings__error">{patternError}</span>}
+      </div>
+
+      <div className="scene-switcher-settings__field">
+        <label htmlFor={`scene-switcher-literal-${scene.id}`}>{t("sceneSwitcher.buildFromText")}</label>
+        <input
+          id={`scene-switcher-literal-${scene.id}`}
+          type="text"
+          value={literalTitle}
+          placeholder={t("sceneSwitcher.literalPlaceholder")}
+          onChange={(event) => setLiteralTitle(event.target.value)}
+          spellCheck={false}
+        />
+        <div className="scene-switcher-settings__helpers">
+          {titleMatchHelpers.map(({ labelKey, prefix, suffix }) => (
+            <button
+              key={labelKey}
+              type="button"
+              className="secondary"
+              disabled={!literalTitle.trim() || saving || loadingCaptureSource}
+              onClick={() => {
+                const pattern = prefix + escapeRegexCharacters(literalTitle.trim()) + suffix;
+                dirtyRef.current = true;
+                setTitlePattern(pattern);
+                void save(ruleEnabled, pattern);
+              }}
+            >
+              {t(labelKey)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {!state?.migrationReady && state && (

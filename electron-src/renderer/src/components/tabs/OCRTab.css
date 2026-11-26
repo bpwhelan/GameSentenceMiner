@@ -447,13 +447,13 @@
   --area-color: #ba94ed;
 }
 .ocr-desk :is(.desk-map-area--excluded, .desk-map-key--excluded) {
-  --area-color: var(--gsm-danger-text);
+  --area-color: #ffa500;
 }
 .ocr-desk :is(.desk-map-area--black-hole, .desk-map-key--black-hole) {
-  --area-color: var(--gsm-text-secondary);
+  --area-color: #222;
 }
 .ocr-desk :is(.desk-map-area--exclusive, .desk-map-key--exclusive) {
-  --area-color: var(--gsm-accent);
+  --area-color: #00dcff;
 }
 .ocr-desk .desk-map-area--excluded rect {
   stroke-dasharray: 4 3;
@@ -467,55 +467,6 @@
 }
 .ocr-desk .desk-map-canvas--preview .desk-map-area rect {
   fill: color-mix(in srgb, var(--area-color) 5%, transparent);
-}
-.ocr-desk .desk-map-canvas--editing svg {
-  cursor: crosshair;
-  touch-action: none;
-  user-select: none;
-  outline-offset: -3px;
-}
-.ocr-desk .desk-map-area.is-selected rect {
-  stroke-width: 3;
-  fill: color-mix(in srgb, var(--area-color) 20%, transparent);
-}
-.ocr-desk .desk-map-area.is-drawing {
-  pointer-events: none;
-}
-.ocr-desk .desk-map-area.is-drawing rect {
-  stroke-dasharray: 5 3;
-}
-.ocr-desk .desk-area-editor-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 8px;
-  margin: 10px 0;
-}
-.ocr-desk .desk-area-editor-toolbar label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  color: var(--gsm-text-muted);
-  font-size: 11px;
-}
-.ocr-desk .desk-area-editor-toolbar :is(button, select) {
-  min-height: 32px;
-  font-size: 12px;
-}
-.ocr-desk .desk-area-editor-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-.ocr-desk .desk-area-editor-hint {
-  margin: 10px 0;
-  color: var(--gsm-text-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-.ocr-desk .desk-area-editor-error {
-  color: var(--gsm-danger-text);
-  font-size: 12px;
 }
 .ocr-desk .desk-preview-box {
   fill: none;
@@ -566,7 +517,6 @@
   width: 12px;
   height: 12px;
 }
-.ocr-desk .desk-preview-pause,
 .ocr-desk .desk-preview-refresh {
   min-height: 26px;
   padding: 3px 7px;
@@ -586,6 +536,11 @@
   border: 1px solid var(--gsm-border-default);
   background: var(--gsm-surface-1);
   color: var(--gsm-text-secondary);
+}
+.ocr-desk .desk-map-canvas:is(:hover, :focus-visible):enabled .desk-map-edit {
+  background: var(--gsm-accent);
+  border-color: var(--gsm-accent);
+  color: var(--gsm-surface-0);
 }
 .ocr-desk .desk-map-edit svg {
   width: 14px;
@@ -1343,12 +1298,29 @@
 .ocr-desk .desk-tools-panel {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 26px;
+  gap: 20px 26px;
   padding: 0;
 }
+.ocr-desk .desk-tools-scheduling-note {
+  grid-column: 1 / -1;
+  margin: -6px 0 2px;
+  font-size: 12px;
+  color: var(--gsm-text-muted);
+  line-height: 1.45;
+}
+.ocr-desk .desk-tools-cores-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--gsm-text-muted);
+}
+.ocr-desk .desk-tools-cores-hint.is-warning {
+  color: var(--gsm-warning, #f0b429);
+}
 .ocr-desk .desk-tools-toggles {
+  grid-column: 1 / -1;
   display: grid;
-  gap: 20px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 26px;
 }
 .ocr-desk .desk-tools-toggles .input-group {
   flex-direction: row-reverse;

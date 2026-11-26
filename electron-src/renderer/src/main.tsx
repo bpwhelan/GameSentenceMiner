@@ -50,8 +50,6 @@ function loadWindow() {
     case "anki-confirmation":
     case "session-review":
       return import("./components/CardReviewWindow").then(module => module.CardReviewWindow);
-    case "mining-settings":
-      return import("./components/tabs/MiningSettings").then(module => module.MiningSettings);
     case "anki-grouping":
       return import("./components/AnkiGroupingDialog").then(module => module.AnkiGroupingDialog);
     case "screenshot-selector":

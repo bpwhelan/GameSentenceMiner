@@ -168,6 +168,7 @@ struct Source {
     id: String,
     name: String,
     selector: Option<Selector>,
+    browser_source: bool,
     inspected: bool,
 }
 
@@ -303,6 +304,7 @@ impl Obs {
             id: id.into(),
             name: String::new(),
             selector: None,
+            browser_source: false,
             inspected: false,
         };
         let scene_selector = if id.is_empty() {
@@ -340,7 +342,8 @@ impl Obs {
         for item in sources {
             let name = text(item, "sourceName");
             if source.name.is_empty() {
-                source.name = name.into()
+                source.name = name.into();
+                source.browser_source = text(item, "inputKind") == "browser_source";
             }
             if matches!(
                 text(item, "inputKind"),
@@ -351,6 +354,7 @@ impl Obs {
                 };
                 if let Some(target) = selector(&settings) {
                     source.name = name.into();
+                    source.browser_source = target.is_browser_source();
                     source.selector = Some(target);
                     break;
                 }
@@ -419,6 +423,7 @@ impl Obs {
             if let Some(s) = source.as_ref() {
                 state = empty(&s.scene, &s.id);
                 state["source_name"] = json!(s.name);
+                state["browser_source"] = json!(s.browser_source);
                 if let Some(window) = s.selector.as_ref() {
                     let selector = window.clone();
                     let previous = target.take();

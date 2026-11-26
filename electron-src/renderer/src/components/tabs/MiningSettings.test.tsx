@@ -21,7 +21,7 @@ const field = {
 let node: HTMLDivElement;
 let root: Root;
 const listeners = new Map<string, () => void>();
-let destination: { root: string; subtab: string } | null;
+type Destination = { root: string; subtab: string };
 let pinned: boolean;
 let audioEnabled: boolean;
 let active: string;
@@ -31,19 +31,16 @@ beforeEach(() => {
     vi.useFakeTimers();
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     listeners.clear();
-    destination = null;
     pinned = false;
     audioEnabled = true;
     active = 'Game';
     beforeApply = () => {};
     invoke.mockReset();
     invoke.mockImplementation(async (channel: string, input) => {
-        if (channel === 'settings.mining.ready' || channel === 'settings.mining.close') return null;
-        if (channel === 'settings.mining.navigation') return destination;
         if (channel === 'settings.mining.ankiChoices') return input.model ? ['Expression', 'Sentence'] : ['Mining'];
         if (channel === 'settings.mining.apply') {
             await beforeApply();
-            for (const edit of input.changes) {
+            for (const edit of input.changes ?? []) {
                 if (edit.path === field.path) {
                     pinned = !edit.inherit;
                     audioEnabled = edit.inherit ? true : edit.value;
@@ -95,11 +92,11 @@ afterEach(async () => {
     vi.useRealTimers();
     node.remove();
 });
-const render = () =>
+const render = (destination?: Destination, active = true) =>
     act(async () => {
         root.render(
             <I18nProvider>
-                <MiningSettings />
+                <MiningSettings active={active} destination={destination} />
             </I18nProvider>,
         );
     });
@@ -115,6 +112,35 @@ const advance = (ms = 500) => act(async () => void (await vi.advanceTimersByTime
 const toggleAudio = () =>
     act(async () => document.getElementById('mining-field-audio.enabled')!.click());
 const applyCalls = () => invoke.mock.calls.filter(([channel]) => channel === 'settings.mining.apply');
+
+it('manages the selected profile directly from the Mining header', async () => {
+    await render();
+    const action = (label: string) => node.querySelector<HTMLButtonElement>(`header [aria-label="${label}"]`)!;
+    await act(async () => action('New profile').click());
+    expect(node.querySelector('.mining-manage select')).toBeTruthy();
+    await click('New scene profile');
+    expect(node.querySelector('.mining-manage input[list="mining-scenes"]')).toBeTruthy();
+    await act(async () => action('Rename profile').click());
+    const name = node.querySelector<HTMLInputElement>('.mining-manage input')!;
+    expect(name.value).toBe('Game');
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'My game');
+        name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('Rename profile');
+    expect(applyCalls().at(-1)?.[1]).toEqual({ op: 'rename', view: 'mining', target: 'Game', name: 'My game' });
+    await act(async () => action('Delete profile').click());
+    expect(node.textContent).toContain('Remove settings for Game?');
+    await click('Cancel');
+    expect(applyCalls()).toHaveLength(1);
+    await act(async () => {
+        const picker = node.querySelector<HTMLSelectElement>('#mining-target')!;
+        picker.value = '"VN"';
+        picker.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(action('Delete profile').disabled).toBe(true);
+    expect(action('Rename profile').disabled).toBe(false);
+});
 
 it('pins an unchanged value and returns it to inheritance without changing the active game', async () => {
     await render();
@@ -183,8 +209,7 @@ it('exposes categories directly in the settings window', async () => {
     expect(row.querySelector('[data-tip]')?.getAttribute('data-tip')).toContain('Restart GSM');
     expect(row.textContent).not.toContain('Restart GSM');
     expect(document.getElementById('mining-field-anki.sentence.name')).toBeTruthy();
-    destination = { root: 'anki', subtab: 'tags' };
-    await act(async () => listeners.get('settings.mining.navigate')!());
+    await render({ root: 'anki', subtab: 'tags' });
     expect(node.querySelector('[role=tab][aria-selected=true]')?.textContent).toBe('Tags');
     expect(document.getElementById('mining-field-anki.custom_tags')).toBeTruthy();
     expect((document.getElementById('mining-search') as HTMLInputElement).value).toBe('');
@@ -194,32 +219,23 @@ it('follows a queued shortcut after autosaving and keeps the selected profile', 
     await render();
     await click('Audio');
     await click('Keep this value');
-    destination = { root: 'key_settings', subtab: '' };
-    await act(async () => listeners.get('settings.mining.navigate')!());
+    await render({ root: 'key_settings', subtab: '' });
     expect(node.querySelector<HTMLSelectElement>('#mining-target')?.value).toBe('"Game"');
     await advance();
     expect(node.querySelector<HTMLSelectElement>('#mining-target')?.value).toBe('"Game"');
     expect(node.querySelector('h2')?.textContent).toBe('Key Settings');
 });
-it('closes a clean window immediately', async () => {
-    await render();
-    await act(async () => listeners.get('settings.mining.requestClose')!());
-    expect(invoke).toHaveBeenCalledWith('settings.mining.close');
-});
-
-it('flushes edits when closing and waits for them to persist', async () => {
+it('flushes edits when leaving Mining and releases desktop keyboard shortcuts', async () => {
     await render();
     await click('Audio');
     await toggleAudio();
-    let finishSave!: () => void;
-    beforeApply = () => new Promise<void>((resolve) => { finishSave = resolve; });
-
-    await act(async () => listeners.get('settings.mining.requestClose')!());
+    await render(undefined, false);
     await advance(0);
     expect(applyCalls()).toHaveLength(1);
-    expect(invoke).not.toHaveBeenCalledWith('settings.mining.close');
-    await act(async () => finishSave());
-    expect(invoke).toHaveBeenCalledWith('settings.mining.close');
+    expect(audioEnabled).toBe(false);
+    const find = new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, cancelable: true });
+    window.dispatchEvent(find);
+    expect(find.defaultPrevented).toBe(false);
 });
 
 it('preserves and rebases changes made while an autosave is in flight', async () => {
@@ -274,10 +290,13 @@ it('autosaves valid edits while an invalid field is still being corrected', asyn
     expect(applyCalls()[0][1].changes.map((edit: { path: string }) => edit.path)).toEqual([
         'audio.enabled',
     ]);
-    await act(async () => listeners.get('settings.mining.requestClose')!());
-    expect(invoke).not.toHaveBeenCalledWith('settings.mining.close');
-    await click('Discard and close');
-    expect(invoke).toHaveBeenCalledWith('settings.mining.close');
+    await render(undefined, false);
+    await render();
+    await click('Discard');
+    await click('Key Settings');
+    const restored = document.getElementById('mining-field-general.single_port') as HTMLInputElement;
+    expect(restored.getAttribute('aria-invalid')).not.toBe('true');
+    expect(restored.value).toBe('7275');
 });
 
 it('edits OBS connections and recording in the hub without registering a second settings window', async () => {

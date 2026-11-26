@@ -1,3 +1,8 @@
+export interface MiningDestination {
+  root: string;
+  subtab: string;
+}
+
 export type SettingsCatalogOwner = "electron" | "python" | "overlay";
 
 export type SettingsCatalogActionType =

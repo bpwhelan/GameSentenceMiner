@@ -85,6 +85,50 @@ describe("SettingsTab data folder controls", () => {
       .IS_REACT_ACT_ENVIRONMENT = false;
   });
 
+  it("lists Dictionary directly after General and selects its sidebar tab from search", async () => {
+    Object.defineProperty(window, "gsmEnv", { configurable: true, value: { platform: "win32", shell: "tauri" } });
+    const nativeInvoke = vi.fn().mockResolvedValue({ reader: "yomitan", browserImport: { supported: false } });
+    Object.defineProperty(window, "__GSM_INVOKE__", { configurable: true, value: nativeInvoke });
+    try {
+      await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+      const general = container.querySelector("#settings-nav-general")!;
+      const dictionary = container.querySelector("#settings-nav-dictionary")!;
+      expect(general.nextElementSibling?.id).toBe(dictionary.id);
+      const search = container.querySelector<HTMLInputElement>("#settings-hub-search")!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "dictionary");
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const result = Array.from(container.querySelectorAll(".settings-directory-item"))
+        .find(item => item.querySelector("strong")?.textContent === "Dictionary")!;
+      await act(async () => result.querySelector<HTMLButtonElement>("button")!.click());
+      expect(dictionary.getAttribute("aria-selected")).toBe("true");
+      expect(document.activeElement?.id).toBe("settings-view-dictionary");
+      expect(nativeInvoke).toHaveBeenCalledWith("dictionary_service", { request: { action: "settings" } });
+    } finally {
+      Reflect.deleteProperty(window, "__GSM_INVOKE__");
+    }
+  });
+
+  it("opens mining in the hub and keeps the selected editor mounted across categories", async () => {
+    Object.defineProperty(window, "gsmEnv", { configurable: true, value: { platform: "win32", shell: "tauri" } });
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => channel === "settings.mining.read"
+      ? { active: "Default", target: "Default", profiles: [{ name: "Default", parent: null, scenes: [] }],
+          fields: [{ path: "audio.enabled", value: true, baseValue: true, pinned: false }] }
+      : fallback(channel));
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.mining.read", expect.anything());
+    await act(async () => container.querySelector<HTMLButtonElement>("#settings-category-mining")!.click());
+    const input = container.querySelector<HTMLInputElement>('[id="mining-field-audio.enabled"]')!;
+    expect(input.closest("[hidden]")).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>("#settings-category-desktop")!.click());
+    expect(input.closest("[hidden]")).toBeTruthy();
+    await act(async () => container.querySelector<HTMLButtonElement>("#settings-category-mining")!.click());
+    expect(container.querySelector('[id="mining-field-audio.enabled"]')).toBe(input);
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.openGSMSettings");
+  });
+
   it("turns off active-game mode when startup is enabled from desktop settings", async () => {
     const fallback = invokeMock.getMockImplementation()!;
     invokeMock.mockImplementation(async (channel: string) => {
@@ -97,6 +141,21 @@ describe("SettingsTab data folder controls", () => {
     expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({
       runOverlayOnStartup: true,
       runOverlayWithActiveGame: false,
+    }));
+  });
+
+  it("turns off startup mode when active-game overlay mode is enabled from desktop settings", async () => {
+    const fallback = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "settings.getSettings") return { runOverlayWithActiveGame: false, runOverlayOnStartup: true };
+      return fallback(channel);
+    });
+    await act(async () => root.render(<I18nProvider><SettingsTab active /></I18nProvider>));
+    const activeGame = container.querySelector<HTMLInputElement>("#run-overlay-active-game")!;
+    await act(async () => activeGame.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", expect.objectContaining({
+      runOverlayWithActiveGame: true,
+      runOverlayOnStartup: false,
     }));
   });
 

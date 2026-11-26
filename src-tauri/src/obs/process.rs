@@ -242,6 +242,13 @@ pub fn show(pid: u32) -> Result<(), String> {
     Ok(())
 }
 pub async fn close(pid: u32, executable: &Path) -> Result<(), String> {
+    close_with_options(pid, executable, false).await
+}
+pub async fn close_with_options(
+    pid: u32,
+    executable: &Path,
+    force_kill_on_timeout: bool,
+) -> Result<(), String> {
     if !image_path(pid).is_some_and(|p| same_path(&p, executable)) {
         return Err("OBS process identity changed; refusing to close it".into());
     }
@@ -252,12 +259,12 @@ pub async fn close(pid: u32, executable: &Path) -> Result<(), String> {
             UI::WindowsAndMessaging::{PostMessageW, WM_CLOSE},
         };
         let windows = windows_for_pid(pid);
-        if windows.is_empty() {
+        if windows.is_empty() && !force_kill_on_timeout {
             return Err("Could not find OBS's main window for graceful shutdown".into());
         }
         for hwnd in windows {
             unsafe {
-                PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)).map_err(err)?;
+                let _ = PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         }
     }
@@ -267,7 +274,7 @@ pub async fn close(pid: u32, executable: &Path) -> Result<(), String> {
             .args(["-TERM", &pid.to_string()])
             .status()
             .map_err(err)?;
-        if !status.success() {
+        if !status.success() && !force_kill_on_timeout {
             return Err("Could not signal OBS".into());
         }
     }
@@ -277,7 +284,45 @@ pub async fn close(pid: u32, executable: &Path) -> Result<(), String> {
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    Err("OBS did not exit after a graceful shutdown request".into())
+    if !force_kill_on_timeout {
+        return Err("OBS did not exit after a graceful shutdown request".into());
+    }
+    force_terminate(pid, executable).await
+}
+async fn force_terminate(pid: u32, executable: &Path) -> Result<(), String> {
+    if !image_path(pid).is_some_and(|p| same_path(&p, executable)) {
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        use windows::Win32::{
+            Foundation::CloseHandle,
+            System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE},
+        };
+        unsafe {
+            let handle = OpenProcess(PROCESS_TERMINATE, false, pid).map_err(err)?;
+            let terminated = TerminateProcess(handle, 1);
+            let _ = CloseHandle(handle);
+            terminated.map_err(err)?;
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let status = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status()
+            .map_err(err)?;
+        if !status.success() {
+            return Err("Could not force-terminate OBS".into());
+        }
+    }
+    for _ in 0..30 {
+        if !image_path(pid).is_some_and(|p| same_path(&p, executable)) {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Err("OBS did not exit after force termination".into())
 }
 pub fn foreground() -> Option<Value> {
     #[cfg(windows)]
@@ -371,5 +416,10 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.contains("identity changed"));
+        let force_error =
+            close_with_options(std::process::id(), Path::new("unrelated-obs.exe"), true)
+                .await
+                .unwrap_err();
+        assert!(force_error.contains("identity changed"));
     }
 }

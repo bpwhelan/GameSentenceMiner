@@ -91,6 +91,43 @@ describe("SceneSwitcherSettings", () => {
     expect(container.textContent).toContain("Loaded the current OBS capture source.");
   });
 
+  it.each([
+    ["Match anywhere", "youtube"],
+    ["Match exactly", "^youtube$"],
+    ["Starts with", "^youtube"],
+    ["Ends with", "youtube$"],
+  ])("builds and saves a literal window title with %s", async (label, pattern) => {
+    let savedPattern = "Game.*";
+    invokeMock.mockImplementation(async (channel: string, payload) => {
+      if (channel === "scene-switcher.getState") {
+        return { rule: { titlePattern: savedPattern, enabled: true }, migrationReady: true };
+      }
+      if (channel === "scene-switcher.saveRule") savedPattern = payload.titlePattern;
+      return { success: true };
+    });
+    await act(async () => {
+      root.render(<I18nProvider><SceneSwitcherSettings scene={{ id: "scene-1", name: "Game" }} /></I18nProvider>);
+    });
+    const button = Array.from(container.querySelectorAll("button")).find((item) => item.textContent === label);
+    expect(button?.disabled).toBe(true);
+    const literal = container.querySelector<HTMLInputElement>("#scene-switcher-literal-scene-1")!;
+    const regex = container.querySelector<HTMLInputElement>("#scene-switcher-pattern-scene-1")!;
+    for (const [term, expected] of [
+      ["youtube", pattern],
+      ["Game (v2.0)+", pattern.replace("youtube", String.raw`Game \(v2\.0\)\+`)],
+    ]) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(literal, term);
+        literal.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => button!.click());
+      expect(regex.value).toBe(expected);
+      expect(invokeMock).toHaveBeenCalledWith("scene-switcher.saveRule", {
+        sceneUuid: "scene-1", sceneName: "Game", titlePattern: expected, enabled: true,
+      });
+    }
+  });
+
   it("enables a GSM rule without a separate collection switch", async () => {
     let enabled = false;
     invokeMock.mockImplementation(async (channel: string, payload?: { enabled: boolean }) => {

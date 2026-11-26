@@ -1,9 +1,9 @@
-/* Standalone Mining Settings & Embedded OBS Settings */
+/* Mining and OBS editors in the desktop Settings tab */
 
 .gsm-workspace.mining-editor {
     display: grid;
     grid-template: auto minmax(0, 1fr) auto / minmax(0, 1fr);
-    height: 100dvh;
+    height: 100%;
     overflow: hidden;
     background: var(--gsm-surface-0);
     color: var(--gsm-text-primary);
@@ -18,7 +18,7 @@
 .mining-loading-shell {
     display: grid;
     place-items: center;
-    height: 100dvh;
+    height: 100%;
     padding: 24px;
     background: var(--gsm-surface-0);
     color: var(--gsm-text-secondary);
@@ -40,6 +40,7 @@
 
 .mining-window-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
@@ -117,6 +118,7 @@
 
 .mining-scope-picker {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     margin-inline-start: auto;
@@ -131,13 +133,21 @@
     white-space: nowrap;
 }
 
-.mining-scope-picker select {
-    max-width: 210px;
+.mining-editor .mining-scope-picker select {
+    width: 160px;
+    max-width: 100%;
     min-height: 32px;
     padding: 4px 10px;
     border-radius: 7px;
     background: var(--gsm-surface-0);
     font-weight: 500;
+}
+
+.mining-scope-picker .mining-icon-btn {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
 }
 
 .mining-editor .mining-activate-btn {

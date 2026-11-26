@@ -53,6 +53,24 @@ describe("GameAutomationTab overlay automation", () => {
     return container.querySelector<HTMLInputElement>("#scene-launch-overlay-scene-1")!;
   }
 
+  it("saves shared overlay startup and preserves the scene's own overlay choice", async () => {
+    const original = invokeMock.getMockImplementation()!;
+    invokeMock.mockImplementation(async (channel: string, patch) => {
+      if (channel === "settings.saveSettings") return { success: true, settings: patch };
+      return original(channel, patch);
+    });
+    const sceneToggle = await render();
+    const shortcut = container.querySelector<HTMLButtonElement>(".automation-overlay button")!;
+    await act(async () => shortcut.click());
+    const startup = container.querySelector<HTMLInputElement>("#automation-overlay-startup-toggle")!;
+    expect(startup.closest("[hidden]")).toBeNull();
+    await act(async () => startup.click());
+    expect(invokeMock).toHaveBeenCalledWith("settings.saveSettings", { runOverlayOnStartup: true, runOverlayWithActiveGame: false });
+    expect(sceneToggle.disabled).toBe(true);
+    expect(sceneToggle.checked).toBe(true);
+    expect(invokeMock).not.toHaveBeenCalledWith("settings.saveSceneLaunchProfile", expect.anything());
+  });
+
   it("keeps a pending scene profile load when polling returns the same scene", async () => {
     const original = invokeMock.getMockImplementation()!;
     let finish!: (profile: unknown) => void;

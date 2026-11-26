@@ -62,6 +62,7 @@ pub enum Channel {
 }
 pub trait ReaderEndpoint: Send + Sync {
     fn native_only(&self) -> bool { false }
+    fn submit_text(&self, text: String) -> futures_util::future::BoxFuture<'_, Result<Value, String>>;
     fn update_metadata(&self, action: MetadataAction, body: Value)
         -> futures_util::future::BoxFuture<'_, (StatusCode, Value)>;
     fn search_media(&self,search:MediaSearch)->futures_util::future::BoxFuture<'_,(StatusCode,Vec<u8>)>;
@@ -313,6 +314,9 @@ fn reader_path(path: &str) -> Option<Channel> {
 
 async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Response<Full<Bytes>> {
     let path = req.uri().path();
+    if path == "/api/text" {
+        return handle_text_intake(state.reader.as_deref(), req).await;
+    }
     let model_settings = matches!(path, "/api/ocr/meiki-model" | "/api/ocr/vita-model");
     if model_settings && (req.headers().contains_key(http::header::ORIGIN)
         || !req.extensions().get::<SocketAddr>().is_some_and(|peer| peer.ip().is_loopback()))
@@ -502,6 +506,31 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
         }
     }
 
+    if req.method() == Method::OPTIONS && !is_websocket_upgrade(req.headers()) {
+        if state.reports.is_some() {
+            let route = Route::parse(path);
+            if gsm_web::pages::asset(path).is_some()
+                || gsm_web::pages::Page::parse(path).is_some()
+                || route.is_some()
+            {
+                let allow = if matches!(
+                    route,
+                    Some(Route::CompleteDailies | Route::DatabaseBackup)
+                ) {
+                    "POST, OPTIONS"
+                } else {
+                    "GET, HEAD, OPTIONS"
+                };
+                return report_http::cors(Response::builder(), req.headers())
+                    .status(StatusCode::OK)
+                    .header(http::header::ALLOW, allow)
+                    .header(http::header::VARY, "Origin")
+                    .body(Full::new(Bytes::new()))
+                    .unwrap();
+            }
+        }
+    }
+
     if matches!(*req.method(), Method::GET | Method::HEAD) && !is_websocket_upgrade(req.headers()) {
         if let Some(reports) = &state.reports {
             if let Some(response) = report_http::page(reports, &state.report_slots, &req).await {
@@ -569,6 +598,7 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
             return resp.map(|_| Full::new(Bytes::new()));
         }
         let clip_route = matches!(path, "/api/clips" | "/api/clips/open" | "/api/clips/trash" | "/save-clip" | "/trim-video" | "/play-audio" | "/get-screenshot" | "/create-media");
+        let textfeed_history = path == "/api/textfeed/history";
         let status_route = path == "/get_status" || (state.native_http_only() && path == "/linux/detect_game_exe");
         let control_route = matches!(path, "/set_text_intake_paused" | "/set_stats_gathering_enabled")
             || (state.native_http_only() && matches!(path,"/linux/set_target_process" | "/linux/set_scene_target_process"));
@@ -577,7 +607,7 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
             let status = if req.method() == Method::OPTIONS { StatusCode::OK } else { StatusCode::METHOD_NOT_ALLOWED };
             return Response::builder().status(status).header("allow", "GET, HEAD, POST, OPTIONS").body(Full::new(Bytes::new())).unwrap();
         }
-        if clip_route || status_route || control_route {
+        if clip_route || status_route || control_route || textfeed_history {
             let read = path == "/api/clips" || status_route;
             if !(read && (req.method() == Method::GET || head)
                 || !read && req.method() == Method::POST)
@@ -601,12 +631,12 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
                     .unwrap();
             }
         }
-        if model_settings || clip_route || status_route || control_route
+        if model_settings || clip_route || status_route || control_route || textfeed_history
             || (req.method() == Method::GET && matches!(path, "/get_ids" | "/data"))
             || (req.method() == Method::POST
                 && matches!(path, "/update_checkbox" | "/update_checkboxes"))
         {
-            if (clip_route || model_settings)
+            if (clip_route || model_settings || textfeed_history)
                 && req.method() == Method::POST
                 && !req
                     .headers()
@@ -643,7 +673,7 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
                 serde_json::Value::Null
             };
             let endpoint = reader.clone();
-            let permit = if clip_route || model_settings {
+            let permit = if clip_route || model_settings || textfeed_history {
                 let Ok(permit) = state.report_slots.clone().acquire_owned().await else {
                     return empty_response(StatusCode::SERVICE_UNAVAILABLE);
                 };
@@ -715,6 +745,88 @@ async fn handle_request(state: GatewayState, mut req: Request<Incoming>) -> Resp
         return empty_response(StatusCode::NOT_FOUND);
     }
     proxy_http(state, req).await
+}
+
+async fn handle_text_intake(
+    reader: Option<&dyn ReaderEndpoint>,
+    req: Request<Incoming>,
+) -> Response<Full<Bytes>> {
+    let error = |status, message: &str| json_response(status, &json!({"error": message}));
+    if req.method() != Method::POST {
+        let mut response = empty_response(StatusCode::METHOD_NOT_ALLOWED);
+        response
+            .headers_mut()
+            .insert(http::header::ALLOW, HeaderValue::from_static("POST"));
+        return response;
+    }
+    if req.headers().contains_key(http::header::ORIGIN)
+        || !req
+            .extensions()
+            .get::<SocketAddr>()
+            .is_some_and(|peer| peer.ip().is_loopback())
+    {
+        return error(
+            StatusCode::FORBIDDEN,
+            "Text intake is available to local clients only.",
+        );
+    }
+    let Some(reader) = reader else {
+        return error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Text intake is unavailable.",
+        );
+    };
+    let mime = req
+        .headers()
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .unwrap_or_default()
+        .trim();
+    let json_body = mime.eq_ignore_ascii_case("application/json");
+    if !json_body && !mime.eq_ignore_ascii_case("text/plain") {
+        return error(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Expected text/plain or application/json.",
+        );
+    }
+    let bytes = match http_body_util::Limited::new(req.into_body(), 1024 * 1024)
+        .collect()
+        .await
+    {
+        Ok(body) => body.to_bytes(),
+        Err(err) if err.is::<http_body_util::LengthLimitError>() => {
+            return error(StatusCode::PAYLOAD_TOO_LARGE, "Text intake body exceeds 1 MiB.");
+        }
+        Err(_) => return error(StatusCode::BAD_REQUEST, "Could not read the request body."),
+    };
+    let text = if json_body {
+        let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
+            return error(StatusCode::BAD_REQUEST, "Invalid JSON body.");
+        };
+        value["text"]
+            .as_str()
+            .or_else(|| value["sentence"].as_str())
+            .map(str::to_owned)
+    } else {
+        std::str::from_utf8(&bytes).ok().map(str::to_owned)
+    };
+    let Some(text) = text.filter(|text| !text.trim().is_empty()) else {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "A non-empty UTF-8 text string is required.",
+        );
+    };
+    let Ok(ack) = reader.submit_text(text).await else {
+        return error(StatusCode::INTERNAL_SERVER_ERROR, "Text intake failed.");
+    };
+    let status = match ack["status"].as_str() {
+        Some("accepted" | "duplicate") => StatusCode::OK,
+        Some("rejected") => StatusCode::UNPROCESSABLE_ENTITY,
+        Some("backpressured") => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    json_response(status, &ack)
 }
 
 async fn handle_anki_beacon(
@@ -1140,6 +1252,39 @@ mod tests {
         let done = Request::post("/api/goals/complete_todays_dailies")
             .header("x-timezone", timezone).body(body()).unwrap();
         assert_eq!(client.send_request(done).await.unwrap().status(), 400);
+        for origin in [
+            "http://gsm.localhost",
+            "gsm://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "tauri://localhost",
+            "http://localhost:5173",
+        ] {
+            for method in [Method::GET, Method::OPTIONS] {
+                let request = Request::builder()
+                    .method(method)
+                    .uri("/overview")
+                    .header(header::ORIGIN, origin)
+                    .body(body())
+                    .unwrap();
+                let reply = client.send_request(request).await.unwrap();
+                assert_eq!(reply.status(), 200);
+                assert_eq!(reply.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], origin);
+                reply.collect().await.unwrap();
+            }
+        }
+        let untrusted = client
+            .send_request(
+                Request::get("/overview")
+                    .header(header::ORIGIN, "https://evil.example")
+                    .body(body())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(untrusted.status(), 200);
+        assert!(untrusted.headers().get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none());
+        untrusted.collect().await.unwrap();
         drop(client);
         task.await.unwrap();
         gateway.shutdown();

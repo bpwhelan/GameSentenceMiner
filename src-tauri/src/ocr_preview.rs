@@ -170,13 +170,16 @@ pub(crate) async fn invoke(
         "ocrPreview.detect" => data
             .lines
             .get_or_try_init(|| async {
-                let (image, profile, language) = (
+                let (image, profile, language, policy) = (
                     data.image.clone(),
                     data.profile.clone(),
                     data.language.clone(),
+                    crate::ocr_coordinator::try_read_ocr_thread_policy(app),
                 );
                 tokio::task::spawn_blocking(move || {
-                    let mut engines = gsm_overlay::engines::Engines::new(&profile);
+                    policy.apply_to_current_thread();
+                    let mut engines =
+                        gsm_overlay::engines::Engines::with_thread_policy(&profile, policy);
                     let boxes = ["lens", "oneocr", "meikiocr"].map(|name| {
                         engines
                             .recognize(&image, name, &language)

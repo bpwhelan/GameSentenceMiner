@@ -99,6 +99,7 @@ function ReviewPrompt({ kind, onCancel, onConfirm, onDelete }: {
 type EditorProps = {
   entry: string;
   review: boolean;
+  quietSelection: boolean;
   document: Document;
   update: (entry: string, apply: (document: Document) => Document) => void;
   onSave: (voice: boolean) => void;
@@ -110,19 +111,20 @@ type EditorProps = {
   onBusy: (busy: boolean) => void;
 };
 
-function Editor({ entry, review, document, update, onSave, onError, onBusy, cancelTimer, countdown, promptOpen, onGamepadConfirm }: EditorProps) {
+function Editor({ entry, review, quietSelection, document, update, onSave, onError, onBusy, cancelTimer, countdown, promptOpen, onGamepadConfirm }: EditorProps) {
   const t = useTranslation();
   const { form, draft } = document;
   const { audio, dialogue, range, cuts, filter, filterUrl } = draft;
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [autoplay, setAutoplay] = useState(form.preferences.autoplay);
+  const [changedAutoplay, setChangedAutoplay] = useState(false);
   const [disabledSession, setDisabledSession] = useState(false);
   const [cutMode, setCutMode] = useState(false);
   const [expanded, setExpanded] = useState("");
   const [hoverPreview, setHoverPreview] = useState<{ url: string; left: number; top: number; width: number }>();
   const trimTimer = useRef(0);
-  const player = useReviewAudio(filterUrl ?? audio.url, range, cuts, autoplay);
+  const player = useReviewAudio(filterUrl ?? audio.url, range, cuts, autoplay && (!quietSelection || changedAutoplay));
   const step = form.preferences.step;
   const panel = useRef<HTMLElement>(null);
   const refreshError = useRef(false);
@@ -267,7 +269,19 @@ function Editor({ entry, review, document, update, onSave, onError, onBusy, canc
     return () => window.removeEventListener("keydown", keys);
   }, [cancelTimer, entry, player.stop, promptOpen, update]);
 
-  useReviewGamepad(form.preferences.gamepad, panel, promptOpen || busy || !!expanded, {
+  const [focused, setFocused] = useState(() => window.document.hasFocus());
+  useEffect(() => {
+    if (!review) return;
+    const onFocus = () => setFocused(true);
+    const onBlur = () => setFocused(false);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [review]);
+  useReviewGamepad(!review || focused ? form.preferences.gamepad : null, panel, promptOpen || busy || !!expanded, {
     play_audio: play,
     confirm_with_audio: () => onGamepadConfirm(true),
     confirm_without_audio: () => onGamepadConfirm(false),
@@ -388,7 +402,7 @@ function Editor({ entry, review, document, update, onSave, onError, onBusy, canc
         <label><input type="checkbox" checked={draft.nsfw} onChange={e => change({ nsfw: e.currentTarget.checked })}/>{t("cardReview.nsfw")}</label>
         <label><input type="checkbox" checked={autoplay} onChange={e => {
           const enabled = e.currentTarget.checked;
-          setAutoplay(enabled); cancelTimer();
+          setChangedAutoplay(true); setAutoplay(enabled); cancelTimer();
           void call("autoplay", { enabled }).catch(onError);
         }}/>{t("cardReview.autoplay")}</label>
         {!review && <label><input type="checkbox" checked={disabledSession} onChange={e => {
@@ -517,6 +531,9 @@ export function CardReviewWindow() {
   const t = useTranslation();
   const [locale] = useLocale();
   const [review] = useState(() => new URLSearchParams(window.location.search).get("window") === "session-review");
+  const [backgroundLaunch] = useState(() => review && new URLSearchParams(window.location.search).get("live") === "1");
+  const live = useRef(backgroundLaunch);
+  const [quietSelection, setQuietSelection] = useState(backgroundLaunch);
   const [docs, setDocs] = useState<Record<string, Document>>({});
   const [queue, setQueue] = useState<Queue>({ entries: [], autoAdvance: true });
   const [current, setCurrent] = useState<string | null>(review ? null : "");
@@ -534,6 +551,8 @@ export function CardReviewWindow() {
   const [timerCancelled, setTimerCancelled] = useState(false);
   const [sidebar, setSidebar] = useState(255);
   const saveGuard = useRef(new Set<string>());
+  const listRequest = useRef(0);
+  const latestQueue = useRef({ request: 0, queue });
   const last = useRef<string | null>(null);
   const inWindow = useRef(true);
   const loaded = useRef(new Set<string>());
@@ -549,20 +568,38 @@ export function CardReviewWindow() {
     setDocs(docs => docs[entry] ? { ...docs, [entry]: apply(docs[entry]) } : docs);
   }, []);
   const refresh = useCallback(async (select = false) => {
-    const result = await call<Queue>("list");
+    const request = ++listRequest.current;
+    const snapshot = await call<Queue>("list");
     if (!inWindow.current) return;
-    setQueue(result);
+    if (request > latestQueue.current.request) {
+      latestQueue.current = { request, queue: snapshot };
+      setQueue(snapshot);
+    }
+    const result = latestQueue.current.queue;
     if (select) setCurrent(old => result.entries.some(entry => entry.id === old)
       ? old : (result.entries.find(entry => !saveGuard.current.has(entry.id))?.id ?? null));
+    return result;
   }, []);
 
   useEffect(() => {
     inWindow.current = true;
-    void call("ready", { title }).catch(showError);
+    void call("ready", { title, live: backgroundLaunch }).catch(showError);
     if (review) void refresh(true).catch(showError);
-    const timer = review ? window.setInterval(() => { void refresh().catch(showError); }, 2000) : undefined;
-    return () => { inWindow.current = false; window.clearInterval(timer); };
-  }, [refresh, review, showError, title]);
+    const updateQueue = () => { void refresh().catch(showError); };
+    const off = review ? onIpc("cardDialog.queueChanged", () => {
+      live.current = true;
+      updateQueue();
+    }) : undefined;
+    const timer = review ? window.setInterval(updateQueue, 2000) : undefined;
+    return () => { inWindow.current = false; off?.(); window.clearInterval(timer); };
+  }, [backgroundLaunch, refresh, review, showError, title]);
+
+  useEffect(() => {
+    if (live.current && current === null && queue.autoAdvance && !saving.length && queue.entries.length) {
+      setQuietSelection(true);
+      setCurrent(queue.entries[0].id);
+    }
+  }, [current, queue, saving.length]);
 
   useEffect(() => {
     if (current === null || loaded.current.has(current)) return;
@@ -622,6 +659,7 @@ export function CardReviewWindow() {
       const index = visible.findIndex(entry => entry.id === id);
       const nearby = [...visible.slice(index + 1), ...visible.slice(0, index)];
       const next = nearby.find(entry => !saveGuard.current.has(entry.id))?.id ?? null;
+      setQuietSelection(false);
       setCurrent(queue.autoAdvance ? next : null);
       setStatus(t("cardReview.savingBackground"));
     }
@@ -632,11 +670,8 @@ export function CardReviewWindow() {
         setDocs(state => Object.fromEntries(Object.entries(state).filter(([entry]) => entry !== id)));
         setQueue(state => ({ ...state, entries: state.entries.filter(entry => entry.id !== id) }));
         setStatus(t(`cardReview.result.${result}`));
-        const updated = await call<Queue>("list");
-        if (inWindow.current) {
-          setQueue(updated);
-          if (!updated.entries.length && saveGuard.current.size === 1) close();
-        }
+        const updated = await refresh();
+        if (!live.current && updated && !updated.entries.length && saveGuard.current.size === 1) close();
       }
     } catch (reason) {
       if (review) {
@@ -691,7 +726,7 @@ export function CardReviewWindow() {
   const dateText = selectedDate && !Number.isNaN(selectedDate.getTime())
     ? selectedDate.toLocaleString(locale === "ukr" ? "uk" : locale, { dateStyle: "short", timeStyle: "short" })
     : selected?.created;
-  const editing = document && current !== null ? <Editor key={current} entry={current} review={review}
+  const editing = document && current !== null ? <Editor key={current} entry={current} review={review} quietSelection={quietSelection}
     document={document} update={update} onSave={performSave} onError={showError} cancelTimer={cancelTimer}
     countdown={autoSeconds ? t(timerCancelled ? "cardReview.autoCancelled" : "cardReview.autoAccept", { seconds: remaining ?? autoSeconds }) : null}
     promptOpen={!!prompt || saving.includes(current) || busy} onGamepadConfirm={gamepadConfirm} onBusy={setEditorBusy} /> : null;
@@ -707,13 +742,14 @@ export function CardReviewWindow() {
     {review ? <>
       <div className="cr-session-body" style={{ gridTemplateColumns: `${sidebar}px 7px minmax(0,1fr)` }}>
         <aside aria-label={t("cardReview.queue")}>
-          <input type="search" autoFocus value={filter} placeholder={t("cardReview.filter")} aria-label={t("cardReview.filter")}
+          <input type="search" autoFocus={!backgroundLaunch} value={filter} placeholder={t("cardReview.filter")} aria-label={t("cardReview.filter")}
             onChange={e => setFilter(e.currentTarget.value)}/>
           <div className="cr-queue">
             {visible.map(entry => <button type="button" key={entry.id} aria-current={entry.id === current}
               disabled={saving.includes(entry.id) || busy || editorBusy} title={entry.sentence}
               onClick={() => {
                 last.current = entry.id;
+                setQuietSelection(false);
                 setError("");
                 setLoading(!docs[entry.id]);
                 setCurrent(entry.id);
@@ -744,7 +780,7 @@ export function CardReviewWindow() {
         })}>{t("cardReview.editInAnki")}</button>
         <button type="button" disabled={!canReview} onClick={() => { if (current !== null) void complete(current, "discard", { delete: false }); }}>{t("cardReview.keepCard")}</button>
         <button type="button" disabled={!canReview} onClick={() => setPrompt("delete")}>{t("cardReview.deleteCard")}</button>
-        <button type="button" disabled={isBlocked} onClick={() => void background(() => refresh(true))}>{t("cardReview.refreshList")}</button>
+        <button type="button" disabled={isBlocked} onClick={() => void background(async () => { await refresh(true); })}>{t("cardReview.refreshList")}</button>
         <button type="button" disabled={isBlocked || saveCount > 0} onClick={() => void background(async () => {
           const count = await call<number>("cleanup");
           setStatus(t("cardReview.cleanupDone", { count }));

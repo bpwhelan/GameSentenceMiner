@@ -1,3 +1,4 @@
+import { OverlayStartupOptions, useOverlayStartupOptions } from "./OverlayStartupOptions";
 import { useCallback, useEffect, useState } from "react";
 import { invokeIpc, onIpc } from "../../lib/ipc";
 import { startVisiblePolling } from '../../lib/visiblePolling';
@@ -313,8 +314,8 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
   const [activeScene, setActiveScene] = useState<ObsScene | null>(null);
   const [configuredSceneId, setConfiguredSceneId] = useState("");
   const [sceneProfile, setSceneProfile] = useState<SceneLaunchProfile | null>(null);
-  const [runOverlayOnStartup, setRunOverlayOnStartup] = useState<boolean | null>(null);
-  const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState<boolean | null>(null);
+  const overlayStartup = useOverlayStartupOptions(active);
+  const overlayManaged = overlayStartup.options?.runOverlayOnStartup || overlayStartup.options?.runOverlayWithActiveGame;
   const [candidateDialog, setCandidateDialog] = useState<{
     sceneId: string;
     candidates: AgentScriptCandidate[];
@@ -375,24 +376,6 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
       console.error("Failed to load game settings:", error);
     }
   }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    setRunOverlayOnStartup(null);
-    setRunOverlayWithActiveGame(null);
-    void invokeIpc<{ runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean }>("settings.getSettings")
-      .then((settings) => {
-        if (!cancelled) {
-          setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
-          setRunOverlayWithActiveGame(settings?.runOverlayWithActiveGame === true);
-        }
-      })
-      .catch((error) => console.error("Failed to load overlay startup setting:", error));
-    return () => {
-      cancelled = true;
-    };
-  }, [active]);
 
   const refreshActiveScene = useCallback(async () => {
     try {
@@ -1040,7 +1023,7 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                     >
                       <strong>{t("launcher.scene.launchOverlay")}</strong>
                       <span>{t("launcher.workspace.overlayHint")}</span>
-                      {(runOverlayOnStartup === true || runOverlayWithActiveGame === true) &&
+                      {overlayManaged &&
                         <span className="automation-managed-note">{t("launcher.workspace.overlayManaged")}</span>}
                     </label>
                     <input
@@ -1048,13 +1031,17 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
                       type="checkbox"
                       data-tip={t(TOOLTIPS.launchOverlay)}
                       checked={sceneProfile.launchOverlay}
-                      disabled={runOverlayOnStartup !== false || runOverlayWithActiveGame !== false}
+                      disabled={!overlayStartup.options || overlayStartup.saving || overlayManaged}
                       onChange={(event) =>
                         void patchSceneProfile({ launchOverlay: event.target.checked })
                       }
                     />
                   </div>
 
+                  <button type="button" className="secondary" onClick={() => {
+                    setWorkspaceView("shared");
+                    document.getElementById("automation-nav-shared")?.focus();
+                  }}>{t("home.overlay.startupSettings")}</button>
                   </section>
                   <SceneSwitcherSettings key={`switcher-${configuredScene.id}`} scene={configuredScene} />
 
@@ -1217,6 +1204,10 @@ export function GameAutomationTab({ active }: GameAutomationTabProps) {
 
           <section id="automation-view-shared" className="ws-view" role="tabpanel"
             aria-labelledby="automation-nav-shared" hidden={workspaceView !== "shared"} tabIndex={0}>
+          <section className="ws-section">
+            <h2>{t("home.overlay.startupSettings")}</h2>
+            <OverlayStartupOptions state={overlayStartup} prefix="automation" />
+          </section>
           <section className="ws-section automation-overrides">
             <h2 data-tip={t(TOOLTIPS.sharedAutomationSettings)}>
               {t("launcher.shared.title")}

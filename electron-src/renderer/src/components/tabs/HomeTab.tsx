@@ -1,6 +1,7 @@
+import { OverlayStartupOptions, useOverlayStartupOptions } from "./OverlayStartupOptions";
 import { loadCaptureTargets } from '../../lib/captureTargets';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { invokeIpc } from "../../lib/ipc";
+import { invokeIpc, onIpc } from "../../lib/ipc";
 import { retainEqual, startVisiblePolling } from '../../lib/visiblePolling';
 import { useTranslation } from "../../i18n";
 import { TextCaptureWizard } from "../TextCaptureWizard";
@@ -38,15 +39,6 @@ const HELPER_SCENE_NAMES = new Set([
 const STATUS_POLL_MS = 1000;
 const SCENE_POLL_MS = 3000;
 const ANKI_BEACON_NUDGE_DELAY_MS = 15_000;
-
-const DEFAULT_PROFILE_NAME = "Default";
-const NEW_PROFILE_VALUE = "__new__";
-
-interface GsmProfileList {
-  profiles?: string[];
-  currentProfile?: string;
-  profileScenes?: Record<string, string[]>;
-}
 
 const OVERLAY_DOCS_URL =
   "https://docs.gamesentenceminer.com/docs/features/overlay";
@@ -404,8 +396,64 @@ function RenameModal({ scene, onClose, onConfirm }: RenameModalProps) {
 /*  Main HomeTab                                                       */
 /* ------------------------------------------------------------------ */
 
+function HomeProfileSelector({ active, scene }: { active: boolean; scene?: string }) {
+  const t = useTranslation();
+  const [profiles, setProfiles] = useState<{
+    profiles: string[]; currentProfile: string; profileScenes: Record<string, string[]>;
+  } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const revision = useRef(0);
+
+  const refresh = useCallback(async () => {
+    const request = ++revision.current;
+    try {
+      const result = await invokeIpc<typeof profiles>("settings.listGSMProfiles");
+      if (request === revision.current) setProfiles(result);
+    } catch (e) {
+      if (request === revision.current) setError(String(e));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!active) return;
+    void refresh();
+    const unsubscribe = onIpc("settings.mining.changed", refresh);
+    return () => { ++revision.current; unsubscribe(); };
+  }, [active, scene, refresh]);
+
+  const select = async (name: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      if (scene) {
+        await invokeIpc("settings.relateSceneToProfile", { sceneName: scene, profileName: name, createNew: false });
+      } else {
+        await invokeIpc("settings.mining.activate", { name });
+      }
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const assigned = profiles?.profiles.find(name => scene && profiles.profileScenes[name]?.includes(scene));
+  return (
+    <div className="home-profile-picker">
+      <label htmlFor="home-scene-profile-select">{t("home.obs.profileLabel")}</label>
+      <select id="home-scene-profile-select" className="home-select"
+        title={scene ? t("captureWizard.profile.assignHint", { scene }) : t("home.obs.switchProfile")}
+        value={assigned ?? profiles?.currentProfile ?? ""} disabled={busy || !profiles?.profiles.length}
+        onChange={event => void select(event.target.value)}>
+        {profiles?.profiles.map(name => <option key={name}>{name}</option>)}
+      </select>
+      {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
+
 export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProps) {
-  const [libraryOpen, setLibraryOpen] = useState(false);
   const [readingFocus, setReadingFocus] = useState(false);
   const [gameOptionsOpen, setGameOptionsOpen] = useState(false);
   const toggleReadingFocus = useCallback(() => setReadingFocus(value => !value), []);
@@ -414,15 +462,11 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
   /* ---- Status ---------------------------------------------------- */
   const [status, setStatus] = useState<GsmStatus | null>(null);
   const [statusError, setStatusError] = useState(false);
+  const overlayStartup = useOverlayStartupOptions(active);
   const [overlayRunning, setOverlayRunning] = useState(false);
   const [overlayChanging, setOverlayChanging] = useState(false);
   const [overlayToggleError, setOverlayToggleError] = useState(false);
   const overlayChange = useRef({ pending: false, revision: 0 });
-  const [runOverlayOnStartup, setRunOverlayOnStartup] = useState(false);
-  const [runOverlayWithActiveGame, setRunOverlayWithActiveGame] = useState(false);
-  const [overlaySettingsSaving, setOverlaySettingsSaving] = useState(false);
-  const [overlaySettingsLoaded, setOverlaySettingsLoaded] = useState(false);
-  const [overlaySettingsError, setOverlaySettingsError] = useState(false);
   const [ankiBeaconModalOpen, setAnkiBeaconModalOpen] = useState(false);
   const [ankiBeaconNudgeReady, setAnkiBeaconNudgeReady] = useState(false);
   const ankiApiConnected = status?.anki_connected === true;
@@ -459,30 +503,6 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     return () => window.clearTimeout(id);
   }, [active, ankiApiConnected]);
 
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-
-    setOverlaySettingsLoaded(false);
-    void invokeIpc<{ runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean }>("settings.getSettings")
-      .then((settings) => {
-        if (!cancelled) {
-          setRunOverlayOnStartup(settings?.runOverlayOnStartup === true);
-          setRunOverlayWithActiveGame(settings?.runOverlayWithActiveGame === true);
-          setOverlaySettingsLoaded(true);
-          setOverlaySettingsError(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setRunOverlayOnStartup(false);
-          setOverlaySettingsError(true);
-        }
-      });
-
-    return () => { cancelled = true; };
-  }, [active]);
-
   /* ---- Scenes ---------------------------------------------------- */
   const [scenes, setScenes] = useState<ObsScene[]>([]);
   const [selectedSceneId, setSelectedSceneId] = useState<string>("");
@@ -497,6 +517,8 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     setPickerWindowsReady(false);
     setNewCaptureOpen(true);
   }, []);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const libraryToggleRef = useRef<HTMLButtonElement>(null);
   const [gameSearch, setGameSearch] = useState("");
   const selectedGameRef = useRef<HTMLButtonElement>(null);
   const [gameMenu, setGameMenu] = useState<{ scene: ObsScene; anchor: HTMLButtonElement } | null>(null);
@@ -519,13 +541,6 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
   const [gameExePath, setGameExePath] = useState("");
   const [windowsDetectedExe, setWindowsDetectedExe] = useState("");
   const [gameExeDetecting, setGameExeDetecting] = useState(false);
-
-  /* ---- GSM profiles ---------------------------------------------- */
-  const [gsmProfiles, setGsmProfiles] = useState<string[]>([]);
-  const [profileScenes, setProfileScenes] = useState<Record<string, string[]>>({});
-  const [profileAssigning, setProfileAssigning] = useState(false);
-  const [newProfileMode, setNewProfileMode] = useState(false);
-  const [newProfileName, setNewProfileName] = useState("");
 
   /* ---- Loaders --------------------------------------------------- */
   const [scenesLoading, setScenesLoading] = useState(true);
@@ -589,24 +604,12 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     return () => { cancelled = true; stop(); };
   }, [active, newCaptureOpen, loadWindows]);
 
-  const loadGsmProfiles = useCallback(async () => {
-    try {
-      const result = await invokeIpc<GsmProfileList | null>("settings.listGSMProfiles");
-      setGsmProfiles(before => retainEqual(before, Array.isArray(result?.profiles) ? result.profiles : []));
-      setProfileScenes(before => retainEqual(before,
-        result?.profileScenes && typeof result.profileScenes === "object"
-          ? result.profileScenes
-          : {}));
-    } catch { /* swallow */ }
-  }, []);
-
   const refreshAll = useCallback(
     async (quick = false) => {
       await loadScenes();
       if (newCaptureOpen) await loadWindows(quick);
-      await loadGsmProfiles();
     },
-    [loadScenes, loadWindows, loadGsmProfiles, newCaptureOpen],
+    [loadScenes, loadWindows, newCaptureOpen],
   );
 
   const handleWindowSelectionChange = useCallback((value: string) => {
@@ -621,15 +624,6 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     if (!active) return;
     return startVisiblePolling(loadScenes, SCENE_POLL_MS);
   }, [active, loadScenes]);
-
-  useEffect(() => {
-    if (!active) return;
-    const refresh = () => { void loadGsmProfiles(); };
-    refresh();
-    // Configuration windows can change profiles while Home remains selected.
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
-  }, [active, loadGsmProfiles]);
 
   // Capture card probe state
   useEffect(() => {
@@ -646,32 +640,19 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     }
   }, [selectedWindowValue]);
 
-  // Leave "new profile" entry mode whenever the active scene changes.
-  useEffect(() => {
-    setNewProfileMode(false);
-    setNewProfileName("");
-  }, [selectedSceneId]);
-
   /* ---- Scene actions --------------------------------------------- */
   const selectedScene = scenes.find((s) => s.id === selectedSceneId) ?? null;
   const isHelperScene = selectedScene ? HELPER_SCENE_NAMES.has(selectedScene.name) : true;
   const userScenes = scenes.filter((s) => !HELPER_SCENE_NAMES.has(s.name));
   const hasUserScenes = userScenes.length > 0;
+  const showGameSearch = userScenes.length > 5;
   const filteredScenes = userScenes.filter((scene) =>
-    scene.name.toLocaleLowerCase().includes(gameSearch.trim().toLocaleLowerCase()),
+    !showGameSearch || scene.name.toLocaleLowerCase().includes(gameSearch.trim().toLocaleLowerCase()),
   );
 
   useEffect(() => {
-    if (active && !newCaptureOpen) selectedGameRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, [active, selectedSceneId, newCaptureOpen, gameSearch]);
-
-  /* ---- Scene profile mapping ------------------------------------- */
-  const otherProfilesExist = gsmProfiles.some((p) => p !== DEFAULT_PROFILE_NAME);
-  // A scene that isn't explicitly assigned to any profile effectively runs under Default.
-  const sceneProfile = selectedScene
-    ? gsmProfiles.find((p) => (profileScenes[p] ?? []).includes(selectedScene.name)) ?? DEFAULT_PROFILE_NAME
-    : DEFAULT_PROFILE_NAME;
-  const showSceneProfileRow = Boolean(otherProfilesExist && selectedScene && !isHelperScene);
+    if (active && libraryOpen && !newCaptureOpen) selectedGameRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [active, selectedSceneId, newCaptureOpen, gameSearch, libraryOpen]);
 
   const selectedWindow = windows.find((w) => w.value === selectedWindowValue) ?? null;
   const isCaptureCardSelection = selectedWindow?.targetKind === "capture_card";
@@ -769,69 +750,11 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
 
   const handleSceneChange = useCallback((id: string) => {
     setSelectedSceneId(id);
+    setLibraryOpen(false);
+    libraryToggleRef.current?.focus();
     setNewCaptureOpen(false);
     if (id) void invokeIpc("obs.switchScene.id", id);
   }, []);
-
-  const handleSceneProfileChange = useCallback(
-    async (value: string) => {
-      const sceneName = selectedScene?.name;
-      if (!sceneName) return;
-      if (value === NEW_PROFILE_VALUE) {
-        setNewProfileName("");
-        setNewProfileMode(true);
-        return;
-      }
-      // Optimistically move the scene to the chosen profile (exclusive).
-      setProfileScenes((prev) => {
-        const next: Record<string, string[]> = {};
-        for (const [profile, sceneList] of Object.entries(prev)) {
-          next[profile] = sceneList.filter((s) => s !== sceneName);
-        }
-        next[value] = [...(next[value] ?? []), sceneName];
-        return next;
-      });
-      setProfileAssigning(true);
-      try {
-        await invokeIpc("settings.relateSceneToProfile", {
-          sceneName,
-          profileName: value,
-          createNew: false,
-        });
-      } catch { /* swallow */ } finally {
-        setProfileAssigning(false);
-      }
-    },
-    [selectedScene],
-  );
-
-  const handleCreateProfileForScene = useCallback(async () => {
-    const sceneName = selectedScene?.name;
-    const name = newProfileName.trim();
-    if (!sceneName || !name) return;
-    setProfileAssigning(true);
-    try {
-      await invokeIpc("settings.relateSceneToProfile", {
-        sceneName,
-        profileName: name,
-        createNew: true,
-      });
-      // Optimistically reflect the new profile + assignment.
-      setGsmProfiles((prev) => (prev.includes(name) ? prev : [...prev, name]));
-      setProfileScenes((prev) => {
-        const next: Record<string, string[]> = {};
-        for (const [profile, sceneList] of Object.entries(prev)) {
-          next[profile] = sceneList.filter((s) => s !== sceneName);
-        }
-        next[name] = [...(next[name] ?? []), sceneName];
-        return next;
-      });
-      setNewProfileMode(false);
-      setNewProfileName("");
-    } catch { /* swallow */ } finally {
-      setProfileAssigning(false);
-    }
-  }, [newProfileName, selectedScene]);
 
   const handleRemoveScene = useCallback(async (scene: ObsScene) => {
     await invokeIpc("obs.removeScene", scene.id);
@@ -964,40 +887,6 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
   const openAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(true), []);
   const closeAnkiBeaconModal = useCallback(() => setAnkiBeaconModalOpen(false), []);
   const openExternal = useCallback((url: string) => void invokeIpc("open-external-link", url), []);
-  const handleOverlayAutomationChange = useCallback(async (
-    key: "runOverlayOnStartup" | "runOverlayWithActiveGame", enabled: boolean,
-  ) => {
-    const previousStartup = runOverlayOnStartup;
-    const previousActiveGame = runOverlayWithActiveGame;
-    setOverlaySettingsSaving(true);
-    setOverlaySettingsError(false);
-    if (key === "runOverlayOnStartup") {
-      setRunOverlayOnStartup(enabled);
-      if (enabled) setRunOverlayWithActiveGame(false);
-    } else {
-      setRunOverlayWithActiveGame(enabled);
-      if (enabled) setRunOverlayOnStartup(false);
-    }
-    try {
-      const result = await invokeIpc<{
-        success: boolean;
-        settings?: { runOverlayOnStartup?: boolean; runOverlayWithActiveGame?: boolean };
-      }>("settings.saveSettings", { [key]: enabled });
-      if (!result?.success) throw new Error("Overlay settings could not be saved");
-      if (typeof result?.settings?.runOverlayOnStartup === "boolean") {
-        setRunOverlayOnStartup(result.settings.runOverlayOnStartup);
-      }
-      if (typeof result?.settings?.runOverlayWithActiveGame === "boolean") {
-        setRunOverlayWithActiveGame(result.settings.runOverlayWithActiveGame);
-      }
-    } catch {
-      setRunOverlayOnStartup(previousStartup);
-      setRunOverlayWithActiveGame(previousActiveGame);
-      setOverlaySettingsError(true);
-    } finally {
-      setOverlaySettingsSaving(false);
-    }
-  }, [runOverlayOnStartup, runOverlayWithActiveGame]);
 
   /* ---- Derived status values ------------------------------------- */
   const gsmReady = status?.ready ?? false;
@@ -1076,88 +965,47 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
 
   const overlaySection = (
     <section className="home-overlay-card" aria-labelledby="home-overlay-heading" aria-busy={overlayChanging}>
-      <div className="home-section-heading">
+      <div className="home-overlay-card__header">
         <h2 id="home-overlay-heading"><WorkspaceIcon name="layout" />{t("home.overlay.title")}</h2>
-        <span
-          className={`home-overlay-card__status ${
-            overlayRunning
-              ? "home-overlay-card__status--running"
-              : "home-overlay-card__status--stopped"
-          }`}
-        >
-          {overlayChanging ? t("home.overlay.changing") : overlayRunning
-            ? t("home.overlay.statusRunning")
-            : t("home.overlay.statusStopped")}
-        </span>
-      </div>
-      <p className="home-section-hint">{t("home.workspace.overlayHint")}</p>
-      <div className="home-section-body">
-        <div className="home-overlay-card__controls">
+        <div className="home-overlay-card__header-right">
+          {overlayChanging ? (
+            <span className="home-overlay-card__status">{t("home.overlay.changing")}</span>
+          ) : null}
           <label className="home-toggle home-overlay-card__enabled" htmlFor="home-overlay-toggle"
             data-tip={t("home.overlay.toggleTooltip")}>
             <input id="home-overlay-toggle" type="checkbox" role="switch"
+              aria-label={t("home.overlay.enabled")}
               checked={overlayRunning} disabled={overlayChanging}
               onChange={(event) => void handleOverlayToggle(event.target.checked)} />
-            <span>{t("home.overlay.enabled")}</span>
           </label>
-          {overlayToggleError ? <p role="alert">{t("home.overlay.toggleError")}</p> : null}
-          <div className="home-overlay-card__actions">
-            <button
-              type="button"
-              className="home-overlay-primary-btn"
-              onClick={openOverlaySettings}
-              disabled={!overlayRunning || overlayChanging}
-            >
-              <WorkspaceIcon name="settings" />
-              {t("home.actions.overlaySettings")}
-            </button>
-            <button
-              type="button"
-              className="home-quick-btn home-overlay-guide-btn"
-              onClick={() => openExternal(OVERLAY_DOCS_URL)}
-            >
-              {t("home.overlay.guide")}
-            </button>
-          </div>
-          <div className="home-overlay-card__automation">
-            <label
-              className="home-toggle home-overlay-card__startup"
-              htmlFor="home-overlay-active-game-toggle"
-              data-tip={t("home.overlay.runWithActiveGameTooltip")}
-            >
-              <input
-                id="home-overlay-active-game-toggle"
-                type="checkbox"
-                checked={runOverlayWithActiveGame}
-                disabled={!overlaySettingsLoaded || overlaySettingsSaving}
-                onChange={(e) => void handleOverlayAutomationChange("runOverlayWithActiveGame", e.target.checked)}
-              />
-              <span>{t("home.overlay.runWithActiveGame")}</span>
-              <span className="home-overlay-card__recommended">{t("home.overlay.recommended")}</span>
-            </label>
-            <label
-              className="home-toggle home-overlay-card__startup"
-              htmlFor="home-overlay-startup-toggle"
-              data-tip={t("home.overlay.runOnStartupTooltip")}
-            >
-              <input
-                id="home-overlay-startup-toggle"
-                type="checkbox"
-                checked={runOverlayOnStartup}
-                disabled={!overlaySettingsLoaded || overlaySettingsSaving}
-                onChange={(e) => void handleOverlayAutomationChange("runOverlayOnStartup", e.target.checked)}
-              />
-              <span>{t("home.overlay.runOnStartup")}</span>
-            </label>
-            {overlaySettingsError ? <p role="alert">{t("home.overlay.settingsError")}</p> : null}
-          </div>
         </div>
-        {!isWindows && (
-          <span className="home-overlay-card__warning">
-            {t("home.actions.overlayPlatformWarning")}
-          </span>
-        )}
       </div>
+      {overlayToggleError ? <p role="alert">{t("home.overlay.toggleError")}</p> : null}
+      <OverlayStartupOptions state={overlayStartup} prefix="home" />
+      <div className="home-overlay-card__actions">
+        <button
+          type="button"
+          className="home-overlay-primary-btn"
+          onClick={openOverlaySettings}
+          disabled={!overlayRunning || overlayChanging}
+        >
+          <WorkspaceIcon name="settings" />
+          {t("home.actions.overlaySettings")}
+        </button>
+        <button
+          type="button"
+          className="home-quick-btn home-overlay-guide-btn"
+          data-tip={t("home.actions.overlayWiki")}
+          onClick={() => openExternal(OVERLAY_DOCS_URL)}
+        >
+          {t("home.overlay.guide")}
+        </button>
+      </div>
+      {!isWindows && (
+        <span className="home-overlay-card__warning">
+          {t("home.actions.overlayPlatformWarning")}
+        </span>
+      )}
     </section>
   );
 
@@ -1282,176 +1130,122 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
   return (
     <div className={`tab-panel home-panel ${active ? "active" : ""}`}>
       <div className="gsm-workspace home-desk home-reading-desk" data-reading-focus={readingFocus}>
-        <aside className="home-library" id="home-game-library" hidden={!libraryOpen || readingFocus} aria-label={t("home.workspace.library")} inert={newCaptureOpen}>
-          <button type="button" className="home-library-close" onClick={() => setLibraryOpen(false)}>{t("reader.closeLibrary")}</button>
-          <div className="home-library-brand">
-            <span className="home-library-mark"><WorkspaceIcon name="general" /></span>
-            <div>
-              <strong>{t("app.tabs.home")}</strong>
-              <span>{t("home.workspace.library")}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="ws-primary home-add-game"
-            aria-haspopup="dialog"
-            aria-controls="home-new-capture"
-            onClick={(event) => openNewCapture(event.currentTarget)}
-          >
-            <span aria-hidden="true">+</span>
-            {t("home.workspace.addGame")}
-          </button>
-          <div className="home-library-heading">
-            <h2>{t("home.workspace.savedGames")}</h2>
-            <button
-              type="button"
-              className="home-icon-btn"
-              onClick={() => void refreshAll()}
-              aria-label={t("home.obs.refreshScenes")}
-            >
-              <WorkspaceIcon name="updates" />
-            </button>
-          </div>
-          {hasUserScenes && <div className="home-library-search">
-            <WorkspaceIcon name="search" />
-            <input
-              type="search"
-              value={gameSearch}
-              placeholder={t("home.workspace.searchGames")}
-              aria-label={t("home.workspace.searchGames")}
-              onChange={(event) => setGameSearch(event.target.value)}
-            />
-          </div>}
-          <ul className="home-game-list">
-            {filteredScenes.map((scene) => (
-              <li key={scene.id} className="home-game-entry">
-                <button
-                  type="button"
-                  className="home-game-button"
-                  data-tip={scene.name}
-                  data-tip-if-truncated="span"
-                  ref={selectedSceneId === scene.id ? selectedGameRef : null}
-                  data-scene-id={scene.id}
-                  aria-current={selectedSceneId === scene.id ? "true" : undefined}
-                  onClick={() => { handleSceneChange(scene.id); setLibraryOpen(false); }}
-                >
-                  <WorkspaceIcon name="general" />
-                  <span>{scene.name}</span>
-                </button>
-                <button type="button" className="home-game-menu-trigger" data-game-menu-id={scene.id}
-                  aria-label={t("home.workspace.gameActions", { name: scene.name })}
-                  aria-haspopup="menu" aria-expanded={gameMenu?.scene.id === scene.id}
-                  aria-controls={gameMenu?.scene.id === scene.id ? "home-game-menu" : undefined}
-                  onClick={(event) => setGameMenu(gameMenu?.scene.id === scene.id ? null : { scene, anchor: event.currentTarget })}>
-                  <span aria-hidden="true">⋯</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {!hasUserScenes && <p className="home-library-empty">{t(scenesLoading ? "home.obs.loading" : "home.workspace.noGames")}</p>}
-          {hasUserScenes && filteredScenes.length === 0 && <p className="home-library-empty" role="status">{t("home.workspace.noMatchingGames")}</p>}
-
-        </aside>
-
         <div className="home-session" inert={newCaptureOpen}>
           <div className="home-session-scroll">
-            <button type="button" className="home-library-toggle" aria-expanded={libraryOpen} aria-controls="home-game-library" onClick={() => setLibraryOpen(value => !value)}>
-              <WorkspaceIcon name="general" />{t("home.workspace.library")}<WorkspaceIcon name="arrow" />
-            </button>
-            {!hasUserScenes && <section className="home-empty-game" aria-labelledby="home-empty-game-heading">
-              <span className="home-empty-game__icon" aria-hidden="true"><WorkspaceIcon name="general" /></span>
-              <h1 id="home-empty-game-heading">{t("home.workspace.noGames")}</h1>
-              <p className="home-section-hint">{t("home.workspace.emptyGameHint")}</p>
-              <button type="button" className="ws-primary" aria-haspopup="dialog" aria-controls="home-new-capture" onClick={(event) => openNewCapture(event.currentTarget)}>
-                {t("home.workspace.addGame")}
-              </button>
-            </section>}
+            <section className="home-library" id="home-game-library" aria-label={t("home.workspace.library")}>
+              <div className="home-library-heading">
+                {hasUserScenes ? (
+                  <button type="button" className="home-library-toggle" ref={libraryToggleRef}
+                    aria-expanded={libraryOpen} aria-controls="home-saved-games"
+                    onClick={() => setLibraryOpen(open => !open)}>
+                    <span className="home-library-chevron" aria-hidden="true" />
+                    {t("home.workspace.library")}
+                  </button>
+                ) : <h2>{t("home.workspace.library")}</h2>}
+                <div className="home-library-actions">
+                  <button
+                    type="button"
+                    className="home-icon-btn"
+                    onClick={() => void refreshAll()}
+                    aria-label={t("home.obs.refreshScenes")}
+                    data-tip={t("home.obs.refreshScenes")}
+                  >
+                    <WorkspaceIcon name="updates" />
+                  </button>
+                  {hasUserScenes && (
+                    <button
+                      type="button"
+                      className="ws-primary home-add-game"
+                      aria-haspopup="dialog"
+                      aria-controls="home-new-capture"
+                      onClick={(event) => openNewCapture(event.currentTarget)}
+                    >
+                      <span aria-hidden="true">+</span>
+                      {t("home.workspace.addGame")}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div id="home-saved-games" hidden={!libraryOpen || !hasUserScenes}>
+                {libraryOpen && hasUserScenes && (
+                  <>
+                    {showGameSearch && (
+                      <div className="home-library-search">
+                        <WorkspaceIcon name="search" />
+                        <input
+                          type="search"
+                          value={gameSearch}
+                          placeholder={t("home.workspace.searchGames")}
+                          aria-label={t("home.workspace.searchGames")}
+                          onChange={(event) => setGameSearch(event.target.value)}
+                        />
+                      </div>
+                    )}
+                    <ul className="home-game-list">
+                      {filteredScenes.map((scene) => (
+                        <li key={scene.id} className="home-game-entry">
+                          <button
+                            type="button"
+                            className="home-game-button"
+                            data-tip={scene.name}
+                            data-tip-if-truncated="span"
+                            ref={selectedSceneId === scene.id ? selectedGameRef : null}
+                            data-scene-id={scene.id}
+                            aria-current={selectedSceneId === scene.id ? "true" : undefined}
+                            onClick={() => handleSceneChange(scene.id)}
+                          >
+                            <WorkspaceIcon name="general" />
+                            <span>{scene.name}</span>
+                          </button>
+                          <button type="button" className="home-game-menu-trigger" data-game-menu-id={scene.id}
+                            aria-label={t("home.workspace.gameActions", { name: scene.name })}
+                            aria-haspopup="menu" aria-expanded={gameMenu?.scene.id === scene.id}
+                            aria-controls={gameMenu?.scene.id === scene.id ? "home-game-menu" : undefined}
+                            onClick={(event) => setGameMenu(gameMenu?.scene.id === scene.id ? null : { scene, anchor: event.currentTarget })}>
+                            <span aria-hidden="true">⋯</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {filteredScenes.length === 0 && (
+                      <p className="home-library-empty" role="status">{t("home.workspace.noMatchingGames")}</p>
+                    )}
+                  </>
+                )}
+              </div>
+              {!hasUserScenes && (
+                <div className="home-empty-game" aria-labelledby="home-empty-game-heading">
+                  <p id="home-empty-game-heading" className="home-library-empty">{t(scenesLoading ? "home.obs.loading" : "home.workspace.noGames")}</p>
+                  <button
+                    type="button"
+                    className="ws-primary home-add-game"
+                    aria-haspopup="dialog"
+                    aria-controls="home-new-capture"
+                    onClick={(event) => openNewCapture(event.currentTarget)}
+                  >
+                    {t("home.workspace.addGame")}
+                  </button>
+                </div>
+              )}
+            </section>
             <section className="home-current-game" hidden={!hasUserScenes} aria-labelledby="home-current-game-heading">
               <header className="home-section-heading home-game-header">
                 <div className="home-game-title">
-                  <span className="ws-eyebrow">{t("home.workspace.gameContext")}</span>
                   <h1 id="home-current-game-heading">{isHelperScene ? t("home.workspace.chooseGame") : selectedScene?.name}</h1>
-                  <div className="home-game-meta">
-                    {selectedSceneCaptureMode && <span>{t(selectedSceneCaptureMode === "window_capture" ? "home.obs.captureModeWindow" : "home.obs.captureModeGame")}</span>}
-                    {isWindows && windowsDetectedExe && !isHelperScene && <span className="home-game-executable">{windowsDetectedExe}</span>}
-                    {isHelperScene && <span>{t("home.workspace.chooseGameHint")}</span>}
-                  </div>
+                  {!isHelperScene && (selectedSceneCaptureMode || (isWindows && windowsDetectedExe)) && (
+                    <div className="home-game-meta">
+                      {selectedSceneCaptureMode && <span>{t(selectedSceneCaptureMode === "window_capture" ? "home.obs.captureModeWindow" : "home.obs.captureModeGame")}</span>}
+                      {isWindows && windowsDetectedExe && <span className="home-game-executable">{windowsDetectedExe}</span>}
+                    </div>
+                  )}
                 </div>
               </header>
               {isWindows && selectedScene && !isHelperScene && (
                 <GameLaunchControls key={selectedScene.id} sceneId={selectedScene.id} active={active} />
               )}
-              {/* Scene profile selector — only when more than the Default profile exists */}
-              {showSceneProfileRow && (
-                <div className="home-row">
-                  <div className="home-row__label home-profile-label">
-                    <label htmlFor="home-scene-profile-select">{t("home.obs.profileLabel")}</label>
-                    <button
-                      type="button"
-                      className="home-profile-help-btn"
-                      data-tip={t("home.obs.profileTooltip")}
-                      aria-label={t("home.obs.profileTooltip")}
-                    >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="M12 16v-4"/>
-                        <path d="M12 8h.01"/>
-                      </svg>
-                    </button>
-                  </div>
-                  <div className="home-row__controls">
-                    {newProfileMode ? (
-                      <>
-                        <input
-                          id="home-scene-profile-new"
-                          className="home-input"
-                          type="text"
-                          value={newProfileName}
-                          placeholder={t("home.obs.profileNewPlaceholder")}
-                          autoComplete="off"
-                          autoFocus
-                          onChange={(e) => setNewProfileName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); void handleCreateProfileForScene(); }
-                            if (e.key === "Escape") { e.preventDefault(); setNewProfileMode(false); setNewProfileName(""); }
-                          }}
-                        />
-                        <button
-                          type="button"
-                          className="home-text-btn"
-                          disabled={profileAssigning || !newProfileName.trim()}
-                          onClick={() => void handleCreateProfileForScene()}
-                        >
-                          {t("home.obs.profileCreate")}
-                        </button>
-                        <button
-                          type="button"
-                          className="home-text-btn"
-                          disabled={profileAssigning}
-                          onClick={() => { setNewProfileMode(false); setNewProfileName(""); }}
-                        >
-                          {t("home.obs.profileCancel")}
-                        </button>
-                      </>
-                    ) : (
-                      <select
-                        id="home-scene-profile-select"
-                        className="home-select"
-                        value={sceneProfile}
-                        disabled={profileAssigning}
-                        onChange={(e) => void handleSceneProfileChange(e.target.value)}
-                      >
-                        {gsmProfiles.map((name) => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
-                        <option value={NEW_PROFILE_VALUE}>{t("home.obs.profileNewOption")}</option>
-                      </select>
-                    )}
-                  </div>
-                </div>
-              )}
             </section>
 
+            <HomeProfileSelector active={active} scene={isHelperScene ? undefined : selectedScene?.name} />
             <details className="home-game-details" hidden={isHelperScene || !selectedScene} onToggle={event => setGameOptionsOpen(event.currentTarget.open)}>
               <summary>{t("reader.gameOptions")}</summary>
               <div className="home-section-body">
@@ -1501,23 +1295,11 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
 
             <div className="home-tools">
               {overlaySection}
-              <section className="home-quick-actions home-reader-legacy-actions" aria-labelledby="home-text-feed-heading">
-                <div className="home-section-heading">
-                  <h2 id="home-text-feed-heading"><WorkspaceIcon name="activity" />{t("home.workspace.textFeed")}</h2>
-                </div>
-                <p className="home-section-hint">{t("home.workspace.textFeedHint")}</p>
-                <div className="home-tool-actions">
-                  <button type="button" className="home-feed-button" onClick={openTexthooker}>
-                    {t("home.actions.texthooker")}
-                    <WorkspaceIcon name="arrow" />
-                  </button>
-                </div>
-                <button type="button" className="home-settings-link" onClick={openGSMSettings}>
-                  <WorkspaceIcon name="settings" />
-                  {t("home.actions.gsmSettings")}
-                  <WorkspaceIcon name="arrow" />
-                </button>
-              </section>
+              <button type="button" className="home-settings-link" onClick={openGSMSettings}>
+                <WorkspaceIcon name="settings" />
+                {t("home.actions.gsmSettings")}
+                <WorkspaceIcon name="arrow" />
+              </button>
             </div>
           </div>
 
@@ -1571,7 +1353,13 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
           </section>
         </div>
         <div className="home-reading-surface" inert={newCaptureOpen}>
-          <ReadingPane active={active} focus={readingFocus} onToggleFocus={toggleReadingFocus} onOpenBrowser={openTexthooker} />
+          <ReadingPane
+            active={active}
+            focus={readingFocus}
+            gameName={!isHelperScene && selectedScene ? selectedScene.name : ""}
+            onToggleFocus={toggleReadingFocus}
+            onOpenBrowser={openTexthooker}
+          />
         </div>
         <footer className="home-support" inert={newCaptureOpen}>
           <span className="home-support__heart" aria-hidden="true">♥</span>

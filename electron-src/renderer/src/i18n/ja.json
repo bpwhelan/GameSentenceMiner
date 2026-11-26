@@ -74,12 +74,19 @@
       "autoRefresh": "🔄 自動更新",
       "save": "💾 保存して終了",
       "autoSendTip": "ウィンドウを閉じずに、範囲の変更を実行中の OCR に反映します",
-      "autoRefreshTip": "OBS の背景画像を毎秒更新します",
+      "autoRefreshTip": "プレビュー画像を自動更新します。オフにすると、画像を固定して範囲を編集できます。",
       "capturing": "スクリーンショットを取得中…",
       "retry": "再試行",
       "delete": "#{number}（{type}）を削除",
       "toggleInstructions": "説明の表示を切替",
       "quit": "❌ 保存せずに終了",
+      "tips": {
+        "normal": "自動OCRで読み取る範囲です。台詞欄を囲みます。",
+        "exclusion": "行の中心がこの範囲にあると、その行を除外します。話者名やHUDのラベルに使えます。",
+        "secondary": "メニューOCRのホットキーで読み取る範囲です。メニューや選択肢に使えます。",
+        "exclusive": "行全体がこの範囲に収まると、自動OCRは排他範囲内の行だけを残します。台詞に重なる選択肢に使えます。",
+        "blackHole": "認識した文字がこの範囲に重なると、今回の読み取り結果をすべて破棄します。ポーズ画面やメニューの見出しに使えます。"
+      },
       "modes": {
         "normal": "通常",
         "exclusion": "除外",
@@ -249,6 +256,9 @@
     "globalHint": "この環境のすべてのプロファイルとゲームで共有します。",
     "bound": "OBS シーン · {scenes}",
     "newProfile": "プロファイルを作成",
+    "renameProfile": "プロファイル名を変更",
+    "deleteProfile": "プロファイルを削除",
+    "newSceneProfile": "シーン専用プロファイルを作成",
     "newGame": "ゲーム設定を作成",
     "activate": "GSM で使用",
     "remove": "削除",
@@ -516,7 +526,7 @@
     "clearHotkey": "ホットキーをクリア",
     "close": "閉じる",
     "confirmationAfterSession": "セッション終了後",
-    "confirmationAfterSessionDesc": "プレイ中はカードをキューに保存し、セッション終了後にまとめて確認します。",
+    "confirmationAfterSessionDesc": "採掘したカードをキューに保存し、プレイ中やセッション終了後に確認できます。",
     "confirmationImmediate": "マイニング直後",
     "confirmationImmediateDesc": "カード作成直後に確認ダイアログを表示します。",
     "copied": "コピーしました",
@@ -835,7 +845,7 @@
     "gameFolder": "ゲームのフォルダー（既定）",
     "launcherPath": "カスタムランチャー（任意）",
     "launcherArguments": "ランチャーの引数",
-    "launcherHelp": "Special KのSKIFやLocale Emulatorなど、インストール済みのランチャーを使用できます。空欄の場合はゲームを直接起動します。",
+    "launcherHelp": "空欄の場合、GSMはSteamのゲームを検出するとSteam経由で起動し、それ以外のゲームは直接起動します。SKIFやLocale Emulatorなどを使う場合は、ここで選択してください。",
     "templateHelp": "{game}はゲームのパス、{args}はゲームの引数に置き換わります。既定値: \"{game}\" {args}。LEProcの場合: -run \"{game}\" {args}。{args}は独立した引数として指定してください。シェルコマンドや環境変数は展開されません。",
     "browse": "参照",
     "browseField": "参照: {field}",
@@ -1024,12 +1034,13 @@
       "statusRunning": "実行中",
       "statusStopped": "停止中",
       "guide": "設定ガイド",
+      "startupSettings": "オーバーレイの起動設定",
       "runOnStartup": "起動時に実行",
       "runOnStartupTooltip": "GSM起動時にオーバーレイを起動し、そのまま実行し続けます。ゲームに合わせて自動起動・終了するには「ゲームに合わせて開く・閉じる」を使用してください。一方を有効にすると、もう一方は無効になります。",
       "runWithActiveGame": "ゲームに合わせて開く・閉じる",
       "runWithActiveGameTooltip": "すべてのゲームで、キャプチャまたはゲームウィンドウを検出するとオーバーレイを開き、セッション終了時に閉じます。一時的な検出の途切れ、Alt+Tab、最小化では閉じません。有効にすると「起動時に実行」は無効になります。",
       "recommended": "推奨",
-      "settingsError": "オーバーレイ設定を読み込みまたは保存できませんでした。ホームを開き直して再試行してください。"
+      "settingsError": "オーバーレイ設定を読み込みまたは保存できませんでした。このタブを開き直して再試行してください。"
     },
     "actions": {
       "title": "ユーティリティ",
@@ -1688,9 +1699,11 @@
       },
       "working": "変更を適用中…",
       "open": "GPU とパフォーマンスを開く",
-      "pythonHint": "GPU の導入、エンジンの切り替え、デバイスの状態は「設定 → GPU とパフォーマンス」にあります。"
+      "pythonHint": "GPU の導入、エンジンの切り替え、デバイスの状態は「設定 → デスクトップ → 一般 → GPU とパフォーマンス」にあります。"
     },
     "workspace": {
+      "desktopCategory": "デスクトップ",
+      "miningCategory": "マイニング",
       "brandHint": "設定とツール",
       "general": "一般",
       "generalHelp": "外観、言語、起動時の動作を設定します。",
@@ -2751,6 +2764,12 @@
     }
   },
   "sceneSwitcher": {
+    "buildFromText": "ウィンドウタイトルの文字列からパターンを作成",
+    "literalPlaceholder": "例：youtube",
+    "matchAnywhere": "部分一致",
+    "matchExactly": "完全一致",
+    "startsWith": "前方一致",
+    "endsWith": "後方一致",
     "title": "自動シーン切り替え",
     "description": "前面のゲームウィンドウに応じてOBSシーンを切り替えます。",
     "hook": {

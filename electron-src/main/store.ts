@@ -98,6 +98,9 @@ interface OCRConfig {
     compactBoxes?: boolean;
     compactBoxesGap?: number;
     processPriority: 'low' | 'below_normal' | 'normal' | 'above_normal' | 'high';
+    cpuParkingMode?: 'auto' | 'efficiency' | 'background_cores' | 'custom';
+    cpuParkingCores?: string;
+    onnxMaxThreads?: number;
     base_scale?: number;
     duplicate_similarity_threshold?: number;
     change_detection_threshold?: number;
@@ -312,6 +315,9 @@ export const store = new Store<StoreConfig>({
             compactBoxes: false,
             compactBoxesGap: 12,
             processPriority: "normal",
+            cpuParkingMode: "auto",
+            cpuParkingCores: "",
+            onnxMaxThreads: 0,
             base_scale: 0.75,
             duplicate_similarity_threshold: 80,
             change_detection_threshold: 20,

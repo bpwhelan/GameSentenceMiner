@@ -25,6 +25,22 @@ type ProcessPriority =
   | "above_normal"
   | "high";
 
+type CpuParkingMode =
+  | "auto"
+  | "efficiency"
+  | "background_cores"
+  | "custom";
+
+interface CpuTopologyInfo {
+  logicalCores: number;
+  efficiencyCoreCount: number;
+  hasEfficiencyCores: boolean;
+  llcGroupCount: number;
+  hasMultipleCcds: boolean;
+  backgroundCores: number[];
+  backgroundStrategy: string;
+}
+
 type MenuAreaOcrEngine = "main" | "glens" | "bing";
 
 type ComparisonFieldKey =
@@ -93,6 +109,9 @@ interface OcrStoredConfig {
   compactBoxesGap?: number;
   ignore_ocr_run_1_text?: boolean;
   processPriority?: string;
+  cpuParkingMode?: string;
+  cpuParkingCores?: string;
+  onnxMaxThreads?: number;
   base_scale?: number;
   advancedMode?: boolean;
   [key: string]: unknown;
@@ -141,6 +160,9 @@ interface OcrUiConfig {
   compactBoxesGap: number;
   ignoreOcrRun1Text: boolean;
   processPriority: ProcessPriority;
+  cpuParkingMode: CpuParkingMode;
+  cpuParkingCores: string;
+  onnxMaxThreads: number;
   baseScale: number;
   comparison: Record<ComparisonFieldKey, number>;
 }
@@ -317,6 +339,15 @@ const PROCESS_PRIORITY_OPTIONS: Array<{ value: ProcessPriority; label: string }>
     { value: "above_normal", label: "Above Normal" },
     { value: "high", label: "High" }
   ];
+
+const CPU_PARKING_OPTIONS: Array<{ value: CpuParkingMode; labelKey: string }> = [
+  { value: "auto", labelKey: "ocr.debug.cpuParkingAuto" },
+  { value: "efficiency", labelKey: "ocr.debug.cpuParkingEfficiency" },
+  { value: "background_cores", labelKey: "ocr.debug.cpuParkingBackgroundCores" },
+  { value: "custom", labelKey: "ocr.debug.cpuParkingCustom" }
+];
+
+const ONNX_MAX_THREADS_OPTIONS = [0, 1, 2, 4, 8] as const;
 
 const PREPROCESS_OPTIONS: Option[] = [
   { value: "none", label: "Off" },
@@ -562,6 +593,13 @@ const VALID_PROCESS_PRIORITIES: ProcessPriority[] = [
   "high"
 ];
 
+const VALID_CPU_PARKING_MODES: CpuParkingMode[] = [
+  "auto",
+  "efficiency",
+  "background_cores",
+  "custom"
+];
+
 const OCR_RUN_1_RECOGNIZED_PATTERN = /OCR Run 1: Text recognized/i;
 const OCR_RUN_2_RECOGNIZED_PATTERN =
   /OCR Run 2(?:\s*\(bypassed\))?: Text recognized/i;
@@ -613,6 +651,88 @@ function normalizeProcessPriority(value: unknown): ProcessPriority {
 
   const normalized = value.toLowerCase() as ProcessPriority;
   return VALID_PROCESS_PRIORITIES.includes(normalized) ? normalized : "normal";
+}
+
+function normalizeCpuParkingMode(value: unknown): CpuParkingMode {
+  if (typeof value !== "string") {
+    return "auto";
+  }
+
+  const normalized = value.trim().toLowerCase() as CpuParkingMode;
+  return VALID_CPU_PARKING_MODES.includes(normalized) ? normalized : "auto";
+}
+
+function normalizeOnnxMaxThreads(value: unknown): number {
+  const parsed = integerValue(value, 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+  return Math.min(64, parsed);
+}
+
+function formatCoreRanges(cores: number[]): string {
+  if (cores.length === 0) {
+    return "";
+  }
+  const sorted = [...new Set(cores)].sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = sorted[0];
+  for (let i = 1; i < sorted.length; i += 1) {
+    if (sorted[i] === prev + 1) {
+      prev = sorted[i];
+    } else {
+      ranges.push(start === prev ? String(start) : `${start}-${prev}`);
+      start = sorted[i];
+      prev = sorted[i];
+    }
+  }
+  ranges.push(start === prev ? String(start) : `${start}-${prev}`);
+  return ranges.join(", ");
+}
+
+function parseCustomCoreSpec(
+  spec: string,
+  logicalCores: number
+): { cores: number[]; invalidTokens: string[] } {
+  const cores: number[] = [];
+  const invalidTokens: string[] = [];
+  const maxAllowed = logicalCores > 0 ? logicalCores - 1 : 1023;
+  const tokens = spec
+    .split(/[,;\s]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  for (const token of tokens) {
+    const rangeMatch = /^(\d+)\s*-\s*(\d+)$/.exec(token);
+    if (rangeMatch) {
+      const a = Number.parseInt(rangeMatch[1], 10);
+      const b = Number.parseInt(rangeMatch[2], 10);
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      if (hi > maxAllowed || hi - lo > 1024) {
+        invalidTokens.push(token);
+        continue;
+      }
+      for (let cpu = lo; cpu <= hi; cpu += 1) {
+        cores.push(cpu);
+      }
+    } else if (/^\d+$/.test(token)) {
+      const cpu = Number.parseInt(token, 10);
+      if (cpu > maxAllowed) {
+        invalidTokens.push(token);
+      } else {
+        cores.push(cpu);
+      }
+    } else {
+      invalidTokens.push(token);
+    }
+  }
+
+  return {
+    cores: [...new Set(cores)].sort((a, b) => a - b),
+    invalidTokens
+  };
 }
 
 function keepNewlineEnabled(
@@ -844,6 +964,10 @@ function normalizeOcrConfig(
     compactBoxesGap: numericValue(value?.compactBoxesGap, 12),
     ignoreOcrRun1Text: value?.ignore_ocr_run_1_text === true,
     processPriority: normalizeProcessPriority(value?.processPriority),
+    cpuParkingMode: normalizeCpuParkingMode(value?.cpuParkingMode),
+    cpuParkingCores:
+      typeof value?.cpuParkingCores === "string" ? value.cpuParkingCores : "",
+    onnxMaxThreads: normalizeOnnxMaxThreads(value?.onnxMaxThreads),
     baseScale: numericValue(value?.base_scale, 0.75),
     comparison
   };
@@ -906,6 +1030,9 @@ function buildPersistedConfig(
     compactBoxesGap: config.compactBoxesGap,
     ignore_ocr_run_1_text: config.ignoreOcrRun1Text,
     processPriority: config.processPriority,
+    cpuParkingMode: config.cpuParkingMode,
+    cpuParkingCores: config.cpuParkingCores,
+    onnxMaxThreads: config.onnxMaxThreads,
     base_scale: config.baseScale,
     advancedMode: config.advancedMode,
     ocr1_advanced: config.stabilityOcr,
@@ -1029,6 +1156,10 @@ const OCR_TOOLTIP_KEYS = {
   compactBoxes: "ocr.tooltips.compactBoxes",
   compactBoxesGap: "ocr.tooltips.compactBoxesGap",
   ignoreRun1Logs: "ocr.tooltips.ignoreRun1Logs",
+  processPriority: "ocr.tooltips.processPriority",
+  cpuParkingMode: "ocr.tooltips.cpuParkingMode",
+  cpuParkingCores: "ocr.tooltips.cpuParkingCores",
+  onnxMaxThreads: "ocr.tooltips.onnxMaxThreads",
   advancedDebugLogging: "ocr.tooltips.advancedDebugLogging",
   advancedRecognition: "ocr.tooltips.advancedRecognition",
   comparison: "ocr.tooltips.comparison"
@@ -1161,8 +1292,27 @@ export function OCRTab({ active }: OcrTabProps) {
     normalizeOcrConfig(null, platform)
   );
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [cpuInfo, setCpuInfo] = useState<CpuTopologyInfo | null>(() => {
+    const logicalCores =
+      typeof navigator !== "undefined" && Number.isFinite(navigator.hardwareConcurrency)
+        ? navigator.hardwareConcurrency
+        : 0;
+    return logicalCores > 0
+      ? {
+          logicalCores,
+          efficiencyCoreCount: 0,
+          hasEfficiencyCores: false,
+          llcGroupCount: 1,
+          hasMultipleCcds: false,
+          backgroundCores: [],
+          backgroundStrategy: "none"
+        }
+      : null;
+  });
   const [scenes, setScenes] = useState<ObsScene[]>([]);
   const [selectedSceneId, setSelectedSceneId] = useState("");
+  const [editorWorkspace, setEditorWorkspace] = useState<HTMLDivElement | null>(null);
+  const [viewerFeedTarget, setViewerFeedTarget] = useState<HTMLDivElement | null>(null);
   const [loadingScenes, setLoadingScenes] = useState(true);
   const [sceneAutostart, setSceneAutostart] = useState<{
     sceneId: string;
@@ -1671,13 +1821,19 @@ export function OCRTab({ active }: OcrTabProps) {
 
     const load = async () => {
       try {
-        const storedConfig = await invokeIpc<OcrStoredConfig | null>("ocr.get-ocr-config");
+        const [storedConfig, topology] = await Promise.all([
+          invokeIpc<OcrStoredConfig | null>("ocr.get-ocr-config"),
+          invokeIpc<CpuTopologyInfo | null>("ocr.get-cpu-info").catch(() => null)
+        ]);
         if (cancelled) {
           return;
         }
 
         baseConfigRef.current = storedConfig ?? {};
         setConfig(normalizeOcrConfig(storedConfig, platform));
+        if (topology && typeof topology.logicalCores === "number" && topology.logicalCores > 0) {
+          setCpuInfo(topology);
+        }
         setConfigLoaded(true);
       } catch (error) {
         console.error("Failed to load OCR config:", error);
@@ -2092,11 +2248,6 @@ export function OCRTab({ active }: OcrTabProps) {
     }
   };
 
-  const runScreenSelector = useCallback(() => {
-    appendTerminalLine("\x1b[36mOpening OCR area selector...\x1b[0m");
-    sendIpc("ocr.run-screen-selector");
-  }, [appendTerminalLine]);
-
   const startOcr = useCallback(
     async (manual: boolean) => {
       clearTerminal();
@@ -2231,7 +2382,7 @@ export function OCRTab({ active }: OcrTabProps) {
 
   return (
     <div className={"tab-panel " + (active ? "active" : "")}>
-      <div className="ocr-desk">
+      <div className="ocr-desk" ref={setEditorWorkspace}>
         {notice ? (
           <div
             className={`ocr-toast ocr-toast--${notice.type}`}
@@ -2435,22 +2586,15 @@ export function OCRTab({ active }: OcrTabProps) {
                       <h2>{t("ocr.desk.captureAreas")}</h2>
                       <span className="desk-muted">{footerSummaryWhenIdle}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="desk-primary"
-                      disabled={loadingScenes || scenes.length === 0}
-                      onClick={runScreenSelector}
-                    >
-                      <WorkspaceIcon name="edit" />
-                      {t("ocr.desk.openAreaSelector")}
-                    </button>
                   </div>
                   <OCRCaptureMap
                     key={selectedScene ? JSON.stringify([selectedScene.id, selectedScene.name]) : "no-scene"}
                     config={activeSceneAreaConfig}
                     disabled={loadingScenes || scenes.length === 0}
                     onSaved={setActiveSceneAreaConfig}
-                    active={active && workspaceView === "capture"}
+                    onFeedTarget={setViewerFeedTarget}
+                    workspace={editorWorkspace}
+                    active={active}
                     scene={selectedScene}
                     ocrRunning={runningState.isRunning}
                   />
@@ -2471,17 +2615,10 @@ export function OCRTab({ active }: OcrTabProps) {
                       <WorkspaceIcon name="export" />
                       {t("ocr.sceneAndAreas.exportAreas")}
                     </button>
-                    <button
-                      type="button"
-                      disabled={!runningState.isRunning}
-                      onClick={triggerAddOcrArea}
-                    >
-                      <WorkspaceIcon name="add" />
-                      {t("ocr.hotkeys.addArea")}
-                    </button>
                   </div>
                 </section>
                 <OCRTextFeed
+                  viewerTarget={viewerFeedTarget}
                   active={active && workspaceView === "capture"}
                   running={runningState.isRunning}
                   paused={paused}
@@ -3544,7 +3681,10 @@ export function OCRTab({ active }: OcrTabProps) {
                   className="form-group ocr-form-group ocr-details-body desk-tools-panel"
                 >
                   <div className="input-group">
-                    <label htmlFor="process-priority">
+                    <label
+                      htmlFor="process-priority"
+                      {...tooltipProps(ocrTooltips.processPriority)}
+                    >
                       {t("ocr.debug.processPriority")}
                     </label>
                     <select
@@ -3567,6 +3707,146 @@ export function OCRTab({ active }: OcrTabProps) {
                       ))}
                     </select>
                   </div>
+
+                  <div className="input-group">
+                    <label
+                      htmlFor="cpu-parking-mode"
+                      {...tooltipProps(ocrTooltips.cpuParkingMode)}
+                    >
+                      {t("ocr.debug.cpuParkingMode")}
+                    </label>
+                    <select
+                      id="cpu-parking-mode"
+                      value={config.cpuParkingMode}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          cpuParkingMode: normalizeCpuParkingMode(event.target.value)
+                        }));
+                      }}
+                    >
+                      {CPU_PARKING_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                        >
+                          {t(option.labelKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="input-group">
+                    <label
+                      htmlFor="onnx-max-threads"
+                      {...tooltipProps(ocrTooltips.onnxMaxThreads)}
+                    >
+                      {t("ocr.debug.onnxMaxThreads")}
+                    </label>
+                    <select
+                      id="onnx-max-threads"
+                      value={String(config.onnxMaxThreads)}
+                      onChange={(event) => {
+                        setConfig((current) => ({
+                          ...current,
+                          onnxMaxThreads: normalizeOnnxMaxThreads(event.target.value)
+                        }));
+                      }}
+                    >
+                      {ONNX_MAX_THREADS_OPTIONS.map((count) => (
+                        <option
+                          key={count}
+                          value={String(count)}
+                        >
+                          {count === 0 ? t("ocr.debug.onnxMaxThreadsAuto") : String(count)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {config.cpuParkingMode === "custom" ? (
+                    <div className="input-group">
+                      <label
+                        htmlFor="cpu-parking-cores"
+                        {...tooltipProps(ocrTooltips.cpuParkingCores)}
+                      >
+                        {t("ocr.debug.cpuParkingCores")}
+                      </label>
+                      <input
+                        id="cpu-parking-cores"
+                        type="text"
+                        value={config.cpuParkingCores}
+                        placeholder={t("ocr.debug.cpuParkingCoresPlaceholder")}
+                        onChange={(event) => {
+                          setConfig((current) => ({
+                            ...current,
+                            cpuParkingCores: event.target.value
+                          }));
+                        }}
+                      />
+                      {(() => {
+                        const logicalCores = cpuInfo?.logicalCores ?? 0;
+                        const parsed = parseCustomCoreSpec(
+                          config.cpuParkingCores,
+                          logicalCores
+                        );
+                        if (parsed.invalidTokens.length > 0) {
+                          return (
+                            <span className="desk-tools-cores-hint is-warning">
+                              {t("ocr.debug.schedulingCustomInvalid", {
+                                max: logicalCores > 0 ? logicalCores - 1 : 1023,
+                                tokens: parsed.invalidTokens.join(", ")
+                              })}
+                            </span>
+                          );
+                        }
+                        if (parsed.cores.length > 0) {
+                          return (
+                            <span className="desk-tools-cores-hint">
+                              {t("ocr.debug.schedulingCustomValid", {
+                                count: parsed.cores.length,
+                                cores: formatCoreRanges(parsed.cores)
+                              })}
+                            </span>
+                          );
+                        }
+                        return (
+                          <span className="desk-tools-cores-hint">
+                            {t("ocr.debug.schedulingCustomEmpty")}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                  ) : null}
+
+                  <p className="desk-tools-scheduling-note">
+                    {t("ocr.debug.schedulingSharedHint")}
+                    {cpuInfo && cpuInfo.logicalCores > 0 ? (
+                      <>
+                        {" "}
+                        {t("ocr.debug.schedulingTopologySummary", {
+                          cores: cpuInfo.logicalCores,
+                          detail: cpuInfo.hasEfficiencyCores
+                            ? t("ocr.debug.schedulingTopologyEfficiency", {
+                                count: cpuInfo.efficiencyCoreCount
+                              })
+                            : cpuInfo.hasMultipleCcds
+                              ? t("ocr.debug.schedulingTopologyCcds", {
+                                  count: cpuInfo.llcGroupCount
+                                })
+                              : ""
+                        })}
+                        {cpuInfo.backgroundCores.length > 0 ? (
+                          <>
+                            {" "}
+                            {t("ocr.debug.schedulingBackgroundTargets", {
+                              cores: formatCoreRanges(cpuInfo.backgroundCores)
+                            })}
+                          </>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </p>
 
                   <div className="desk-tools-toggles">
                     <div className="input-group">

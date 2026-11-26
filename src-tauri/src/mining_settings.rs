@@ -1,86 +1,12 @@
 use serde_json::{json, Value};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
-
-pub const WINDOW_LABEL: &str = "mining-settings";
+use std::sync::{Arc, Mutex};
+use tauri::{AppHandle, Manager};
 
 #[derive(Default)]
-pub struct Navigation {
-    opening: tokio::sync::Mutex<()>,
-    destination: Mutex<Option<Value>>,
-    ready: AtomicBool,
-}
-
-fn create_window(app: &AppHandle) -> Result<WebviewWindow, String> {
-    let mut url = crate::app_lifecycle::desktop_renderer_url(app)?;
-    url.query_pairs_mut().append_pair("window", WINDOW_LABEL);
-    let origin = url.origin();
-    let page = url.path().to_owned();
-    let desktop = app.state::<crate::desktop_state::DesktopState>();
-    let profile = crate::dictionary_host::overlay_data_path(app);
-    std::fs::create_dir_all(&profile).map_err(|e| e.to_string())?;
-    let builder = WebviewWindowBuilder::new(app, WINDOW_LABEL, WebviewUrl::External(url))
-        .title("GameSentenceMiner")
-        .inner_size(1080., 760.)
-        .min_inner_size(600., 440.)
-        .center()
-        .visible(false)
-        .on_navigation(move |next| next.origin() == origin && next.path() == page)
-        .on_new_window(|_, _| tauri::webview::NewWindowResponse::Deny);
-    let builder = crate::dictionary_host::apply_profile_data_directory(
-        crate::dictionary_host::apply_shared_webview_options(builder),
-        &profile,
-    )?;
-    let token = desktop.register_window(WINDOW_LABEL, "desktop");
-    let preload = crate::overlay_preload::render_desktop_window_preload(
-        &token,
-        Some(&crate::desktop_state::theme_for_app(app)),
-    );
-    let window = builder
-        .initialization_script(preload)
-        .build()
-        .map_err(|error| {
-            desktop.unregister_window(WINDOW_LABEL);
-            error.to_string()
-        })?;
-    let handle = app.clone();
-    window.on_window_event(move |event| {
-        let state = handle.state::<Navigation>();
-        let desktop = handle.state::<crate::desktop_state::DesktopState>();
-        match event {
-            WindowEvent::CloseRequested { api, .. }
-                if state.ready.load(Ordering::Acquire)
-                    && !desktop.quitting.load(Ordering::SeqCst) =>
-            {
-                api.prevent_close();
-                crate::desktop_state::emit_to_window(
-                    &handle,
-                    WINDOW_LABEL,
-                    "settings.mining.requestClose",
-                    &[],
-                );
-            }
-            WindowEvent::Destroyed => {
-                state.ready.store(false, Ordering::Release);
-                desktop.unregister_window(WINDOW_LABEL);
-            }
-            _ => {}
-        }
-    });
-    Ok(window)
-}
+pub struct Navigation(Mutex<Option<Value>>);
 
 pub async fn open(app: &AppHandle, root: String, subtab: String) -> Result<Value, String> {
     match root.as_str() {
-        "obs" => {
-            return Ok(crate::desktop_services::focus_hub_and_navigate(
-                app,
-                "obs-settings",
-            ))
-        }
         "text_processing" => {
             return Ok(crate::desktop_services::focus_hub_and_navigate(
                 app,
@@ -96,23 +22,11 @@ pub async fn open(app: &AppHandle, root: String, subtab: String) -> Result<Value
         }
         _ => {}
     }
-    let state = app.state::<Navigation>();
-    let _opening = state.opening.lock().await;
-    let existing = app.get_webview_window(WINDOW_LABEL);
-    let navigate = !root.is_empty() || !subtab.is_empty();
-    if existing.is_none() || navigate {
-        // Queue before creating the webview. The first document drains this on mount.
-        *state.destination.lock().unwrap() =
-            navigate.then(|| json!({"root": root, "subtab": subtab}));
-    }
-    let window = match existing {
-        Some(window) => window,
-        None => create_window(app)?,
-    };
-    crate::desktop_state::focus_window(&window)?;
-    if navigate {
-        crate::desktop_state::emit_to_window(app, WINDOW_LABEL, "settings.mining.navigate", &[]);
-    }
+    let hub = crate::app_lifecycle::create_hub_window(app)?;
+    crate::desktop_state::focus_window(&hub)?;
+    // The hub drains this after subscribing, including when a shortcut starts the webview.
+    *app.state::<Navigation>().0.lock().unwrap() = Some(json!({"root": root, "subtab": subtab}));
+    crate::desktop_state::emit_to_window(app, hub.label(), "settings.mining.navigate", &[]);
     Ok(Value::Null)
 }
 
@@ -122,47 +36,11 @@ pub async fn invoke(
     channel: &str,
     request: Value,
 ) -> Result<Value, String> {
-    let hub_obs = request["view"] == "obs"
-        && matches!(
-            channel,
-            "settings.mining.read" | "settings.mining.apply" | "settings.mining.pickPath"
-        )
-        && matches!(label, "main" | "gsm-hub");
-    if label != WINDOW_LABEL && !hub_obs {
-        return Err("Open the mining settings window".into());
+    if !matches!(label, "main" | "gsm-hub") {
+        return Err("Open Settings in the desktop app".into());
     }
-    let state = app.state::<Navigation>();
-    match channel {
-        "settings.mining.ready" => {
-            let window = app
-                .get_webview_window(label)
-                .ok_or("Settings window closed")?;
-            if let Some(title) = request["title"].as_str() {
-                window.set_title(title).map_err(|e| e.to_string())?;
-            }
-            state.ready.store(true, Ordering::Release);
-            return Ok(state
-                .destination
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(Value::Null));
-        }
-        "settings.mining.navigation" => {
-            return Ok(state
-                .destination
-                .lock()
-                .unwrap()
-                .take()
-                .unwrap_or(Value::Null));
-        }
-        "settings.mining.close" => {
-            if let Some(window) = app.get_webview_window(label) {
-                window.destroy().map_err(|e| e.to_string())?;
-            }
-            return Ok(Value::Null);
-        }
-        _ => {}
+    if channel == "settings.mining.navigation" {
+        return Ok(app.state::<Navigation>().0.lock().unwrap().take().unwrap_or(Value::Null));
     }
     if channel == "settings.mining.tools" {
         return crate::gui_dialog::open_settings_with(

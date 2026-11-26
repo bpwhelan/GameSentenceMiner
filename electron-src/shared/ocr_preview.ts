@@ -16,6 +16,7 @@ export interface OcrPreviewFrame {
     imageData: string;
     width: number;
     height: number;
+    sourceSize?: [number, number] | null;
     capturedAt: number;
     boxes: OcrPreviewBox[];
 }

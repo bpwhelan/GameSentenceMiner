@@ -253,7 +253,7 @@ export function getGameInfoFromWindow(rawTitle: string): { sceneName: string; sw
 // -------------------------------------------------------------------------
 
 
-function escapeRegexCharacters(str: string): string {
+export function escapeRegexCharacters(str: string): string {
     // Escape all regex special characters that could break the auto scene switcher
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

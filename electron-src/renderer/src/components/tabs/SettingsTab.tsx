@@ -6,7 +6,7 @@ import type {
   UpdateStatusSnapshot,
   UpdateTargetStatus,
 } from "../../types/models";
-import type { SettingsCatalogAction } from "../../types/settings";
+import type { MiningDestination, SettingsCatalogAction } from "../../types/settings";
 import {
   filterSettingsCatalogEntries,
   performSettingsCatalogAction,
@@ -121,6 +121,8 @@ const SETTINGS_VIEWS = [
     labelKey: "settings.dataFolder.title",
   },
 ] as const;
+const GENERAL_PAGES = new Set<SettingsView>(["layout", "updates", "gpu", "python"]);
+
 const LOCAL_SETTINGS_TARGETS: Record<string, { view: SettingsView; focusId: string }> = {
   "desktop-dictionary": { view: "dictionary", focusId: "settings-view-dictionary" },
   "desktop-notifications": { view: "notifications", focusId: "settings-view-notifications" },
@@ -146,6 +148,7 @@ const SETTINGS_BACKUP_PROGRESS_CHANNEL = "settings-backup-progress";
 const DATA_RELOCATE_PROGRESS_CHANNEL = "data.relocate.progress";
 
 interface SettingsTabProps {
+  destination?: MiningDestination;
   active: boolean;
   onRequestConsole?: () => void;
   onOpenSetup?: () => void;
@@ -507,7 +510,7 @@ function normalizeSettingsBackupProgress(value: unknown): SettingsBackupProgress
   };
 }
 
-export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsTabProps) {
+export function SettingsTab({ active: tabActive, destination, onRequestConsole, onOpenSetup }: SettingsTabProps) {
   const t = useTranslation();
   const platform = window.gsmEnv?.platform ?? "win32";
   const isWindows = platform === "win32";
@@ -518,9 +521,33 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
 
   const [workspaceView, setWorkspaceView] = useState<SettingsView>("general");
   const nativeEditor = window.gsmEnv?.shell === "tauri";
+  const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
+  const [category, setCategory] = useState<"desktop" | "mining">("desktop");
+  const [miningVisited, setMiningVisited] = useState(false);
+  const [miningDestination, setMiningDestination] = useState<MiningDestination>();
+  const [obsDestination, setObsDestination] = useState<MiningDestination>();
+  const active = tabActive && category === "desktop";
+  const openMining = useCallback((next?: MiningDestination) => {
+    setMiningVisited(true);
+    setCategory("mining");
+    setSettingsSearchQuery("");
+    if (next && (next.root || next.subtab)) setMiningDestination(next);
+  }, []);
+  useEffect(() => {
+    if (!destination) return;
+    if (destination.root === "obs") {
+      setCategory("desktop");
+      setWorkspaceView("obs");
+      setObsDestination(destination);
+      setSettingsSearchQuery("");
+    } else {
+      openMining(destination);
+    }
+  }, [destination, openMining]);
   const [obsVisited, setObsVisited] = useState(false);
   useEffect(() => {
     const open = () => {
+      setCategory("desktop");
       setWorkspaceView("obs");
       setSettingsSearchQuery("");
     };
@@ -533,6 +560,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   useEffect(() => {
     if (!pythonBackend) return;
     const openPython = () => {
+      setCategory("desktop");
       setWorkspaceView("python");
       setSettingsSearchQuery("");
     };
@@ -549,7 +577,6 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [isApplyingUpdates, setIsApplyingUpdates] = useState(false);
   const [isLoadingReleaseNotes, setIsLoadingReleaseNotes] = useState(false);
-  const [settingsSearchQuery, setSettingsSearchQuery] = useState("");
   const [hubMessage, setHubMessage] = useState<string | null>(null);
   const [backupMessage, setBackupMessage] = useState<string | null>(null);
   const [backupBusy, setBackupBusy] = useState<"create" | "restore" | null>(null);
@@ -1037,6 +1064,11 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
     dataDir !== null && defaultDataDir !== null && dataDir !== defaultDataDir;
   const hasBackupSelection = selectedBackupCategories.size > 0;
 
+  const availableViews = SETTINGS_VIEWS
+    .filter((view) => pythonBackend || (view.id !== "gpu" && view.id !== "python"))
+    .filter((view) => nativeEditor || (view.id !== "obs" && view.id !== "dictionary"))
+    .filter((view) => view.id !== "resources" || hasResourceUsage);
+  const generalPage = workspaceView === "general" || GENERAL_PAGES.has(workspaceView);
   const currentView = SETTINGS_VIEWS.find((view) => view.id === workspaceView)!;
   const navigateWorkspace = (view: SettingsView) => {
     setWorkspaceView(view);
@@ -1046,6 +1078,10 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   const openCatalogEntry = async (entry: SettingsCatalogEntry) => {
     if (nativeEditor && entry.id === "gsm-obs") {
       navigateWorkspace("obs");
+      return;
+    }
+    if (nativeEditor && entry.openAction.type === "open-gsm-settings") {
+      openMining({ root: entry.openAction.rootTabKey ?? "", subtab: entry.openAction.subtabKey ?? "" });
       return;
     }
     const target = LOCAL_SETTINGS_TARGETS[entry.id];
@@ -1063,8 +1099,19 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
   }, [hasSearchQuery, workspaceView]);
 
   return (
-    <div className={`tab-panel ${active ? "active" : ""}`}>
-      <div className="gsm-workspace settings-desk">
+    <div className={`tab-panel settings-tab ${tabActive ? "active" : ""}`}>
+      {nativeEditor && (
+        <div className="settings-categories" role="group" aria-label={t("app.tabs.settings")}>
+          <button type="button" id="settings-category-desktop" aria-pressed={category === "desktop"}
+            onClick={() => setCategory("desktop")}>{t("settings.workspace.desktopCategory")}</button>
+          <button type="button" id="settings-category-mining" aria-pressed={category === "mining"}
+            onClick={() => openMining()}>{t("settings.workspace.miningCategory")}</button>
+        </div>
+      )}
+      {miningVisited && <div className="settings-category-panel" hidden={category !== "mining"}>
+        <MiningSettings active={tabActive && category === "mining"} destination={miningDestination} />
+      </div>}
+      <div className="gsm-workspace settings-desk settings-category-panel" hidden={category !== "desktop"}>
         <aside className="ws-sidebar">
           <div className="ws-brand">
             <span className="ws-brand-mark">
@@ -1091,23 +1138,20 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
           </div>
           <WorkspaceNavigation
             prefix="settings"
-            items={SETTINGS_VIEWS
-              .filter((view) => pythonBackend || (view.id !== "gpu" && view.id !== "python"))
-              .filter((view) => nativeEditor || (view.id !== "obs" && view.id !== "dictionary"))
-              .filter((view) => view.id !== "resources" || hasResourceUsage)
+            items={availableViews.filter(view => !GENERAL_PAGES.has(view.id))
               .map((view) => ({ id: view.id, label: t(view.labelKey) }))}
-            value={hasSearchQuery ? null : workspaceView}
+            value={hasSearchQuery ? null : generalPage ? "general" : workspaceView}
             onChange={navigateWorkspace}
             label={t("settings.workspace.navigation")}
           />
           <div className="ws-sidebar-footer settings-external-links">
-            <p>{t("settings.workspace.moreSettings")}</p>
-            <button
+            {!nativeEditor && <p>{t("settings.workspace.moreSettings")}</p>}
+            {!nativeEditor && <button
               type="button"
               onClick={() => void openGsmSettings()}
             >
               {t("settings.hub.openGSMSettings")}
-            </button>
+            </button>}
             <button
               type="button"
               onClick={() =>
@@ -1148,6 +1192,16 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
               </div>
             ) : null}
           </header>
+          {generalPage && !hasSearchQuery && (
+            <div className="settings-general-pages" role="group" aria-label={t("settings.workspace.general")}>
+              {availableViews.filter(view => view.id === "general" || GENERAL_PAGES.has(view.id)).map(view => (
+                <button key={view.id} type="button" id={view.id === "general" ? undefined : "settings-nav-" + view.id}
+                  aria-pressed={workspaceView === view.id} onClick={() => navigateWorkspace(view.id)}>
+                  {t(view.id === "general" ? "settings.catalog.desktopAppearance.label" : view.labelKey)}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="ws-pages">
             {nativeEditor && <section
               id="settings-view-dictionary"
@@ -1161,7 +1215,8 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
             </section>}
             <section id="settings-view-obs" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-obs"
               hidden={hasSearchQuery || workspaceView !== "obs"}>
-              {nativeEditor && obsVisited && <MiningSettings obsOnly />}
+              {nativeEditor && obsVisited && <MiningSettings obsOnly active={active && !hasSearchQuery && workspaceView === "obs"} destination={obsDestination} />}
+              {nativeEditor && obsVisited && <ObsUpdates active={active && !hasSearchQuery && workspaceView === "obs"} />}
             </section>
             <section id="settings-view-notifications" className="ws-view" role="tabpanel" aria-labelledby="settings-nav-notifications"
               hidden={hasSearchQuery || workspaceView !== "notifications"} tabIndex={0}>
@@ -1331,24 +1386,39 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                       />
                     </div>
 
-                    {isWindows ? (
-                      <div className="input-group">
-                        <label htmlFor="run-overlay-startup">
-                          {t("settings.desktop.runOverlayOnStartup")}
-                        </label>
-                        <input
-                          id="run-overlay-startup"
-                          type="checkbox"
-                          checked={settings.runOverlayOnStartup}
-                          onChange={(event) =>
-                            patchSettings({
-                              runOverlayOnStartup: event.target.checked,
-                              ...(event.target.checked ? { runOverlayWithActiveGame: false } : {}),
-                            })
-                          }
-                        />
-                      </div>
-                    ) : null}
+                    <div className="input-group">
+                      <label htmlFor="run-overlay-active-game" data-tip={t("home.overlay.runWithActiveGameTooltip")}>
+                        {t("settings.desktop.runOverlayWithActiveGame")}
+                      </label>
+                      <input
+                        id="run-overlay-active-game"
+                        type="checkbox"
+                        checked={settings.runOverlayWithActiveGame}
+                        onChange={(event) =>
+                          patchSettings({
+                            runOverlayWithActiveGame: event.target.checked,
+                            ...(event.target.checked ? { runOverlayOnStartup: false } : {}),
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="input-group">
+                      <label htmlFor="run-overlay-startup" data-tip={t("home.overlay.runOnStartupTooltip")}>
+                        {t("settings.desktop.runOverlayOnStartup")}
+                      </label>
+                      <input
+                        id="run-overlay-startup"
+                        type="checkbox"
+                        checked={settings.runOverlayOnStartup}
+                        onChange={(event) =>
+                          patchSettings({
+                            runOverlayOnStartup: event.target.checked,
+                            ...(event.target.checked ? { runOverlayWithActiveGame: false } : {}),
+                          })
+                        }
+                      />
+                    </div>
 
                     <div className="input-group">
                       <label htmlFor="quit-on-window-close">
@@ -1630,7 +1700,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                       </button>
                     </div>
                   </div>
-                  <ObsUpdates active={active && workspaceView === "updates"} />
+                  {!nativeEditor && <ObsUpdates active={active && workspaceView === "updates"} />}
                 </section>
               </div>
             </section>
@@ -1948,7 +2018,7 @@ export function SettingsTab({ active, onRequestConsole, onOpenSetup }: SettingsT
                           }}
                         >
                           {t(
-                            entry.openAction.type === "current-tab"
+                            (entry.openAction.type === "current-tab" || (nativeEditor && entry.openAction.type === "open-gsm-settings"))
                               ? "settings.workspace.openSection"
                               : ACTION_I18N_KEYS[entry.openAction.type],
                           )}

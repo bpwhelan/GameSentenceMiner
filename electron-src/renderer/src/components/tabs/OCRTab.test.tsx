@@ -165,9 +165,10 @@ describe("OCRTab", () => {
       ocr1_advanced: "mlkitocr", ocr2_advanced: "gemini"
     } : null);
     await act(async () => {
-      root.render(<I18nProvider><OCRTab active={false} /><TooltipLayer /></I18nProvider>);
+      root.render(<I18nProvider><OCRTab active /><TooltipLayer /></I18nProvider>);
       await flushAsyncWork();
     });
+    await act(async () => container.querySelector<HTMLButtonElement>("#ocr-nav-recognition")!.click());
     const main = container.querySelector<HTMLSelectElement>("#ocr-main-engine")!;
     const stability = container.querySelector<HTMLSelectElement>("#ocr-stability-engine")!;
     const hover = (element: Element) => act(async () => {
@@ -640,7 +641,7 @@ describe("OCRTab", () => {
     expect(container.querySelector<HTMLElement>("#ocr-view-console")!.hidden).toBe(true);
   });
 
-  it("keeps Open Area Selector connected to the Python editor", async () => {
+  it("uses the preview as the capture area editing entry point", async () => {
     invokeMock.mockImplementation(async (channel: string) => {
       if (channel === "obs.getScenes") return [{ id: "scene-1", name: "Example Game" }];
       if (channel === "obs.getActiveScene") return { id: "scene-1", name: "Example Game" };
@@ -649,10 +650,8 @@ describe("OCRTab", () => {
     });
     await act(async () => { root.render(<I18nProvider><OCRTab active /></I18nProvider>); await flushAsyncWork(); });
     expect(container.querySelectorAll(".desk-map-area")).toHaveLength(1);
-    const selector = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("Open Area Selector"))!;
-    expect(selector.disabled).toBe(false);
-    await act(async () => { selector.click(); });
-    expect(sendMock).toHaveBeenLastCalledWith("ocr.run-screen-selector");
+    expect(container.textContent).not.toContain("Open Area Selector");
+    expect(container.querySelector(".desk-map-canvas")?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("saves each output-table checkbox to its own capture mode", async () => {
@@ -1206,6 +1205,85 @@ describe("OCRTab", () => {
       "ocr.save-ocr-config",
       expect.objectContaining({
         advanced_debug_logging: false
+      })
+    );
+  });
+
+  it("loads, validates, and persists shared CPU core parking and ONNX thread limits", async () => {
+    invokeMock.mockImplementation(async (channel: string) => {
+      if (channel === "ocr.get-ocr-config") {
+        return {
+          processPriority: "below_normal",
+          cpuParkingMode: "background_cores",
+          cpuParkingCores: "",
+          onnxMaxThreads: 2
+        };
+      }
+      if (channel === "ocr.get-cpu-info") {
+        return {
+          logicalCores: 16,
+          efficiencyCoreCount: 8,
+          hasEfficiencyCores: true,
+          llcGroupCount: 1,
+          hasMultipleCcds: false,
+          backgroundCores: [8, 9, 10, 11, 12, 13, 14, 15],
+          backgroundStrategy: "efficiency_cores"
+        };
+      }
+      return null;
+    });
+
+    await act(async () => {
+      root.render(<OCRTab active={false} />);
+      await flushAsyncWork();
+    });
+
+    const parkingSelect = container.querySelector(
+      "#cpu-parking-mode"
+    ) as HTMLSelectElement;
+    const threadsSelect = container.querySelector(
+      "#onnx-max-threads"
+    ) as HTMLSelectElement;
+    expect(parkingSelect).toBeInstanceOf(HTMLSelectElement);
+    expect(parkingSelect.value).toBe("background_cores");
+    expect(threadsSelect.value).toBe("2");
+    expect(container.querySelector("#cpu-parking-cores")).toBeNull();
+    expect(container.textContent).toContain("16 logical CPUs detected (8 E-cores)");
+    expect(container.textContent).toContain("8-15");
+
+    await act(async () => {
+      parkingSelect.value = "custom";
+      parkingSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+    });
+
+    const coresInput = container.querySelector(
+      "#cpu-parking-cores"
+    ) as HTMLInputElement;
+    expect(coresInput).toBeInstanceOf(HTMLInputElement);
+
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value"
+    )?.set;
+    await act(async () => {
+      valueSetter?.call(coresInput, "8-11, 14");
+      coresInput.dispatchEvent(new Event("input", { bubbles: true }));
+      threadsSelect.value = "4";
+      threadsSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await flushAsyncWork();
+      vi.advanceTimersByTime(200);
+      await flushAsyncWork();
+    });
+
+    expect(container.textContent).toContain("Targeting 5 logical CPU(s): 8-11, 14");
+    expect(sendMock).toHaveBeenLastCalledWith(
+      "ocr.save-ocr-config",
+      expect.objectContaining({
+        processPriority: "below_normal",
+        cpuParkingMode: "custom",
+        cpuParkingCores: "8-11, 14",
+        onnxMaxThreads: 4
       })
     );
   });

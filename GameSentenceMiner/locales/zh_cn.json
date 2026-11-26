@@ -23,6 +23,7 @@
       },
       "tabs": {
         "session_review": {
+          "open_on_card_queued": "有卡片加入队列时在后台打开检查窗口",
           "title": "会话后检查",
           "description": "不中断游戏即可制卡。GSM 会在游戏过程中更新卡片，并保存回放、音频、截图和台词，供游戏关闭后编辑。待检查卡片会在重启后保留。",
           "enabled": "会话结束后检查 Anki 卡片",

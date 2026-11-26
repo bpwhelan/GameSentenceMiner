@@ -23,6 +23,7 @@
       },
       "tabs": {
         "session_review": {
+          "open_on_card_queued": "Abrir la revisión en segundo plano al añadir una tarjeta a la cola",
           "title": "Revisión tras la sesión",
           "description": "Crea tarjetas sin interrupciones. GSM las actualiza durante la partida y guarda la repetición, el audio, las imágenes y el diálogo para editarlas al cerrar el juego. La cola se conserva tras reiniciar.",
           "enabled": "Revisar tarjetas Anki después de la sesión",

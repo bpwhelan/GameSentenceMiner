@@ -219,6 +219,7 @@
         "generate_longplay": false,
         "review_after_session": {
           "enabled": false,
+          "open_on_card_queued": true,
           "open_on_game_close": true,
           "delay_seconds": 3,
           "auto_advance": true,

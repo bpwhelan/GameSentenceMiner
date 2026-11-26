@@ -87,6 +87,6 @@ export function OCRLineMenu({ anchor, text, game, onClose, onSaved }: {
         {t(excluded ? "sentenceExclusions.unexclude" : "sentenceExclusions.exclude")}
       </button>
       {failed && <p role="alert">{t("sentenceExclusions.failed")}</p>}
-    </div>, document.body
+    </div>, anchor.closest("dialog") ?? document.body
   );
 }

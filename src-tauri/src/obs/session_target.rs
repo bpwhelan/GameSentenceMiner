@@ -49,6 +49,24 @@ fn browser(exe: &str) -> bool {
     )
 }
 
+fn browser_source_name(name: &str) -> bool {
+    browser(name) || matches!(
+        name,
+        "google-chrome" | "chromium-browser" | "microsoft-edge" | "brave-browser"
+            | "firefox-esr" | "safari" | "electron" | "nw" | "msedgewebview2"
+    )
+}
+
+impl Selector {
+    pub(super) fn is_browser_source(&self) -> bool {
+        let class = self.window_class.trim().to_ascii_lowercase();
+        class.starts_with("chrome_widgetwin_")
+            || matches!(class.as_str(), "mozillawindowclass" | "opwindow" | "cefbrowserwindow")
+            || browser_source_name(&class)
+            || browser_source_name(&executable_name(&self.exe))
+    }
+}
+
 fn pick(
     selector: &Selector,
     windows: &[CaptureWindow],
@@ -242,6 +260,24 @@ mod tests {
             last_focused_at: None,
         }
     }
+    #[test]
+    fn browser_capture_identity_uses_class_or_executable() {
+        for (class, exe, expected) in [
+            ("Chrome_WidgetWin_3", "RPG.exe", true),
+            ("MozillaWindowClass", "", true),
+            ("", r"C:\Browser\MsEdge.EXE", true),
+            ("google-chrome", "", true),
+            ("ApplicationFrameWindow", "Game.exe", false),
+        ] {
+            let target = Selector {
+                window_class: class.into(),
+                exe: exe.into(),
+                ..Default::default()
+            };
+            assert_eq!(target.is_browser_source(), expected);
+        }
+    }
+
     #[test]
     fn browser_requires_focused_title_then_pins_window_and_process() {
         let selector = Selector {

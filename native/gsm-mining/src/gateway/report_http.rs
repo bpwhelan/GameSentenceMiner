@@ -592,11 +592,15 @@ pub(super) async fn page(
         "/database" => Some("/tools"),
         _ => None,
     } {
-        return Response::builder()
-            .status(StatusCode::FOUND)
-            .header(header::LOCATION, target)
-            .body(Full::new(Bytes::new()))
-            .ok();
+        return cors(
+            Response::builder()
+                .status(StatusCode::FOUND)
+                .header(header::LOCATION, target)
+                .header(header::VARY, "Origin"),
+            req.headers(),
+        )
+        .body(Full::new(Bytes::new()))
+        .ok();
     }
     if let Some(asset) = asset(path) {
         let cache = if path.ends_with(".css") || path.ends_with(".js") {
@@ -663,7 +667,12 @@ pub(super) fn cors(
     if let Some(origin) = headers.get(header::ORIGIN).filter(|o| {
         matches!(
             o.as_bytes(),
-            b"http://localhost:5173"
+            b"http://gsm.localhost"
+                | b"gsm://localhost"
+                | b"http://tauri.localhost"
+                | b"https://tauri.localhost"
+                | b"tauri://localhost"
+                | b"http://localhost:5173"
                 | b"http://127.0.0.1:5173"
                 | b"http://localhost:5174"
                 | b"http://127.0.0.1:5174"

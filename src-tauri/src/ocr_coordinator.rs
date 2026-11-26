@@ -3,6 +3,7 @@
 
 pub(crate) mod meiki;
 pub(crate) mod area_selector;
+mod capture_preview;
 pub(crate) mod desktop_selector;
 pub(crate) mod vocr;
 use crate::desktop_services::paths_for;
@@ -214,7 +215,7 @@ pub fn is_native_ocr_supported(ocr_config: &Value, manual: bool) -> bool {
 }
 
 fn default_ocr_config() -> Value {
-    json!({
+    let mut config = json!({
         "twoPassOCR": true,
         "optimize_second_scan": true,
         "text_appears_instantly": false,
@@ -254,7 +255,14 @@ fn default_ocr_config() -> Value {
         "pile_up_prevention_wait_time": 0,
         "keep_newline": false,
         "obs_capture_preprocess": "none",
-    })
+    });
+    if let Some(obj) = config.as_object_mut() {
+        obj.insert("processPriority".into(), json!("normal"));
+        obj.insert("cpuParkingMode".into(), json!("auto"));
+        obj.insert("cpuParkingCores".into(), json!(""));
+        obj.insert("onnxMaxThreads".into(), json!(0));
+    }
+    config
 }
 
 fn read_json_object(path: &Path) -> Map<String, Value> {
@@ -330,6 +338,28 @@ pub fn read_ocr_config(app: &tauri::AppHandle) -> Value {
     }
     replace_retired_ocr_engines(&mut merged);
     merged
+}
+
+/// Read the shared OCR/Overlay thread scheduling policy when desktop state is ready.
+pub fn try_read_ocr_thread_policy(
+    app: &tauri::AppHandle,
+) -> gsm_overlay::scheduling::ThreadPolicy {
+    if app
+        .try_state::<crate::desktop_state::DesktopState>()
+        .is_none()
+    {
+        return gsm_overlay::scheduling::ThreadPolicy::default();
+    }
+    let ocr_config = read_ocr_config(app);
+    gsm_overlay::scheduling::ThreadPolicy::from_ocr_settings(&ocr_config)
+}
+
+pub fn sync_overlay_thread_policy(app: &tauri::AppHandle, ocr_config: &Value) {
+    if let Some(overlay) = app.try_state::<crate::overlay::Overlay>() {
+        overlay.set_thread_policy(gsm_overlay::scheduling::ThreadPolicy::from_ocr_settings(
+            ocr_config,
+        ));
+    }
 }
 
 pub fn save_ocr_config(app: &tauri::AppHandle, next: &Value) -> Result<Value, String> {
@@ -1379,6 +1409,8 @@ fn spawn_ocr_result_worker(app: tauri::AppHandle, shared: Arc<Mutex<OcrState>>) 
 }
 
 pub async fn reload_active_ocr(app: &tauri::AppHandle) {
+    let shared_ocr_config = read_ocr_config(app);
+    sync_overlay_thread_policy(app, &shared_ocr_config);
     let Some(coord) = app.try_state::<OcrCoordinator>() else {
         return;
     };
@@ -1581,7 +1613,9 @@ pub async fn scan_scene_text(
             return Ok(Vec::new());
         }
         let candidates = scan_scene_engine_candidates(&config, oneocr_runtime_installed());
-        let mut engines = gsm_overlay::engines::Engines::new(&profile);
+        let policy = gsm_overlay::scheduling::ThreadPolicy::from_ocr_settings(&config);
+        policy.apply_to_current_thread();
+        let mut engines = gsm_overlay::engines::Engines::with_thread_policy(&profile, policy);
         let mut last_error = None;
         for candidate in candidates {
             match engines.recognize(&frame, candidate, language) {
@@ -1597,91 +1631,6 @@ pub async fn scan_scene_text(
     })
     .await
     .map_err(|err| err.to_string())?
-}
-
-async fn handle_get_preview(app: &tauri::AppHandle, req: Value) -> Value {
-    let paths = paths_for(app);
-    let scene_name =
-        resolve_active_scene_name(app, req.get("sceneName").and_then(Value::as_str)).await;
-    let scene_id = req
-        .get("sceneId")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
-    let area_config = read_scene_areas(&paths.active, &scene_name);
-    let revision = get_ocr_area_revision(&area_config);
-    let include_boxes = req
-        .get("includeBoxes")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
-    let mut capture = match runtime::get(app) {
-        Ok(rt) => rt
-            .call(
-                "bus.request",
-                json!({
-                    "dst": "backend",
-                    "topic": "capture.preview",
-                    "data": { "sceneId": scene_id, "sceneName": scene_name },
-                    "timeoutMs": 5000,
-                }),
-            )
-            .await
-            .ok(),
-        Err(_) => None,
-    };
-    if capture.as_ref().is_none_or(Value::is_null) {
-        let context = fetch_native_context(app).await;
-        let ocr_config = read_ocr_config(app);
-        let input_url = crate::input_server::url(app);
-        let native_cfg =
-            build_native_ocr_config(app, &OcrRunMode::Auto, &ocr_config, &context, &input_url)
-                .await;
-        let preview_req = json!({ "sceneId": scene_id, "sceneName": scene_name });
-        if let Ok(Ok(native_cap)) = tauri::async_runtime::spawn_blocking(move || {
-            crate::ocr::capture_preview(native_cfg, preview_req)
-        })
-        .await
-        {
-            if !native_cap.is_null() {
-                capture = Some(native_cap);
-            }
-        }
-    }
-
-    let boxes_payload = if include_boxes {
-        let native_preview = app
-            .try_state::<Ocr>()
-            .and_then(|o| o.command(json!({ "action": "preview" })).ok())
-            .filter(|v| !v.is_null());
-        if let Some(p) = native_preview {
-            Some(p)
-        } else if let Ok(rt) = runtime::get(app) {
-            rt.call(
-                "bus.request",
-                json!({
-                    "dst": "backend",
-                    "topic": "ocr.preview",
-                    "data": { "enabled": true, "sceneName": scene_name },
-                    "timeoutMs": 5000,
-                }),
-            )
-            .await
-            .ok()
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    json!({
-        "ok": true,
-        "sceneName": scene_name,
-        "config": area_config,
-        "revision": revision,
-        "capture": capture,
-        "boxes": boxes_payload,
-    })
 }
 
 async fn handle_save_preview_areas(app: &tauri::AppHandle, req: Value) -> Value {
@@ -1849,11 +1798,11 @@ pub async fn try_invoke(
         }
         "ocr.meiki-model" => Some(meiki::invoke(app, args.first().cloned().unwrap_or_else(|| json!({}))).await),
         "ocr.vita-model" => Some(vocr::invoke(app, args.first().cloned().unwrap_or_else(|| json!({}))).await),
-        "ocr.get-preview" => Some(Ok(handle_get_preview(
-            app,
-            args.first().cloned().unwrap_or_else(|| json!({})),
-        )
-        .await)),
+        "ocr.get-preview" => Some(Ok(capture_preview::get(app, args.first().unwrap_or(&Value::Null))
+            .await.unwrap_or(Value::Null))),
+        "ocr.preview-layout" | "ocr.apply-preview-layout" => Some(desktop_selector::preview_layout(
+            app, args.first().unwrap_or(&Value::Null), channel == "ocr.apply-preview-layout",
+        ).await),
         "ocr.save-preview-areas" => Some(Ok(handle_save_preview_areas(
             app,
             args.first().cloned().unwrap_or_else(|| json!({})),
@@ -1922,6 +1871,7 @@ pub async fn try_invoke(
             Some(Ok(json!(sanitize_ocr_filename(&scene))))
         }
         "ocr.get-ocr-config" => Some(Ok(read_ocr_config(app))),
+        "ocr.get-cpu-info" => Some(Ok(json!(gsm_overlay::scheduling::cpu_topology_info()))),
         "ocr.get-running-state" => {
             let snap = app
                 .try_state::<OcrCoordinator>()
@@ -2060,7 +2010,8 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
         "ocr.save-ocr-config" => {
             let next = args.first().cloned().unwrap_or_else(|| json!({}));
             tauri::async_runtime::spawn(async move {
-                if save_ocr_config(&app, &next).is_ok() {
+                if let Ok(saved) = save_ocr_config(&app, &next) {
+                    sync_overlay_thread_policy(&app, &saved);
                     let paths = paths_for(&app);
                     let scene = resolve_active_scene_name(&app, None).await;
                     let (_, settings_path) = ocr_config_paths(&paths.active, &scene);

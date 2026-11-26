@@ -1188,40 +1188,76 @@
   }
 }
 
-/* Home is the reading workspace; setup controls remain available in its rail. */
-.gsm-workspace.home-reading-desk { position: relative; grid-template-columns: 300px minmax(0, 1fr); }
-.home-reading-desk > .home-session { grid-column: 1; grid-row: 1; border-right: 1px solid var(--gsm-border-subtle); background: var(--gsm-surface-1); }
+/* Home is the reading workspace; compact setup controls live in its left rail. */
+.gsm-workspace.home-reading-desk { position: relative; grid-template-columns: 284px minmax(0, 1fr); }
+.home-reading-desk > .home-session { grid-column: 1; grid-row: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; border-right: 1px solid var(--gsm-border-subtle); background: var(--gsm-surface-1); }
 .home-reading-desk > .home-reading-surface { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; overflow: hidden; }
-.home-reading-desk > .home-library { position: absolute; inset: 0 auto 0 0; z-index: 5; width: 300px; box-shadow: var(--gsm-shadow-md); padding-top: 12px; }
-.home-reading-desk .home-library-close { align-self: flex-end; font-size: 11px; margin-bottom: 9px; }
-.home-reading-desk .home-session-scroll { padding: 18px; }
-.home-reading-desk .home-library-toggle { width: 100%; justify-content: flex-start; margin-bottom: 24px; font-size: 12px; }
-.home-reading-desk .home-library-toggle > svg:last-child { margin-left: auto; }
-.home-reading-desk h1 { font-size: 23px; letter-spacing: -.025em; }
+.home-reading-desk .home-session-scroll { display: flex; flex-direction: column; gap: 14px; padding: 14px; }
+.home-reading-desk .home-library { position: static; width: auto; padding: 0; border: 0; box-shadow: none; background: transparent; gap: 8px; flex-shrink: 0; }
+.home-reading-desk .home-library-heading { padding: 0; }
+.home-reading-desk .home-library-heading h2 { font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.home-reading-desk .home-library-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  min-height: 28px;
+  font-size: 12px;
+}
+.home-reading-desk .home-library-chevron {
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(-45deg);
+}
+.home-reading-desk .home-library-toggle[aria-expanded="true"] .home-library-chevron { transform: rotate(45deg); }
+.home-reading-desk #home-saved-games:not([hidden]) { display: grid; gap: 8px; }
+.home-reading-desk .home-library-actions { display: flex; align-items: center; gap: 4px; }
+.home-reading-desk .home-library-actions .home-add-game { width: auto; min-height: 26px; padding: 3px 9px; font-size: 11px; gap: 5px; }
+.home-reading-desk .home-library-actions .home-add-game > span { font-size: 15px; }
+.home-reading-desk .home-icon-btn { width: 26px; height: 26px; min-height: 26px; padding: 4px; }
+.home-reading-desk .home-library-search { margin: 0; }
+.home-reading-desk .home-library-search input { height: 30px; min-height: 30px; }
+.home-reading-desk .home-game-list { flex: 0 1 auto; max-height: 196px; overflow-y: auto; gap: 2px; }
+.home-reading-desk .home-game-button { min-height: 32px; padding: 5px 8px; gap: 8px; }
+.home-reading-desk .home-game-menu-trigger { width: 26px; min-height: 32px; font-size: 16px; }
+.home-reading-desk .home-empty-game { padding: 2px 0; display: flex; flex-direction: column; gap: 8px; }
+.home-reading-desk .home-empty-game > button { width: 100%; min-height: 32px; margin-top: 0; }
+.home-reading-desk .home-current-game { padding-top: 12px; border-top: 1px solid var(--gsm-border-subtle); }
+.home-reading-desk h1 { font-size: 14px; font-weight: 600; letter-spacing: -.015em; line-height: 1.35; }
 .home-reading-desk .home-section-heading h2 { font-size: 13px; }
 .home-reading-desk .home-section-hint { font-size: 11px; }
-.home-reading-desk .home-game-meta { gap: 6px; margin-top: 8px; flex-wrap: wrap; }
-.home-reading-desk .home-game-details { margin-top: 18px; }
-.home-reading-desk .home-tools { display: flex; flex-direction: column; gap: 20px; margin-top: 24px; }
-.home-reading-desk .home-tools > section { padding: 0; min-width: 0; }
-.home-reading-desk .home-reader-legacy-actions > :is(.home-section-heading, .home-section-hint, .home-tool-actions) { display: none; }
+.home-reading-desk .home-game-meta { gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+.home-reading-desk .home-game-launch { margin-top: 10px; }
+.home-reading-desk .home-profile-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.home-profile-picker [role="alert"] { flex-basis: 100%; overflow-wrap: anywhere; }
+.home-reading-desk .home-game-launch__actions > .ws-primary { min-height: 32px; padding: 5px 12px; }
+.home-reading-desk .home-game-details { margin-top: 10px; border: 0; border-top: 1px solid var(--gsm-border-subtle); }
+.home-reading-desk .home-game-details > summary { cursor: pointer; color: var(--gsm-text-muted); font-size: 11px; padding: 9px 0 4px; }
+.home-reading-desk .home-tools { display: flex; flex-direction: column; gap: 10px; margin-top: 0; padding-top: 12px; border-top: 1px solid var(--gsm-border-subtle); }
+.home-reading-desk .home-tools > section { padding: 0; min-width: 0; border-left: 0; }
+.home-reading-desk .home-overlay-card__header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.home-reading-desk .home-overlay-card__header h2 { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.home-reading-desk .home-overlay-card__header h2 svg { color: var(--gsm-text-muted); }
+.home-reading-desk .home-overlay-card__header-right { display: flex; align-items: center; gap: 8px; }
+.home-reading-desk .home-overlay-card__actions { margin-top: 10px; }
+.home-reading-desk :is(.home-overlay-primary-btn, .home-overlay-guide-btn) { min-height: 30px; padding: 4px 9px; }
+.home-reading-desk .home-settings-link { margin-top: 2px; }
 .home-reading-desk .home-row { grid-template-columns: minmax(0,1fr); gap: 8px; }
 .home-reading-desk .home-current-game > .home-row { width: 100%; grid-template-columns: minmax(0,1fr); }
 .home-reading-desk .home-row__controls { min-width: 0; flex-wrap: wrap; }
+.home-reading-desk .home-status-card { margin: 0; padding: 10px 14px; max-height: 148px; border-top: 1px solid var(--gsm-border-subtle); }
+.home-reading-desk .home-status-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 4px 7px; }
+.home-reading-desk .home-status-pill { min-height: 30px; padding: 3px 2px; border: 0; gap: 6px; }
+.home-reading-desk .game-background-settings > h2 { font-size: 13px; }
 .home-reading-desk[data-reading-focus="true"] { grid-template-columns: minmax(0,1fr); }
 .home-reading-desk[data-reading-focus="true"] > .home-session { display: none; }
 .home-reading-desk[data-reading-focus="true"] > .home-reading-surface { grid-column: 1; }
-@media (max-width: 1000px) { .gsm-workspace.home-reading-desk { grid-template-columns: 260px minmax(0,1fr); } .home-reading-desk .home-session-scroll { padding: 14px; } .gsm-workspace.home-reading-desk[data-reading-focus="true"] { grid-template-columns: minmax(0,1fr); } }
-
-
-.home-reading-desk > .home-session { display: grid; grid-template-rows: minmax(0,1fr) auto; min-height: 0; }
-.home-reading-desk .home-status-card { margin: 0; padding: 12px 18px; border-top: 1px solid var(--gsm-border-subtle); }
-.home-reading-desk .home-status-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; }
-
-.home-reading-desk .home-status-grid { display: grid; }
-.home-reading-desk .home-status-card { max-height: 170px; }
-.home-reading-desk .home-status-pill { min-height: 40px; padding: 5px 0; border: 0; gap: 7px; }
-.home-reading-desk .home-game-details { border-block: 1px solid var(--gsm-border-subtle); }
-.home-reading-desk .home-game-details > summary { cursor: pointer; color: var(--gsm-text-secondary); font-size: 12px; padding: 13px 0; }
-.home-reading-desk .home-tools > section + section { border-left: 0; padding-left: 0; }
-.home-reading-desk .game-background-settings > h2 { font-size: 13px; }
+@media (max-width: 1000px) { .gsm-workspace.home-reading-desk { grid-template-columns: 252px minmax(0,1fr); } .home-reading-desk .home-session-scroll { padding: 12px; } .gsm-workspace.home-reading-desk[data-reading-focus="true"] { grid-template-columns: minmax(0,1fr); } }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invokeIpc, onIpc } from '../../lib/ipc';
 import { useLocale, useTranslation } from '../../i18n';
+import type { MiningDestination } from '../../types/settings';
 import type { ObsScene } from '../../types/models';
 import {
     categories,
@@ -45,7 +46,6 @@ import {
 import '../Workspace.css';
 import './MiningSettings.css';
 
-type MiningDestination = { root: string; subtab: string };
 type Profile = { name: string; parent: string | null; scenes: string[] };
 type Field = {
     path: string;
@@ -76,7 +76,7 @@ type Edit = {
     inherit?: boolean;
     invalid?: boolean;
 };
-type NewKind = 'createProfile' | 'createScene';
+type ProfileAction = 'createProfile' | 'createScene' | 'rename' | 'delete';
 type DangerPromptKind = 'process_pausing' | 'dont_collect_stats';
 
 const DEFAULT_AUTO_ACCEPT_SECONDS = 10;
@@ -479,7 +479,13 @@ function FieldInput({
     );
 }
 
-export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
+interface MiningSettingsProps {
+    obsOnly?: boolean;
+    active?: boolean;
+    destination?: MiningDestination;
+}
+
+export function MiningSettings({ obsOnly = false, active = true, destination }: MiningSettingsProps) {
     const view = obsOnly ? 'obs' : 'mining';
     const t = useTranslation();
     const label = useFieldLabels(true);
@@ -488,12 +494,9 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
         () => new Intl.DisplayNames([locale === 'ukr' ? 'uk' : locale], { type: 'language' }),
         [locale],
     );
-    const [destination, setDestination] = useState<MiningDestination>();
     const [manage, setManage] = useState(false);
-    const [closeRequested, setCloseRequested] = useState(false);
     const content = useRef<HTMLElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
-    const title = t('mining.windowTitle');
     const [data, setData] = useState<Snapshot | null>(null);
     const [target, setTarget] = useState<string | null | undefined>(undefined);
     const [group, setGroup] = useState(obsOnly ? 'obs' : 'key_settings');
@@ -504,11 +507,10 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState('');
     const [error, setError] = useState('');
-    const [newKind, setNewKind] = useState<NewKind | null>(null);
+    const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
     const [newName, setNewName] = useState('');
     const [base, setBase] = useState('');
     const [follow, setFollow] = useState(true);
-    const [deleting, setDeleting] = useState(false);
     const [scenes, setScenes] = useState<ObsScene[]>([]);
     const [ankiRefreshNonce, setAnkiRefreshNonce] = useState(0);
     const [dismissedMappingModel, setDismissedMappingModel] = useState<string | null>(null);
@@ -566,50 +568,11 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
     }, [load]);
 
     useEffect(() => {
-        if (obsOnly) return;
-        return onIpc('settings.mining.requestClose', () => setCloseRequested(true));
-    }, [obsOnly]);
-
-    useEffect(() => {
-        if (obsOnly) return;
-        let mounted = true;
-        const receive = (nextDest: MiningDestination | null) => {
-            if (mounted && nextDest && typeof nextDest.root === 'string') setDestination(nextDest);
-        };
-        const onError = (err: unknown) => {
-            if (mounted) setError(String(err));
-        };
-        const off = onIpc('settings.mining.navigate', () => {
-            void invokeIpc<MiningDestination | null>('settings.mining.navigation')
-                .then(receive)
-                .catch(onError);
-        });
-        document.title = title;
-        void invokeIpc<MiningDestination | null>('settings.mining.ready', { title })
-            .then(receive)
-            .catch(onError);
-        return () => {
-            mounted = false;
-            off();
-        };
-    }, [title, obsOnly]);
-
-    useEffect(() => {
-        if (closeRequested && !pending && !busy && !saving) {
-            void invokeIpc('settings.mining.close').catch((e) => {
-                setCloseRequested(false);
-                setError(String(e));
-            });
-        }
-    }, [closeRequested, pending, busy, saving]);
-
-    useEffect(() => {
-        if (!destination || revision.current === destination || pending || busy || closeRequested)
+        if (!destination || revision.current === destination || pending || busy)
             return;
         revision.current = destination;
         setManage(destination.root === 'profiles');
-        setDeleting(false);
-        setNewKind(null);
+        setProfileAction(null);
         const [category, nextTab] = destinationPage(destination.root, destination.subtab);
         setGroup(category);
         setSubtabs((old) => ({ ...old, [category]: nextTab }));
@@ -618,7 +581,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
             setTarget(undefined);
             void load(undefined);
         }
-    }, [destination, load, pending, busy, closeRequested]);
+    }, [destination, load, pending, busy]);
 
     useEffect(() => {
         if (content.current) content.current.scrollTop = 0;
@@ -639,8 +602,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                 setData(next);
                 setTarget(next.target);
                 setManage(false);
-                setNewKind(null);
-                setDeleting(false);
+                setProfileAction(null);
                 setDraft({});
                 setUserChangedNoteType(false);
             } catch (e) {
@@ -704,13 +666,13 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
 
     useEffect(() => {
         if (!canSave || busy || saving || saveError) return;
-        const timer = window.setTimeout(saveDraft, closeRequested ? 0 : AUTOSAVE_DELAY_MS);
+        const timer = window.setTimeout(saveDraft, active ? AUTOSAVE_DELAY_MS : 0);
         return () => window.clearTimeout(timer);
-    }, [busy, canSave, closeRequested, saveDraft, saveError, saving]);
+    }, [active, busy, canSave, saveDraft, saveError, saving]);
 
     // Ctrl+F focuses search, and Ctrl+S flushes edits immediately.
     useEffect(() => {
-        if (obsOnly) return;
+        if (!active || obsOnly) return;
         const onKeyDown = (e: globalThis.KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
                 e.preventDefault();
@@ -723,14 +685,14 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
         };
         window.addEventListener('keydown', onKeyDown);
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [obsOnly, saveDraft]);
+    }, [active, obsOnly, saveDraft]);
 
     const activeSubtab = subtabs[group] || '';
     useEffect(() => {
-        if (newKind || manage || (group === 'general' && activeSubtab === 'discord')) {
+        if (manage || (group === 'general' && activeSubtab === 'discord')) {
             refreshObsScenes();
         }
-    }, [newKind, manage, group, activeSubtab, refreshObsScenes]);
+    }, [manage, group, activeSubtab, refreshObsScenes]);
 
     const showModels =
         !obsOnly &&
@@ -892,8 +854,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
         currentTarget.current = next;
         setTarget(next);
         setData((old) => (old?.target === next ? old : null));
-        setNewKind(null);
-        setDeleting(false);
+        setProfileAction(null);
         setSearch('');
         setError('');
         setUserChangedNoteType(false);
@@ -901,12 +862,15 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
         void load(next);
     };
 
-    const startNew = (kind: NewKind) => {
+    const startProfileAction = (action: ProfileAction) => {
+        setManage(true);
+        setSearch('');
+        setError('');
         setBase(profile?.parent || profile?.name || bases[0]?.name || '');
-        setNewName('');
+        setNewName(action === 'rename' ? profile?.name ?? '' : '');
         setFollow(true);
-        setDeleting(false);
-        setNewKind(kind);
+        setProfileAction(action);
+        if (content.current) content.current.scrollTop = 0;
     };
 
     const change = (f: Field, v: unknown, invalid = false, inherit = false) => {
@@ -2301,9 +2265,9 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                     </div>
                 )}
                 <div className="mining-scope-picker">
-                    <label htmlFor="mining-target">{t('mining.editing')}</label>
+                    <label htmlFor={obsOnly ? 'obs-target' : 'mining-target'}>{t('mining.editing')}</label>
                     <select
-                        id="mining-target"
+                        id={obsOnly ? 'obs-target' : 'mining-target'}
                         title={t('mining.active', { name: data.active })}
                         disabled={locked}
                         value={JSON.stringify(data.target)}
@@ -2330,6 +2294,25 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                             </optgroup>
                         ))}
                     </select>
+                    {!obsOnly && (
+                        <>
+                            {([
+                                ['createProfile', 'plus', 'mining.newProfile', false],
+                                ['rename', 'rename', 'mining.renameProfile', !profile || profile.name === 'Default'],
+                                ['delete', 'delete', 'mining.deleteProfile', !profile || profile.name === 'Default' ||
+                                    data.profiles.length <= 1 || games.some(g => g.parent === profile.name)],
+                            ] as const).map(([action, icon, labelKey, unavailable]) => (
+                                <button key={action} type="button" className="mining-icon-btn"
+                                    aria-label={t(labelKey)} title={t(labelKey)} disabled={locked || unavailable}
+                                    onClick={() => startProfileAction(action)}>
+                                    <MiningIcon name={icon} />
+                                </button>
+                            ))}
+                            <button type="button" disabled={locked} onClick={() => startProfileAction('createScene')}>
+                                {t('mining.newSceneProfile')}
+                            </button>
+                        </>
+                    )}
                 </div>
                 {!obsOnly && profile && profile.name !== data.active && (
                     <button
@@ -2392,6 +2375,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                 aria-current={manage ? 'page' : undefined}
                                 onClick={() => {
                                     setManage(true);
+                                    setProfileAction(null);
                                     setSearch('');
                                 }}
                             >
@@ -2535,45 +2519,16 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                         {t('mining.bound', { scenes: profile.scenes.join(', ') })}
                                     </p>
                                 ) : null}
-                                <div className="mining-actions">
-                                    <button
-                                        type="button"
-                                        disabled={locked}
-                                        onClick={() => startNew('createProfile')}
-                                    >
-                                        {t('mining.newProfile')}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        disabled={locked}
-                                        onClick={() => startNew('createScene')}
-                                    >
-                                        {t('mining.newGame')}
-                                    </button>
-                                    {profile &&
-                                        profile.name !== 'Default' &&
-                                        data.profiles.length > 1 &&
-                                        !games.some((g) => g.parent === profile.name) && (
-                                            <button
-                                                type="button"
-                                                className="danger"
-                                                disabled={locked}
-                                                onClick={() => {
-                                                    setNewKind(null);
-                                                    setDeleting(true);
-                                                }}
-                                            >
-                                                {t('mining.remove')}
-                                            </button>
-                                        )}
-                                </div>
-                                {newKind && (
+                                {profileAction && profileAction !== 'delete' && (
                                     <form
+                                        key={profileAction}
                                         className="mining-manage"
                                         onSubmit={(e) => {
                                             e.preventDefault();
-                                            void mutate({
-                                                op: newKind,
+                                            void mutate(profileAction === 'rename' ? {
+                                                op: profileAction, target: data.target, name: newName,
+                                            } : {
+                                                op: profileAction,
                                                 base,
                                                 name: newName,
                                                 sceneId: scenes.find(
@@ -2583,7 +2538,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                             });
                                         }}
                                     >
-                                        <label>
+                                        {profileAction !== 'rename' && <label>
                                             <span>{t('mining.base')}</span>
                                             <select
                                                 value={base}
@@ -2593,11 +2548,11 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                                     <option key={p.name}>{p.name}</option>
                                                 ))}
                                             </select>
-                                        </label>
+                                        </label>}
                                         <label>
                                             <span>
                                                 {t(
-                                                    newKind === 'createScene'
+                                                    profileAction === 'createScene'
                                                         ? 'mining.sceneName'
                                                         : 'mining.profileName',
                                                 )}
@@ -2607,7 +2562,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                                 required
                                                 value={newName}
                                                 list={
-                                                    newKind === 'createScene'
+                                                    profileAction === 'createScene'
                                                         ? 'mining-scenes'
                                                         : undefined
                                                 }
@@ -2622,7 +2577,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                                 />
                                             ))}
                                         </datalist>
-                                        {newKind === 'createScene' && (
+                                        {profileAction === 'createScene' && (
                                             <label className="mining-check">
                                                 <input
                                                     type="checkbox"
@@ -2635,21 +2590,21 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                         <div className="mining-actions">
                                             <button
                                                 className="ws-primary"
-                                                disabled={locked || !newName.trim()}
+                                                disabled={locked || !newName.trim() || (profileAction === 'rename' && newName.trim() === data.target)}
                                             >
-                                                {t('mining.create')}
+                                                {t(profileAction === 'rename' ? 'mining.renameProfile' : 'mining.create')}
                                             </button>
                                             <button
                                                 type="button"
                                                 disabled={locked}
-                                                onClick={() => setNewKind(null)}
+                                                onClick={() => setProfileAction(null)}
                                             >
                                                 {t('mining.cancel')}
                                             </button>
                                         </div>
                                     </form>
                                 )}
-                                {deleting && (
+                                {profileAction === 'delete' && (
                                     <div className="mining-manage mining-delete-confirm">
                                         <p>
                                             {t('mining.confirmDelete', { name: data.target! })}
@@ -2670,7 +2625,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                                             </button>
                                             <button
                                                 type="button"
-                                                onClick={() => setDeleting(false)}
+                                                onClick={() => setProfileAction(null)}
                                             >
                                                 {t('mining.cancel')}
                                             </button>
@@ -2762,24 +2717,16 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                         {t(saveError ? 'mining.autoSaveFailed' : 'mining.autoSaveInvalid')}
                         {saveError && <div className="mining-muted-inline">{saveError}</div>}
                     </div>
-                    {closeRequested && (
-                        <button
-                            type="button"
-                            onClick={() => setCloseRequested(false)}
-                        >
-                            {t('mining.keepEditing')}
-                        </button>
-                    )}
                     <button
                         disabled={busy || saving}
                         type="button"
                         onClick={() => {
                             setDraft({});
                             setSaveError('');
-                            if (!closeRequested) void load(data.target);
+                            void load(data.target);
                         }}
                     >
-                        {t(closeRequested ? 'mining.discardClose' : 'mining.discard')}
+                        {t('mining.discard')}
                     </button>
                     {saveError && canSave && (
                         <button
@@ -2795,7 +2742,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
             )}
 
             <PromptBuilderDialog
-                open={promptBuilderOpen}
+                open={active && promptBuilderOpen}
                 nativeLanguageName={nativeLangName}
                 onInsert={(snippet) => {
                     const field = byPath.get('ai.custom_full_prompt');
@@ -2812,7 +2759,7 @@ export function MiningSettings({ obsOnly = false }: { obsOnly?: boolean }) {
                 onClose={() => setPromptBuilderOpen(false)}
             />
 
-            {dangerPrompt && (
+            {active && dangerPrompt && (
                 <ConfirmDangerDialog
                     title={t(
                         dangerPrompt === 'process_pausing'

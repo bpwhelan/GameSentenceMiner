@@ -5,6 +5,43 @@ use serde_json::{json, Value};
 use tempfile::tempdir;
 
 #[test]
+fn renaming_profiles_preserves_active_settings_and_scene_links() {
+    let tmp = tempdir().unwrap();
+    let file = tmp.path().join("config.json");
+    let paths = Paths {
+        active: tmp.path().into(),
+        shared: tmp.path().into(),
+        has_profile: true,
+    };
+    profile_config::prepare(&paths, tmp.path(), "2026.11.0").unwrap();
+    let act = |request: Value| scopes::apply(&file, &request);
+    act(json!({"op":"createProfile","base":"Default","name":"VN"})).unwrap();
+    act(json!({"op":"createScene","base":"VN","name":"Game","sceneId":"scene-1","follow":false}))
+        .unwrap();
+    scopes::update(&file, |doc| scopes::activate(doc, "Game")).unwrap();
+    let before = read_object(&file).unwrap();
+    for (target, name) in [("Default", "New"), ("VN", "Game"), ("Game", "  ")] {
+        assert!(act(json!({"op":"rename","target":target,"name":name})).is_err());
+    }
+    assert_eq!(read_object(&file).unwrap(), before);
+    act(json!({"op":"rename","target":"VN","name":"Books"})).unwrap();
+    let snapshot = act(json!({"op":"rename","target":"Game","name":" My Game "})).unwrap();
+    assert_eq!(snapshot["active"], "My Game");
+    assert_eq!(snapshot["target"], "My Game");
+    let doc = read_object(&file).unwrap();
+    assert!(doc["configs"].get("VN").is_none());
+    assert!(doc["configs"].get("Game").is_none());
+    assert_eq!(doc["configs"]["My Game"]["name"], "My Game");
+    assert_eq!(doc["configs"]["My Game"]["scenes"], json!(["Game"]));
+    assert_eq!(scopes::parent(&doc, "My Game"), Some("Books"));
+    assert_eq!(scopes::scene_id(&doc, "My Game"), Some("scene-1"));
+    assert_eq!(
+        doc["profile_layers"]["scenes"]["My Game"]["overrides"],
+        before["profile_layers"]["scenes"]["Game"]["overrides"]
+    );
+}
+
+#[test]
 fn scene_overrides_and_shared_connections_survive_reopen_and_other_settings_writers() {
     let tmp = tempdir().unwrap();
     let paths = Paths {

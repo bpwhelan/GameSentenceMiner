@@ -45,7 +45,7 @@ class SilentAudio:
         pass
 
 
-def make_window(saved_review, monkeypatch):
+def make_window(saved_review, monkeypatch, **options):
     entry, config, *_ = saved_review
     app = QApplication.instance() or QApplication([])
     monkeypatch.setattr(anki_confirmation_qt, "AudioPlayer", SilentAudio)
@@ -55,7 +55,7 @@ def make_window(saved_review, monkeypatch):
         session_review_qt.SessionReviewWindow, "_submit_card_work", lambda self, function: function(), raising=False
     )
     monkeypatch.setattr(anki_confirmation_qt, "get_video_duration", lambda path: 10)
-    window = session_review_qt.SessionReviewWindow()
+    window = session_review_qt.SessionReviewWindow(**options)
     return app, window, entry, config
 
 
@@ -69,6 +69,36 @@ def add_review(entry, *, suffix="b", expression="Second"):
     second.data["sentence"] = f"{expression} sentence"
     second.save()
     return second
+
+
+def test_live_window_silently_loads_first_card_and_preserves_draft_on_arrival(saved_review, monkeypatch):
+    entry, config, *_ = saved_review
+    config.anki.autoplay_audio = True
+    played = []
+    monkeypatch.setattr(session_review_qt.ReviewEditor, "_play_range", lambda self: played.append(self.audio_path))
+    app, window, _, _ = make_window(saved_review, monkeypatch, live=True)
+    try:
+        window.show()
+        window.editor.sentence_text.setPlainText("My draft")
+        second = add_review(entry)
+        window._append_new_entries()
+        QTest.qWait(150)
+        assert not played
+        assert window.editor.sentence_text.toPlainText() == "My draft"
+        assert window.card_list.count() == 2
+        mock_note_api(monkeypatch, second)
+        window.card_list.setCurrentRow(1)
+        QTest.qWait(150)
+        assert played
+        window._discard(False)
+        mock_note_api(monkeypatch, entry)
+        window._discard(False)
+        assert not window.entries
+        assert window.isVisible()
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
 
 
 def test_missing_review_is_skipped_before_editor_opens(saved_review, monkeypatch):
@@ -663,6 +693,22 @@ def test_review_keeps_drafts_when_switching_cards(saved_review, monkeypatch):
     window.close()
     window.deleteLater()
     app.processEvents()
+
+
+def test_controller_opens_quietly_only_for_new_cards_in_the_enabled_profile(saved_review, monkeypatch):
+    entry, config, *_ = saved_review
+    monkeypatch.setattr(session_review_qt, "get_config", lambda: config)
+    controller = session_review_qt.SessionReviewController(QApplication.instance())
+    controller.timer.stop()
+    opened = []
+    monkeypatch.setattr(controller, "show", lambda *, live: opened.append(live))
+    controller.card_queued(entry)
+    config.features.review_after_session.open_on_card_queued = False
+    controller.card_queued(entry)
+    config.features.review_after_session.open_on_card_queued = True
+    config.name = "Another profile"
+    controller.card_queued(entry)
+    assert opened == [True]
 
 
 def test_controller_waits_for_pending_background_card_after_game_close(monkeypatch):

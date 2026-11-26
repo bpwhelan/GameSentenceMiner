@@ -1,5 +1,30 @@
 {
-  "mining": { "fields": { "ai_auto_generate_character_summary": "Generar resúmenes de personajes automáticamente" } },
+  "sceneSwitcher": {
+    "buildFromText": "Crear un patrón a partir del título de la ventana",
+    "literalPlaceholder": "Por ejemplo, youtube",
+    "matchAnywhere": "Contiene",
+    "matchExactly": "Coincide exactamente",
+    "startsWith": "Empieza por",
+    "endsWith": "Termina en"
+  },
+  "nativeDialogs": {
+    "area": {
+      "tips": {
+        "normal": "Captura automáticamente el diálogo de esta zona. Dibuja el recuadro alrededor del panel de diálogo.",
+        "exclusion": "Ignora las líneas cuyo centro cae dentro del recuadro. Úsalo para omitir el nombre del hablante o un indicador de la interfaz.",
+        "secondary": "Usa el atajo de OCR de menús para leer esta zona. Sirve para menús y opciones de diálogo.",
+        "exclusive": "Si una línea cabe dentro de este recuadro, el OCR automático conserva solo las líneas de los recuadros exclusivos. Sirve para leer opciones superpuestas al diálogo.",
+        "blackHole": "Si el texto reconocido se superpone al recuadro, se descarta toda la lectura. Úsalo en un título de menú o de pausa."
+      }
+    }
+  },
+  "mining": {
+    "newProfile": "Nuevo perfil",
+    "renameProfile": "Renombrar perfil",
+    "deleteProfile": "Eliminar perfil",
+    "newSceneProfile": "Nuevo perfil de escena",
+    "fields": { "ai_auto_generate_character_summary": "Generar resúmenes de personajes automáticamente" }
+  },
   "gameLauncher": {
     "mode": "Iniciar con",
     "modeExecutable": "Ejecutable del juego",
@@ -21,7 +46,7 @@
     "gameFolder": "Carpeta del juego (predeterminada)",
     "launcherPath": "Lanzador personalizado (opcional)",
     "launcherArguments": "Argumentos del lanzador",
-    "launcherHelp": "Usa un lanzador instalado, como SKIF de Special K o Locale Emulator. Déjalo vacío para iniciar el juego directamente.",
+    "launcherHelp": "Deja este campo vacío para que GSM abra los juegos de Steam que reconozca a través de Steam y los demás directamente. Para usar otro lanzador, como SKIF o Locale Emulator, selecciónalo aquí.",
     "templateHelp": "Usa {game} para la ruta del juego y {args} para sus argumentos. Por defecto: \"{game}\" {args}. Para LEProc: -run \"{game}\" {args}. Mantén {args} como argumento independiente. No se expanden comandos del intérprete ni variables de entorno.",
     "browse": "Examinar",
     "browseField": "Examinar: {field}",
@@ -180,6 +205,10 @@
       "statusRunning": "En ejecución",
       "statusStopped": "No ejecutándose",
       "guide": "Guía de configuración",
+      "runWithActiveGame": "Abrir y cerrar con el juego activo",
+      "runWithActiveGameTooltip": "Abre la superposición al detectar un juego y la cierra al terminar la sesión. Esta opción desactiva el inicio con GSM.",
+      "settingsError": "No se pudieron cargar o guardar las opciones de la superposición. Vuelve a abrir esta pestaña e inténtalo de nuevo.",
+      "startupSettings": "Inicio de la superposición",
       "runOnStartup": "Ejecutar al inicio",
       "runOnStartupTooltip": "Iniciar la superposición de GSM automáticamente cuando se inicia GSM."
     },
@@ -638,6 +667,8 @@
       "globalHint": "Se aplica a todos los juegos y perfiles. Configura aquí los sonidos y avisos."
     },
     "workspace": {
+      "desktopCategory": "Escritorio",
+      "miningCategory": "Minería",
       "brandHint": "Preferencias y herramientas",
       "general": "General",
       "generalHelp": "Elige la apariencia, el idioma y el comportamiento al iniciar.",

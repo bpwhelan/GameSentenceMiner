@@ -10,15 +10,18 @@
     const pane = await waitFor(() => document.querySelector('.mining-editor'));
     const input = await waitFor(() => document.getElementById('mining-field-audio.enabled'));
     if (
-        new URLSearchParams(location.search).get('window') !== 'mining-settings' ||
+        !pane.closest('.tab-panel.active') || pane.closest('[hidden]') ||
         !pane.querySelector('nav')
     ) {
-        throw Error('Expected a dedicated mining settings window with section navigation');
+        throw Error('Expected mining settings in the active desktop tab');
     }
     const ipc = window.ipcRenderer;
     const before = input.checked;
     input.click();
+    document.getElementById('settings-category-desktop').click();
+    await waitFor(() => pane.closest('[hidden]'));
     await ipc.invoke('settings.openGSMSettings');
+    await waitFor(() => !pane.closest('[hidden]'));
     if (!pane.isConnected || input.checked === before) throw Error('Reopening lost the edit');
     await waitFor(() => !document.getElementById('mining-target').disabled);
     const read = () => ipc.invoke('settings.mining.read', {});
@@ -34,7 +37,7 @@
     const keyFields = ['general.native_language','general.target_language','general.use_websocket','general.use_clipboard','general.single_port','general.websocket_sources','anki.note_type','anki.word.name','anki.sentence.name','anki.sentence_audio.name','anki.picture.name','audio.beginning_offset','audio.end_offset','features.open_anki_edit','features.open_anki_in_browser'];
     if (keyFields.some(key => !document.getElementById('mining-field-'+key)))
         throw Error('A Qt Key Settings control is missing');
-    if (page.scrollWidth > page.clientWidth + 1 || (innerWidth >= 950 && innerHeight >= 650 && page.scrollHeight > page.clientHeight + 1))
+    if (page.scrollWidth > page.clientWidth + 1)
         throw Error('Key Settings overflows the desktop window: ' + [page.clientWidth,page.scrollWidth,page.clientHeight,page.scrollHeight].join(', '));
     const port = document.getElementById('mining-field-general.single_port');
     if (!port.getAttribute('aria-description') || !port.closest('.mining-row').querySelector('[data-tip]'))

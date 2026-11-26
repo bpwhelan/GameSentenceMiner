@@ -90,6 +90,9 @@ fn create_window(
     };
     let mut url = crate::app_lifecycle::desktop_renderer_url(app)?;
     url.query_pairs_mut().append_pair("window", kind);
+    if review && !focus {
+        url.query_pairs_mut().append_pair("live", "1");
+    }
     let origin = url.origin();
     let page = url.path().to_owned();
     let data = crate::dictionary_host::overlay_data_path(app);
@@ -246,14 +249,39 @@ pub(crate) async fn open_confirmation(app: &AppHandle, request: Value) -> Result
 }
 
 pub(crate) async fn open_review(app: &AppHandle) -> Result<Value, String> {
+    show_review(app, ReviewTrigger::Manual).await
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ReviewTrigger {
+    Manual,
+    CardQueued,
+    GameClosed,
+}
+
+pub(crate) async fn review_queued(app: &AppHandle, mined: &ProfileConfig) -> Result<(), String> {
+    let current = app.state::<Arc<MiningService>>().load_config()?;
+    if current.name == mined.name
+        && current.anki.url == mined.anki.url
+        && current.review_after_session_enabled()
+        && current.features.review_after_session.open_on_card_queued
+    {
+        show_review(app, ReviewTrigger::CardQueued).await?;
+    }
+    Ok(())
+}
+
+async fn show_review(app: &AppHandle, trigger: ReviewTrigger) -> Result<Value, String> {
     let windows = app.state::<Windows>();
     let _open = windows.opening_review.lock().await;
     if let Some(window) = app.get_webview_window(REVIEW) {
-        if window.is_visible().unwrap_or(false) {
+        if trigger == ReviewTrigger::CardQueued {
+            crate::desktop_state::emit_to_window(app, REVIEW, "cardDialog.queueChanged", &[]);
+        } else if trigger == ReviewTrigger::Manual && window.is_visible().unwrap_or(false) {
             crate::desktop_state::focus_window(&window)?;
         }
     } else {
-        create_window(app, true, true, false)?;
+        create_window(app, true, trigger != ReviewTrigger::CardQueued, false)?;
     }
     Ok(Value::Null)
 }
@@ -331,7 +359,12 @@ pub(crate) fn start(app: &AppHandle) {
                     {
                         was_active = false;
                         if review.enabled && review.open_on_game_close && reviews::count(&app) > 0 {
-                            if let Err(error) = open_review(&app).await {
+                            let result = if review.open_on_card_queued {
+                                show_review(&app, ReviewTrigger::GameClosed).await
+                            } else {
+                                open_review(&app).await
+                            };
+                            if let Err(error) = result {
                                 crate::desktop_log::warn(&app, "session review", error);
                             }
                         }
@@ -366,9 +399,16 @@ pub(crate) async fn invoke(
             if let Some(title) = payload["title"].as_str() {
                 window.set_title(title).map_err(|e| e.to_string())?;
             }
-            if std::env::var_os("GSM_SMOKE_TEST").is_none() {
-                window.show().map_err(|e| e.to_string())?;
-                if review || settings(app)["confirmation_focus_on_show"] != false {
+            if std::env::var_os("GSM_SMOKE_TEST").is_none() && !window.is_visible().unwrap_or(false)
+            {
+                let live_review = review && payload["live"] == true;
+                if live_review {
+                    crate::window_platform::apply(&window, "showWithoutActivating", &Value::Null)?;
+                } else {
+                    window.show().map_err(|e| e.to_string())?;
+                }
+                if !live_review && (review || settings(app)["confirmation_focus_on_show"] != false)
+                {
                     let _ = window.set_focus();
                 }
             }

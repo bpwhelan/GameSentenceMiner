@@ -2024,6 +2024,14 @@ async fn process_card(
                 format_args!("Could not record the Anki update in session review: {error}"),
             );
         }
+        // Release the entry before the window reads its queue.
+        drop(handle);
+        if let Err(error) = crate::card_dialog::review_queued(app, &config).await {
+            log.emit(
+                "WARNING",
+                format_args!("Could not open the live review queue: {error}"),
+            );
+        }
     }
 
     // Output folder file management

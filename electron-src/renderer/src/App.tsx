@@ -3,6 +3,7 @@ import {invokeIpc, onIpc} from './lib/ipc';
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { GameAutomationTab } from "./components/tabs/GameAutomationTab";
+import type { MiningDestination } from "./types/settings";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
 import type { OnboardingHomeAction, OnboardingSnapshot } from '../../shared/onboarding';
@@ -117,15 +118,19 @@ function StatsPanel({ active }: { active: boolean }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => window.ipcRenderer.on('gsm-initialized', () => {
-    setIframeSrc(null);
-    setReloadKey(value => value + 1);
-  }), []);
+  useEffect(() => {
+    const off = window.ipcRenderer.on('gsm-initialized', () => {
+      setIframeSrc(null);
+      setReloadKey(value => value + 1);
+    });
+    return () => { off(); };
+  }, []);
 
   useEffect(() => {
     setIframeSrc(null);
     if (!active) return;
     let disposed = false;
+    let settled = false;
     let controller: AbortController | undefined;
     let url: string | undefined;
     let stop = () => {};
@@ -135,14 +140,16 @@ function StatsPanel({ active }: { active: boolean }) {
         const settings = await window.ipcRenderer.invoke<{ statsEndpoint?: string; singlePort?: number }>('settings.getSettings');
         const port = typeof settings?.singlePort === 'number' && Number.isFinite(settings.singlePort) && settings.singlePort > 0
           ? Math.trunc(settings.singlePort) : 7275;
-        url = `http://localhost:${port}/${settings?.statsEndpoint ?? 'overview'}`;
+        const endpoint = (settings?.statsEndpoint ?? 'overview').trim().replace(/^\/+/, '') || 'overview';
+        url = `http://localhost:${port}/${endpoint}`;
       }
-      if (disposed) return;
+      if (disposed || settled) return;
       controller = new AbortController();
-      const timeout = setTimeout(() => controller?.abort(), 2000);
+      const timeout = setTimeout(() => controller?.abort(), 5000);
       try {
         const response = await fetch(url, { signal: controller.signal });
-        if (!disposed && response.ok) {
+        if (!disposed && !settled && response.ok) {
+          settled = true;
           setIframeSrc(url);
           stop();
         }
@@ -617,6 +624,21 @@ export default function App() {
       ? (requestedPreviewTab as TabId)
       : "obs";
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [settingsDestination, setSettingsDestination] = useState<MiningDestination>();
+  useEffect(() => {
+    if (window.gsmEnv?.shell !== "tauri") return;
+    const navigate = async () => {
+      const next = await window.ipcRenderer.invoke<MiningDestination | null>("settings.mining.navigation");
+      if (next && typeof next.root === "string") {
+        setSettingsDestination(next);
+        setActiveTab("settings");
+      }
+    };
+    const drain = () => { void navigate().catch(console.error); };
+    const off = window.ipcRenderer.on("settings.mining.navigate", drain);
+    drain();
+    return off;
+  }, []);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardSession, setWizardSession] = useState(0);
   const [onboardingAction, setOnboardingAction] = useState<OnboardingHomeAction | null>(null);
@@ -1012,7 +1034,7 @@ export default function App() {
         {isWindows ? <DeferredPanel active={activeTab === 'speech'}><SpeechRecognitionTab active={activeTab === "speech"} /></DeferredPanel> : null}
         <StatsPanel active={activeTab === "stats"} />
         <DeferredPanel active={activeTab === 'launcher'}><GameAutomationTab active={activeTab === "launcher"} /></DeferredPanel>
-          <SettingsTab active={activeTab === "settings"} onRequestConsole={switchToConsole} onOpenSetup={() => {
+          <SettingsTab active={activeTab === "settings"} destination={settingsDestination} onRequestConsole={switchToConsole} onOpenSetup={() => {
           setWizardSession(value => value + 1);
           setShowWizard(true);
         }} />

@@ -1058,6 +1058,7 @@ for _legacy_key, _attr_name in Anki._LEGACY_FIELD_MAP.items():
 @dataclass
 class ReviewAfterSession:
     enabled: bool = False
+    open_on_card_queued: bool = True
     open_on_game_close: bool = True
     delay_seconds: int = 3
     auto_advance: bool = True

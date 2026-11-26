@@ -41,6 +41,8 @@ export function MiningIcon({ name, size = 16 }: { name: string; size?: number })
         clear: 'M6 6l12 12M18 6L6 18',
         check: 'M5 12l4.5 4.5L19 7',
         plus: 'M12 5v14M5 12h14',
+        rename: 'm14 5 5 5M4 20l5-1 12-12-4-4L5 15l-1 5Z',
+        delete: 'M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7',
         sparkles:
             'M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3Zm7 12l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z',
         keyboard: 'M3 7h18v10H3V7Zm3 3h2m3 0h2m3 0h2M7 14h10',

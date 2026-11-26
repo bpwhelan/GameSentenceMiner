@@ -101,6 +101,20 @@ def test_start_ipc_listener_reuses_running_thread(monkeypatch):
     assert second is alive
 
 
+def test_tauri_ocr_serves_preview_geometry_on_its_existing_reader(monkeypatch):
+    from GameSentenceMiner.obs import desktop_session
+    from GameSentenceMiner.ocr.preview import handle_geometry_preview
+
+    handlers = {}
+    monkeypatch.setenv("GSM_OBS_READER_PORT", "1234")
+    monkeypatch.setattr(ocr_ipc, "_use_bus", lambda: False)
+    monkeypatch.setattr(desktop_session, "reader_bus", lambda: SimpleNamespace(handle=handlers.__setitem__))
+    alive = SimpleNamespace(is_alive=lambda: True)
+    monkeypatch.setattr(ocr_ipc, "_stdin_thread", alive)
+    assert ocr_ipc.start_ipc_listener() is alive
+    assert handlers == {"ocr.preview": handle_geometry_preview}
+
+
 def test_convenience_announce_helpers(monkeypatch):
     calls = []
     monkeypatch.setattr(ocr_ipc, "send_event", lambda *args, **kwargs: calls.append((args, kwargs)))

@@ -1,3 +1,7 @@
+import { useSelectorAutoRefresh } from "./tabs/useSelectorAutoRefresh";
+import { useOCRPreview } from "./tabs/useOCRPreview";
+import { InlineAreaSelector } from "./tabs/InlineAreaSelector";
+import type { OcrPreviewFrame } from "../../../shared/ocr_preview";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startVisiblePolling } from '../lib/visiblePolling';
 import { invokeIpc, onIpc, sendIpc } from "../lib/ipc";
@@ -226,7 +230,8 @@ export function TextCaptureWizard({
   } | null>(null);
   const loadedSceneRef = useRef<string | null>(null);
   const previewInFlightRef = useRef(false);
-  const ocrSelectorRequestedRef = useRef(false);
+  const [selectorInitial, setSelectorInitial] = useState<OcrPreviewFrame | null>(null);
+  const [selectorAutoRefresh, setSelectorAutoRefresh] = useSelectorAutoRefresh();
   const pendingInitialOcrStartRef = useRef(false);
   const awaitingInitialOcrResultRef = useRef(false);
   const initialOcrTimeoutRef = useRef<number | null>(null);
@@ -304,7 +309,7 @@ export function TextCaptureWizard({
         setOcrMode("none");
         setOcrSamples([]);
         setOcrInitialScanState("idle");
-        ocrSelectorRequestedRef.current = false;
+        setSelectorInitial(null);
         pendingInitialOcrStartRef.current = false;
         awaitingInitialOcrResultRef.current = false;
         if (initialOcrTimeoutRef.current !== null) window.clearTimeout(initialOcrTimeoutRef.current);
@@ -717,17 +722,6 @@ export function TextCaptureWizard({
   }, [clearInitialOcrTimeout, waitForInitialOcrResult]);
 
   useEffect(() => {
-    const offSelectorFinished = onIpc("ocr-screen-selector-finished", (_event, payload) => {
-      if (!ocrSelectorRequestedRef.current) return;
-      ocrSelectorRequestedRef.current = false;
-      const result = payload as { success?: boolean } | null;
-      if (result?.success === false) {
-        setOcrInitialScanState("error");
-        return;
-      }
-      void runInitialOcrScan();
-    });
-
     const offOcrStarted = onIpc("ocr-ipc-started", () => {
       if (!pendingInitialOcrStartRef.current) return;
       pendingInitialOcrStartRef.current = false;
@@ -758,7 +752,6 @@ export function TextCaptureWizard({
     });
 
     return () => {
-      offSelectorFinished();
       offOcrStarted();
       offOcrMessage();
       offOcrError();
@@ -766,15 +759,38 @@ export function TextCaptureWizard({
     };
   }, [clearInitialOcrTimeout, runInitialOcrScan, waitForInitialOcrResult]);
 
+  const selecting = ocrInitialScanState === "selecting";
+  const selectorPreview = useOCRPreview({
+    active: selecting,
+    sceneId: activeScene?.id ?? "",
+    sceneName: activeScene?.name ?? "",
+    includeBoxes: false,
+    // The wizard needs an opening frame even when ongoing refresh is off.
+    refreshMode: !selectorInitial || selectorAutoRefresh ? "live" : "manual"
+  });
+  useEffect(() => {
+    if (!selecting) return;
+    if (!selectorInitial && selectorPreview.frame) setSelectorInitial(selectorPreview.frame);
+    else if ((!selectorInitial && selectorPreview.unavailable) ||
+      (selectorInitial && selectorPreview.frame && selectorInitial.sourceName !== selectorPreview.frame.sourceName)) {
+      setSelectorInitial(null);
+      setOcrInitialScanState("error");
+    }
+  }, [selecting, selectorInitial, selectorPreview.frame, selectorPreview.unavailable]);
+
+  const closeSelector = useCallback((saved: boolean) => {
+    setSelectorInitial(null);
+    if (saved) void runInitialOcrScan();
+    else setOcrInitialScanState("idle");
+  }, [runInitialOcrScan]);
+
   const openAreaSelector = useCallback(() => {
     clearInitialOcrTimeout();
-    ocrSelectorRequestedRef.current = true;
     pendingInitialOcrStartRef.current = false;
     awaitingInitialOcrResultRef.current = false;
     setOcrSamples([]);
     setOcrInitialScanState("selecting");
     setStatusMessage(null);
-    sendIpc("ocr.run-screen-selector");
     if (!hasTextHook) {
       setTextSource("ocr");
       setLaunchTextHook(false);
@@ -942,6 +958,9 @@ export function TextCaptureWizard({
 
   return (
     <div className="capture-wizard-overlay" role="dialog" aria-modal="true" aria-labelledby="capture-wizard-title">
+      {selecting && selectorInitial && <InlineAreaSelector initial={selectorInitial} preview={selectorPreview.frame ?? selectorInitial}
+        refresh={selectorPreview.refresh} onClose={closeSelector}
+        autoRefresh={selectorAutoRefresh} onAutoRefreshChange={setSelectorAutoRefresh} />}
       <div className="capture-wizard-card">
         <div className="capture-wizard-header">
           <div>
@@ -1173,7 +1192,7 @@ export function TextCaptureWizard({
                 </div>
               ) : null}
               <div className="capture-wizard-action-row">
-                <button type="button" disabled={ocrInitialScanState === "selecting" || ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
+                <button type="button" disabled={!activeScene || ocrInitialScanState === "selecting" || ocrInitialScanState === "starting" || ocrInitialScanState === "scanning"}
                   onClick={openAreaSelector}>
                   {t("captureWizard.ocr.openAreaSelector")}
                 </button>

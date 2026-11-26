@@ -21,7 +21,7 @@ mod window_events;
 mod window_input;
 #[cfg(windows)]
 mod window_state;
-use crate::obs_service::ObsService;
+use crate::obs_service::{ObsError, ObsService};
 use serde_json::{json, Value};
 use std::{
     sync::{
@@ -41,6 +41,71 @@ fn text<'a>(v: &'a Value, k: &str) -> &'a str {
 fn first(args: &[Value]) -> Value {
     args.first().cloned().unwrap_or(Value::Null)
 }
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const RENDER_FAILURE_CONFIRM_INTERVAL: Duration = Duration::from_secs(5);
+const RENDER_FAILURE_THRESHOLD: u8 = 2;
+const RENDER_RESTART_COOLDOWN: Duration = Duration::from_secs(300);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HeartbeatOutcome {
+    Healthy,
+    Disconnected,
+    RenderFailed,
+}
+
+fn classify_render_probe_result(result: &Result<Value, ObsError>) -> Option<HeartbeatOutcome> {
+    match result {
+        Ok(_) => Some(HeartbeatOutcome::Healthy),
+        Err(error) if error.code == 702 => Some(HeartbeatOutcome::RenderFailed),
+        // Scene was renamed/removed between cache read and probe; fall back to GetVersion.
+        Err(error) if error.code == 600 => None,
+        Err(_) => Some(HeartbeatOutcome::Disconnected),
+    }
+}
+
+#[derive(Default)]
+struct RenderHealthTracker {
+    consecutive_failures: u8,
+    last_restart: Option<Instant>,
+}
+
+impl RenderHealthTracker {
+    fn heartbeat_interval(&self) -> Duration {
+        if self.consecutive_failures > 0 && self.consecutive_failures < RENDER_FAILURE_THRESHOLD {
+            RENDER_FAILURE_CONFIRM_INTERVAL
+        } else {
+            HEARTBEAT_INTERVAL
+        }
+    }
+
+    fn record_healthy(&mut self) {
+        self.consecutive_failures = 0;
+    }
+
+    fn reset(&mut self) {
+        self.consecutive_failures = 0;
+    }
+
+    fn record_render_failure(&mut self, now: Instant) -> bool {
+        self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+        if self.consecutive_failures < RENDER_FAILURE_THRESHOLD {
+            return false;
+        }
+        if self
+            .last_restart
+            .is_some_and(|last| now.saturating_duration_since(last) < RENDER_RESTART_COOLDOWN)
+        {
+            return false;
+        }
+        true
+    }
+
+    fn record_restart(&mut self, now: Instant) {
+        self.consecutive_failures = 0;
+        self.last_restart = Some(now);
+    }
+}
+
 #[derive(Default)]
 struct State {
     paths: Option<config::Paths>,
@@ -70,6 +135,7 @@ struct Inner {
     recording: AsyncMutex<()>,
     probe: AsyncMutex<()>,
     scene_edit: AsyncMutex<()>,
+    scene_switch_requested: tokio::sync::Notify,
     suspended_clients: Mutex<(bool, bool)>,
     updating: AtomicBool,
     suspended: AtomicBool,
@@ -153,6 +219,8 @@ impl Obs {
             }
             let sampler = self.clone();
             tauri::async_runtime::spawn(sampler.sample_session(app.clone()));
+            #[cfg(windows)]
+            tauri::async_runtime::spawn(self.clone().run_scene_switcher(app.clone()));
             let controller = self.clone();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -399,12 +467,14 @@ impl Obs {
         let mut backoff = 1;
         let mut next_connect = Instant::now();
         let mut heartbeat = Instant::now();
+        let mut render_health = RenderHealthTracker::default();
         loop {
             tokio::time::sleep(Duration::from_millis(250)).await;
             if self.0.suspended.load(Ordering::SeqCst) || self.0.updating.load(Ordering::SeqCst) {
                 continue;
             }
             if !self.0.client.has_primary() {
+                render_health.reset();
                 if Instant::now() < next_connect {
                     continue;
                 }
@@ -416,20 +486,111 @@ impl Obs {
                 backoff = 1;
                 heartbeat = Instant::now();
             }
-            if heartbeat.elapsed() > Duration::from_secs(30) {
-                if self.call(&app, "GetVersion", json!({})).await.is_err() {
-                    let _ = self.0.client.disconnect_primary().await;
-                    continue;
+            if heartbeat.elapsed() > render_health.heartbeat_interval() {
+                match self.probe_heartbeat(&app).await {
+                    HeartbeatOutcome::Healthy => {
+                        render_health.record_healthy();
+                        heartbeat = Instant::now();
+                    }
+                    HeartbeatOutcome::Disconnected => {
+                        render_health.reset();
+                        let _ = self.0.client.disconnect_primary().await;
+                        continue;
+                    }
+                    HeartbeatOutcome::RenderFailed => {
+                        let now = Instant::now();
+                        heartbeat = now;
+                        if render_health.record_render_failure(now) {
+                            if self.assert_idle(&app).await.is_ok() {
+                                crate::desktop_log::warn(
+                                    &app,
+                                    "obs",
+                                    "OBS failed consecutive render health checks (code 702); restarting OBS.",
+                                );
+                                match self
+                                    .launch(
+                                        &app,
+                                        json!({"forceRestart": true, "forceKillOnTimeout": true}),
+                                    )
+                                    .await
+                                {
+                                    Ok(_) => {
+                                        render_health.record_restart(Instant::now());
+                                        next_connect = Instant::now() + Duration::from_secs(2);
+                                        backoff = 1;
+                                        continue;
+                                    }
+                                    Err(error) => {
+                                        render_health.record_restart(Instant::now());
+                                        crate::desktop_log::warn(
+                                            &app,
+                                            "obs",
+                                            format!("Could not restart OBS after render failure: {error}"),
+                                        );
+                                    }
+                                }
+                            } else {
+                                render_health.reset();
+                                crate::desktop_log::warn(
+                                    &app,
+                                    "obs",
+                                    "OBS render health check failed (code 702), but streaming or recording is active; skipping auto-restart.",
+                                );
+                            }
+                        }
+                    }
                 }
-                heartbeat = Instant::now();
             }
             let needs_cleanup = !self.0.state.lock().unwrap().probes_clean;
             if needs_cleanup {
                 let _ = self.cleanup_helpers(&app).await;
             }
-            if let Err(error) = self.tick_switcher(&app).await {
-                crate::desktop_log::warn(&app, "obs", format!("Scene switcher: {error}"));
+            if cfg!(windows) && !self.0.session.has_window_hooks() {
+                if let Some(snapshot) = process::foreground() {
+                    self.foreground(&app, snapshot);
+                }
             }
+        }
+    }
+    fn can_auto_restart_managed_obs(&self) -> bool {
+        let Ok(paths) = self.paths() else {
+            return false;
+        };
+        if !paths.managed().unwrap_or(false) {
+            return false;
+        }
+        paths
+            .settings()
+            .is_ok_and(|settings| settings["open_obs"] != false)
+    }
+    async fn probe_heartbeat(&self, app: &tauri::AppHandle) -> HeartbeatOutcome {
+        if self.can_auto_restart_managed_obs() {
+            let scene = self.current_scene_name();
+            if !scene.is_empty() {
+                let result = self
+                    .0
+                    .client
+                    .primary_call(
+                        "GetSourceScreenshot",
+                        json!({
+                            "sourceName": scene,
+                            "imageFormat": "png",
+                            "imageWidth": 8,
+                            "imageHeight": 8,
+                        }),
+                    )
+                    .await;
+                match classify_render_probe_result(&result) {
+                    Some(outcome) => return outcome,
+                    // Scene may have just been renamed/deleted; verify connection with GetVersion.
+                    None => {}
+                }
+            }
+        }
+        if self.call(app, "GetVersion", json!({})).await.is_ok() {
+            HeartbeatOutcome::Healthy
+        } else {
+            HeartbeatOutcome::Disconnected
         }
     }
     async fn ready(&self, app: &tauri::AppHandle) -> Result<(), String> {
@@ -502,8 +663,14 @@ impl Obs {
                 self.0.state.lock().unwrap().launch_status = "already-running".into();
                 return Ok(json!({"status":"already-running","pid":pid}));
             }
-            self.close_inner(app, json!({"ignoreCloseConfig":true}))
-                .await?;
+            self.close_inner(
+                app,
+                json!({
+                    "ignoreCloseConfig": true,
+                    "forceKillOnTimeout": options["forceKillOnTimeout"] == true,
+                }),
+            )
+            .await?;
         }
         paths.seed()?;
         if paths.managed()? {
@@ -606,7 +773,8 @@ impl Obs {
         }
         paths.snapshot("before OBS shutdown")?;
         self.0.suspended.store(true, Ordering::SeqCst);
-        let result = process::close(pid, &executable).await;
+        let force_kill = options["forceKillOnTimeout"] == true;
+        let result = process::close_with_options(pid, &executable, force_kill).await;
         if let Err(error) = result {
             self.0.suspended.store(false, Ordering::SeqCst);
             return Err(error);
@@ -788,5 +956,63 @@ mod tests {
         let controller = Obs::default();
         controller.0.state.lock().unwrap().paths = Some(f.0.clone());
         assert_eq!(controller.running_pid(&f.0).unwrap(), None);
+    }
+
+    #[test]
+    fn classifies_render_probe_responses() {
+        assert_eq!(
+            classify_render_probe_result(&Ok(json!({"imageData": "data:image/png;base64,"}))),
+            Some(HeartbeatOutcome::Healthy)
+        );
+        assert_eq!(
+            classify_render_probe_result(&Err(ObsError {
+                code: 702,
+                message: "Failed to render screenshot.".into(),
+            })),
+            Some(HeartbeatOutcome::RenderFailed)
+        );
+        assert_eq!(
+            classify_render_probe_result(&Err(ObsError {
+                code: 600,
+                message: "No source was found by the name of `OldScene`.".into(),
+            })),
+            None
+        );
+        assert_eq!(
+            classify_render_probe_result(&Err(ObsError::new("OBS request timed out"))),
+            Some(HeartbeatOutcome::Disconnected)
+        );
+    }
+
+    #[test]
+    fn render_health_requires_consecutive_failures_and_respects_cooldown() {
+        let mut tracker = RenderHealthTracker::default();
+        let start = Instant::now();
+        assert_eq!(tracker.heartbeat_interval(), HEARTBEAT_INTERVAL);
+
+        // First failure shortens interval to confirm quickly without restarting yet.
+        assert!(!tracker.record_render_failure(start));
+        assert_eq!(tracker.heartbeat_interval(), RENDER_FAILURE_CONFIRM_INTERVAL);
+
+        // A healthy probe clears a transient single failure.
+        tracker.record_healthy();
+        assert_eq!(tracker.heartbeat_interval(), HEARTBEAT_INTERVAL);
+        assert!(!tracker.record_render_failure(start + Duration::from_secs(1)));
+
+        // Second consecutive failure triggers a restart.
+        let second = start + Duration::from_secs(6);
+        assert!(tracker.record_render_failure(second));
+        tracker.record_restart(second);
+        assert_eq!(tracker.heartbeat_interval(), HEARTBEAT_INTERVAL);
+
+        // Within cooldown, consecutive failures do not trigger another restart.
+        let during_cooldown = second + Duration::from_secs(60);
+        assert!(!tracker.record_render_failure(during_cooldown));
+        assert!(!tracker.record_render_failure(during_cooldown + Duration::from_secs(5)));
+        assert_eq!(tracker.heartbeat_interval(), HEARTBEAT_INTERVAL);
+
+        // After cooldown expires, recovery is allowed again.
+        let after_cooldown = second + RENDER_RESTART_COOLDOWN + Duration::from_secs(1);
+        assert!(tracker.record_render_failure(after_cooldown));
     }
 }

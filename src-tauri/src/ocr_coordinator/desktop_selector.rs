@@ -703,12 +703,24 @@ fn save(initial: &Opening, options: &Options, rects: &[Rect]) -> Result<(), Stri
         return Err("Draw one OCR area to save.".into());
     }
     let _lock = OCR_FILE_LOCK.lock().map_err(|e| e.to_string())?;
-    let path = &initial.path;
-    let mut config = if path.exists() {
-        area_selector::read_config(path).map_err(area_selector::message)?
+    write_areas(initial, options, rects, existing_config(&initial.path)?).map(|_| ())
+}
+
+fn existing_config(path: &Path) -> Result<Value, String> {
+    if path.try_exists().map_err(|e| e.to_string())? {
+        area_selector::read_config(path).map_err(area_selector::message)
     } else {
-        json!({})
-    };
+        Ok(json!({}))
+    }
+}
+
+fn write_areas(
+    initial: &Opening,
+    options: &Options,
+    rects: &[Rect],
+    mut config: Value,
+) -> Result<Value, String> {
+    let path = &initial.path;
     let old = config.clone();
     let space = &initial.space;
     if options.single
@@ -755,7 +767,76 @@ fn save(initial: &Opening, options: &Options, rects: &[Rect]) -> Result<(), Stri
         backup_ocr_config(path)?;
         gsm_settings::write_atomic(path, &config)?;
     }
-    Ok(())
+    Ok(config)
+}
+
+// The hub already has a capture. Only opening or saving an edit touches the area file.
+pub(super) async fn preview_layout(
+    app: &AppHandle,
+    req: &Value,
+    saving: bool,
+) -> Result<Value, String> {
+    let game = app.state::<Obs>().game_session();
+    let scene = req["sceneName"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .ok_or("Missing scene")?;
+    if game["scene"] != scene
+        || game["scene_id"] != req["sceneId"]
+        || game["source_name"] != req["sourceName"]
+    {
+        return Ok(json!({"error":"sceneChanged"}));
+    }
+    let root = app.state::<Settings>().paths.active.join("ocr_config");
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let root = root.canonicalize().map_err(|e| e.to_string())?;
+    let name = format!("{}.json", sanitize_ocr_filename(scene));
+    let path = area_selector::config_path(&root, Some(&name)).map_err(area_selector::message)?;
+    let response = {
+        let _lock = OCR_FILE_LOCK.lock().map_err(|e| e.to_string())?;
+        let config = existing_config(&path)?;
+        // Treat the revision as opaque in JS. Numeric formatting differs between runtimes.
+        let revision = config.to_string();
+        if saving && req["revision"].as_str() != Some(revision.as_str()) {
+            return Ok(json!({"error":"conflict"}));
+        }
+        let size: (u32, u32) =
+            serde_json::from_value(req["size"].clone()).map_err(|e| e.to_string())?;
+        if size.0 == 0 || size.1 == 0 {
+            return Err("Invalid preview dimensions".into());
+        }
+        let bounds = serde_json::from_value::<Geometry>(config["window_geometry"].clone())
+            .ok()
+            .filter(|g| g.width > 0 && g.height > 0)
+            .unwrap_or_else(|| Geometry::at(0, 0, size));
+        let space = Space {
+            capture: bounds,
+            target: bounds,
+            displays: vec![Display { index: 0, bounds }],
+            monitor: None,
+            base_size: size,
+        };
+        if !saving {
+            return Ok(
+                json!({"rects":space.load(&config, false, false), "revision":revision, "help":read_help(&root)}),
+            );
+        }
+        let options = Options {
+            obs: true,
+            ..Default::default()
+        };
+        let rects = submitted(&req["rects"], &options)?;
+        let initial = Opening {
+            space,
+            rects: vec![],
+            scene: scene.to_owned(),
+            path,
+        };
+        let saved = write_areas(&initial, &options, &rects, config)?;
+        json!({"revision":saved.to_string(),"config":saved})
+    };
+    reload_active_ocr(app).await;
+    Ok(response)
 }
 
 #[cfg(test)]

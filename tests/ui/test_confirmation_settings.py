@@ -37,7 +37,7 @@ def confirmation_settings(monkeypatch):
         original.save()
 
 
-def test_confirmation_page_offers_both_modes_and_only_one_session_setting(confirmation_settings):
+def test_confirmation_page_offers_both_modes_and_live_queue_setting(confirmation_settings):
     window = confirmation_settings
     assert "session_review" not in window._settings_subtab_indices["features"]
     pane = window._settings_subtab_widgets["anki"].widget(window._settings_subtab_indices["anki"]["confirmation"])
@@ -51,7 +51,11 @@ def test_confirmation_page_offers_both_modes_and_only_one_session_setting(confir
 
     window.anki_confirmation_after_session_radio.click()
     session_panel = window.anki_confirmation_session_settings
-    assert session_panel.findChildren(QCheckBox) == []
+    [live_queue] = session_panel.findChildren(QCheckBox)
+    assert live_queue.isChecked()
+    live_queue.click()
+    assert window.save_settings(show_indicator=False)
+    assert configuration.Config.load().get_config().features.review_after_session.open_on_card_queued is False
     assert session_panel.findChildren(QSpinBox) == [window.session_review_future_lines_spin]
     label = (
         window.session_review_future_lines_spin.parentWidget()

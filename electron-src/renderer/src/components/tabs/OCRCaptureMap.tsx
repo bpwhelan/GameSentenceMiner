@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useSelectorAutoRefresh } from "./useSelectorAutoRefresh";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "../../i18n";
 import type { ObsScene } from "../../types/models";
 import { useOCRPreview } from "./useOCRPreview";
-import { canEditOcrAreas, type OcrAreaConfig } from "../../../../shared/ocr_areas";
+import type { OcrAreaConfig } from "../../../../shared/ocr_areas";
 import type { OcrPreviewFrame } from "../../../../shared/ocr_preview";
-import { OCRAreaEditor } from "./OCRAreaEditor";
+import { InlineAreaSelector } from "./InlineAreaSelector";
 
 export interface CaptureMapConfig {
   coordinate_system?: string;
@@ -21,6 +23,14 @@ interface CaptureArea {
   width: number;
   height: number;
 }
+
+const tipMode = {
+  normal: "normal",
+  secondary: "secondary",
+  excluded: "exclusion",
+  "black-hole": "blackHole",
+  exclusive: "exclusive"
+} as const;
 
 const AREA_KINDS: AreaKind[] = ["normal", "secondary", "excluded", "black-hole", "exclusive"];
 
@@ -73,34 +83,42 @@ export function OCRCaptureMap({
   config,
   disabled,
   onSaved,
+  onFeedTarget,
+  workspace,
   active,
   scene,
   ocrRunning
 }: {
+  workspace?: HTMLElement | null;
   config: CaptureMapConfig | null;
   disabled: boolean;
   onSaved: (config: OcrAreaConfig) => void;
+  onFeedTarget?: (target: HTMLDivElement | null) => void;
   active: boolean;
   scene: ObsScene | null;
   ocrRunning: boolean;
 }) {
   const t = useTranslation();
-  const [paused, setPaused] = useState(true);
   const [showBoxes, setShowBoxes] = useState(true);
-  const [editing, setEditing] = useState<{ config: CaptureMapConfig | null; frame: OcrPreviewFrame } | null>(null);
+  const [editing, setEditing] = useState<OcrPreviewFrame | null>(null);
+  const [autoRefresh, setAutoRefresh] = useSelectorAutoRefresh();
+  const editButton = useRef<HTMLButtonElement>(null);
   const { frame, unavailable, refreshing, refresh } = useOCRPreview({
     active,
-    paused: paused || !!editing,
+    retainFrameWhileInactive: Boolean(editing),
     sceneId: scene?.id ?? "",
     sceneName: scene?.name ?? "",
+    refreshMode: !editing ? "focus-aware" : autoRefresh ? "live" : "manual",
     includeBoxes: showBoxes && ocrRunning
   });
   const { areas, available } = buildCaptureMap(config);
-  const detectedBoxes = showBoxes && ocrRunning ? (frame?.boxes ?? []) : [];
+  // Only the enlarged image needs updates while editing.
+  const mapFrame = editing ?? frame;
+  const detectedBoxes = showBoxes && ocrRunning ? (mapFrame?.boxes ?? []) : [];
   const hasAreas = Boolean(config?.rectangles?.length);
   const geometry = config?.window_geometry;
-  const aspectRatio = frame
-    ? frame.width / frame.height
+  const aspectRatio = mapFrame
+    ? mapFrame.width / mapFrame.height
     : geometry?.width &&
         geometry?.height &&
         Number.isFinite(geometry.width) &&
@@ -110,25 +128,33 @@ export function OCRCaptureMap({
       ? geometry.width / geometry.height
       : 16 / 9;
 
-  if (editing) return <OCRAreaEditor
-    config={editing.config}
-    frame={editing.frame}
-    disabled={disabled || !active}
-    onCancel={() => setEditing(null)}
-    onSaved={(saved) => { onSaved(saved); setEditing(null); }}
-  />;
-  const editable = canEditOcrAreas(config);
+  const closeEditor = useCallback(() => {
+    setEditing(null);
+    requestAnimationFrame(() => editButton.current?.focus({preventScroll: true}));
+  }, []);
+  useEffect(() => {
+    if (frame && editing && editing.sourceName !== frame.sourceName) closeEditor();
+  }, [frame?.sourceName, editing, closeEditor]);
 
+  const editor = editing && (
+    <InlineAreaSelector docked active={active} initial={editing} preview={frame ?? editing}
+      onClose={closeEditor} onSaved={onSaved} refresh={refresh} onFeedTarget={onFeedTarget}
+      autoRefresh={autoRefresh} onAutoRefreshChange={setAutoRefresh} />
+  );
   return (
     <div className="desk-map">
-      <div
+      {workspace && editor ? createPortal(editor, workspace) : editor}
+      <button type="button" ref={editButton}
         className={"desk-map-canvas" + (frame ? " desk-map-canvas--preview" : "")}
+        disabled={disabled || !active || !frame || unavailable}
+        aria-label={t("ocr.desk.editor.edit")} aria-expanded={Boolean(editing)}
+        onClick={() => { if (frame) setEditing(frame); }}
       >
         <span
           className="desk-map-crosshair"
           aria-hidden="true"
         />
-        {available || frame ? (
+        {available || mapFrame ? (
           <svg
             className="desk-map-source"
             viewBox={`0 0 1000 ${1000 / aspectRatio}`}
@@ -142,9 +168,9 @@ export function OCRCaptureMap({
               height={1000 / aspectRatio - 2}
               rx="5"
             />
-            {frame ? (
+            {mapFrame ? (
               <image
-                href={frame.imageData}
+                href={mapFrame.imageData}
                 x="0"
                 y="0"
                 width="1000"
@@ -195,23 +221,15 @@ export function OCRCaptureMap({
             <span>{t(hasAreas ? "ocr.desk.savedLayoutHint" : "ocr.desk.wholeWindowHint")}</span>
           </span>
         )}
-        <button
-          type="button"
-          className="desk-map-edit"
-          disabled={disabled || !active || !frame || !editable}
-          aria-label={t("ocr.desk.editor.edit")}
-          title={t("ocr.desk.editor.edit")}
-          onClick={() => { if (frame) setEditing({ config, frame }); }}
-        >
+        <span className="desk-map-edit" aria-hidden="true">
           <svg viewBox="0 0 24 24">
             <path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15z" />
           </svg>
-        </button>
-      </div>
-      {!editable ? <p className="desk-area-editor-hint">{t("ocr.desk.editor.legacyHint")}</p> : null}
+        </span>
+      </button>
       <div className="desk-preview-controls">
         <span
-          className={"desk-preview-state" + (frame && !paused && !unavailable ? " is-live" : "")}
+          className={"desk-preview-state" + (frame && !unavailable ? " is-live" : "")}
         >
           <i aria-hidden="true" />
           {t(
@@ -223,9 +241,7 @@ export function OCRCaptureMap({
                   ? frame
                     ? "ocr.desk.preview.stale"
                     : "ocr.desk.preview.unavailable"
-                  : paused
-                    ? "ocr.desk.preview.paused"
-                    : frame
+                  : frame
                       ? "ocr.desk.preview.live"
                       : "ocr.desk.preview.loading"
           )}
@@ -247,15 +263,6 @@ export function OCRCaptureMap({
           >
             {t(refreshing ? "ocr.desk.preview.refreshing" : "ocr.desk.preview.refresh")}
           </button>
-          <button
-            type="button"
-            className="desk-preview-pause"
-            disabled={!scene || disabled || !active}
-            aria-pressed={!paused}
-            onClick={() => setPaused((current) => !current)}
-          >
-            {t(paused ? "ocr.desk.preview.enableLive" : "ocr.desk.preview.pause")}
-          </button>
         </div>
       </div>
       <div className="desk-map-caption">
@@ -275,6 +282,7 @@ export function OCRCaptureMap({
             {AREA_KINDS.filter((kind) => areas.some((area) => area.kind === kind)).map((kind) => (
               <span
                 key={kind}
+                title={t("nativeDialogs.area.tips." + tipMode[kind])}
                 className={"desk-map-key desk-map-key--" + kind}
               >
                 <i aria-hidden="true" />

@@ -88,7 +88,7 @@ pub(crate) async fn open(app: &AppHandle) -> Result<Value, String> {
         None,
         |builder| {
             let builder = builder.min_inner_size(480., 450.);
-            match app.get_webview_window(crate::mining_settings::WINDOW_LABEL) {
+            match app.get_webview_window(crate::app_lifecycle::HUB_WINDOW_LABEL) {
                 Some(parent) => builder.parent(&parent).map_err(|e| e.to_string()),
                 None => Ok(builder),
             }

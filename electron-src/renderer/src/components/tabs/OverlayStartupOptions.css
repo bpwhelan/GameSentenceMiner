@@ -1,0 +1,17 @@
+.overlay-startup-options {
+  display: grid;
+  gap: 8px;
+}
+
+.overlay-startup-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.home-overlay-card .overlay-startup-options {
+  margin-top: 10px;
+  font-size: 12px;
+}
