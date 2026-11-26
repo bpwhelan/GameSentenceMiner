@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import {spawn} from 'node:child_process';
-import {execFileSync} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {signingEnvironment} from './native-signing.mjs';
 import {auditNativePackage} from './native-package-policy.mjs';
 import {nativeTargetDirectory} from './native-paths.mjs';

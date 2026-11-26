@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import {windowsMigrationNotice} from "./render-release-body.mjs";
 
 const DEFAULT_REPO = "bpwhelan/GameSentenceMiner";
 const repoRoot = process.cwd();
@@ -112,7 +113,7 @@ function main() {
   const payload = {
     version: args.version,
     title: content.title,
-    markdown: content.markdown,
+    markdown: windowsMigrationNotice + "\n\n" + content.markdown,
     assetBaseUrl: `https://github.com/${args.repo}/releases/download/v${args.version}/`,
   };
 

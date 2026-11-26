@@ -116,7 +116,7 @@ its uninstaller and honor Electron's relaunch flag. Linux AppImage replacement
 is another migration candidate. Test both from an installed Electron release
 before offering a migration. macOS automatic migration additionally needs a
 compatible code-signing identity. Previews built without Apple credentials use
-an ad-hoc app signature. See the [Windows bridge design](ELECTRON_TO_TAURI.md)
+an ad-hoc app signature. See the [Windows installer handoff](ELECTRON_TO_TAURI.md)
 for the proposed backup, first-launch check and rollback sequence.
 
 ## Verification

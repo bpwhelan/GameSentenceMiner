@@ -9,7 +9,7 @@ Tauri packages exclude the Qt host wheel, `pyproject.toml`, `uv.lock` and
 `.python-version`. The release workflow still uses Python for developer
 compatibility tests. Local desktop builds can set `GSM_PYTHONLESS=0` for those
 tests. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md) for the legacy
-environment marker and bridge release design.
+environment marker and Windows installer handoff.
 
 Build reporting, asset collection and package smoke tests resolve Cargo's actual
 `target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR` overrides.

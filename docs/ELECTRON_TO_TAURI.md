@@ -1,26 +1,25 @@
-# Electron to Tauri first install
+# Updating from Electron to Tauri on Windows
 
-## Release order
+The existing Electron updater can deliver the Windows Tauri installer directly. Use a stable release version greater than the latest shipping Electron version. The coordinated release workflow signs the Windows installer, calculates the Electron feed SHA-512 from the final bytes, and publishes the native signed update manifest. Published Tauri previews continue to use their own feed.
 
-Ship one Windows Electron bridge release through the existing Electron updater. Start the bridge from the last shipping Electron branch and give it a version between the current Electron release and the first stable Tauri release. Keep the bridge available to older Electron clients after the Tauri release goes live. Give Tauri its own signed update feed as it uses today.
+## What the user sees
 
-The current release tooling generates both Electron and Tauri feeds from the native release assets. The Windows Tauri installer also calls the registered Electron uninstaller during preinstall. Before shipping the bridge, route Electron's feed to the bridge release and change the Tauri install path to preserve Electron until Tauri has started successfully. Verify direct manual upgrades from older Electron versions as well as upgrades through the bridge.
+The release notes explain the desktop rewrite before the download. Electron verifies the download, stops its services and runs NSIS. The installer asks whether to switch even when Electron requested a silent update. **No** is the default. Declining a request from Electron reopens the registered Electron application when its executable is available. A manual first install over a registered Electron installation shows the same prompt.
 
-## Windows bridge handoff
+**Yes** creates a snapshot before installing the native desktop. The installer keeps Electron in its original folder and adds the **GSM** application. The new desktop opens the existing data folder and uses the normal first-launch database and dictionary migrations. Once Tauri is installed, its ordinary native updates use its signed feed.
 
-1. The bridge offers the migration and identifies the exact signed Tauri installer for this OS and architecture. Pin its release version and digest in the signed bridge, verify the downloaded bytes and the Windows publisher, and stage the installer outside Electron's install directory. Download and verification can finish while Electron is running.
-2. When the user confirms, resolve the GSM data folder using the existing data-directory resolver. Ask Electron to stop its backend and close the app. A separate process can wait on that specific Electron process and report shutdown failure without terminating unrelated processes.
-3. Once GSM and its backend have closed, create a verified pre-upgrade SQLite snapshot that includes committed WAL changes and save the current configuration and data-directory pointer alongside it. Reuse the existing SQLite backup path. Keep Electron's overlay profile available to Tauri's existing dictionary importer.
-4. Run the staged Tauri installer with its normal WebView2 setup. Install the Tauri executable separately from Electron and defer shortcut ownership changes. Save a small, atomic handoff record with the source and target versions, selected data path, backup location and current step. Retry the failed step using the same backup.
-5. Launch Tauri with the resolved data folder and pass a unique handoff ID. Tauri acknowledges that ID and its own version when the native database, gateway and intake are ready. Use that receipt for installer completion. Dictionary transfer can continue when the reader opens, with the original profile retained if transfer fails.
+## Snapshot and recovery
 
-## Recovery and cleanup
+Look in `backup/electron-handoff` under the active GSM data folder. Each completed attempt has a separate timestamped directory. Its `snapshot.json` records the versions and original paths. The installer checks each SQLite backup with SQLite's quick check and includes committed WAL pages. A failed preparation stops installation. A retry creates another snapshot and retains the earlier one.
 
-- An installer failure before Tauri opens the data folder leaves Electron available. If Tauri fails after opening the folder, stop Tauri and recover from the pre-upgrade snapshot before launching Electron. Keep a copy of any database or config written after cutover before restoring. The saved config and pointer are part of the restore.
-- A successful migration can offer to remove the Electron binaries and hand over the shortcuts. The bridge keeps an installer for the previous Electron version available through its rollback window. Clean installs go straight to Tauri and use its native setup flow.
-- Tauri records `.gsm-venv-retired.json` inside the existing `python_venv` under the shared data directory. The marker has the UTC timestamp, Tauri version and Python version when available. Tauri keeps the original path usable for Electron rollback. A later cleanup tool should confirm the marker, the resolved data root, link status, the end of the rollback window and the absence of a legacy install before offering removal.
-- macOS and Linux need separate installer handoffs. They can use the same backup and receipt contract with their own bundle replacement and rollback mechanics.
+The snapshot contains the existing `gsm.db`, `config.json`, `electron/config.json`, the active folder's `owocr_config_gsm.ini`, and copies of the stable and legacy directory pointers that existed. If an older relocation still needs database repair, `legacy-gsm.db` preserves the separate source database. Downloads, recordings, the original browser profile and the legacy Python environment stay in their original locations.
 
-## First installer checks
+Before returning to Electron after opening Tauri, exit both applications and their services. Preserve a separate copy of the current database, its WAL/SHM/journal files, settings and pointers so work done after the update remains recoverable. Restore the pre-update database to the data folder recorded in the snapshot, moving the newer database and its sidecars out together first. Restore the saved settings and pointers to their recorded locations. If a pointer was absent before the update, move any newer copy aside. A pending relocation can have both an active and a legacy source database. Restore each to its corresponding location. Open **GameSentenceMiner** to return to Electron, or **GSM** to launch Tauri.
 
-Test a clean Windows user without Python or uv and an Electron upgrade with default and relocated data folders. Test a database with committed WAL rows, populated Yomitan and Hachidori profiles, and a path containing spaces and Unicode. Cancel before shutdown, fail the installer, interrupt the first Tauri launch, retry after interruption and restore to Electron after a schema upgrade. Verify that a second attempt keeps the original snapshot and that clean install and repair never provision Python.
+## Installer regression test
+
+The **Windows Electron migration** workflow recreates the installed Windows 2026.10.2 release on a disposable runner and checks the executable and application archive against their original SHA-256 hashes. It bundles the released Tauri preview executable and resources with the current installer hooks. The fixture serves the update over loopback and redirects only the running Electron updater's provider. The renderer invokes the same installation command as the Install button.
+
+The exercise declines the migration first, then accepts the real Electron update and waits for Tauri's gateway and intake to report ready. It checks the relocated Unicode data path, committed database row, backup, desktop preferences, original Electron executable and browser-profile sentinel. The Rust helper tests also cover corrupt databases, retry preservation and older relocation pointers. The stable Windows release job repeats the installed-client exercise with its final signed installer before publication. Dictionary content and lookup behavior have dedicated transfer tests in the native desktop matrix.
+
+macOS and Linux use their existing platform update mechanisms. The NSIS consent and snapshot workflow applies to Windows.

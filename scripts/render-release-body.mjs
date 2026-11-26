@@ -4,6 +4,8 @@ import path from "node:path";
 
 const DEFAULT_REPO = "bpwhelan/GameSentenceMiner";
 
+export const windowsMigrationNotice = "Upgrading from Electron on Windows? GSM now uses Tauri. This is a major rewrite maintained by one developer, and some workflows may still have rough edges. After the download, choose Yes to back up your database and settings and install the new GSM alongside Electron. Choose No to keep using Electron. Your games and mining history use the same data folder.";
+
 function parseArgs(argv) {
   const args = {
     mode: "stable",
@@ -123,6 +125,8 @@ export function renderStableReleaseBody({ repo = DEFAULT_REPO, version }) {
   ensureVersion(version);
 
   return [
+    windowsMigrationNotice,
+    "",
     "## Downloads",
     "",
     ...renderDownloadTable({ repo, version }),
@@ -148,7 +152,9 @@ export function renderPrereleaseBody({ repo = DEFAULT_REPO, version }) {
       "## Tauri desktop preview",
       "",
       "Install this preview once to receive future previews through GSM’s beta update setting. Existing portable preview ZIPs require this manual step.",
-      "The Windows installer replaces a registered Electron installation and keeps your GSM profile. On Linux, use the AppImage or DEB. macOS requires version 14 or newer.",
+      windowsMigrationNotice,
+      "",
+      "On Linux, use the AppImage or DEB. macOS requires version 14 or newer.",
       "",
       `[Latest stable release](https://github.com/${repo}/releases/latest)`,
       "",
