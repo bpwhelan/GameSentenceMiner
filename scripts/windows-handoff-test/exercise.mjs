@@ -1,14 +1,13 @@
 import assert from 'node:assert/strict';
-import {createHash} from 'node:crypto';
-import {createReadStream} from 'node:fs';
 import fs from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
-import {spawn} from 'node:child_process';
+import {execFileSync, spawn} from 'node:child_process';
 import {createRequire} from 'node:module';
 import path from 'node:path';
 import {DatabaseSync} from 'node:sqlite';
 import {setTimeout as delay} from 'node:timers/promises';
+import {electronUpdateMetadata} from '../electron-update-metadata.mjs';
 
 if (process.env.RUNNER_ENVIRONMENT !== 'github-hosted' || process.platform !== 'win32') {
   throw Error('This exercise needs an isolated, disposable Windows runner.');
@@ -62,11 +61,12 @@ db.exec(await fs.readFile(new URL('../../native/gsm-db/migrations/001_core.sql',
 db.prepare('INSERT INTO game_lines(id, game_name, line_text, timestamp) VALUES(?, ?, ?, ?)')
   .run(lineId, '移行テスト', text, Date.now() / 1000);
 
-const bytes = await fs.readFile(installer);
-const filename = path.basename(installer);
-const sha512 = createHash('sha512').update(bytes).digest('base64');
-const metadata = {version, path: filename, sha512, files: [{url: filename, sha512, size: bytes.length}],
-  releaseDate: new Date().toISOString()};
+const filename = 'GameSentenceMiner-Setup-' + version + '.exe';
+const published = path.join(fixture, filename);
+await fs.copyFile(installer, published);
+const metadata = await electronUpdateMetadata(version, [published]);
+const bytes = await fs.readFile(published);
+let corruptDownload = true;
 const requests = new Set();
 const server = createServer((req, res) => {
   const resource = decodeURIComponent(new URL(req.url, 'http://localhost').pathname.slice(1));
@@ -75,7 +75,8 @@ const server = createServer((req, res) => {
     res.end(JSON.stringify(metadata));
   } else if (resource === filename) {
     res.writeHead(200, {'content-length': bytes.length});
-    createReadStream(installer).pipe(res);
+    res.write(Buffer.from([corruptDownload ? bytes[0] ^ 255 : bytes[0]]));
+    res.end(bytes.subarray(1));
   } else {
     res.writeHead(404).end();
   }
@@ -110,6 +111,18 @@ try {
   const hub = await waitFor('Electron Hub', () => app.windows().find(w => /renderer[\\/]index\.html/i.test(w.url())));
   await hub.waitForFunction(() => typeof window.ipcRenderer?.invoke === 'function');
   console.log('Requesting the update through the Electron Hub');
+  const rejected = await hub.evaluate(async v => {
+    try {
+      await window.ipcRenderer.invoke('settings.installAppUpdate', v);
+      return '';
+    } catch (error) {
+      return String(error);
+    }
+  }, version);
+  assert.match(rejected, /checksum|sha512/i);
+  assert.deepEqual(await fs.readdir(backup), []);
+  corruptDownload = false;
+  requests.clear();
   // Same command as the Install button. The installed manager checks the version,
   // verifies the downloaded bytes, closes its services and hands off to NSIS.
   await hub.evaluate(v => {
@@ -131,6 +144,15 @@ try {
     return status?.ready && status.text_runtime?.owner === 'desktop' && status;
   });
   assert.equal(ready.transport_runtime.transport.state, 'running');
+  const nativeProcess = JSON.parse(execFileSync('pwsh', ['-NoProfile', '-Command', `
+    $socket = Get-NetTCPConnection -State Listen -LocalPort 7275 | Select-Object -First 1
+    $exe = (Get-Process -Id $socket.OwningProcess).Path
+    $registration = Get-ItemProperty 'HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/GSM'
+    @{ executable = $exe; version = $registration.DisplayVersion
+       registered = Join-Path ($registration.InstallLocation.Trim('"')) $registration.MainBinaryName } | ConvertTo-Json
+  `], {encoding: 'utf8', windowsHide: true}));
+  assert.equal(nativeProcess.version, version);
+  assert.equal(nativeProcess.executable.toLowerCase(), nativeProcess.registered.toLowerCase());
   const snapshots = await fs.readdir(backup);
   assert.equal(snapshots.length, 1);
   const saved = path.join(backup, snapshots[0]);

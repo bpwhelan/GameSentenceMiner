@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import crypto from 'node:crypto';
+import {electronUpdateMetadata} from './electron-update-metadata.mjs';
 import {verifyNativeFile} from './verify-native-signature.mjs';
 import {verifyAgentRuntimeArchive} from './package-agent-runtime.mjs';
 const directory=path.resolve(process.argv[2]||'dist/native-release');
@@ -37,19 +37,14 @@ if (version.includes('-preview.')) {
 }
 // Electron's installed updater can deliver the first native release. JSON is
 // valid YAML and avoids introducing a second metadata serialization library.
-const releaseDate=new Date().toISOString();
 for(const [suffix,filter] of [
   ['',name=>name===`GameSentenceMiner-Setup-${version}.exe`],
   ['-linux',name=>name===`GameSentenceMiner-${version}.AppImage`],
   ['-mac',name=>name===`GameSentenceMiner-${version}-arm64.zip`||name===`GameSentenceMiner-${version}-x64.zip`],
 ]) {
-  const files=[];
-  for(const relative of entries.filter(name=>filter(path.basename(name)))) {
-    const data=await fs.readFile(path.join(directory,relative));
-    files.push({url:path.basename(relative),sha512:crypto.createHash('sha512').update(data).digest('base64'),size:data.length});
-  }
-  if(files.length!==(suffix==='-mac'?2:1))throw Error(`Missing legacy migration update assets for ${suffix||'Windows'}`);
-  const metadata={version,files,path:files[0].url,sha512:files[0].sha512,releaseDate};
+  const artifacts=entries.filter(name=>filter(path.basename(name))).map(name=>path.join(directory,name));
+  if(artifacts.length!==(suffix==='-mac'?2:1))throw Error(`Missing legacy migration update assets for ${suffix||'Windows'}`);
+  const metadata=await electronUpdateMetadata(version,artifacts);
   const channels=version.includes('-')?['latest',version.split('-')[1].split('.')[0]]:['latest'];
   for(const channel of channels)await fs.writeFile(path.join(directory,`${channel}${suffix}.yml`),JSON.stringify(metadata,null,2));
 }

@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/windows-handoff.yml'
       - 'scripts/windows-handoff-test/**'
+      - 'scripts/electron-update-metadata.mjs'
+      - 'scripts/merge-native-updates.mjs'
       - 'src-tauri/windows-installer.nsh'
       - 'native/gsm-db/src/bin/gsm-handoff.rs'
 permissions:
