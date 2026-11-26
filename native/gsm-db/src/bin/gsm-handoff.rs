@@ -12,11 +12,9 @@ use std::{
 fn save_file(source: &Path, target: &Path) -> Result<()> {
     if source.try_exists()? {
         fs::create_dir_all(target.parent().ok_or("Missing backup directory")?)?;
-        fs::copy(source, target)?;
-        fs::OpenOptions::new()
-            .write(true)
-            .open(target)?
-            .sync_all()?;
+        let mut output = fs::File::create(target)?;
+        std::io::copy(&mut fs::File::open(source)?, &mut output)?;
+        output.sync_all()?;
     }
     Ok(())
 }
@@ -101,19 +99,6 @@ fn main() -> Result<()> {
             return Err("Choose a Tauri installation folder separate from Electron.".into());
         }
     }
-    #[cfg(windows)]
-    {
-        // Check only processes with the identity of the previous desktop. Never terminate them.
-        let shell = PathBuf::from(std::env::var_os("SystemRoot").ok_or("Missing SystemRoot")?)
-            .join("System32/WindowsPowerShell/v1.0/powershell.exe");
-        let status = std::process::Command::new(shell)
-            .args(["-NoProfile", "-NonInteractive", "-Command",
-                "for ($i=0; $i -lt 20; $i++) { if (!(Get-Process -Name GameSentenceMiner -ErrorAction SilentlyContinue)) { exit 0 }; Start-Sleep -Milliseconds 500 }; exit 1"])
-            .status()?;
-        if !status.success() {
-            return Err("Exit GameSentenceMiner from its tray menu and retry.".into());
-        }
-    }
     let location = prepare(&pointer_file_path()?, &default_base_dir()?, from, to)?;
     println!("{}", location.display());
     Ok(())
@@ -123,6 +108,30 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     use rusqlite::Connection;
+
+    #[test]
+    fn default_install_without_a_database_or_pointer_is_supported() {
+        let root = tempfile::tempdir().unwrap();
+        let pointer = root.path().join("bootstrap/data_dir.json");
+        let default = root.path().join("roaming/GameSentenceMiner");
+        fs::create_dir_all(default.join("electron")).unwrap();
+        fs::write(default.join("electron/config.json"), b"{}").unwrap();
+        let saved = prepare(&pointer, &default, "1", "2").unwrap();
+        assert_eq!(fs::read(saved.join("electron/config.json")).unwrap(), b"{}");
+        assert!(!saved.join("gsm.db").exists());
+        assert!(!default.join("gsm.db").exists());
+        assert!(!pointer.exists());
+    }
+
+    #[test]
+    fn unreadable_saved_location_cannot_fall_back_to_an_unrelated_database() {
+        let root = tempfile::tempdir().unwrap();
+        let pointer = root.path().join("data_dir.json");
+        fs::write(&pointer, b"damaged").unwrap();
+        let default = root.path().join("roaming");
+        assert!(prepare(&pointer, &default, "1", "2").is_err());
+        assert!(!default.exists());
+    }
 
     #[test]
     fn preserves_wal_settings_and_both_generations_of_location() {

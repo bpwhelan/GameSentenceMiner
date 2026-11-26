@@ -25,8 +25,9 @@ await fs.mkdir(path.join(active, 'electron'), {recursive: true});
 const prefs = {pullPreReleases: true, handoffFixture: 'retain'};
 await fs.writeFile(path.join(active, 'electron/config.json'), JSON.stringify(prefs));
 const backup = path.join(active, 'backup/electron-handoff');
-const db = new DatabaseSync(path.join(active, 'gsm.db'));
-db.exec("PRAGMA journal_mode=WAL; CREATE TABLE handoff_fixture(value TEXT); INSERT INTO handoff_fixture VALUES('committed WAL row')");
+const databasePath = path.join(active, 'gsm.db');
+const lineId = 'a925a826-6ce5-437a-954e-7e13c761f7d4';
+const text = 'この文章は移行後も読める。';
 const dictionary = path.join(APPDATA, 'gsm_overlay/User Data/fixture-marker');
 await fs.mkdir(path.dirname(dictionary), {recursive: true});
 await fs.writeFile(dictionary, 'original profile');
@@ -46,6 +47,20 @@ const declined = await Promise.all([
 assert.notEqual(declined[0].code, 0);
 assert.equal(await fs.stat(backup).catch(() => null), null);
 await fs.access(electron);
+await fs.writeFile(databasePath, 'damaged fixture');
+const failedSetup = exited(spawn(installer, ['/S'], {windowsHide: true}));
+await consent('Yes');
+await consent('OK');
+assert.notEqual((await failedSetup).code, 0);
+assert.deepEqual(await fs.readdir(backup), []);
+assert.equal(await fs.readFile(databasePath, 'utf8'), 'damaged fixture');
+// Replace only the known synthetic file in this disposable profile.
+await fs.unlink(databasePath);
+const db = new DatabaseSync(databasePath);
+db.exec('PRAGMA journal_mode=WAL');
+db.exec(await fs.readFile(new URL('../../native/gsm-db/migrations/001_core.sql', import.meta.url), 'utf8'));
+db.prepare('INSERT INTO game_lines(id, game_name, line_text, timestamp) VALUES(?, ?, ?, ?)')
+  .run(lineId, '移行テスト', text, Date.now() / 1000);
 
 const bytes = await fs.readFile(installer);
 const filename = path.basename(installer);
@@ -80,6 +95,7 @@ async function waitFor(label, check, timeout = 180000) {
 try {
   const app = await _electron.launch({executablePath: electron, args: [], timeout: 90000});
   const appClosed = once(app.process(), 'exit');
+  console.log('Opened the installed Electron client');
   // The shipping client hardcodes GitHub in setFeedURL on every check. Redirect only
   // that provider in this process. Preserve the signed application files on disk.
   const installedVersion = await app.evaluate(({app}, url) => {
@@ -93,6 +109,7 @@ try {
   assert.equal(installedVersion, '2026.10.2');
   const hub = await waitFor('Electron Hub', () => app.windows().find(w => /renderer[\\/]index\.html/i.test(w.url())));
   await hub.waitForFunction(() => typeof window.ipcRenderer?.invoke === 'function');
+  console.log('Requesting the update through the Electron Hub');
   // Same command as the Install button. The installed manager checks the version,
   // verifies the downloaded bytes, closes its services and hands off to NSIS.
   await hub.evaluate(v => {
@@ -106,6 +123,7 @@ try {
     return requests.has(filename);
   });
   await Promise.all([appClosed, consent('Yes')]);
+  console.log('Electron closed and the user accepted installation');
   assert(requests.has('beta.yml') || requests.has('latest.yml'));
   const ready = await waitFor('Tauri desktop gateway and intake', async () => {
     const status = await fetch('http://127.0.0.1:7275/get_status', {signal: AbortSignal.timeout(1500)})
@@ -122,7 +140,7 @@ try {
   assert.equal(snapshot.dataDir, active);
   const savedDB = new DatabaseSync(path.join(saved, 'gsm.db'), {readOnly: true});
   for (const database of [savedDB, db]) {
-    assert.equal(database.prepare('SELECT value FROM handoff_fixture').get().value, 'committed WAL row');
+    assert.equal(database.prepare('SELECT line_text FROM game_lines WHERE id=?').get(lineId).line_text, text);
     assert.equal(database.prepare('PRAGMA quick_check').get().quick_check, 'ok');
   }
   savedDB.close();
