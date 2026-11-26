@@ -1,0 +1,30 @@
+name: Windows Electron migration
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/windows-handoff.yml'
+      - 'scripts/windows-handoff-test/**'
+      - 'src-tauri/windows-installer.nsh'
+      - 'native/gsm-db/src/bin/gsm-handoff.rs'
+permissions:
+  contents: read
+jobs:
+  installed-upgrade:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check backup failures, retries and committed WAL data
+        run: cargo test --locked -p gsm-db --bin gsm-handoff
+      - name: Install the shipping Electron client and bundle the released Tauri desktop
+        run: ./scripts/windows-handoff-test/prepare.ps1
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Decline the migration, then update through the installed Electron app
+        run: node scripts/windows-handoff-test/exercise.mjs
