@@ -11,6 +11,7 @@ pub mod ocr;
 mod overlay_filter;
 pub mod pipeline;
 pub mod presence;
+pub mod scheduling;
 #[path = "../../gsm-native/src/text_filter.rs"]
 pub mod text_filter;
 #[path = "../../gsm-native/src/text_matching.rs"]

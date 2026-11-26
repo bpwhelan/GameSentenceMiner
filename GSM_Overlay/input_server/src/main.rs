@@ -39,7 +39,10 @@ use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, mpsc, Mutex};
 use tokio::time;
-use tokio_tungstenite::{accept_hdr_async, tungstenite::Message};
+use tokio_tungstenite::{
+    accept_hdr_async,
+    tungstenite::{handshake::server::Request, Message},
+};
 use tracing::{debug, error, info, warn};
 #[cfg(target_os = "windows")]
 use windows_keyboard_listener::listen as listen_global_keyboard;
@@ -1682,7 +1685,7 @@ async fn handle_socket(
     let mut browser_origin = false;
     let ws = match accept_hdr_async(
         stream,
-        |request: &tungstenite::handshake::server::Request, response| {
+        |request: &Request, response| {
             browser_origin = request.headers().contains_key("origin");
             Ok(response)
         },

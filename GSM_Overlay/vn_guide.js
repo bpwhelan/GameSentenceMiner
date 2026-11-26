@@ -103,14 +103,22 @@ function normalizeChoice(value) {
     .replace(/^(?:[▶▷►●○・]\s*|\d{1,2}[.)．、]\s*)/u, '').replace(/[\p{P}\p{S}\s]/gu, '');
 }
 
+function exactCurrentRow(text, target) {
+  if (text === target) return true;
+  const prefix = text.endsWith(target) ? text.slice(0, text.length - target.length) : '';
+  return /^\d{1,2}$/u.test(prefix) && !/^\d/u.test(target);
+}
+
+function hasChoiceBox(line) {
+  const box = line?.bounding_rect;
+  return typeof line?.text === 'string' && box
+    && ['x1', 'x3', 'y1', 'y3'].every(key => Number.isFinite(box[key]) && box[key] >= 0 && box[key] <= 1)
+    && box.x3 > box.x1 && box.y3 > box.y1;
+}
+
 function choiceLines(data) {
   if (!Array.isArray(data) || data.length > 500) return [];
-  const prepared = prepareTextLines(data).filter(line => {
-    const box = line?.bounding_rect;
-    return typeof line?.text === 'string' && box
-      && ['x1', 'x3', 'y1', 'y3'].every(key => typeof box[key] === 'number' && Number.isFinite(box[key]) && box[key] >= 0 && box[key] <= 1)
-      && box.x3 > box.x1 && box.y3 > box.y1;
-  });
+  const prepared = prepareTextLines(data).filter(hasChoiceBox);
   const blocks = detectTextBlocks(prepared);
   return prepared.flatMap((line, index) => {
     if (line.text.length > 100 || /[\r\n]/u.test(line.text) || line.isVertical) return [];
@@ -131,9 +139,9 @@ function choiceLines(data) {
 
 function isCompactChoicePeer(match, line) {
   if (!line.text || line.text === match.text || isSaveControl(line)) return false;
-  if ((match.hasNumberPrefix || line.hasNumberPrefix)
-    && (match.choiceNumber === null || line.choiceNumber === null
-      || Math.abs(line.choiceNumber - match.choiceNumber) !== 1
+  if ((match.hasNumberPrefix && match.choiceNumber === null) || (line.hasNumberPrefix && line.choiceNumber === null)) return false;
+  if (match.choiceNumber !== null && line.choiceNumber !== null
+    && (Math.abs(line.choiceNumber - match.choiceNumber) !== 1
       || (line.y1 - match.y1) * (line.choiceNumber - match.choiceNumber) <= 0)) return false;
   const height = Math.max(line.height, match.height);
   const gap = Math.max(line.y1 - match.y3, match.y1 - line.y3);
@@ -168,37 +176,31 @@ function choiceSimilarity(observed, target) {
 
 const containsOption = (options, text) => (options || []).some(option => choiceSimilarity(text, option) > 0);
 
-function findChoice(data, expected, { allowFuzzy = true, requireMenu = false } = {}) {
-  const target = normalizeChoice(expected);
+function findChoice(data, expected, options) {
+  return findChoiceInLines(choiceLines(data), normalizeChoice(expected), { ...options, data });
+}
+
+function hasExactOcrRow(data, target) {
+  return Array.isArray(data) && data.length <= 500 && data.some(row => hasChoiceBox(row)
+    && !/[\r\n]/u.test(row.text) && exactCurrentRow(normalizeChoice(row.text), target));
+}
+
+function findChoiceInLines(lines, target, { allowFuzzy = true, requireMenu = false, data }) {
   if (!target) return null;
-  const lines = choiceLines(data);
-  const hasMenuLayout = line => lines.some(peer => isCompactChoicePeer(line, peer));
-  const exact = lines.filter(line => line.text === target);
+  const exact = lines.filter(line => requireMenu ? line.text === target : exactCurrentRow(line.text, target));
+  if (exact.length > 1 || (!requireMenu && !exact.length && hasExactOcrRow(data, target))) {
+    return requireMenu ? null : { text: target, observed: target, exact: true, menu: false, options: [target] };
+  }
   const matches = exact.length ? exact : allowFuzzy ? lines.filter(line => choiceSimilarity(line.text, target) > 0
-    && (line.isolated || hasMenuLayout(line))) : [];
+    && (line.isolated || lines.some(peer => isCompactChoicePeer(line, peer)))) : [];
   if (matches.length !== 1) return null;
   const match = matches[0];
-  const short = [...target].length <= 4;
-  const peers = lines.filter(line => {
-    if (line === match || !line.text || line.text === target || isSaveControl(line)) return false;
-    if (isCompactChoicePeer(match, line)) return true;
-    if (!exact.length && !line.isolated) return false;
-    const height = Math.max(line.height, match.height);
-    const gap = Math.max(line.y1 - match.y3, match.y1 - line.y3);
-    const aligned = short
-      ? Math.abs(line.center - match.center) < 0.025
-      : Math.min(Math.abs(line.center - match.center), Math.abs(line.x1 - match.x1)) < 0.035;
-    return aligned && Math.min(line.height, match.height) / height > 0.65
-      && gap >= height * (short ? 1.2 : 0.8) && gap <= height * 7;
-  });
+  const peers = lines.filter(peer => isCompactChoicePeer(match, peer)
+    && (!requireMenu || match.hasNumberPrefix === peer.hasNumberPrefix));
   const menu = peers.length > 0;
   if (requireMenu && !menu) return null;
-  if (!menu && (!match.isolated || [...target].length < 8)) return null;
-  const similarity = choiceSimilarity(match.text, target);
-  // Confidence comes from text and menu evidence, regardless of screen position.
-  const confidence = similarity + (menu ? 0.03 : 0);
-  if (similarity < 1 && (!(match.isolated || hasMenuLayout(match)) || confidence < 0.88)) return null;
-  return { text: target, observed: match.text, exact: similarity === 1, menu,
+  if (!exact.length && !menu && choiceSimilarity(match.text, target) < .88) return null;
+  return { text: target, observed: match.text, exact: exact.length > 0, menu,
     options: [...new Set([target, match.text, ...peers.map(line => line.text)])] };
 }
 
@@ -287,7 +289,7 @@ class GuideTracker {
     this.pendingLineId = null;
     this.pendingAhead = null;
   }
-  findAheadChoice(data, lines, recentText = null, now = Date.now()) {
+  findAheadChoice(lines, recentText = null, now = Date.now()) {
     // An option still present in the current menu, or a save confirmation, must
     // not be interpreted as a later guide step merely because its text matches.
     if (lines.some(line => line.text === normalizeChoice(this.current.text) || isSaveControl(line) && line.y3 <= 0.74)) return null;
@@ -300,7 +302,7 @@ class GuideTracker {
       if (carriesSave) index = this.choiceAfterSave(index);
       if (this.steps[index]?.kind !== 'choice') break;
       candidates.push(this.steps[index]);
-      const match = findChoice(data, this.steps[index].text, { allowFuzzy: false, requireMenu: true })
+      const match = findChoiceInLines(lines, normalizeChoice(this.steps[index].text), { allowFuzzy: false, requireMenu: true })
         || findHookedChoice(lines, this.steps[index].text, recentText, now);
       if (match) matches.push({ index, match });
       // The save can be shown with its next choice, but never skipped past it.
@@ -392,6 +394,7 @@ class GuideTracker {
         && message.presence_id && message.presence_id === this.armed?.presenceId;
       if (revalidated || staleLine || stalePresence) return;
     }
+    const target = normalizeChoice(this.current.text);
     const lines = choiceLines(message.data);
     if (this.blockedOptions) {
       if (message.is_final === true && lines.length && !lines.some(line => containsOption(this.blockedOptions, line.text))) this.blockedOptions = null;
@@ -399,7 +402,7 @@ class GuideTracker {
       // the old-menu guard, use that same frame to detect the current step.
       else return;
     }
-    let match = findChoice(message.data, this.current.text);
+    let match = findChoiceInLines(lines, target, { data: message.data });
     const recentText = message.is_final === true && !revalidated ? this.recentText : null;
     if (!match?.menu) match = findHookedChoice(lines, this.current.text, recentText, now) || match;
     if (match && !match.exact && this.steps.some(step => step.kind === 'choice'
@@ -408,7 +411,7 @@ class GuideTracker {
     const previousLine = this.armed?.lineId || this.suspendedLineId;
     let stableAhead = false;
     if (!match && autoAdvance && !revalidated && (!previousPresence || previousPresence !== message.presence_id)) {
-      const ahead = this.findAheadChoice(message.data, lines, recentText, now);
+      const ahead = this.findAheadChoice(lines, recentText, now);
       if (ahead && !containsOption(this.armed?.options || this.suspendedOptions, ahead.match.text)) {
         // While skipping, OCR can keep retrying an old hooked sentence for
         // several seconds, even as another menu appears under the same line ID.
@@ -435,6 +438,9 @@ class GuideTracker {
     if (match) {
       this.pendingAhead = null;
       const previous = this.armed;
+      if (previous?.stable && !match.menu) {
+        match = { ...match, menu: true, options: previous.options };
+      }
       this.armed = {
         ...match, source: 'ocr',
         since: previous?.source === 'ocr' && previous.menu === match.menu ? previous.since : now,

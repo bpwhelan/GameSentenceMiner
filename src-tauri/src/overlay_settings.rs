@@ -284,6 +284,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "dictionaryReaderSelection": "yomitan",
         "focusOverlayOnYomitanLookup": false,
         "textHoverClickThrough": false,
+        "toggleClickThroughHotkey": "Alt+Shift+C",
         "hideYomitanAfterMine": false,
         "routeAllHotkeysThroughInputServer": false,
         "manualMode": false,
@@ -1189,6 +1190,7 @@ pub fn reconcile_active_profile(settings: &mut Map<String, Value>, target_profil
 
 /// All global hotkey setting keys checked for conflicts.
 pub const GLOBAL_HOTKEY_KEYS: &[(&str, &str)] = &[
+    ("toggleClickThroughHotkey", "Alt+Shift+C"),
     ("toggleFuriganaHotkey", "Alt+F"),
     ("translateHotkey", "Alt+T"),
     ("liveStatsToggleHotkey", "Alt+Shift+L"),

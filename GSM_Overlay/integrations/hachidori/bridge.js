@@ -40,7 +40,13 @@
     } catch { return false; }
   }
   const failure = (message, statusCode = 400) => Object.assign(new Error(message), { statusCode });
-  const feedTextSelector = '[data-gsm-reader-scan="shift"]';
+  const feedTextSelector = '[data-gsm-reader-scan]';
+  const feedModifierKeys = {
+    shift: 'Shift',
+    ctrl: 'Control',
+    alt: 'Alt',
+    meta: 'Meta',
+  };
 
   function pageScanAllowed(scope, target) {
     return scope === undefined || (scope === 'feed' && Boolean(target?.closest?.(feedTextSelector)));
@@ -49,9 +55,17 @@
   // A per-element gesture, not a write to the reader's shared options/profile.
   // Popup definitions and the overlay have no marker and keep their own controls.
   function homeScanOptions(options, target) {
-    return target?.closest?.(feedTextSelector)
-      ? { ...options, activationKey: 'Shift', lookupMode: 'activationSticky' }
-      : options;
+    const node = target?.closest?.(feedTextSelector);
+    if (!node) return options;
+    const modifier = node.getAttribute?.('data-gsm-reader-scan') || 'shift';
+    if (modifier === 'none') {
+      return { ...options, lookupMode: 'hover' };
+    }
+    return {
+      ...options,
+      activationKey: feedModifierKeys[modifier] || 'Shift',
+      lookupMode: 'activationSticky',
+    };
   }
 
   function install(api, environment = { window, document }) {

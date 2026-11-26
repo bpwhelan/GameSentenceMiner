@@ -118,8 +118,8 @@ impl Remote {
                 if local.exists() {
                     local
                 } else {
-                    directories::BaseDirs::new()
-                        .map(|dirs| dirs.home_dir().join(".config/google_vision.json"))
+                    crate::models::home()
+                        .map(|home| home.join(".config/google_vision.json"))
                         .unwrap_or(local)
                 }
             });

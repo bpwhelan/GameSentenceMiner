@@ -36,6 +36,39 @@ function unnumberedScreenshotLines(correctText = false, x = 0, y = 0) {
   }));
 }
 
+test('an exact current OCR row immediately reveals the choice with or without readable alternatives', () => {
+  const choice = line('1.言えない', .854, .43, .135);
+  for (const [data, nextIndex] of [
+    [[choice, line('2/まあ……色々と', .895, .392, .212)], 1],
+    [[choice], 0],
+    [[line('1言えない', .854)], 0],
+    [[{ text: '言えない', bounding_rect: { x1: .35, y1: .7, x3: .65, y3: .85 } }], 0],
+    [[choice, line('言えない', .1, .06, .09)], 0],
+  ]) {
+    const guide = new GuideTracker(validateRoute([{ simpleJp: '言えない' }, { simpleJp: '進む' }]));
+    guide.observe(frame(data), 1000);
+    assert.equal(guide.detected, true, JSON.stringify(data));
+    assert.equal(guide.index, 0);
+    guide.observe(frame([line('次の会話', .8)], 'dialogue'), 2000);
+    assert.equal(guide.index, nextIndex);
+    guide.observe(frame([line('その後の会話', .8)], 'later'), 3000);
+    assert.equal(guide.index, nextIndex);
+  }
+});
+
+test('a partial reread of the current row retains the other confirmed menu options', () => {
+  const guide = new GuideTracker(validateRoute([{ simpleJp: '言えない' }, { simpleJp: '進む' }]));
+  const choice = line('言えない', .854);
+  const other = line('まあ……色々と', .895);
+  const observe = (data, now) => guide.observe({ type: 'word_coordinates', data, is_final: true }, now);
+  observe([choice, other], 1000);
+  observe([choice], 2100);
+  observe([other], 2200);
+  assert.equal(guide.index, 0);
+  observe([line('次の会話', .8)], 2300);
+  assert.equal(guide.index, 1);
+});
+
 test('Muv-Luv screenshot choices form a menu despite tight spacing, paragraph grouping and an OCR error', () => {
   for (const correctText of [false, true]) {
     for (const [x, y] of [[0, 0], [-.25, -.5], [.2, -.5]]) {

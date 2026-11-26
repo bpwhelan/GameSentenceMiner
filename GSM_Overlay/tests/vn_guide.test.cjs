@@ -42,7 +42,7 @@ test('choice comparisons remove punctuation and symbols while preserving letters
   assert.equal(normalizeChoice('【ｺｰﾋｰ２】 cafe\u0301 q\u0301!'), 'コーヒー2caféq\u0301');
 });
 
-test('punctuation differences match in either direction without accepting empty or ambiguous choices', () => {
+test('punctuation differences match in either direction and empty or repeated rows cannot establish a menu', () => {
   for (const [expected, observed] of [
     ['意識が―もう――', '意識が──もう──'],
     ['忘れたくない！', '忘れたくない'],
@@ -52,20 +52,20 @@ test('punctuation differences match in either direction without accepting empty 
     assert.ok(findChoice(menu(expected), observed));
   }
   assert.equal(findChoice(menu('……'), '――'), null);
-  assert.equal(findChoice([line('行く！', .3), line('行く？', .43)], '行く'), null);
-  assert.equal(findChoice([line('行く', .3), line('……', .43)], '行く'), null);
+  assert.equal(findChoice([line('行く！', .3), line('行く？', .43)], '行く')?.menu, false);
+  assert.equal(findChoice([line('行く', .3), line('……', .43)], '行く')?.menu, false);
   assert.equal(findChoice(menu('コヒ'), 'コーヒー'), null);
 });
 
-test('short choices require exact normalized text and credible menu geometry', () => {
+test('short choices trigger on a whole normalized row anywhere on screen', () => {
   assert.ok(findChoice(menu(), '大丈夫'));
   assert.ok(findChoice(menu('１．　大丈夫'), '大丈夫'));
   assert.equal(findChoice([line('本当に大丈夫なの？', 0.3), line('やめておこう', 0.43)], '大丈夫'), null);
   assert.ok(findChoice([line('「大丈夫」', 0.3), line('やめておこう', 0.43)], '大丈夫'));
-  assert.equal(findChoice([line('大丈夫', 0.3)], '大丈夫'), null);
+  assert.equal(findChoice([line('大丈夫', 0.3)], '大丈夫')?.exact, true);
   assert.equal(findChoice([line('大丈夫だと言って', 0.8), line('彼女は笑った。', 0.84)], '大丈夫'), null);
   assert.equal(findChoice([line('大丈夫だろう', 0.3), line('続きの台詞', 0.338)], '大丈夫'), null);
-  assert.equal(findChoice([line('大丈夫', 0.3), line('別の文字', 0.43, 0.02)], '大丈夫'), null);
+  assert.equal(findChoice([line('大丈夫', 0.3), line('別の文字', 0.43, 0.02)], '大丈夫')?.menu, false);
   assert.equal(findChoice([{ text: '大丈夫' }, { text: 'やめておこう' }], '大丈夫'), null);
 });
 

@@ -261,6 +261,17 @@ pub fn normalize_choice(value: &str) -> String {
         .into_owned()
 }
 
+// OCR sometimes attaches a bare list number to an otherwise complete answer.
+// Only ignore it when the entire remaining row equals the current instruction.
+fn exact_current_row(text: &str, target: &str) -> bool {
+    text == target
+        || text.strip_suffix(target).is_some_and(|prefix| {
+            (1..=2).contains(&prefix.len())
+                && prefix.bytes().all(|b| b.is_ascii_digit())
+                && !target.starts_with(|c: char| c.is_ascii_digit())
+        })
+}
+
 fn is_save_control_text(normalized_text: &str) -> bool {
     !normalized_text.is_empty() && save_control_re().is_match(normalized_text)
 }
@@ -1531,8 +1542,6 @@ fn median_f64(values: &[f64]) -> f64 {
 
 #[derive(Clone, Debug)]
 struct PreparedLine {
-    #[allow(dead_code)]
-    text: String,
     normalized: String,
     x1: f64,
     y1: f64,
@@ -1946,12 +1955,13 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
             let metric = with_axes(
                 ub, vertical, ref_font, ref_adv, spacing, punct_only, glyphs, true,
             );
-            // OCR can drop the period after a menu number. Look for a separate
-            // digit token with a visible gap before the option text.
+            // OCR can drop the period after a menu number (and absorb part of
+            // its width into the digit box). Look for a separate digit token
+            // with a visible gap before the option text.
             let unpunctuated_label = run_indices.get(1).and_then(|&second| {
                 let first = run_indices[0];
                 let gap = word_metrics[second].inline_start - word_metrics[first].inline_end;
-                if gap < word_metrics[second].advance * 0.5 {
+                if gap < word_metrics[second].advance * 0.25 {
                     return None;
                 }
                 Some((
@@ -2137,7 +2147,6 @@ fn prepare_choice_lines(data: &[Value]) -> Vec<PreparedLine> {
                 .filter(|(_, body)| !body.is_empty() && !is_save_control_text(body));
             PreparedLine {
                 normalized: normalize_choice(&r.text),
-                text: r.text,
                 x1: r.rect_norm.x1,
                 y1: r.rect_norm.y1,
                 y3: r.rect_norm.y3,
@@ -2251,13 +2260,13 @@ fn is_compact_choice_peer(m: &PreparedLine, l: &PreparedLine) -> bool {
     {
         return false;
     }
-    if m.has_number_prefix || l.has_number_prefix {
-        let (Some(mn), Some(ln)) = (m.choice_number, l.choice_number) else {
-            return false;
-        };
-        if !consecutive_choices(m, mn, l, ln) {
-            return false;
-        }
+    if (m.has_number_prefix && m.choice_number.is_none())
+        || (l.has_number_prefix && l.choice_number.is_none())
+    {
+        return false;
+    }
+    if let (Some(first), Some(second)) = (m.choice_number, l.choice_number) {
+        return consecutive_choices(m, first, l, second) && compact_choice_geometry(m, l);
     }
     compact_choice_geometry(m, l)
 }
@@ -2272,80 +2281,82 @@ struct ChoiceMatch {
     hook_text: Option<String>,
 }
 
+impl ChoiceMatch {
+    fn hint(target: String) -> Self {
+        Self {
+            observed: target.clone(),
+            options: vec![target.clone()],
+            text: target,
+            exact: true,
+            menu: false,
+            hook_text: None,
+        }
+    }
+}
+
+enum ChoiceSearch<'a> {
+    Current(&'a [Value]),
+    Ahead,
+}
+
 fn find_choice(
     lines: &[PreparedLine],
     expected: &str,
-    allow_fuzzy: bool,
-    require_menu: bool,
+    search: ChoiceSearch<'_>,
 ) -> Option<ChoiceMatch> {
     let target = normalize_choice(expected);
     if target.is_empty() {
         return None;
     }
-    let has_menu_layout =
-        |line: &PreparedLine| lines.iter().any(|peer| is_compact_choice_peer(line, peer));
-    let exact: Vec<&PreparedLine> = lines.iter().filter(|l| l.normalized == target).collect();
-    let matches: Vec<&PreparedLine> = if !exact.is_empty() {
-        exact.clone()
-    } else if allow_fuzzy {
-        lines
-            .iter()
-            .filter(|l| {
-                choice_similarity(&l.normalized, &target) > 0.0
-                    && (l.isolated || has_menu_layout(l))
-            })
-            .collect()
+    let require_menu = matches!(search, ChoiceSearch::Ahead);
+    let mut exact_rows = lines.iter().filter(|line| match search {
+        ChoiceSearch::Ahead => line.normalized == target,
+        ChoiceSearch::Current(_) => exact_current_row(&line.normalized, &target),
+    });
+    let (matched, exact) = if let Some(row) = exact_rows.next() {
+        if exact_rows.next().is_some() {
+            // Repeated text can reveal the current hint but cannot identify a menu.
+            return (!require_menu).then(|| ChoiceMatch::hint(target));
+        }
+        (row, true)
     } else {
-        Vec::new()
+        let ChoiceSearch::Current(data) = search else {
+            return None;
+        };
+        // Layout processing can split or discard a complete OCR row.
+        if data.len() <= 500
+            && data.iter().any(|row| {
+                row["text"].as_str().is_some_and(|text| {
+                    !text.contains(['\r', '\n'])
+                        && exact_current_row(&normalize_choice(text), &target)
+                }) && read_rect_scaled(&row["bounding_rect"], 1.0)
+                    .is_some_and(|b| b.x1 >= 0.0 && b.y1 >= 0.0 && b.x3 <= 1.0 && b.y3 <= 1.0)
+            })
+        {
+            return Some(ChoiceMatch::hint(target));
+        }
+        let mut fuzzy = lines.iter().filter(|line| {
+            choice_similarity(&line.normalized, &target) > 0.0
+                && (line.isolated || lines.iter().any(|peer| is_compact_choice_peer(line, peer)))
+        });
+        let row = fuzzy.next()?;
+        if fuzzy.next().is_some() {
+            return None;
+        }
+        (row, false)
     };
-    if matches.len() != 1 {
-        return None;
-    }
-    let matched = matches[0];
-    let short = target.chars().count() <= 4;
-    let peers: Vec<&PreparedLine> = lines
+    let peers: Vec<_> = lines
         .iter()
         .filter(|line| {
-            if std::ptr::eq(*line, matched)
-                || line.normalized.is_empty()
-                || line.normalized == target
-                || is_save_control_text(&line.normalized)
-            {
-                return false;
-            }
-            if is_compact_choice_peer(matched, line) {
-                return true;
-            }
-            if exact.is_empty() && !line.isolated {
-                return false;
-            }
-            let h = line.height.max(matched.height);
-            let gap = (line.y1 - matched.y3).max(matched.y1 - line.y3);
-            let aligned = if short {
-                (line.center - matched.center).abs() < 0.025
-            } else {
-                (line.center - matched.center)
-                    .abs()
-                    .min((line.x1 - matched.x1).abs())
-                    < 0.035
-            };
-            aligned
-                && (line.height.min(matched.height) / h) > 0.65
-                && gap >= h * (if short { 1.2 } else { 0.8 })
-                && gap <= h * 7.0
+            is_compact_choice_peer(matched, line)
+                && (!require_menu || matched.has_number_prefix == line.has_number_prefix)
         })
         .collect();
-
     let menu = !peers.is_empty();
     if require_menu && !menu {
         return None;
     }
-    if !menu && (!matched.isolated || target.chars().count() < 8) {
-        return None;
-    }
-    let similarity = choice_similarity(&matched.normalized, &target);
-    let confidence = similarity + if menu { 0.03 } else { 0.0 };
-    if similarity < 1.0 && (!(matched.isolated || has_menu_layout(matched)) || confidence < 0.88) {
+    if !exact && !menu && choice_similarity(&matched.normalized, &target) < 0.88 {
         return None;
     }
     let mut opts = Vec::new();
@@ -2362,7 +2373,7 @@ fn find_choice(
     Some(ChoiceMatch {
         text: target,
         observed: matched.normalized.clone(),
-        exact: (similarity - 1.0).abs() < f64::EPSILON,
+        exact,
         menu,
         options: opts,
         hook_text: None,
@@ -2457,6 +2468,7 @@ fn find_hooked_choice(
 #[derive(Clone, Debug)]
 struct ArmedChoice {
     options: Vec<String>,
+    menu: bool,
     source_is_ocr: bool,
     since_ms: u64,
     presence_id: Option<String>,
@@ -2634,7 +2646,7 @@ impl GuideTracker {
                 break;
             }
             candidates.push(self.steps[idx].text.as_str());
-            let found = find_choice(lines, &self.steps[idx].text, false, true)
+            let found = find_choice(lines, &self.steps[idx].text, ChoiceSearch::Ahead)
                 .or_else(|| find_hooked_choice(lines, &self.steps[idx].text, recent_text, now));
             if let Some(m) = found {
                 matches.push((idx, m));
@@ -2709,6 +2721,7 @@ impl GuideTracker {
                 if !self.armed.as_ref().is_some_and(|a| a.source_is_ocr) {
                     self.armed = Some(ArmedChoice {
                         options,
+                        menu: false,
                         source_is_ocr: false,
                         since_ms: now,
                         presence_id: None,
@@ -2832,7 +2845,7 @@ impl GuideTracker {
             None
         };
 
-        let mut matched = find_choice(&lines, &cur.text, true, false);
+        let mut matched = find_choice(&lines, &cur.text, ChoiceSearch::Current(data));
         if !matched.as_ref().is_some_and(|m| m.menu) {
             if let Some(hooked) =
                 find_hooked_choice(&lines, &cur.text, recent_for_final.as_ref(), now)
@@ -2921,7 +2934,7 @@ impl GuideTracker {
             self.pending_ahead = None;
         }
 
-        if let Some(m) = matched {
+        if let Some(mut m) = matched {
             self.pending_ahead = None;
             let save_controls: Vec<(String, f64, f64)> = lines
                 .iter()
@@ -2929,19 +2942,23 @@ impl GuideTracker {
                 .map(|l| (l.normalized.clone(), l.center, l.y1))
                 .collect();
             let prev = self.armed.as_ref();
+            // A partial rescan of a confirmed menu still belongs to that menu.
+            if let Some(confirmed) = prev.filter(|p| p.stable && !m.menu) {
+                m.menu = true;
+                m.options.clone_from(&confirmed.options);
+            }
             let since_ms = match prev {
-                Some(p) if p.source_is_ocr && (p.options.len() > 1) == m.menu => p.since_ms,
+                Some(p) if p.source_is_ocr && p.menu == m.menu => p.since_ms,
                 _ => now,
             };
             let stable = stable_ahead
                 || prev.is_some_and(|p| p.stable)
                 || (m.menu
                     && (is_final
-                        || prev.is_some_and(|p| {
-                            p.options.len() > 1 && now.saturating_sub(p.since_ms) >= 200
-                        })));
+                        || prev.is_some_and(|p| p.menu && now.saturating_sub(p.since_ms) >= 200)));
             self.armed = Some(ArmedChoice {
                 options: m.options,
+                menu: m.menu,
                 source_is_ocr: true,
                 since_ms,
                 presence_id: msg_presence_id.map(str::to_string),
@@ -3553,6 +3570,10 @@ impl VnGuideController {
         dirty
     }
 
+    pub fn is_available(&self) -> bool {
+        self.available
+    }
+
     pub fn needs_periodic_update_check(&self) -> bool {
         self.enabled
             && !self.loading
@@ -4126,7 +4147,8 @@ mod tests {
         let steps = validate_route(&json!([{"simpleJp":"ゲーム"}, {"simpleJp":"続ける"}])).unwrap();
         let mut tracker = GuideTracker::new(steps, 0);
         tracker.observe(&frame(&rows[2..], "single"), 500, true);
-        assert!(!tracker.detected);
+        assert!(tracker.detected);
+        assert!(!tracker.armed.as_ref().unwrap().stable);
         tracker.observe(&frame(&rows, "menu"), 1000, true);
         assert!(tracker.detected);
         assert!(tracker.armed.as_ref().unwrap().stable);
@@ -4156,7 +4178,7 @@ mod tests {
         ];
         let mixed = prepare_choice_lines(&mixed);
         assert!(
-            find_choice(&mixed, "ゲーム", false, true).is_some_and(|matched| matched.exact),
+            find_choice(&mixed, "ゲーム", ChoiceSearch::Ahead).is_some_and(|matched| matched.exact),
             "{mixed:?}"
         );
 
@@ -4175,8 +4197,145 @@ mod tests {
             ),
         ];
         let counts = prepare_choice_lines(&counts);
-        assert!(find_choice(&counts, "ゲーム", false, true).is_none());
-        assert!(find_choice(&counts, "3ゲーム", false, true).unwrap().exact);
+        assert!(find_choice(&counts, "ゲーム", ChoiceSearch::Ahead).is_none());
+        assert!(
+            find_choice(&counts, "3ゲーム", ChoiceSearch::Ahead)
+                .unwrap()
+                .exact
+        );
+    }
+
+    #[test]
+    fn detects_mida_vocr_muv_luv_numbered_choice_menu() {
+        // Exact mida_vocr output from Muv-Luv EXTRA (1024x576) choice screen.
+        let norm_box = |x1: f64, y1: f64, x3: f64, y3: f64| json!({"x1": x1 / 1024.0, "y1": y1 / 576.0, "x3": x3 / 1024.0, "y3": y3 / 576.0});
+        let words = |items: &[(&str, f64, f64)], y1: f64, y3: f64| -> Vec<Value> {
+            items
+                .iter()
+                .map(|(t, x1, x3)| json!({"text": t, "bounding_rect": norm_box(*x1, y1, *x3, y3)}))
+                .collect()
+        };
+        let data = vec![
+            json!({
+                "text": "1.屋上に行く",
+                "is_vertical": false,
+                "bounding_rect": norm_box(413.0, 493.0, 603.0, 517.0),
+                "words": words(&[
+                    ("1", 434.0625, 457.5), (".", 457.5, 460.5), ("屋", 460.5, 494.5),
+                    ("上", 494.5, 520.5), ("に", 520.5, 545.5), ("行", 545.5, 570.5),
+                    ("く", 570.5, 590.1875),
+                ], 493.0, 517.0),
+            }),
+            json!({
+                "text": "2.物理準備室に行く",
+                "is_vertical": false,
+                "bounding_rect": norm_box(379.0, 522.0, 645.0, 546.0),
+                "words": words(&[
+                    ("2", 400.0, 416.5), (".", 416.5, 422.5), ("物", 422.5, 455.5),
+                    ("理", 455.5, 481.5), ("準", 481.5, 513.5), ("備", 513.5, 532.5),
+                    ("室", 532.5, 560.5), ("に", 560.5, 583.5), ("行", 583.5, 609.5),
+                    ("く", 609.5, 633.75),
+                ], 522.0, 546.0),
+            }),
+        ];
+        let prepared = prepare_choice_lines(&data);
+        let matched = find_choice(&prepared, "物理準備室に行く", ChoiceSearch::Current(&data))
+            .expect("mida_vocr Muv-Luv choice menu should match");
+        assert!(matched.exact);
+        assert!(matched.menu);
+        assert!(matched.options.contains(&"屋上に行く".to_string()));
+        assert!(matched.options.contains(&"物理準備室に行く".to_string()));
+    }
+
+    #[test]
+    fn detects_meikiocr_and_mida_vocr_muv_luv_menu_with_dropped_period_or_digit() {
+        // Exact meikiocr output on Muv-Luv EXTRA (crop mapped to 1024x576):
+        // "1" absorbed part of the period so the gap before "委" is ~0.29 * advance.
+        let norm_box = |x1: f64, y1: f64, x3: f64, y3: f64| {
+            json!({
+                "x1": (249.0 + x1) / 1024.0,
+                "y1": (446.0 + y1) / 576.0,
+                "x3": (249.0 + x3) / 1024.0,
+                "y3": (446.0 + y3) / 576.0,
+            })
+        };
+        let words = |items: &[(&str, f64, f64)], y1: f64, y3: f64| -> Vec<Value> {
+            items
+                .iter()
+                .map(|(t, x1, x3)| json!({"text": t, "bounding_rect": norm_box(*x1, y1, *x3, y3)}))
+                .collect()
+        };
+        let meiki_data = vec![
+            json!({
+                "text": "1委員長を呼ぶ",
+                "is_vertical": false,
+                "bounding_rect": norm_box(170.0, 18.0, 352.0, 41.0),
+                "words": words(&[
+                    ("1", 171.25, 194.13), ("委", 201.33, 225.80), ("員", 226.06, 250.90),
+                    ("長", 253.63, 277.57), ("を", 279.33, 301.05), ("呼", 303.02, 327.73),
+                    ("ぶ", 326.24, 352.0),
+                ], 18.0, 41.0),
+            }),
+            json!({
+                "text": "2.彩峰を探しに行く",
+                "is_vertical": false,
+                "bounding_rect": norm_box(151.0, 46.0, 371.0, 71.0),
+                "words": words(&[
+                    ("2", 151.0, 166.12), (".", 165.08, 173.11), ("彩", 187.04, 210.97),
+                    ("峰", 210.65, 234.71), ("を", 237.90, 258.29), ("探", 261.19, 284.01),
+                    ("し", 282.65, 304.29), ("に", 308.49, 328.25), ("行", 331.21, 351.65),
+                    ("く", 350.12, 369.27),
+                ], 46.0, 71.0),
+            }),
+            json!({
+                "text": "3.放課後まで待つ",
+                "is_vertical": false,
+                "bounding_rect": norm_box(157.0, 75.0, 365.0, 99.0),
+                "words": words(&[
+                    ("3", 158.55, 171.26), (".", 169.99, 177.88), ("放", 190.51, 215.53),
+                    ("課", 215.73, 241.16), ("後", 243.50, 266.90), ("ま", 271.06, 292.27),
+                    ("で", 293.11, 314.68), ("待", 315.91, 338.87), ("つ", 339.76, 362.79),
+                ], 75.0, 99.0),
+            }),
+        ];
+        let meiki_lines = prepare_choice_lines(&meiki_data);
+        let meiki_match = find_choice(
+            &meiki_lines,
+            "委員長を呼ぶ",
+            ChoiceSearch::Current(&meiki_data),
+        )
+        .expect("meikiocr choice menu with narrow unpunctuated digit gap should match");
+        assert!(meiki_match.exact);
+        assert!(meiki_match.menu);
+        assert!(meiki_match
+            .options
+            .contains(&"彩峰を探しに行く".to_string()));
+
+        // Exact mida_vocr output on the same frame: leading "1" dropped, leaving ".委員長を呼ぶ".
+        let mida_data = vec![
+            json!({
+                "text": ".委員長を呼ぶ",
+                "is_vertical": false,
+                "bounding_rect": norm_box(153.0, 18.0, 369.0, 43.0),
+                "words": words(&[
+                    (".", 178.875, 198.5), ("委", 198.5, 228.5), ("員", 228.5, 254.5),
+                    ("長", 254.5, 280.5), ("を", 280.5, 303.5), ("呼", 303.5, 329.5),
+                    ("ぶ", 329.5, 358.75),
+                ], 18.0, 43.0),
+            }),
+            meiki_data[1].clone(),
+            meiki_data[2].clone(),
+        ];
+        let mida_lines = prepare_choice_lines(&mida_data);
+        let mida_match = find_choice(
+            &mida_lines,
+            "委員長を呼ぶ",
+            ChoiceSearch::Current(&mida_data),
+        )
+        .expect("mida_vocr choice menu with dropped leading digit should match");
+        assert!(mida_match.exact);
+        assert!(mida_match.menu);
+        assert!(mida_match.options.contains(&"彩峰を探しに行く".to_string()));
     }
 
     #[test]

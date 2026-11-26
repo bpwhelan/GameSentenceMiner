@@ -1,5 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
 const { createTextHoverController, isClickableHoverTarget } = require('../text_hover');
 
 function target(matches) {
@@ -21,7 +24,7 @@ test('game text accepts clicks by default and passes them through when enabled',
 });
 
 function setup(clickThrough = true) {
-  const listeners = new Map(), ignores = [], hoverStates = [];
+  const listeners = new Map(), ignores = [], hoverStates = [], lookupPolling = [];
   let current = target(['.text-box', '.interactive']);
   const win = {
     innerWidth: 960, innerHeight: 540,
@@ -33,12 +36,39 @@ function setup(clickThrough = true) {
   };
   const document = { documentElement: { dataset: {} }, elementFromPoint: () => current };
   const controller = createTextHoverController({ window: win,
-    document, isClickThroughEnabled: () => clickThrough, onIgnore: value => ignores.push(value) });
-  return { controller, ignores, document, hoverStates, setClickThrough: value => { clickThrough = value; },
+    document, isClickThroughEnabled: () => clickThrough, onIgnore: value => ignores.push(value),
+    onLookupPollingChange: fast => lookupPolling.push(fast) });
+  return { controller, ignores, document, hoverStates, lookupPolling, setClickThrough: value => { clickThrough = value; },
     get target() { return current; }, setTarget: value => { current = value; },
     move: (x, y, buttons = 0) => listeners.get('pointermove')({ type: 'pointermove', clientX: x, clientY: y, buttons }),
     listeners };
 }
+
+test('click-through requests fast polling only while hovering lookup text', () => {
+  for (const feed of ['forward', 'project']) {
+    const f = setup();
+    const move = x => f.controller[feed]({ x, y: 20 });
+    move(10);
+    move(11);
+    f.setTarget(target(['.big-interactive-area', '.interactive']));
+    move(12);
+    f.setTarget(target(['.nav-char-box']));
+    move(13);
+    f.setTarget(target(['iframe.yomitan-popup']));
+    move(14);
+    f.setTarget(target(['#text']));
+    f.setClickThrough(false);
+    move(15);
+    f.setClickThrough(true);
+    move(15);
+    f.setTarget(target(['button', '#text']));
+    move(16);
+    f.setTarget(target(['.text-box']));
+    move(17);
+    f.controller.reset();
+    assert.deepEqual(f.lookupPolling, [true, false, true, false, true, false, true, false], feed);
+  }
+});
 
 test('forwarded text hover remains click-through while a popup can be entered and left', () => {
   const f = setup();
@@ -220,4 +250,57 @@ test('forwarding never takes a held click from the game and cannot override Magp
   const count = f.target.events.length;
   f.controller.forward({ x: 100, y: 100 });
   assert.equal(f.target.events.length, count);
+});
+
+test('toggleClickThroughHotkey toggles textHoverClickThrough, notifies windows, and persists', () => {
+  const mainSource = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+  assert.match(mainSource, /"toggleClickThroughHotkey": "Alt\+Shift\+C"/);
+  assert.match(mainSource, /CONFIGURED_HOTKEY_SETTING_KEYS[\s\S]*?"toggleClickThroughHotkey"/);
+
+  const start = mainSource.indexOf('  function toggleTextHoverClickThrough()');
+  const end = mainSource.indexOf('  // Register toggle furigana hotkey', start);
+  assert.ok(start > 0 && end > start, 'toggleClickThroughHotkey helpers must exist in main.js');
+
+  const hotkeys = new Map();
+  const mainMessages = [];
+  const settingsMessages = [];
+  let invalidated = 0;
+  let saved = 0;
+  let trayUpdated = 0;
+  const userSettings = { textHoverClickThrough: false, toggleClickThroughHotkey: 'Alt+Shift+C' };
+
+  const context = vm.createContext({
+    userSettings,
+    TOGGLE_HOTKEY_COOLDOWN_MS: 250,
+    setOverlaySettingValue(key, value) { userSettings[key] = value; },
+    canTrackMagpiePointer() { return true; },
+    magpieSession: { invalidatePointer(opts) { invalidated += opts?.keepProjection ? 1 : 0; } },
+    mainWindow: { isDestroyed: () => false, webContents: { send: (...args) => mainMessages.push(args) } },
+    settingsWindow: { isDestroyed: () => false, webContents: { send: (...args) => settingsMessages.push(args) } },
+    saveSettings() { saved += 1; },
+    updateTrayMenu() { trayUpdated += 1; },
+    setAppHotkey(id, accelerator, callback, opts) { hotkeys.set(id, { accelerator, callback, opts }); },
+  });
+
+  vm.runInContext(mainSource.slice(start, end), context);
+  const entry = hotkeys.get('toggleClickThrough');
+  assert.ok(entry, 'toggleClickThrough hotkey must be registered');
+  assert.equal(entry.accelerator, 'Alt+Shift+C');
+  assert.equal(entry.opts.settingKey, 'toggleClickThroughHotkey');
+
+  entry.callback();
+  assert.equal(userSettings.textHoverClickThrough, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(mainMessages.at(-1))), ['settings-updated', { textHoverClickThrough: true }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(settingsMessages.at(-1))), ['settings-updated', { textHoverClickThrough: true }]);
+  assert.equal(invalidated, 1);
+  assert.equal(saved, 1);
+  assert.equal(trayUpdated, 1);
+
+  entry.callback();
+  assert.equal(userSettings.textHoverClickThrough, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(mainMessages.at(-1))), ['settings-updated', { textHoverClickThrough: false }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(settingsMessages.at(-1))), ['settings-updated', { textHoverClickThrough: false }]);
+  assert.equal(invalidated, 2);
+  assert.equal(saved, 2);
+  assert.equal(trayUpdated, 2);
 });

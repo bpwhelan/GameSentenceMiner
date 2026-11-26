@@ -6,6 +6,7 @@ use gsm_overlay::{
     engines::Engines,
     pipeline::{self, Projection, TextBox},
     presence::{self, Decision, Landing, Presence},
+    scheduling::ThreadPolicy,
 };
 use image::RgbaImage;
 use serde_json::{json, Value};
@@ -28,6 +29,7 @@ struct Inner {
     generation: u64,
     label: String,
     config: Value,
+    thread_policy: ThreadPolicy,
     pending: Option<Value>,
     requested_at: Option<Instant>,
     background: Option<Value>,
@@ -39,13 +41,28 @@ struct Inner {
 pub struct Overlay(Arc<(Mutex<Inner>, Condvar)>);
 impl Overlay {
     pub fn new(app: tauri::AppHandle) -> Self {
-        let shared = Arc::new((Mutex::new(Inner::default()), Condvar::new()));
+        let initial_policy = crate::ocr_coordinator::try_read_ocr_thread_policy(&app);
+        let shared = Arc::new((
+            Mutex::new(Inner {
+                thread_policy: initial_policy,
+                ..Inner::default()
+            }),
+            Condvar::new(),
+        ));
         let worker = shared.clone();
         std::thread::Builder::new()
             .name("gsm-overlay".into())
             .spawn(move || run(app, worker))
             .expect("Start native overlay worker");
         Self(shared)
+    }
+    pub fn set_thread_policy(&self, policy: ThreadPolicy) {
+        let (lock, wake) = &*self.0;
+        let mut state = lock.lock().unwrap();
+        if state.thread_policy != policy {
+            state.thread_policy = policy;
+            wake.notify_one();
+        }
     }
     pub(crate) fn ready_for_line(&self,scene:&str)->bool {
         let state=self.0.0.lock().unwrap();
@@ -170,10 +187,19 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
     let mut hook_context = Value::Null;
     let mut correction = gsm_overlay::correction::History::default();
     let clock = Instant::now();
+    let mut observed_policy: Option<ThreadPolicy> = None;
     loop {
         let mut state = lock.lock().unwrap();
         if state.closed {
             break;
+        }
+        if observed_policy.as_ref() != Some(&state.thread_policy) {
+            let policy = state.thread_policy.clone();
+            policy.apply_to_current_thread();
+            if let Some((_, ref mut eng)) = engines {
+                eng.set_thread_policy(policy.clone());
+            }
+            observed_policy = Some(policy);
         }
         if !state.label.is_empty() && app.get_webview_window(&state.label).is_none() {
             state.generation += 1;
@@ -260,6 +286,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 &config,
                 &mut capture_state,
                 &mut engines,
+                observed_policy.as_ref(),
             );
             let state = lock.lock().unwrap();
             if state.generation == generation && state.label == label && !state.closed {
@@ -367,7 +394,8 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     .ok_or("Overlay profile is unavailable")?,
             );
             if engines.as_ref().is_none_or(|(p, _)| p != &profile) {
-                engines = Some((profile.clone(), Engines::new(&profile)));
+                let policy = observed_policy.clone().unwrap_or_default();
+                engines = Some((profile.clone(), Engines::with_thread_policy(&profile, policy)));
             }
             last_capture_use = Instant::now();
             if request["action"] == "background" {
@@ -877,7 +905,8 @@ impl Watch {
     }
 
     fn arm(payload: &mut Value, image: &RgbaImage, p: &Projection, config: &Value) -> Option<Self> {
-        if !flag(config, "last_sent_ocr_presence_check", false)
+        if config["browser_source"] == true
+            || !flag(config, "last_sent_ocr_presence_check", false)
             || !(flag(config, "last_sent_ocr_presence_remove_notation", true)
                 || flag(config, "last_sent_ocr_presence_invalidate_lookups", true))
         {
@@ -922,6 +951,7 @@ fn poll_watch(
     config: &Value,
     capture_state: &mut Capture,
     engines: &mut Option<(PathBuf, Engines)>,
+    thread_policy: Option<&ThreadPolicy>,
 ) -> Result<(Vec<Value>, bool), String> {
     watch.deadline = Instant::now() + PRESENCE_POLL_INTERVAL;
     let (mut image, projection, _) = capture(config, false, capture_state)?;
@@ -940,7 +970,10 @@ fn poll_watch(
                     .ok_or("Overlay profile is unavailable")?,
             );
             if engines.as_ref().is_none_or(|(p, _)| p != &profile) {
-                *engines = Some((profile.clone(), Engines::new(&profile)));
+                *engines = Some((
+                    profile.clone(),
+                    Engines::with_thread_policy(&profile, thread_policy.cloned().unwrap_or_default()),
+                ));
             }
             engines
                 .as_mut()
@@ -1316,6 +1349,14 @@ mod tests {
         payload["is_sentence_recycled"] = json!(true);
         payload["engine"] = json!("meikiocr");
         (image, p, payload)
+    }
+
+    #[test]
+    fn browser_capture_never_arms_presence_monitoring() {
+        let (image, p, mut payload) = movement_fixture();
+        let config = json!({"browser_source":true,"settings":{"last_sent_ocr_presence_check":true}});
+        assert!(Watch::arm(&mut payload, &image, &p, &config).is_none());
+        assert!(payload.get("presence_id").is_none());
     }
 
     #[test]
@@ -1789,5 +1830,20 @@ mod tests {
         filter_areas(&mut lines, &p, &config);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "shown");
+    }
+    #[test]
+    fn updating_thread_policy_does_not_reset_overlay_generation() {
+        let actor = actor();
+        let before = actor.0 .0.lock().unwrap().generation;
+        let policy = ThreadPolicy {
+            priority: gsm_overlay::scheduling::ThreadPriority::BelowNormal,
+            cpu_parking: gsm_overlay::scheduling::CpuParkingMode::BackgroundCores,
+            custom_cores: Vec::new(),
+            onnx_threads: Some(2),
+        };
+        actor.set_thread_policy(policy.clone());
+        let state = actor.0 .0.lock().unwrap();
+        assert_eq!(state.generation, before);
+        assert_eq!(state.thread_policy, policy);
     }
 }

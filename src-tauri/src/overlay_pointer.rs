@@ -4,7 +4,10 @@
 use std::time::{Duration, Instant};
 
 pub const ACTIVE_INTERVAL: Duration = Duration::from_millis(16);
+// USER_TIMER_MINIMUM for the Windows forwarding timer.
+pub const LOOKUP_INTERVAL: Duration = Duration::from_millis(10);
 pub const IDLE_INTERVAL: Duration = Duration::from_millis(80);
+pub const RECENT_TEXT_WINDOW: Duration = Duration::from_secs(15);
 const ACTIVE_GRACE: Duration = Duration::from_millis(160);
 const HIT_TEST_REFRESH: Duration = Duration::from_millis(250);
 
@@ -44,10 +47,19 @@ impl<T: PartialEq + Clone> PointerPacer<T> {
         self.published_at = Some(now);
     }
 
-    pub fn interval(&self, now: Instant) -> Duration {
-        if self
-            .changed_at
-            .is_none_or(|at| now.duration_since(at) < ACTIVE_GRACE)
+    pub fn interval(
+        &self,
+        now: Instant,
+        lookup_polling: bool,
+        recent_text_until: Option<Instant>,
+    ) -> Duration {
+        if lookup_polling {
+            return LOOKUP_INTERVAL;
+        }
+        if recent_text_until.is_some_and(|until| now < until)
+            || self
+                .changed_at
+                .is_none_or(|at| now.duration_since(at) < ACTIVE_GRACE)
         {
             ACTIVE_INTERVAL
         } else {
@@ -72,7 +84,7 @@ mod tests {
                 messages += 1;
                 pacer.published(now);
             }
-            now += pacer.interval(now);
+            now += pacer.interval(now, false, None);
         }
         assert!(polls <= 135, "Stationary native samples: {polls}");
         assert!(messages <= 40, "Stationary renderer hit tests: {messages}");
@@ -89,10 +101,10 @@ mod tests {
         assert!(pacer.observe((0, 0, 0, false), start));
         pacer.published(start);
         let idle = start + Duration::from_secs(1);
-        assert_eq!(pacer.interval(idle), IDLE_INTERVAL);
+        assert_eq!(pacer.interval(idle, false, None), IDLE_INTERVAL);
         for point in [(1, 0, 0, false), (1, 0, 16, false), (1, 0, 0, true)] {
             assert!(pacer.observe(point, idle));
-            assert_eq!(pacer.interval(idle), ACTIVE_INTERVAL);
+            assert_eq!(pacer.interval(idle, false, None), ACTIVE_INTERVAL);
             assert!(
                 pacer.observe(point, idle),
                 "A pending renderer reply must not drop the latest state"
@@ -100,5 +112,39 @@ mod tests {
             pacer.published(idle);
             assert!(!pacer.observe(point, idle));
         }
+    }
+
+    #[test]
+    fn paused_lookup_stays_responsive_without_republishing_stationary_samples() {
+        let mut pacer = PointerPacer::default();
+        let start = Instant::now();
+        assert!(pacer.observe(0, start));
+        pacer.published(start);
+        let paused = start + ACTIVE_GRACE;
+        assert_eq!(pacer.interval(paused, true, None), LOOKUP_INTERVAL);
+        assert!(!pacer.observe(0, paused));
+        assert_eq!(pacer.interval(paused, false, None), IDLE_INTERVAL);
+        let moved = paused + LOOKUP_INTERVAL;
+        assert!(pacer.observe(1, moved));
+        assert_eq!(pacer.interval(moved, true, None), LOOKUP_INTERVAL);
+        assert_eq!(pacer.interval(moved, false, None), ACTIVE_INTERVAL);
+    }
+
+    #[test]
+    fn recent_text_keeps_idle_tracking_active_until_the_latest_deadline() {
+        let mut pacer = PointerPacer::default();
+        let start = Instant::now();
+        pacer.observe(0, start);
+        let first = start + Duration::from_secs(1);
+        let until = first + RECENT_TEXT_WINDOW;
+        assert_eq!(pacer.interval(first, false, Some(until)), ACTIVE_INTERVAL);
+        let renewed = until + Duration::from_secs(10);
+        assert_eq!(pacer.interval(until, false, Some(renewed)), ACTIVE_INTERVAL);
+        assert_eq!(pacer.interval(until, true, Some(renewed)), LOOKUP_INTERVAL);
+        assert_eq!(pacer.interval(renewed, false, Some(renewed)), IDLE_INTERVAL);
+        assert_eq!(
+            pacer.interval(renewed, true, Some(renewed)),
+            LOOKUP_INTERVAL
+        );
     }
 }

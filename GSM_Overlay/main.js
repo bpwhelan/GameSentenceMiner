@@ -1097,6 +1097,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "openSettingsOnStartup": true,
   "focusOverlayOnYomitanLookup": false,
   "textHoverClickThrough": false,
+  "toggleClickThroughHotkey": "Alt+Shift+C",
   "manualMode": false,
   "manualModeType": "hold",
   "requireGameFocusForPushToShow": true,
@@ -1263,6 +1264,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
 });
 const CONFIGURED_HOTKEY_SETTING_KEYS = Object.freeze([
   "showHotkey",
+  "toggleClickThroughHotkey",
   "toggleFuriganaHotkey",
   "toggleWindowHotkey",
   "minimizeHotkey",
@@ -7657,6 +7659,28 @@ async function startOverlayAppImpl() {
   }
   registerTranslateHotkey();
 
+  function toggleTextHoverClickThrough() {
+    const nextValue = !(userSettings.textHoverClickThrough === true);
+    setOverlaySettingValue("textHoverClickThrough", nextValue);
+    magpieSession?.invalidatePointer({ keepProjection: canTrackMagpiePointer() });
+    const settingUpdate = { textHoverClickThrough: nextValue };
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("settings-updated", settingUpdate);
+    }
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      settingsWindow.webContents.send("settings-updated", settingUpdate);
+    }
+    saveSettings();
+    updateTrayMenu();
+  }
+
+  function registerToggleClickThroughHotkey(_oldHotkey) {
+    setAppHotkey("toggleClickThrough", userSettings.toggleClickThroughHotkey || "Alt+Shift+C", () => {
+      toggleTextHoverClickThrough();
+    }, { settingKey: "toggleClickThroughHotkey", debounceMs: TOGGLE_HOTKEY_COOLDOWN_MS });
+  }
+  registerToggleClickThroughHotkey();
+
   // Register toggle furigana hotkey
   function registerToggleFuriganaHotkey(_oldHotkey) {
     setAppHotkey("toggleFurigana", userSettings.toggleFuriganaHotkey || "Alt+F", () => {
@@ -7762,6 +7786,7 @@ async function startOverlayAppImpl() {
       registerManualShowHotkey(previous.showHotkey);
       syncGamepadServerState(`${reason}:manual-hotkey`);
     }
+    if (changed("toggleClickThroughHotkey")) registerToggleClickThroughHotkey(previous.toggleClickThroughHotkey);
     if (changed("toggleFuriganaHotkey")) registerToggleFuriganaHotkey(previous.toggleFuriganaHotkey);
     if (changed("toggleWindowHotkey")) registerToggleWindowHotkey(previous.toggleWindowHotkey);
     if (changed("minimizeHotkey")) registerMinimizeHotkey(previous.minimizeHotkey);
@@ -7785,6 +7810,7 @@ async function startOverlayAppImpl() {
       registerYomitanSettingsHotkey();
       registerOverlaySettingsHotkey();
       registerTranslateHotkey();
+      registerToggleClickThroughHotkey();
       registerToggleFuriganaHotkey();
       registerLiveStatsToggleHotkey();
       registerTexthookerHotkey();
@@ -8848,6 +8874,9 @@ async function startOverlayAppImpl() {
       case "pomodoroBreakMinutes":
         handlePomodoroSettingsChanged();
         break;
+      case "toggleClickThroughHotkey":
+        registerToggleClickThroughHotkey(oldValue);
+        break;
       case "toggleFuriganaHotkey":
         registerToggleFuriganaHotkey(oldValue);
         break;
@@ -8890,6 +8919,7 @@ async function startOverlayAppImpl() {
         registerYomitanSettingsHotkey();
         registerOverlaySettingsHotkey();
         registerTranslateHotkey();
+        registerToggleClickThroughHotkey();
         registerToggleFuriganaHotkey();
         registerLiveStatsToggleHotkey();
         registerTexthookerHotkey();

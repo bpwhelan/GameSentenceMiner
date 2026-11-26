@@ -1640,6 +1640,7 @@ background: rgba(202, 12, 12, 0.692);
   const { createTextHoverController } = require('./text_hover');
   const textHover = createTextHoverController({ window, document,
     isClickThroughEnabled: isTextClickThroughEnabled,
+    onLookupPollingChange: fast => ipcRenderer.send('text-hover-lookup-polling', fast),
     onIgnore: ignore => ipcRenderer.send('text-hover-ignore', ignore, isTextClickThroughEnabled()) });
   ipcRenderer.on('vn-guide-choice-click-through', (_event, active) => {
     vnGuideChoiceClickThroughActive = active === true;
@@ -1815,18 +1816,32 @@ background: rgba(202, 12, 12, 0.692);
   let immediateSentenceRecycled = false;
   let overlayRenderGeneration = 0;
   let lastOverlayTextRenderSignature = null;
-  let activeOcrPresenceId = null;
-  const invalidatedOcrPresenceIds = new Set();
-  const invalidatedOcrPresenceActions = new Map();
+  let currentOcrPresenceFrame = null;
+  let ocrPresenceActionApplied = false;
+  const invalidatedOcrPresenceIds = new Map();
 
   function rememberInvalidatedOcrPresenceId(presenceId, action) {
     if (!presenceId) return;
-    invalidatedOcrPresenceIds.add(presenceId);
-    invalidatedOcrPresenceActions.set(presenceId, action);
+    invalidatedOcrPresenceIds.set(presenceId, action);
     while (invalidatedOcrPresenceIds.size > 32) {
-      const oldestId = invalidatedOcrPresenceIds.values().next().value;
+      const oldestId = invalidatedOcrPresenceIds.keys().next().value;
       invalidatedOcrPresenceIds.delete(oldestId);
-      invalidatedOcrPresenceActions.delete(oldestId);
+    }
+  }
+
+  function syncOcrPresencePresentation() {
+    if (!currentOcrPresenceFrame) return;
+    if (manualMode || manualHotkeyPressed) {
+      if (ocrPresenceActionApplied) {
+        clearTextBoxes();
+        handleOverlayWebSocketData(currentOcrPresenceFrame, true);
+      }
+      return;
+    }
+    const action = invalidatedOcrPresenceIds.get(currentOcrPresenceFrame.presence_id);
+    if (action && !ocrPresenceActionApplied) {
+      invalidateStaleOcrOverlayText(action);
+      ocrPresenceActionApplied = true;
     }
   }
   const FURIGANA_LINE_CACHE_TTL_MS = 2500;
@@ -3146,10 +3161,10 @@ background: rgba(202, 12, 12, 0.692);
   }
 
   let lastOverlayWindowStateSignature = null;
-  async function handleOverlayWebSocketData(rawData) {
+  function handleOverlayWebSocketData(rawData, restoringForManualMode = false) {
         let data = rawData;
         try {
-          data = JSON.parse(rawData);
+          if (typeof rawData === 'string') data = JSON.parse(rawData);
         } catch (_) {
           data = rawData;
         }
@@ -3262,7 +3277,8 @@ background: rgba(202, 12, 12, 0.692);
         }
 
         if (data.type === "overlay_clear") {
-          activeOcrPresenceId = null;
+          currentOcrPresenceFrame = null;
+          ocrPresenceActionApplied = false;
           clearTextBoxes();
           return;
         }
@@ -3276,27 +3292,22 @@ background: rgba(202, 12, 12, 0.692);
           };
           if (!staleAction.removeNotation && !staleAction.invalidateLookups) return;
           rememberInvalidatedOcrPresenceId(presenceId, staleAction);
-          if (presenceId === activeOcrPresenceId) {
-            invalidateStaleOcrOverlayText(staleAction);
-            activeOcrPresenceId = null;
-          }
+          if (presenceId === currentOcrPresenceFrame?.presence_id) syncOcrPresencePresentation();
           return;
         }
 
         if (data.type === "ocr_text_revalidated") {
           const presenceId = String(data.presence_id || "").trim();
           const restoredPayload = data.payload;
-          if (!presenceId || !invalidatedOcrPresenceActions.has(presenceId)) return;
-          if (activeOcrPresenceId && activeOcrPresenceId !== presenceId) return;
+          if (!presenceId || !invalidatedOcrPresenceIds.has(presenceId)) return;
           if (!restoredPayload || restoredPayload.type !== "word_coordinates" || !Array.isArray(restoredPayload.data)) return;
 
           // Invalidation may have removed either the lookup boxes, the notation,
           // or both. Re-render the saved authoritative payload to restore exactly
           // what was on screen before the text disappeared.
           invalidatedOcrPresenceIds.delete(presenceId);
-          invalidatedOcrPresenceActions.delete(presenceId);
-          activeOcrPresenceId = null;
-          clearTextBoxes();
+          if (currentOcrPresenceFrame?.presence_id !== presenceId) return;
+          if (ocrPresenceActionApplied) clearTextBoxes();
           data = {
             ...restoredPayload,
             type: "word_coordinates",
@@ -3314,20 +3325,24 @@ background: rgba(202, 12, 12, 0.692);
         // Check if data has words array (new word-level coordinate format)
         if (data.type == "word_coordinates" && Array.isArray(data.data) && data.data.every(item => item.text && item.bounding_rect)) {
           const isSupplemental = data.supplemental === true;
+          // An activation scan can capture the blank frame produced by the focus change.
+          // Explicit clears and capture-loss messages do not carry the OCR completion flag.
+          if ((manualMode || manualHotkeyPressed) && data.data.length === 0 && typeof data.is_final === 'boolean') return;
           const incomingPresenceId = String(data.presence_id || "").trim() || null;
-          const stalePresenceAction = !isSupplemental && incomingPresenceId
-            ? invalidatedOcrPresenceActions.get(incomingPresenceId) || null
+          const stalePresenceAction = !isSupplemental && incomingPresenceId && !manualMode && !manualHotkeyPressed
+            ? invalidatedOcrPresenceIds.get(incomingPresenceId)
             : null;
-          if (!isSupplemental) {
-            activeOcrPresenceId = incomingPresenceId;
-          }
           renderedTextPayload = true;
           const isSentenceRecycled = resolvePendingSentenceRecycledState(data.line_id, data.is_sentence_recycled);
           if (!isSupplemental) {
+            ocrPresenceActionApplied = false;
+            currentOcrPresenceFrame = incomingPresenceId
+              ? { ...data, presence_id: incomingPresenceId, is_sentence_recycled: isSentenceRecycled }
+              : null;
             setImmediateSentenceRecycled(isSentenceRecycled);
           }
           // Handle array of {text, bounding_rect}
-          ipcRenderer.send("text-received", data);
+          if (!restoringForManualMode) ipcRenderer.send("text-received", data);
 
           const renderGeneration = isSupplemental ? overlayRenderGeneration : ++overlayRenderGeneration;
           
@@ -3629,8 +3644,7 @@ background: rgba(202, 12, 12, 0.692);
             focusLatestLine: !isSupplemental,
           });
           if (stalePresenceAction) {
-            invalidateStaleOcrOverlayText(stalePresenceAction);
-            activeOcrPresenceId = null;
+            syncOcrPresencePresentation();
           }
 
         } else {
@@ -3646,14 +3660,14 @@ background: rgba(202, 12, 12, 0.692);
           }
         }
 
-        if (renderedTextPayload && data?.is_final === true && shouldShowReadyIndicator && !data.supplemental) {
+        if (!restoringForManualMode && renderedTextPayload && data?.is_final === true && shouldShowReadyIndicator && !data.supplemental) {
           showReadyIndicator();
         }
         if (manualMode && !manualHotkeyPressed) {
           applyManualInactivePresentation('text-received-manual-inactive');
         }
 
-        ipcRenderer.send("text-received", data);
+        if (!restoringForManualMode) ipcRenderer.send("text-received", data);
         if (!manualModeActivatedOnce) {
           setMouseEventHandlers();
         }
@@ -5138,6 +5152,7 @@ background: rgba(202, 12, 12, 0.692);
       mainBox.style.display = "";
     }
     updateImmediateRecycledIndicator();
+    syncOcrPresencePresentation();
     applyManualInactivePresentation('settings-load');
 
     // Initialize gamepad handler now that settings are loaded
@@ -5363,6 +5378,7 @@ background: rgba(202, 12, 12, 0.692);
     manualMode = newValue;
     manualModeActivatedOnce = false;
     manualHotkeyPressed = false;
+    syncOcrPresencePresentation();
 
     if (manualMode) {
       applyManualInactivePresentation('manual-mode-enabled');
@@ -5433,6 +5449,7 @@ background: rgba(202, 12, 12, 0.692);
   ipcRenderer.on('show-overlay-hotkey', (event, isActive, options) => {
     textHover.reset();
     manualHotkeyPressed = isActive;
+    syncOcrPresencePresentation();
     if (manualHotkeyPressed) {
       manualModeActivatedOnce = true;
       setManualInteractionSuppressed(false);
@@ -5456,6 +5473,7 @@ background: rgba(202, 12, 12, 0.692);
     if (shouldHide) {
       // Mirror the hotkey release behavior but mark it as AFK-driven
       manualHotkeyPressed = false;
+      syncOcrPresencePresentation();
       clearManualDesktopBackground();
       if (!pinned) {
         document.body.classList.remove('force-visible');

@@ -103,18 +103,15 @@ mocked Magpie native cursor. Timings include Chromium profiling overhead and
 normal scheduling noise. These measurements do not establish an end-to-end
 Task Manager CPU percentage for a particular game.
 
-Changes:
+Current behavior (the October measurements above predate the always-on preview):
 
-- The preview starts paused and makes no captures until the user chooses
-  Refresh Frame or Enable Live Preview. Refresh Frame captures once and stays
-  paused. Optional live preview waits 1 second between changing frames and
-  up to 3 seconds while static or unavailable. Returning to a visible desktop only
-  refreshes automatically while live preview is enabled. Unchanged images and
-  geometry retain their React state. The OCR geometry lease covers the longer
-  refresh interval and capture timeout so boxes do not expire between updates.
-- The desktop window enables Chromium background throttling. Disabling it also
-  affects the Page Visibility API, preventing the preview's visibility gate from
-  reliably stopping captures when the desktop is hidden/minimized.
+- The OCR tab requests a frame on entry and then once per second while focused.
+  An unfocused or minimized window uses a 15-second interval while the OCR tab
+  is selected. Leaving the tab stops capture and preserves the open editor.
+  The area selector remembers the Auto-Refresh preference and starts frozen
+  on first use. With Auto-Refresh enabled, it uses the same capture loop
+  at a one-second interval even when the game has focus. A slow capture cannot queue another request, and identical
+  images and geometry retain their React state.
 - Already sized OBS JPEGs pass through without decoding and recompressing.
   Native RGB capture still encodes once; oversized/non-JPEG images retain the
   resize/conversion path and aspect ratio.

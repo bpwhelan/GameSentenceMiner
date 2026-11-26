@@ -28,7 +28,7 @@ import {TextSourceElement} from '../dom/text-source-element.js';
 const SCAN_RESOLUTION_EXCLUDED_LANGUAGES = new Set(['ja', 'zh', 'yue', 'ko']);
 const KEYBOARD_MODIFIER_SET = new Set(['alt', 'ctrl', 'meta', 'shift']);
 const GSM_GAMEPAD_NAVIGATION_EVENT_TYPE = 'gsm-gamepad-navigation-active';
-const GSM_FEED_TEXT_SELECTOR = '[data-gsm-reader-scan="shift"]';
+const GSM_FEED_TEXT_SELECTOR = '[data-gsm-reader-scan]';
 
 /**
  * @augments EventDispatcher<import('text-scanner').Events>
@@ -1719,11 +1719,31 @@ export class TextScanner extends EventDispatcher {
             const pointer = /** @type {PointerEvent} */ (event);
             const scope = globalThis.document?.documentElement?.dataset?.gsmReaderScope;
             if (scope === 'disabled') { return null; }
-            if (this._isGsmHomeReadingPoint(pointer.clientX, pointer.clientY)) {
+            const scanModifier = this._getGsmHomeReadingModifier(pointer.clientX, pointer.clientY);
+            if (scanModifier !== null) {
                 // Home owns its gesture; never rewrite the shared overlay profile.
+                let matched = false;
+                switch (scanModifier) {
+                    case 'none':
+                        matched = true;
+                        break;
+                    case 'ctrl':
+                        matched = pointer.ctrlKey;
+                        break;
+                    case 'alt':
+                        matched = pointer.altKey;
+                        break;
+                    case 'meta':
+                        matched = pointer.metaKey;
+                        break;
+                    case 'shift':
+                    default:
+                        matched = pointer.shiftKey;
+                        break;
+                }
                 return (
-                    pointer.shiftKey && pointer.buttons === 0 ?
-                    this._createInputInfo(null, pointerType, eventType, false, modifiers, modifierKeys) :
+                    matched && pointer.buttons === 0 ?
+                    this._createInputInfo(null, pointerType, eventType, scanModifier === 'none', modifiers, modifierKeys) :
                     null
                 );
             }
@@ -1735,13 +1755,21 @@ export class TextScanner extends EventDispatcher {
     /**
      * @param {number} x
      * @param {number} y
+     * @returns {?string}
+     */
+    _getGsmHomeReadingModifier(x, y) {
+        if (typeof document === 'undefined') { return null; }
+        const target = document.elementFromPoint(x, y)?.closest(GSM_FEED_TEXT_SELECTOR);
+        return target ? (target.getAttribute('data-gsm-reader-scan') || 'shift') : null;
+    }
+
+    /**
+     * @param {number} x
+     * @param {number} y
      * @returns {boolean}
      */
     _isGsmHomeReadingPoint(x, y) {
-        return (
-            typeof document !== 'undefined' &&
-            Boolean(document.elementFromPoint(x, y)?.closest(GSM_FEED_TEXT_SELECTOR))
-        );
+        return this._getGsmHomeReadingModifier(x, y) !== null;
     }
 
     /**

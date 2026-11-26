@@ -17,6 +17,7 @@ from .base_window_monitor import (
 )
 
 from GameSentenceMiner.obs import desktop_session
+from GameSentenceMiner.obs.browser_source import BROWSER_NAMES
 from GameSentenceMiner.util.platform.magpie_compat import MAGPIE_OVERLAY_WINDOW_CLASSES, get_magpie_info
 from GameSentenceMiner.util.platform.windows_audio import set_process_mute
 
@@ -234,25 +235,7 @@ class WindowsWindowStateMonitor(BaseWindowStateMonitor):
             "ApplicationFrameWindow",
         }
 
-        self.BROWSER_EXES = {
-            "chrome.exe",
-            "msedge.exe",
-            "brave.exe",
-            "opera.exe",
-            "vivaldi.exe",
-            "chromium.exe",
-            "arc.exe",
-            "thorium.exe",
-            "whale.exe",
-            "yandex.exe",
-            "firefox.exe",
-            "zen.exe",
-            "waterfox.exe",
-            "librewolf.exe",
-            "floorp.exe",
-            "palemoon.exe",
-            "torbrowser.exe",
-        }
+        self.BROWSER_EXES = {f"{name}.exe" for name in BROWSER_NAMES}
 
         self.EXCLUDED_EXES = {
             "ocenaudio.exe",

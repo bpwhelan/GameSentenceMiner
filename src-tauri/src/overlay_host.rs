@@ -14,7 +14,7 @@ use crate::overlay_magpie::{
     renderer_signature, sample_pointer, select_target_display, source_focused, DisplayInfo,
     MagpieInfo,
 };
-use crate::overlay_pointer::PointerPacer;
+use crate::overlay_pointer::{PointerPacer, IDLE_INTERVAL, RECENT_TEXT_WINDOW};
 use crate::overlay_preload::{
     overlay_main_init_script, overlay_settings_init_script, overlay_simple_ipc_init_script,
     overlay_vn_guide_hud_init_script,
@@ -42,7 +42,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use tokio::sync::{mpsc, Mutex as AsyncMutex};
+use tokio::sync::{mpsc, watch, Mutex as AsyncMutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 pub const OVERLAY_MAIN_LABEL: &str = "gsm-overlay-main";
@@ -272,6 +272,18 @@ fn merge_config_message(pending: &mut Option<Value>, update: Value) {
     }
 }
 
+fn carries_overlay_text(payload: &Value) -> bool {
+    if payload["type"] == "word_coordinates" {
+        return payload["data"].as_array().is_some_and(|words| {
+            words.iter().any(|word| word["text"].as_str().is_some_and(|s| !s.trim().is_empty()))
+        });
+    }
+    let sentence = payload.get("sentence").unwrap_or(payload);
+    sentence.as_str().is_some_and(|s| !s.trim().is_empty())
+        || sentence.is_number()
+        || sentence.is_boolean()
+}
+
 struct OverlayInner {
     running: bool,
     dictionary_ready: bool,
@@ -313,6 +325,7 @@ struct OverlayInner {
     startup_hidden: bool,
     pinned: bool,
     text_hover_ignoring: Option<bool>,
+    lookup_polling: bool,
     is_afk: bool,
     last_ocr_activity: Instant,
     magpie_info: Option<MagpieInfo>,
@@ -330,6 +343,7 @@ struct OverlayInner {
     vn_guide_available: bool,
     vn_guide_choice_click_through: bool,
     vn_guide_scene: Option<String>,
+    pending_vn_guide_payload: Option<Value>,
     custom_page_saved_urls: HashMap<String, String>,
     main_box_shown: bool,
     ws2_tx: Option<mpsc::UnboundedSender<Ws2Outbound>>,
@@ -385,6 +399,7 @@ impl Default for OverlayInner {
             startup_hidden: false,
             pinned: false,
             text_hover_ignoring: None,
+            lookup_polling: false,
             is_afk: false,
             last_ocr_activity: Instant::now(),
             magpie_info: None,
@@ -411,6 +426,7 @@ impl Default for OverlayInner {
             vn_guide_available: false,
             vn_guide_choice_click_through: false,
             vn_guide_scene: None,
+            pending_vn_guide_payload: None,
             custom_page_saved_urls: HashMap::new(),
             main_box_shown: false,
             ws2_tx: None,
@@ -423,6 +439,7 @@ impl Default for OverlayInner {
 #[derive(Clone)]
 pub struct OverlayHost {
     inner: Arc<Mutex<OverlayInner>>,
+    recent_text_until: watch::Sender<Option<Instant>>,
     reader_switch: Arc<AsyncMutex<()>>,
     lifecycle: Arc<AsyncMutex<()>>,
     vn_guide: Arc<AsyncMutex<Option<VnGuideController>>>,
@@ -434,6 +451,7 @@ impl Default for OverlayHost {
     fn default() -> Self {
         Self {
             inner: Arc::new(Mutex::new(OverlayInner::default())),
+            recent_text_until: watch::Sender::new(None),
             reader_switch: Arc::new(AsyncMutex::new(())),
             lifecycle: Arc::new(AsyncMutex::new(())),
             vn_guide: Arc::new(AsyncMutex::new(None)),
@@ -468,6 +486,7 @@ impl OverlayHost {
             let mut inner = self.inner.lock().unwrap();
             let manual = inner.manual_hotkey.reset() || inner.interaction_revealed;
             inner.interaction_revealed = false;
+            inner.lookup_polling = false;
             inner.navigation_active = false;
             inner.resize_mode = false;
             inner.yomitan_showing = false;
@@ -1003,6 +1022,17 @@ impl OverlayHost {
         )
     }
 
+    fn clickthrough_polling_enabled(inner: &OverlayInner) -> bool {
+        !inner.pinned
+            && Self::routes_text_hover(inner)
+            && (inner.vn_guide_choice_click_through || inner.user_settings["textHoverClickThrough"] == true)
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn recent_text_deadline(&self) -> watch::Receiver<Option<Instant>> {
+        self.recent_text_until.subscribe()
+    }
+
     fn request_or_toggle_translation(&self, app: &AppHandle) -> Result<(), String> {
         let event = {
             let mut inner = self.inner.lock().unwrap();
@@ -1379,6 +1409,7 @@ impl OverlayHost {
                 return;
             }
             inner.running = false;
+            self.recent_text_until.send_replace(None);
             inner.source.clear();
             inner.started_at_ms = None;
             inner.worker_gen = inner.worker_gen.saturating_add(1);
@@ -1392,6 +1423,7 @@ impl OverlayHost {
             inner.magpie_pointer_pending = None;
             inner.yomitan_showing = false;
             inner.text_hover_ignoring = None;
+            inner.lookup_polling = false;
             inner.target_hwnd = None;
             inner.last_window_state = None;
             inner.manual_hotkey.reset();
@@ -1399,6 +1431,7 @@ impl OverlayHost {
             inner.capture_available = None;
             inner.vn_guide_available = false;
             inner.vn_guide_choice_click_through = false;
+            inner.pending_vn_guide_payload = None;
             inner.navigation_active = false;
             inner.resize_mode = false;
             inner.manual_focus_deadline = None;
@@ -2404,7 +2437,7 @@ impl OverlayHost {
         let Some(win) = app.get_webview_window(OVERLAY_MAIN_LABEL) else {
             return;
         };
-        let (ignore, focusable, forward) = {
+        let (ignore, focusable, forward, clickthrough, lookup_polling) = {
             let inner = self.inner.lock().unwrap();
             let (ignore, focusable) = if inner.running {
                 Self::mouse_policy(&inner)
@@ -2417,13 +2450,15 @@ impl OverlayHost {
                 && Self::capture_available(&inner)
                 && !inner.is_afk
                 && inner.magpie_info.is_none();
-            (ignore, focusable, forward)
+            let clickthrough = forward && Self::clickthrough_polling_enabled(&inner);
+            (ignore, focusable, forward, clickthrough, clickthrough && inner.lookup_polling)
         };
         let _ = win.set_focusable(focusable);
         let _ = window_platform::apply(
             &win,
             "ignoreCursor",
-            &json!({ "ignore": ignore, "forward": forward }),
+            &json!({ "ignore": ignore, "forward": forward, "lookupPolling": lookup_polling,
+                "pollAfterText": clickthrough }),
         );
     }
 
@@ -2764,6 +2799,17 @@ impl OverlayHost {
         }
 
         match action_key {
+            "toggleClickThroughHotkey" => {
+                let next = {
+                    let inner = self.inner.lock().unwrap();
+                    !(inner.user_settings.get("textHoverClickThrough") == Some(&json!(true)))
+                };
+                self.apply_setting_updates(
+                    app,
+                    Map::from_iter([("textHoverClickThrough".into(), json!(next))]),
+                    true,
+                );
+            }
             "toggleFuriganaHotkey" => {
                 desktop_state::emit_to_window(
                     app,
@@ -3094,6 +3140,23 @@ impl OverlayHost {
         snap
     }
 
+    fn is_cacheable_vn_guide_payload(payload: &Value) -> bool {
+        payload.get("type").and_then(Value::as_str) == Some("word_coordinates")
+            && payload.get("supplemental").and_then(Value::as_bool) != Some(true)
+            && payload
+                .get("data")
+                .and_then(Value::as_array)
+                .is_some_and(|d| !d.is_empty())
+    }
+
+    fn replay_pending_vn_guide_payload(&self, ctrl: &mut VnGuideController) -> bool {
+        if !ctrl.is_available() {
+            return false;
+        }
+        let pending = self.inner.lock().unwrap().pending_vn_guide_payload.take();
+        pending.is_some_and(|payload| ctrl.observe(&payload))
+    }
+
     fn maintain_vn_guide(&self, app: &AppHandle) {
         // A source load must not hold up unrelated overlay maintenance.
         let Ok(mut guard) = self.vn_guide.try_lock() else {
@@ -3106,7 +3169,10 @@ impl OverlayHost {
             let inner = self.inner.lock().unwrap();
             inner.running && Self::capture_available(&inner)
         };
-        let changed = ctrl.set_available(available, None);
+        let mut changed = ctrl.set_available(available, None);
+        if available && self.replay_pending_vn_guide_payload(ctrl) {
+            changed = true;
+        }
         let check = if ctrl.needs_periodic_update_check() {
             ctrl.begin_update_check(false)
         } else {
@@ -3167,12 +3233,16 @@ impl OverlayHost {
             (patch, inner.user_settings.clone())
         };
         if !patch.is_empty() {
+            self.inner.lock().unwrap().pending_vn_guide_payload = None;
             ctrl.set_available(false, scene);
             self.sync_vn_guide_windows(app, &ctrl.snapshot());
             self.broadcast_settings_update(app, &patch);
         }
         ctrl.configure(&settings, false).await;
-        let changed = ctrl.set_available(available, scene);
+        let mut changed = ctrl.set_available(available, scene);
+        if available && self.replay_pending_vn_guide_payload(ctrl) {
+            changed = true;
+        }
         if changed || !patch.is_empty() {
             let snap = ctrl.snapshot();
             self.sync_vn_guide_windows(app, &snap);
@@ -3364,6 +3434,7 @@ impl OverlayHost {
             )
         };
         if let Some(active) = click_through_change {
+            self.sync_window_ignore_mouse(app);
             desktop_state::emit_to_window(
                 app,
                 OVERLAY_MAIN_LABEL,
@@ -4219,6 +4290,12 @@ impl OverlayHost {
 
     async fn publish_ws2_data(&self, app: &AppHandle, raw_txt: &str, parsed: Option<&Value>) {
         if let Some(val) = parsed {
+            if matches!(
+                val.get("type").and_then(Value::as_str),
+                Some("overlay_clear" | "ocr_text_invalidated")
+            ) {
+                self.inner.lock().unwrap().pending_vn_guide_payload = None;
+            }
             self.ensure_vn_guide_initialized(app).await;
             let (changed, snap) = {
                 let mut guard = self.vn_guide.lock().await;
@@ -4473,9 +4550,10 @@ impl OverlayHost {
         tauri::async_runtime::spawn(async move {
             let mut last_captured: Option<bool> = None;
             let mut pointer = PointerPacer::default();
+            let mut recent_text = host.recent_text_until.subscribe();
             let mut next_probe = Instant::now();
             loop {
-                let (still, compat, can_track) = {
+                let (still, compat, can_track, clickthrough, over_text) = {
                     let inner = host.inner.lock().unwrap();
                     (
                         inner.running && inner.worker_gen == gen,
@@ -4485,6 +4563,8 @@ impl OverlayHost {
                             .and_then(Value::as_bool)
                             != Some(false),
                         Self::routes_text_hover(&inner) && !inner.is_afk,
+                        Self::clickthrough_polling_enabled(&inner),
+                        inner.lookup_polling,
                     )
                 };
                 if !still {
@@ -4587,7 +4667,16 @@ impl OverlayHost {
                         }
                     }
                 }
-                tokio::time::sleep(pointer.interval(Instant::now())).await;
+                let until = *recent_text.borrow_and_update();
+                let interval = pointer.interval(
+                    Instant::now(),
+                    clickthrough && over_text,
+                    if clickthrough { until } else { None },
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(interval) => {},
+                    _ = recent_text.changed(), if clickthrough && interval == IDLE_INTERVAL => {},
+                }
             }
         });
     }
@@ -4710,6 +4799,17 @@ impl OverlayHost {
                 desktop_state::emit_to_window(app, OVERLAY_MAIN_LABEL, "text-hover-refresh", &[]);
                 true
             }
+            "text-hover-lookup-polling" => {
+                if label == OVERLAY_MAIN_LABEL {
+                    let mut inner = self.inner.lock().unwrap();
+                    inner.lookup_polling = first == true;
+                    if inner.magpie_info.is_none() {
+                        drop(inner);
+                        self.sync_window_ignore_mouse(app);
+                    }
+                }
+                true
+            }
             "text-hover-ignore" => {
                 let ignore = first.as_bool().unwrap_or(true);
                 {
@@ -4784,6 +4884,18 @@ impl OverlayHost {
             }
             "text-received" => {
                 self.wake_activity(app);
+                if label == OVERLAY_MAIN_LABEL && carries_overlay_text(&first) {
+                    let now = Instant::now();
+                    let previous = self.recent_text_until.send_replace(Some(now + RECENT_TEXT_WINDOW));
+                    // Renewals are picked up by the running samplers. Only an
+                    // idle Windows timer needs its next tick brought forward.
+                    if previous.is_none_or(|until| until <= now) {
+                        #[cfg(windows)]
+                        if let Some(window) = app.get_webview_window(OVERLAY_MAIN_LABEL) {
+                            crate::windows_input::wake_idle_pointer(&window);
+                        }
+                    }
+                }
                 self.inner.lock().unwrap().translation_requested = false;
                 if first.is_object() {
                     self.inner.lock().unwrap().last_text_payload = first.clone();
@@ -4791,10 +4903,31 @@ impl OverlayHost {
                 }
                 // Feed VN guide tracker when a text frame arrives
                 self.ensure_vn_guide_initialized(app).await;
+                let live_available = {
+                    let inner = self.inner.lock().unwrap();
+                    inner.running && Self::capture_available(&inner)
+                };
                 let (changed, snap) = {
                     let mut guard = self.vn_guide.lock().await;
                     if let Some(ctrl) = guard.as_mut() {
-                        let ch = ctrl.observe(&first);
+                        let mut ch = false;
+                        if !ctrl.is_available() && live_available {
+                            ch |= ctrl.set_available(true, None);
+                        }
+                        if ctrl.is_available() {
+                            self.inner.lock().unwrap().pending_vn_guide_payload = None;
+                            ch |= ctrl.observe(&first);
+                        } else if Self::is_cacheable_vn_guide_payload(&first) {
+                            // A manual/screen-cropper OCR scan can finish right as the
+                            // cropper closes while the game window is still marked obscured.
+                            // Replay it as soon as the guide becomes available again.
+                            self.inner.lock().unwrap().pending_vn_guide_payload =
+                                Some(first.clone());
+                        } else if first.get("type").and_then(Value::as_str)
+                            == Some("word_coordinates")
+                        {
+                            self.inner.lock().unwrap().pending_vn_guide_payload = None;
+                        }
                         (ch, Some(ctrl.snapshot()))
                     } else {
                         (false, None)
@@ -4844,7 +4977,11 @@ impl OverlayHost {
                     if let Some(ctrl) = guard.as_mut() {
                         // Renderer echoes carry a window title, not a guide scene.
                         // Only capture_status may change the guide's identity.
-                        let ch = ctrl.set_available(state != "closed", None);
+                        let avail = state != "closed";
+                        let mut ch = ctrl.set_available(avail, None);
+                        if avail && self.replay_pending_vn_guide_payload(ctrl) {
+                            ch = true;
+                        }
                         (ch, Some(ctrl.snapshot()))
                     } else {
                         (false, None)
@@ -5540,6 +5677,22 @@ mod tests {
     }
 
     #[test]
+    fn polling_window_accepts_display_text_and_ignores_empty_or_control_frames() {
+        for frame in [
+            json!("猫"), json!({"sentence":"犬"}), json!(0), json!(false),
+            json!({"type":"word_coordinates","supplemental":true,"data":[{"text":"鳥"}]}),
+        ] {
+            assert!(carries_overlay_text(&frame));
+        }
+        for frame in [
+            json!("  "), json!({"type":"overlay_clear"}), Value::Null,
+            json!({"type":"word_coordinates","data":[]}),
+        ] {
+            assert!(!carries_overlay_text(&frame));
+        }
+    }
+
+    #[test]
     fn automatic_overlay_reveals_on_first_showable_capture_without_text() {
         let mut inner = OverlayInner::default();
         inner
@@ -6099,6 +6252,69 @@ mod tests {
             ),
             json!({"type": "translate-request", "request_id": "req-1", "blocks": [{"id": "0", "text": "猫"}]})
         );
+    }
+
+    #[tokio::test]
+    async fn pending_vn_guide_payload_replays_when_guide_becomes_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let game = dir.path().join("game");
+        std::fs::create_dir(&game).unwrap();
+        std::fs::write(
+            game.join("guide.json"),
+            json!({"title":"Muv-Luv EXTRA","routes":[{"id":"chizuru","title":"Chizuru","reviewed":true}]})
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            game.join("route_chizuru.json"),
+            json!([{"simpleJp":"物理準備室に行く"}]).to_string(),
+        )
+        .unwrap();
+        let settings = json!({
+            "vnGuideEnabled": true,
+            "vnGuideUrl": game.to_string_lossy(),
+            "vnGuideMode": "auto",
+            "vnGuideAutoAdvance": true
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        let host = OverlayHost::default();
+        let mut ctrl = VnGuideController::new(reqwest::Client::new(), dir.path());
+        ctrl.configure(&settings, false).await;
+        ctrl.set_available(false, None);
+
+        let choice_frame = json!({
+            "type": "word_coordinates",
+            "is_final": true,
+            "line_id": "cropper-1",
+            "presence_id": "cropper-1",
+            "data": [
+                {"text": "1.屋上に行く", "bounding_rect": {"x1": 0.42, "y1": 0.85, "x3": 0.58, "y3": 0.89}},
+                {"text": "2.物理準備室に行く", "bounding_rect": {"x1": 0.39, "y1": 0.90, "x3": 0.62, "y3": 0.94}}
+            ]
+        });
+        assert!(OverlayHost::is_cacheable_vn_guide_payload(&choice_frame));
+        assert!(!OverlayHost::is_cacheable_vn_guide_payload(
+            &json!({"type": "word_coordinates", "data": []})
+        ));
+        assert!(!OverlayHost::is_cacheable_vn_guide_payload(
+            &json!({"type": "word_coordinates", "supplemental": true, "data": [{"text": "a"}]})
+        ));
+
+        // While obscured/unavailable, the frame is stashed and not yet detected.
+        assert!(!ctrl.observe(&choice_frame));
+        assert_eq!(ctrl.snapshot()["detected"], false);
+        host.inner.lock().unwrap().pending_vn_guide_payload = Some(choice_frame);
+        assert!(!host.replay_pending_vn_guide_payload(&mut ctrl));
+
+        // Once the game window becomes available again, replaying detects the choice immediately.
+        ctrl.set_available(true, None);
+        assert!(host.replay_pending_vn_guide_payload(&mut ctrl));
+        assert_eq!(ctrl.snapshot()["detected"], true);
+        assert_eq!(ctrl.snapshot()["visible"], true);
+        assert!(host.inner.lock().unwrap().pending_vn_guide_payload.is_none());
     }
 
     #[test]

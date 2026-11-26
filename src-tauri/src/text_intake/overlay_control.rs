@@ -230,6 +230,7 @@ impl CaptureConfig {
             .unwrap_or(scene);
         let fallback = session["obs_fallback_available"] == true;
         let target = json!({"scene":scene,"target_id":session["target_id"],"source_name":source,
+            "browser_source":session["browser_source"] == true,
             "capture_kind":if fallback { json!("obs") } else { session["capture_kind"].clone() },
             "available":fallback || session["available"]==true});
         let name = crate::ocr_coordinator::sanitize_ocr_filename(scene);

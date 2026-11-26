@@ -24,9 +24,7 @@ use std::{
 };
 
 pub fn home() -> Result<PathBuf> {
-    directories::BaseDirs::new()
-        .map(|d| d.home_dir().to_path_buf())
-        .context("Cannot determine home directory")
+    dirs::home_dir().context("Cannot determine home directory")
 }
 
 pub fn http_client() -> Result<reqwest::blocking::Client> {

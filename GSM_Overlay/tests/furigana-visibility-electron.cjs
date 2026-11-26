@@ -105,6 +105,35 @@ app.whenReady().then(async () => {
   assert.equal(await visible(), false, 'the auto-hide timer hides readings');
   await send('toggle-furigana-visibility');
   assert.equal(await visible(), true, 'the first hotkey press reveals auto-hidden readings');
+  const coordinates = {
+    type: 'word_coordinates', presence_id: 'line-a', is_final: true,
+    data: [{ text: '你好', bounding_rect: { x1: .1, y1: .1, x3: .3, y3: .15 },
+      words: [{ text: '你好', bounding_rect: { x1: .1, y1: .1, x3: .3, y3: .15 } }] }],
+  };
+  const overlay = payload => send('overlay-websocket-data', { data: JSON.stringify(payload) });
+  const invalidated = { type: 'ocr_text_invalidated', presence_id: coordinates.presence_id };
+  const glyphs = () => run("Array.from(document.querySelectorAll('.text-box'), box => box.textContent).join('')");
+  await send('settings-updated', { manualMode: false, hideFuriganaAfterSeconds: 0 });
+  await overlay(coordinates);
+  assert.equal(await glyphs(), '你好');
+  await overlay(invalidated);
+  assert.equal(await glyphs(), '');
+  await send('show-overlay-hotkey', true);
+  assert.equal(await glyphs(), '你好', 'activation restores an already invalidated frame');
+  await run("window.savedGlyph = document.querySelector('.text-box'); window.savedNotation = document.querySelector('.line-box')");
+  await overlay(invalidated);
+  await overlay({ type: 'word_coordinates', data: [], is_final: true, source: 'hotkey' });
+  assert.equal(await run("!!savedNotation && savedNotation.isConnected && savedGlyph.isConnected"), true,
+    'focus loss keeps the original glyph and styled notation in place');
+  await send('settings-updated', { manualMode: true });
+  await send('show-overlay-hotkey', false);
+  await overlay(invalidated);
+  await send('show-overlay-hotkey', true);
+  assert.equal(await glyphs(), '你好', 'the next press reveals the same line');
+  await overlay({ type: 'overlay_clear' });
+  await overlay({ type: 'ocr_text_revalidated', presence_id: coordinates.presence_id, payload: coordinates });
+  await send('show-overlay-hotkey', true);
+  assert.equal(await glyphs(), '', 'an explicit clear retires the frame');
   assert.deepEqual(errors, []);
   view.destroy();
 

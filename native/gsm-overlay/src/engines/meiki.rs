@@ -2,6 +2,7 @@
 //! Tensor and coordinate conventions match rtr46/meikiocr (MIT).
 use super::line_cache::{self, LineCache};
 use crate::inference::Model;
+use crate::scheduling::ThreadPolicy;
 use crate::{
     models,
     pipeline::{Recognition, TextBox},
@@ -130,12 +131,13 @@ pub struct Meiki {
     horizontal: Option<(Model, super::telemetry::ModelRegistration)>,
     vertical: Option<(Model, super::telemetry::ModelRegistration)>,
     cache: LineCache,
+    policy: ThreadPolicy,
     pub model: Detector,
 }
 
-fn session(path: &Path) -> Result<Model> {
-    let threads = std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4));
-    Model::file(path, threads)
+fn session(path: &Path, policy: &ThreadPolicy) -> Result<Model> {
+    let default_threads = std::thread::available_parallelism().map_or(2, |n| n.get().clamp(1, 4));
+    Model::file_with_policy(path, default_threads, true, policy)
 }
 
 pub fn install(root: &Path, recognition: bool) -> Result<()> {
@@ -230,6 +232,13 @@ impl Meiki {
         Self::with_model(root, Detector::read(root.parent().unwrap_or(root))?)
     }
     pub fn with_model(root: &Path, model: Detector) -> Result<Self> {
+        Self::with_model_and_policy(root, model, ThreadPolicy::default())
+    }
+    pub fn with_model_and_policy(
+        root: &Path,
+        model: Detector,
+        policy: ThreadPolicy,
+    ) -> Result<Self> {
         let path = model.ensure(root)?;
         let file_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let (width, height) = model.dimensions();
@@ -239,7 +248,7 @@ impl Meiki {
             Some(format!("{width}x{height}")),
             file_bytes,
             true,
-            || session(&path),
+            || session(&path, &policy),
         )?;
         Ok(Self {
             root: root.to_path_buf(),
@@ -248,6 +257,7 @@ impl Meiki {
             horizontal: None,
             vertical: None,
             cache: LineCache::default(),
+            policy,
             model,
         })
     }
@@ -383,13 +393,14 @@ impl Meiki {
             } else {
                 ("meiki_rec_horizontal", "MeikiOCR Horizontal Rec")
             };
+            let policy = self.policy.clone();
             let (session, reg) = super::telemetry::ModelRegistration::measure_load(
                 id,
                 label,
                 None,
                 file_bytes,
                 true,
-                || session(&rec_path),
+                || session(&rec_path, &policy),
             )?;
             *target = Some((session, reg));
         }

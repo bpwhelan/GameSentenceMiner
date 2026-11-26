@@ -2,7 +2,7 @@
 //! rtr46's MIDA horizontal detector. Geometry follows the meikipop MIDA provider
 //! at 0bb61ca117667faccb485f034e5e6b1d489569c0 (adapted from vita-vn-ocr).
 use super::{meiki, telemetry::ModelRegistration, vocr::LineBox};
-use crate::{inference::Model, models};
+use crate::{inference::Model, models, scheduling::ThreadPolicy};
 use anyhow::{Result, ensure};
 use image::RgbaImage;
 use std::path::Path;
@@ -13,7 +13,7 @@ pub(super) struct Finder {
 }
 
 impl Finder {
-    pub fn new(root: &Path) -> Result<Self> {
+    pub fn with_policy(root: &Path, policy: &ThreadPolicy) -> Result<Self> {
         let path = models::pinned_model(
             root,
             "rtr46/mida",
@@ -22,14 +22,14 @@ impl Finder {
             "7a09988b2596ef3fda2e5dfa815bfebbba6d3dcc385cc905cbb329cd8c95a4fa",
         )?;
         let file_bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
+        let default_threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(4));
         let (model, reg) = ModelRegistration::measure_load(
             "mida_detector",
             "MIDA Detector",
             None,
             file_bytes,
             true,
-            || Model::file_with_pattern(&path, threads, false),
+            || Model::file_with_policy(&path, default_threads, false, policy),
         )?;
         Ok(Self { model, reg })
     }

@@ -1,8 +1,9 @@
 //! Windows input ownership is separate from visibility and foreground focus.
 //! Rebuilding Tao window styles to change passthrough recreates the composited
 //! surface and can flash the desktop. Keep that surface and change only hit testing.
+use crate::overlay_host::OverlayHost;
 use crate::overlay_magpie::{sample_pointer, PointerSample};
-use crate::overlay_pointer::PointerPacer;
+use crate::overlay_pointer::{PointerPacer, IDLE_INTERVAL};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
@@ -28,6 +29,8 @@ struct InputState {
     label: String,
     ignore: bool,
     forward: bool,
+    lookup_polling: bool,
+    recent_text_until: Option<tokio::sync::watch::Receiver<Option<Instant>>>,
     frameless: bool,
     layered: bool,
     pointer: PointerPacer<ViewportPointer>,
@@ -59,6 +62,8 @@ fn install(window: &WebviewWindow) -> Result<HWND, String> {
             label: window.label().into(),
             ignore: false,
             forward: false,
+            lookup_polling: false,
+            recent_text_until: None,
             frameless: false,
             layered: false,
             pointer: PointerPacer::default(),
@@ -146,6 +151,16 @@ pub fn ignore(window: &WebviewWindow, value: &Value) -> Result<(), String> {
             }
             state.ignore = ignore;
             state.forward = forward;
+            state.lookup_polling = value["lookupPolling"] == true;
+            if value["pollAfterText"] == true {
+                if state.recent_text_until.is_none() {
+                    state.recent_text_until = window
+                        .try_state::<OverlayHost>()
+                        .map(|host| host.recent_text_deadline());
+                }
+            } else {
+                state.recent_text_until = None;
+            }
             state.layered = true;
         }
         let before = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
@@ -175,8 +190,13 @@ unsafe fn sync_pointer_timer(hwnd: HWND) -> Result<(), String> {
     let Some(state) = windows.get_mut(&(hwnd.0 as usize)) else {
         return Ok(());
     };
-    let next = (state.forward && visible)
-        .then(|| state.pointer.interval(Instant::now()).as_millis() as u32);
+    let next = (state.forward && visible).then(|| {
+        let until = state.recent_text_until.as_ref().and_then(|rx| *rx.borrow());
+        state
+            .pointer
+            .interval(Instant::now(), state.lookup_polling, until)
+            .as_millis() as u32
+    });
     if state.timer_ms == next {
         return Ok(());
     }
@@ -238,8 +258,20 @@ unsafe fn forward_pointer(hwnd: HWND) {
     }
 }
 
-// Used by the isolated native smoke suite to verify timer suspension without
-// moving the user's physical mouse or depending on its current position.
+pub(crate) fn wake_idle_pointer(window: &WebviewWindow) {
+    if forwarding_interval(window) != Some(IDLE_INTERVAL.as_millis() as u32) {
+        return;
+    }
+    let target = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        if let Ok(hwnd) = target.hwnd() {
+            unsafe {
+                let _ = sync_pointer_timer(hwnd);
+            }
+        }
+    });
+}
+
 pub(crate) fn forwarding_interval(window: &WebviewWindow) -> Option<u32> {
     let hwnd = window.hwnd().ok()?;
     WINDOWS

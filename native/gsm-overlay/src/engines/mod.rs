@@ -11,6 +11,7 @@ mod screenai;
 pub mod telemetry;
 pub mod vocr;
 use crate::pipeline::Recognition;
+use crate::scheduling::ThreadPolicy;
 use anyhow::{Result, bail};
 use image::RgbaImage;
 use std::path::{Path, PathBuf};
@@ -28,6 +29,7 @@ pub fn release_idle_models(idle_for: std::time::Duration) -> bool {
 
 pub struct Engines {
     root: PathBuf,
+    policy: ThreadPolicy,
     remote: Option<remote::Remote>,
     meiki: Option<meiki::Meiki>,
     mida: Option<mida::Finder>,
@@ -38,8 +40,12 @@ pub struct Engines {
 }
 impl Engines {
     pub fn new(profile: &Path) -> Self {
+        Self::with_thread_policy(profile, ThreadPolicy::default())
+    }
+    pub fn with_thread_policy(profile: &Path, policy: ThreadPolicy) -> Self {
         Self {
             root: profile.to_owned(),
+            policy,
             remote: None,
             meiki: None,
             mida: None,
@@ -48,6 +54,17 @@ impl Engines {
             finder: None,
             lens: None,
         }
+    }
+    /// Update the ONNX session thread policy. Drops cached multi-thread ONNX sessions
+    /// so they recreate their worker pools with the new affinity/priority/thread count.
+    pub fn set_thread_policy(&mut self, policy: ThreadPolicy) -> bool {
+        if self.policy == policy {
+            return false;
+        }
+        self.policy = policy;
+        self.meiki = None;
+        self.mida = None;
+        true
     }
     /// Keep both passes/composite dependencies, but drop models left behind by
     /// an engine change. Recognition itself must not evict the other pass.
@@ -104,7 +121,11 @@ impl Engines {
             "meikiocr" | "meiki_text_detector" => {
                 let selected = meiki::selection::Detector::read(&self.root)?;
                 if self.meiki.as_ref().is_none_or(|m| m.model != selected) {
-                    self.meiki = Some(meiki::Meiki::with_model(&self.root.join("ocr"), selected)?);
+                    self.meiki = Some(meiki::Meiki::with_model_and_policy(
+                        &self.root.join("ocr"),
+                        selected,
+                        self.policy.clone(),
+                    )?);
                 }
                 if engine == "meiki_text_detector" {
                     Ok(Recognition {
@@ -117,7 +138,10 @@ impl Engines {
             }
             "mida_detector" | "mida_vocr" => {
                 if self.mida.is_none() {
-                    self.mida = Some(mida::Finder::new(&self.root.join("ocr"))?);
+                    self.mida = Some(mida::Finder::with_policy(
+                        &self.root.join("ocr"),
+                        &self.policy,
+                    )?);
                 }
                 let boxes = self.mida.as_mut().unwrap().detect(image)?;
                 if engine == "mida_detector" {

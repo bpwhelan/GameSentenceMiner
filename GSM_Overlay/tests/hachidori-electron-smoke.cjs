@@ -332,6 +332,7 @@ app.whenReady().then(async () => {
     const yomitanPopupIds = new Set();
     let lastPopupCount = 0, lastPopupChangeTime = 0, releaseFinished = false;
     const textHover = { reset() {} };
+    const syncOcrPresencePresentation = () => {};
     const cancelDeferredManualReveal = () => {}, clearManualDesktopBackground = () => {};
     const setManualInteractionSuppressed = () => {}, shouldHideOverlayWhenManualInactive = () => true;
     const applyManualInactivePresentation = () => { releaseFinished = true; };

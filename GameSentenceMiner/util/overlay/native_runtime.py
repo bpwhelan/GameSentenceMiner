@@ -18,7 +18,7 @@ def command(processor, action="configure", **request) -> dict:
     from GameSentenceMiner.ocr.gsm_ocr_config import get_overlay_area_config
     from GameSentenceMiner.util.config.configuration import get_config, gsm_state
     from GameSentenceMiner.util.data_directory import get_app_directory
-    from GameSentenceMiner.util.overlay.capture_state import get_overlay_capture_state
+    from GameSentenceMiner.util.overlay.capture_state import get_overlay_capture_state, is_browser_capture_source
 
     config = get_config()
     settings = asdict(config.overlay)
@@ -37,6 +37,7 @@ def command(processor, action="configure", **request) -> dict:
         state = desktop_session.snapshot()
         scene, target, source = state["scene"], state["target_id"], state["source_name"] or state["scene"]
         kind, available = state["capture_kind"], state["available"]
+        browser_source = state.get("browser_source") is True
         if state.get("obs_fallback_available"):
             kind, available = "obs", True
     else:
@@ -45,6 +46,7 @@ def command(processor, action="configure", **request) -> dict:
         scene = gsm_state.current_game
         available = bool(get_overlay_capture_state(monitor)["available"])
         kind = "obs" if not target and source else "window"
+        browser_source = is_browser_capture_source(monitor)
     return {
         "type": "native-overlay-command",
         "action": action,
@@ -55,6 +57,7 @@ def command(processor, action="configure", **request) -> dict:
             "scene": scene,
             "target_id": target,
             "source_name": source,
+            "browser_source": browser_source,
             "capture_kind": "obs" if backend == "obs" else kind,
             "available": available,
             "areas": areas,

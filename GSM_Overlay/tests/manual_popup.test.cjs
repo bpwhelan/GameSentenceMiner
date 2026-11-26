@@ -64,7 +64,7 @@ function setup(reader, inactiveBehavior = 'hide-overlay', mode = 'toggle') {
     yomitanPopupIds: new Set(),
     lastPopupCount: 0, lastPopupChangeTime: 0, isMagpieActive: false,
     overlayCaptureAvailable: true, gamepadHandler: null,
-    textHover: { reset() {} },
+    textHover: { reset() {} }, syncOcrPresencePresentation() {},
     cancelDeferredManualReveal() {}, clearManualDesktopBackground() {},
     armDeferredManualReveal() {},
     revealManualOverlayContent: () => { text.style.display = ''; },

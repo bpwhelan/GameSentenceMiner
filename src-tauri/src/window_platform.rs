@@ -85,6 +85,18 @@ fn on_main(window: &WebviewWindow, action: &str, value: &Value) -> Result<(), St
                 )
                 .map_err(|e| e.to_string())?;
             }
+            "showWithoutActivating" => {
+                SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOZORDER | SWP_SHOWWINDOW,
+                )
+                .map_err(|e| e.to_string())?;
+            }
             "blur" => {
                 if GetForegroundWindow() == hwnd {
                     let _ = windows::Win32::UI::Input::KeyboardAndMouse::SetActiveWindow(
@@ -149,6 +161,10 @@ fn on_main(window: &WebviewWindow, action: &str, value: &Value) -> Result<(), St
     use gtk::prelude::*;
     let widget = window.gtk_window().map_err(|e| e.to_string())?;
     match action {
+        "showWithoutActivating" => {
+            widget.set_focus_on_map(false);
+            widget.show_all();
+        }
         "opacity" => widget.set_opacity(
             value
                 .as_f64()
@@ -219,6 +235,7 @@ fn on_main(window: &WebviewWindow, action: &str, value: &Value) -> Result<(), St
     let pointer = window.ns_window().map_err(|e| e.to_string())?;
     let native = unsafe { &*(pointer as *const objc2_app_kit::NSWindow) };
     match action {
+        "showWithoutActivating" => native.orderBack(None),
         "opacity" => native.setAlphaValue(value.as_f64().ok_or("Opacity must be a number")?.clamp(0.0, 1.0)),
         "ignoreCursor" => native.setIgnoresMouseEvents(value["ignore"].as_bool().unwrap_or(false)),
         "focus" => { window.set_focus().map_err(|e| e.to_string())?; },

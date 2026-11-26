@@ -54,6 +54,37 @@ fn advance_choice(ctrl: &mut VnGuideController) {
 }
 
 #[tokio::test]
+async fn exact_current_ocr_row_opens_the_guide_even_without_menu_evidence() {
+    let (_dir, mut ctrl, _) = setup("auto").await;
+    ctrl.set_available(true, None);
+    let steps = validate_route(&json!([{"simpleJp":"言えない"},{"simpleJp":"進む"}])).unwrap();
+    let row = |text, x1, y1, x3, y3| {
+        json!({"text":text, "bounding_rect":{"x1":x1,"y1":y1,"x3":x3,"y3":y3}})
+    };
+    let choice = row("1.言えない", 0.43, 0.854, 0.565, 0.898);
+    let other = row("2/まあ……色々と", 0.392, 0.905, 0.604, 0.947);
+    for (data, menu) in [
+        (vec![choice.clone(), other], true),
+        (vec![choice.clone()], false),
+        (vec![row("1言えない", 0.43, 0.854, 0.565, 0.898)], false),
+        (vec![row("言えない", 0.35, 0.7, 0.65, 0.85)], false),
+        (vec![choice, row("言えない", 0.06, 0.1, 0.15, 0.14)], false),
+    ] {
+        ctrl.tracker = Some(GuideTracker::new(steps.clone(), 0));
+        ctrl.observe(&json!({"type":"word_coordinates","native_layout":true,"is_final":true,
+            "line_id":"choice","data":data}));
+        let state = ctrl.snapshot();
+        assert_eq!(state["detected"], true, "{data:?}");
+        assert_eq!(state["visible"], true);
+        assert_eq!(state["index"], 0);
+        ctrl.observe(&frame(&["次の会話"], "dialogue"));
+        assert_eq!(ctrl.snapshot()["index"], usize::from(menu), "{data:?}");
+        ctrl.observe(&frame(&["その後の会話"], "later"));
+        assert_eq!(ctrl.snapshot()["index"], usize::from(menu));
+    }
+}
+
+#[tokio::test]
 async fn choice_click_through_follows_live_detection_and_opt_out() {
     let (_dir, mut ctrl, mut settings) = setup("hotkey").await;
     ctrl.set_available(true, None);

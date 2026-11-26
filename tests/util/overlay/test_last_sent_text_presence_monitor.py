@@ -226,3 +226,43 @@ def test_disabled_setting_sends_normally_without_starting_monitor(monkeypatch):
     assert coordinate_sends == [_overlay_payload()]
     assert "presence_id" not in payload
     assert processor._last_sent_presence_task is None
+
+
+def test_chromium_game_sends_coordinates_without_monitoring(monkeypatch):
+    processor = get_overlay_coords.OverlayProcessor()
+    processor.window_monitor = SimpleNamespace(
+        last_target_info={"window_class": "Chrome_WidgetWin_1", "exe": "RPG.exe"}
+    )
+    sent = []
+
+    async def send(payload):
+        sent.append(payload.copy())
+
+    monkeypatch.setattr(get_overlay_coords, "get_overlay_config", _enabled_config)
+    monkeypatch.setattr(get_overlay_coords.websocket_manager, "has_clients", lambda _: True)
+    monkeypatch.setattr(get_overlay_coords, "send_word_coordinates_to_overlay", send)
+    asyncio.run(processor._send_word_coordinates_with_presence(_overlay_payload()))
+    assert sent == [_overlay_payload()]
+
+
+def test_only_the_selected_visual_source_disables_presence(monkeypatch):
+    from GameSentenceMiner.util.overlay import capture_state
+
+    scene_items = [
+        {"sourceName": "Mic", "inputKind": "wasapi_input_capture"},
+        {"sourceName": "Lesson", "inputKind": "browser_source"},
+    ]
+    state = SimpleNamespace(
+        current_scene="Scene",
+        scene_items_by_scene={"Scene": scene_items},
+        input_active_by_name={},
+        input_show_by_name={},
+        input_settings_by_name={},
+    )
+    monkeypatch.setattr(capture_state.desktop_session, "enabled", lambda: False)
+    monkeypatch.setattr(capture_state, "get_obs_state", lambda: state)
+    assert capture_state.is_browser_capture_source(None)
+    scene_items.append({"sourceName": "Game", "inputKind": "window_capture"})
+    assert not capture_state.is_browser_capture_source(None)
+    state.input_settings_by_name["Game"] = {"window": "Novel:Chrome_WidgetWin_1:RPG.exe"}
+    assert capture_state.is_browser_capture_source(None)

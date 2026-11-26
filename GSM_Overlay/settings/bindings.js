@@ -2,6 +2,11 @@
 // Keep IDs and setting keys stable when moving controls between pages.
 const HOTKEY_BINDING_OPTIONS = Object.freeze({
   showHotkey: { warningElementId: "ctrl-warning", showCtrlWarning: true, placeholder: "Press keys..." },
+  toggleClickThroughHotkey: {
+    warningElementId: "clickthrough-ctrl-warning",
+    showCtrlWarning: true,
+    placeholder: "Press keys...",
+  },
   toggleFuriganaHotkey: {
     warningElementId: "furigana-ctrl-warning",
     showCtrlWarning: true,
@@ -927,6 +932,7 @@ const SETTING_BINDING_DEFINITIONS = [
   ]),
   createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
   createCheckboxBinding("textHoverClickThrough", "#textHoverClickThrough"),
+  createHotkeyBinding("toggleClickThroughHotkey", "#toggleClickThroughHotkey"),
   createCheckboxBinding("hideYomitanAfterMine", "#hideYomitanAfterMine"),
   createCheckboxBinding("routeAllHotkeysThroughInputServer", "#routeAllHotkeysThroughInputServer"),
   createNumberBinding("afkTimer", "#afkTimer", {

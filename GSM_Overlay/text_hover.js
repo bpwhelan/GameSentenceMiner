@@ -12,11 +12,12 @@ function isClickableHoverTarget(target, clickThroughText = false) {
   return !!target.closest('.interactive');
 }
 
-function createTextHoverController({ window: win, document: doc, onIgnore, isClickThroughEnabled = () => false }) {
+function createTextHoverController({ window: win, document: doc, onIgnore, isClickThroughEnabled = () => false, onLookupPollingChange }) {
   let projected = false, dispatching = false, lastPoint = null, lastTarget = null;
   let lastSignature = '', interactive = false, publishedIgnore = null;
   let popupMouseCaptured = false;
   let hoverState = null;
+  let lookupPolling = false;
   const popupFrames = new Set();
   const events = ['pointermove', 'pointerover', 'pointerout', 'pointerup',
     'mousemove', 'mouseover', 'mouseout', 'mouseenter', 'mouseleave'];
@@ -47,6 +48,11 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
     hoverState = next;
     emitHoverState();
   }
+  function setLookupPolling(fast) {
+    if (lookupPolling === fast) return;
+    lookupPolling = fast;
+    onLookupPollingChange?.(fast);
+  }
   function onReaderReady() {
     emitHoverState();
     // The first forwarded move can precede the scanner on a cold WebView.
@@ -66,12 +72,15 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
       && x < win.innerWidth && y < win.innerHeight ? doc.elementFromPoint(x, y) : null;
     // Never split a press/release between the game and the overlay, including a
     // drag from a cross-origin dictionary frame back onto the game text.
-    if (!point.buttons) interactive = isClickableHoverTarget(target, isClickThroughEnabled());
+    const clickThrough = isClickThroughEnabled();
+    if (!point.buttons) interactive = isClickableHoverTarget(target, clickThrough);
     lastPoint = point;
     // Auto-hide must also see empty space and viewport exits, where there may
     // be no DOM target to scan. Use the same displayed point as mouse ownership.
-    publishHoverState({ active: true, x, y,
-      overText: !!target?.closest(LOOKUP_TEXT), overPopup: !!target?.closest(DICTIONARY_SURFACES) });
+    const overText = !!target?.closest(LOOKUP_TEXT);
+    const overPopup = !!target?.closest(DICTIONARY_SURFACES);
+    setLookupPolling(clickThrough && overText && !overPopup && !target.closest(CONTROLS));
+    publishHoverState({ active: true, x, y, overText, overPopup });
     if (synthesize) {
       const signature = [x, y, point.buttons || 0, !!point.shiftKey, !!point.ctrlKey, !!point.altKey, !!point.metaKey].join(':');
       if (target !== lastTarget || signature !== lastSignature) {
@@ -149,11 +158,13 @@ function createTextHoverController({ window: win, document: doc, onIgnore, isCli
         } finally { dispatching = false; }
       }
       projected = false; lastPoint = null; lastTarget = null;
+      setLookupPolling(false);
       publishPopupState(false);
       publishHoverState({ active: false });
       lastSignature = ''; interactive = false; publishedIgnore = null;
     },
     dispose() {
+      setLookupPolling(false);
       publishPopupState(false);
       publishHoverState({ active: false });
       popupFrames.clear();

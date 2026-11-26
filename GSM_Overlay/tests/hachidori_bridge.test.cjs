@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { install, isGsmHost, homeScanOptions, pageScanAllowed } = require('../integrations/hachidori/bridge.js');
 
 test('the desktop accepts only feed text and disables lookup in embedded pages', () => {
-  const word = { closest: selector => selector === '[data-gsm-reader-scan="shift"]' ? word : null };
+  const word = { closest: selector => selector === '[data-gsm-reader-scan]' ? word : null };
   const control = { closest: () => null };
   assert.equal(pageScanAllowed('feed', word), true);
   assert.equal(pageScanAllowed('feed', control), false);
@@ -12,10 +12,18 @@ test('the desktop accepts only feed text and disables lookup in embedded pages',
   assert.equal(pageScanAllowed(undefined, control), true);
 });
 
-test('Home uses Shift while preserving the configured overlay and popup controls', () => {
+test('Home honors configured hover modifier while preserving overlay and popup controls', () => {
   const options = { lookupMode: 'hover', activationKey: 'Alt', hoverEnabled: true };
-  const target = { closest: selector => selector === '[data-gsm-reader-scan="shift"]' ? {} : null };
-  assert.deepEqual(homeScanOptions(options, target), { ...options, lookupMode: 'activationSticky', activationKey: 'Shift' });
+  const makeTarget = modifier => {
+    const node = { getAttribute: attr => attr === 'data-gsm-reader-scan' ? modifier : null };
+    return { closest: selector => selector === '[data-gsm-reader-scan]' ? node : null };
+  };
+  assert.deepEqual(homeScanOptions(options, makeTarget('shift')), { ...options, lookupMode: 'activationSticky', activationKey: 'Shift' });
+  assert.deepEqual(homeScanOptions(options, makeTarget('ctrl')), { ...options, lookupMode: 'activationSticky', activationKey: 'Control' });
+  assert.deepEqual(homeScanOptions(options, makeTarget('alt')), { ...options, lookupMode: 'activationSticky', activationKey: 'Alt' });
+  assert.deepEqual(homeScanOptions(options, makeTarget('meta')), { ...options, lookupMode: 'activationSticky', activationKey: 'Meta' });
+  assert.deepEqual(homeScanOptions(options, makeTarget('none')), { ...options, lookupMode: 'hover' });
+  assert.deepEqual(homeScanOptions(options, makeTarget(null)), { ...options, lookupMode: 'activationSticky', activationKey: 'Shift' });
   assert.equal(options.lookupMode, 'hover');
   assert.equal(options.activationKey, 'Alt');
   assert.equal(homeScanOptions(options, { closest: () => null }), options);

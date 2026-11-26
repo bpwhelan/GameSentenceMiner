@@ -5,9 +5,45 @@ import time
 
 from GameSentenceMiner.obs import desktop_session
 from GameSentenceMiner.obs.active_game import get_obs_state
+from GameSentenceMiner.obs.browser_source import is_browser_window_source
+from GameSentenceMiner.obs.launch import get_preferred_video_source, parse_obs_window_target
 from GameSentenceMiner.util.config.configuration import is_windows
 from GameSentenceMiner.util.platform.window_state_monitor import user32
 from GameSentenceMiner.web.gsm_websocket import ID_OVERLAY, websocket_manager
+
+
+def is_browser_capture_source(monitor):
+    if desktop_session.enabled():
+        return desktop_session.snapshot().get("browser_source") is True
+    state = get_obs_state()
+    info = getattr(monitor, "last_target_info", None) or {}
+    tracked_scene = getattr(monitor, "last_target_scene_name", None)
+    if is_browser_window_source(info) and (not state or not tracked_scene or tracked_scene == state.current_scene):
+        return True
+    if not state:
+        return False
+    items = state.scene_items_by_scene.get(state.current_scene, [])
+    selected = get_preferred_video_source(
+        [
+            item
+            for item in items
+            if item.get("sceneItemEnabled", True)
+            and not (item.get("inputKind") or "").startswith(("wasapi_", "pulse_", "alsa_", "coreaudio_"))
+            and "audio" not in (item.get("inputKind") or "")
+        ],
+        state.input_active_by_name,
+        state.input_show_by_name,
+    )
+    if not selected:
+        return False
+    if selected.get("inputKind") == "browser_source":
+        return True
+    settings = state.input_settings_by_name.get(selected.get("sourceName")) or {}
+    info = parse_obs_window_target(settings.get("window")) or {}
+    x11_fields = (settings.get("capture_window") or "").splitlines()
+    if len(x11_fields) >= 3:
+        info["wm_class"] = x11_fields[2]
+    return is_browser_window_source(info)
 
 
 def get_overlay_capture_state(monitor):

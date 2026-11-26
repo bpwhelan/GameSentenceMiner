@@ -52,7 +52,11 @@ from GameSentenceMiner.util.config.configuration import (
 )
 from GameSentenceMiner.util.platform.monitor_selection import resolve_monitor_descriptor
 from GameSentenceMiner.util.overlay.adaptive_crop import AdaptiveOverlayCrop, shift_ocr_boxes
-from GameSentenceMiner.util.overlay.capture_state import get_overlay_capture_state, publish_overlay_capture_state
+from GameSentenceMiner.util.overlay.capture_state import (
+    get_overlay_capture_state,
+    is_browser_capture_source,
+    publish_overlay_capture_state,
+)
 from GameSentenceMiner.util.overlay.last_sent_text_presence import (
     LastSentTextPresenceTracker,
     prepare_presence_candidate,
@@ -888,7 +892,11 @@ class OverlayProcessor:
             await asyncio.sleep(0)
             while generation == self._last_sent_presence_generation:
                 overlay_config = get_overlay_config()
-                if not overlay_config.last_sent_ocr_presence_check or not websocket_manager.has_clients(ID_OVERLAY):
+                if (
+                    not overlay_config.last_sent_ocr_presence_check
+                    or is_browser_capture_source(self.window_monitor)
+                    or not websocket_manager.has_clients(ID_OVERLAY)
+                ):
                     return
                 paused, pause_generation = get_game_process_pause_state()
                 if paused:
@@ -932,7 +940,11 @@ class OverlayProcessor:
                 if generation != self._last_sent_presence_generation:
                     return
                 overlay_config = get_overlay_config()
-                if not overlay_config.last_sent_ocr_presence_check or not websocket_manager.has_clients(ID_OVERLAY):
+                if (
+                    not overlay_config.last_sent_ocr_presence_check
+                    or is_browser_capture_source(self.window_monitor)
+                    or not websocket_manager.has_clients(ID_OVERLAY)
+                ):
                     return
                 paused, current_pause_generation = get_game_process_pause_state()
                 if current_pause_generation != pause_generation:
@@ -1092,6 +1104,7 @@ class OverlayProcessor:
             is_primary_payload
             and has_overlay_event
             and overlay_config.last_sent_ocr_presence_check
+            and not is_browser_capture_source(self.window_monitor)
             and (
                 overlay_config.last_sent_ocr_presence_remove_notation
                 or overlay_config.last_sent_ocr_presence_invalidate_lookups
