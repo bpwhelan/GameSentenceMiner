@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import {execFileSync} from 'node:child_process';
 import {signingEnvironment} from './native-signing.mjs';
 import {auditNativePackage} from './native-package-policy.mjs';
 import {nativeTargetDirectory} from './native-paths.mjs';
@@ -12,6 +13,12 @@ if (portablePreview && (signed || args.includes('--debug'))) {
   throw Error('Build the portable preview as an unsigned release-profile application.');
 }
 const environment=signed?await signingEnvironment():{...process.env};
+if (process.platform === 'win32' && !portablePreview && !args.includes('--no-bundle')) {
+  execFileSync('cargo', ['build', '--locked', '--release', '-p', 'gsm-db', '--bin', 'gsm-handoff'], {
+    cwd: root, env: environment, stdio: 'inherit', windowsHide: true,
+  });
+  environment.GSM_HANDOFF_HELPER = path.join(await nativeTargetDirectory({env: environment}), 'release/gsm-handoff.exe');
+}
 const desktopConfig = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json')));
 const publishedPreview = desktopConfig.version.includes('-preview.');
 const stagedApp = path.join(root, 'build/native-desktop/app');
