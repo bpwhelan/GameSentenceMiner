@@ -38,8 +38,8 @@ async function exited(child) {
   const [code, signal] = await once(child, 'exit');
   return {code, signal};
 }
-function consent(choice) {
-  return exited(spawn('pwsh', ['-NoProfile', '-File', path.join(import.meta.dirname, 'consent.ps1'), choice],
+function consent(choice, installerPid = 0) {
+  return exited(spawn('pwsh', ['-NoProfile', '-File', path.join(import.meta.dirname, 'consent.ps1'), choice, String(installerPid)],
     {stdio: 'inherit', windowsHide: true})).then(({code}) => assert.equal(code, 0));
 }
 const declined = await Promise.all([
@@ -50,10 +50,12 @@ assert.notEqual(declined[0].code, 0);
 assert.equal(await fs.stat(backup).catch(() => null), null);
 await fs.access(electron);
 await fs.writeFile(databasePath, 'damaged fixture');
-const failedSetup = exited(spawn(installer, ['/S'], {windowsHide: true}));
-await consent('Yes');
-await consent('OK');
-assert.notEqual((await failedSetup).code, 0);
+const failureProcess = spawn(installer, ['/S'], {windowsHide: true});
+const failedSetup = exited(failureProcess);
+await consent('Yes', failureProcess.pid);
+await consent('OK', failureProcess.pid);
+assert.notEqual((await failedSetup).code, 0, 'Corrupt data must stop installation');
+assert.equal(await fs.stat(path.join(process.env.LOCALAPPDATA, 'GSM/gsm-desktop.exe')).catch(() => null), null);
 assert.deepEqual(await fs.readdir(backup), []);
 assert.equal(await fs.readFile(databasePath, 'utf8'), 'damaged fixture');
 // Replace only the known synthetic file in this disposable profile.
