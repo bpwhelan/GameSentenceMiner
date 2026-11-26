@@ -5,7 +5,7 @@ import {createServer as createHttpServer} from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import {createDictionaryFixture} from './dictionary-fixture.mjs';
-import {nativeExecutable} from './native-paths.mjs';
+import {nativeExecutable, nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
 const executable=nativeExecutable();
@@ -15,6 +15,11 @@ const targets=modes.length?modes:['runtime','foundation','yomitan','hachidori','
 
 for(const mode of targets) {
   const profile=path.join(temp,mode);await fs.mkdir(profile,{recursive:true});
+  if (mode === 'ocr-preview' || mode === 'mining-settings') {
+    // Exercise the normal tab bar after first-run onboarding.
+    await fs.mkdir(path.join(profile, 'electron'), {recursive: true});
+    await fs.writeFile(path.join(profile, 'electron/config.json'), JSON.stringify({hasCompletedSetup: true}));
+  }
   // Give the workspace check neither a checkout .venv nor a managed Python.
   const database = ['database', 'database-recovery', 'vocabulary'].includes(mode);
   const longplay = mode === 'longplay';
@@ -48,7 +53,14 @@ for(const mode of targets) {
     const hasSibling = (await fs.stat(sibling).catch(() => null))?.isFile();
     if (pythonless || !hasSibling) {
       const relative = 'GSM_Overlay/input_server/target/release';
-      const source = hasSibling ? sibling : path.join(root, relative, helper);
+      let source = sibling;
+      if (!hasSibling) {
+        const inputTarget = await nativeTargetDirectory({manifest: 'GSM_Overlay/input_server/Cargo.toml'});
+        const configured = path.join(inputTarget, 'release', helper);
+        source = (await fs.stat(configured).catch(() => null))?.isFile()
+          ? configured
+          : path.join(root, relative, helper);
+      }
       const development = path.join(appRoot, relative, helper);
       const packaged = path.join(appRoot, 'GSM_Overlay', helper);
       await fs.mkdir(path.dirname(development), {recursive: true});

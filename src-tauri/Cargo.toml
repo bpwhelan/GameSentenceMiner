@@ -63,6 +63,7 @@ tempfile = "3"
 trash = "5"
 
 [target.'cfg(windows)'.dependencies]
+steamlocate = "2.1"
 rand_core = { version = "0.6", features = ["getrandom"] }
 rsa = { version = "0.9", default-features = false, features = ["std"] }
 ico = "0.6"
@@ -86,43 +87,3 @@ custom-protocol = ["tauri/custom-protocol"]
 # Run a release-profile executable against the source checkout and local helpers.
 local-build = []
 portable-preview = []
-
-[profile.release]
-codegen-units = 1
-lto = "thin"
-strip = true
-# Keep OCR and capture optimized for throughput; LTO removes unused code.
-opt-level = 3
-
-[profile.release.package.gsm-desktop]
-opt-level = "z"
-
-# Keep the frequently edited shell unoptimized for fast dev builds.
-# Pixel/OCR loops remain optimized in their engine crates.
-[profile.dev.package.gsm-text-preview]
-opt-level = 3
-[profile.dev.package."fancy-regex:0.17.0"]
-opt-level = 3
-[profile.dev.package.regex-automata]
-opt-level = 3
-[profile.dev.package.gsm-overlay]
-opt-level = 3
-[profile.dev.package.gsm-capture]
-opt-level = 3
-[profile.dev.package.gsm-dictionary-transfer]
-opt-level = 3
-[profile.dev.package.fast_image_resize]
-opt-level = 3
-[profile.dev.package.image]
-opt-level = 3
-[profile.dev.package.xcap]
-opt-level = 3
-# Image codecs run on the OCR/preview path even in the development app.
-[profile.dev.package.png]
-opt-level = 3
-[profile.dev.package.fdeflate]
-opt-level = 3
-[profile.dev.package.flate2]
-opt-level = 3
-[profile.dev.package.miniz_oxide]
-opt-level = 3

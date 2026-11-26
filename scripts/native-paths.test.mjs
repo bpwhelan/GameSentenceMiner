@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import {localBuildProfile, nativeTargetDirectory} from './native-paths.mjs';
+import {localBuildProfile, nativeTargetDirectory, pruneAgentRuntimeArchives, pruneDesktopRuns} from './native-paths.mjs';
 
 async function fixture(t, configured = true) {
   // Cargo uses the physical working directory, including when macOS TMPDIR is under /var.
@@ -63,4 +63,50 @@ test('local builds keep using the last successful profile unless explicitly over
   assert.equal(localBuildProfile([], pointer), 'release');
   assert.equal(localBuildProfile(['--debug'], pointer), 'debug');
   assert.throws(() => localBuildProfile(['--release', '--debug'], pointer));
+});
+
+test('pruneDesktopRuns preserves active, stable helper source, and recent fallback while removing older snapshots', async t => {
+  const {projectRoot} = await fixture(t, false);
+  const runsDir = path.join(projectRoot, 'desktop-runs');
+  await fs.mkdir(runsDir, {recursive: true});
+  const makeSnap = async (hex, ageMs) => {
+    const name = `win32-x64-${hex}`;
+    const dir = path.join(runsDir, name);
+    await fs.mkdir(dir, {recursive: true});
+    await fs.writeFile(path.join(dir, 'gsm-desktop.exe'), 'bin');
+    const when = new Date(Date.now() - ageMs);
+    await fs.utimes(dir, when, when);
+    return {name, dir};
+  };
+  const oldest = await makeSnap('11111111111111111111', 50_000);
+  const older = await makeSnap('22222222222222222222', 40_000);
+  const currentSource = await makeSnap('33333333333333333333', 30_000);
+  const fallback = await makeSnap('44444444444444444444', 20_000);
+  const active = await makeSnap('55555555555555555555', 10_000);
+
+  await fs.writeFile(
+    path.join(runsDir, 'win32-x64.json'),
+    JSON.stringify({executable: path.join(active.dir, 'gsm-desktop.exe')}),
+  );
+  await fs.mkdir(path.join(runsDir, 'win32-x64-current'), {recursive: true});
+  await fs.writeFile(path.join(runsDir, 'win32-x64-current', 'build-source.txt'), currentSource.dir);
+
+  const {removed} = await pruneDesktopRuns(runsDir, {keepRecent: 1, platform: 'win32', arch: 'x64'});
+  assert.deepEqual(removed.sort(), [oldest.name, older.name].sort());
+  for (const name of [currentSource.name, fallback.name, active.name, 'win32-x64-current']) {
+    assert.ok((await fs.stat(path.join(runsDir, name))).isDirectory());
+  }
+});
+
+test('pruneAgentRuntimeArchives removes older runtime zips and keeps the active one', async t => {
+  const {projectRoot} = await fixture(t, false);
+  const runtimeDir = path.join(projectRoot, 'runtime');
+  await fs.mkdir(runtimeDir, {recursive: true});
+  await fs.writeFile(path.join(runtimeDir, 'gsm-agent-runtime-win32-x64-old.zip'), 'old');
+  await fs.writeFile(path.join(runtimeDir, 'gsm-agent-runtime-win32-x64-new.zip'), 'new');
+  await fs.writeFile(path.join(runtimeDir, 'agent-runtime.json'), '{}');
+
+  await pruneAgentRuntimeArchives(runtimeDir, 'gsm-agent-runtime-win32-x64-new.zip');
+  const remaining = (await fs.readdir(runtimeDir)).sort();
+  assert.deepEqual(remaining, ['agent-runtime.json', 'gsm-agent-runtime-win32-x64-new.zip']);
 });

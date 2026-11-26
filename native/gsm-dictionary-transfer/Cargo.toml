@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 anyhow = "1"
-chrono = "0.4"
 crc32c = "0.6"
 leveldb-core = "0.1.2"
 num-bigint = "0.4"

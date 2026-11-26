@@ -35,7 +35,8 @@
     "verify:python-deps": "python scripts/verify_python_dependency_policy.py",
     "app:dist": "npm run app:prepare && node scripts/build-native-desktop.mjs && node scripts/collect-native-assets.mjs",
     "stage:native": "node scripts/stage-native-desktop.mjs",
-    "build:input-server": "cargo build --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml --target-dir GSM_Overlay/input_server/target",
+    "build:input-server": "cargo build --locked --release --manifest-path GSM_Overlay/input_server/Cargo.toml",
+    "clean:rust": "node scripts/clean-rust-cache.mjs",
     "test:native": "node scripts/check-native-desktop.mjs",
     "build:qt-host": "node scripts/build-qt-host.mjs",
     "app:prepare": "npm run build && npm run build:windows-helpers && npm run build:input-server && npm run stage:native",
@@ -65,7 +66,6 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@types/semver": "^7.7.1",
-    "@types/ws": "^8.18.1",
     "@types/yauzl": "^3.4.0",
     "@vitejs/plugin-react": "^6.0.4",
     "@xterm/addon-fit": "^0.11.0",
@@ -91,7 +91,6 @@
     "vitest": "^4.1.12"
   },
   "dependencies": {
-    "acorn": "^8.19.0",
     "archiver": "^7.0.1",
     "axios": "^1.18.1",
     "fuse.js": "^7.5.0",

@@ -5,6 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {verifyVocrBundle} from './verify-vocr-package.mjs';
 import {includeSource, stageChangelog, auditNativePackage} from './native-package-policy.mjs';
 import {packageAgentRuntime} from './package-agent-runtime.mjs';
+import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
 export const destination=path.join(root,'build','native-desktop','app');
@@ -40,17 +41,22 @@ export async function stageNativeDesktop({portablePreview = false} = {}) {
   const overlayPackage=JSON.parse(await fs.readFile(path.join(root,'GSM_Overlay/package.json')));
   await fs.writeFile(path.join(destination,'GSM_Overlay/package.json'),JSON.stringify({name:overlayPackage.name,version:overlayPackage.version,main:'main.js',type:'commonjs'}));
   await copy(path.join(root,'LICENSE'),path.join(destination,'LICENSE'));
-  await run('cargo',['build','--locked','--release','--manifest-path','native/gsm-agent/Cargo.toml','--bin','gsm-agent-host','--target-dir','native/gsm-agent/target']);
+  const agentTarget=await nativeTargetDirectory({manifest:'native/gsm-agent/Cargo.toml'});
+  const inputTarget=await nativeTargetDirectory({manifest:'GSM_Overlay/input_server/Cargo.toml'});
+  await run('cargo',['build','--locked','--release','--manifest-path','native/gsm-agent/Cargo.toml','--bin','gsm-agent-host','--target-dir',agentTarget]);
   const agentName=process.platform==='win32'?'gsm-agent-host.exe':'gsm-agent-host';
   const {manifest, archive} = await packageAgentRuntime({
-    executable: path.join(root,'native/gsm-agent/target/release',agentName),
+    executable: path.join(agentTarget,'release',agentName),
     output: path.join(parent,'agent-runtime'), version: packageInfo.version,
   });
   await fs.mkdir(path.join(destination,'native'),{recursive:true});
   await fs.writeFile(path.join(destination,'native/agent-runtime.json'),JSON.stringify(manifest,null,2));
   if (portablePreview) await copy(archive, path.join(destination, 'native/agent-runtime.zip'));
   const server=process.platform==='win32'?'gsm_overlay_server.exe':'gsm_overlay_server';
-  const serverCandidates=['target/release','bin/'+process.platform,'bin'].map(directory=>path.join(root,'GSM_Overlay/input_server',directory,server));
+  const serverCandidates=[
+    path.join(inputTarget,'release',server),
+    ...['target/release','bin/'+process.platform,'bin'].map(directory=>path.join(root,'GSM_Overlay/input_server',directory,server)),
+  ];
   const serverSource=(await Promise.all(serverCandidates.map(async filename=>await exists(filename)?filename:null))).find(Boolean);
   if(!serverSource)throw Error('Build the native input server before staging the application');
   await copy(serverSource,path.join(destination,'GSM_Overlay',server));

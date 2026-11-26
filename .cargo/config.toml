@@ -1,12 +1,20 @@
 [build]
 jobs = 6
-target-dir = "G:/cargo-target/gsm"
+
+[cache]
+# Automatically garbage-collect unused crate downloads and git checkouts in CARGO_HOME.
+auto-clean-frequency = "7 days"
 
 [profile.dev]
 # Tests inherit this profile. Keep source locations for backtraces and avoid
 # retaining incremental state for each feature set, test binary and toolchain.
 debug = "line-tables-only"
 incremental = false
+
+[profile.dev.package."*"]
+# Strip debug info from third-party dependencies to drastically shrink target/
+# and .pdb sizes while keeping line tables for local crates.
+debug = false
 
 [env]
 # sdl2-sys bundles SDL 2.26, whose CMake minimum predates CMake 4's policy floor.

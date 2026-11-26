@@ -43,3 +43,79 @@ export function nativeExecutable() {
   }
   return filename;
 }
+
+// Keep immutable dev launch snapshots bounded so repeated local rebuilds never
+// fill the drive while preserving the active launch record, the Windows stable
+// launcher's helper source, and one recent fallback.
+export async function pruneDesktopRuns(
+  directory = launchDirectory,
+  {keepNames = [], keepRecent = 1, platform = process.platform, arch = process.arch} = {},
+) {
+  const fsp = fs.promises;
+  const entries = await fsp.readdir(directory, {withFileTypes: true}).catch(error => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  const prefix = `${platform}-${arch}-`;
+  const snapshotPattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[0-9a-f]{20}$`);
+  const preserved = new Set(keepNames.filter(Boolean));
+
+  const pointerPath = path.join(directory, `${platform}-${arch}.json`);
+  try {
+    const record = JSON.parse(await fsp.readFile(pointerPath, 'utf8'));
+    if (typeof record?.executable === 'string') {
+      preserved.add(path.basename(path.dirname(record.executable)));
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
+
+  const currentMarker = path.join(directory, `${prefix}current`, 'build-source.txt');
+  try {
+    const source = (await fsp.readFile(currentMarker, 'utf8')).trim();
+    if (source) preserved.add(path.basename(source));
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+
+  const candidates = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !snapshotPattern.test(entry.name) || preserved.has(entry.name)) continue;
+    const fullPath = path.join(directory, entry.name);
+    const stat = await fsp.stat(fullPath).catch(() => null);
+    if (stat) candidates.push({name: entry.name, fullPath, mtimeMs: stat.mtimeMs});
+  }
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  const removed = [];
+  const kept = [...preserved];
+  for (const candidate of candidates.slice(0, Math.max(0, keepRecent))) kept.push(candidate.name);
+  for (const candidate of candidates.slice(Math.max(0, keepRecent))) {
+    try {
+      await fsp.rm(candidate.fullPath, {recursive: true, force: true});
+      removed.push(candidate.name);
+    } catch (error) {
+      // A running instance or detached helper may still hold a lock on Windows.
+      if (!['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY'].includes(error.code)) throw error;
+      kept.push(candidate.name);
+    }
+  }
+  return {removed, kept};
+}
+
+export async function pruneAgentRuntimeArchives(directory, keepBasename) {
+  const fsp = fs.promises;
+  const entries = await fsp.readdir(directory, {withFileTypes: true}).catch(error => {
+    if (error.code === 'ENOENT') return [];
+    throw error;
+  });
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name === keepBasename) continue;
+    if (!/^gsm-agent-runtime-.*\.zip$/i.test(entry.name)) continue;
+    try {
+      await fsp.rm(path.join(directory, entry.name), {force: true});
+    } catch (error) {
+      if (!['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) throw error;
+    }
+  }
+}

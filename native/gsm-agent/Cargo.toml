@@ -26,11 +26,6 @@ name = "gsm-agent-host"
 path = "src/bin/gsm-agent-host.rs"
 required-features = ["runtime"]
 
-[profile.release]
-lto = "thin"
-strip = true
-opt-level = 3
-
 [[example]]
 name = "agent_host"
 required-features = ["runtime"]

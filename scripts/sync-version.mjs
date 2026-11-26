@@ -30,7 +30,10 @@ const nativeVersion = cargo.replace(/(\[package\][\s\S]*?\nversion\s*=\s*)"[^"]*
 if (cargo !== nativeVersion) fs.writeFileSync(cargoPath, nativeVersion);
 
 // The desktop CI build uses cargo --locked, including for generated preview versions.
-const cargoLockPath = path.join(repoRoot, 'src-tauri', 'Cargo.lock');
+const rootCargoLockPath = path.join(repoRoot, 'Cargo.lock');
+const cargoLockPath = fs.existsSync(rootCargoLockPath)
+  ? rootCargoLockPath
+  : path.join(repoRoot, 'src-tauri', 'Cargo.lock');
 const cargoLock = fs.readFileSync(cargoLockPath, 'utf8');
 const desktopLockVersion = /(\[\[package\]\]\r?\nname = "gsm-desktop"\r?\nversion = )"[^"]+"/;
 if (!desktopLockVersion.test(cargoLock)) throw Error('Missing gsm-desktop package in Cargo.lock');

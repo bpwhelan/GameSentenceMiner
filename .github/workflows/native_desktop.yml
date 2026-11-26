@@ -126,11 +126,11 @@ jobs:
         with:
           cache-on-failure: true
           cache-bin: false
+          # The input server has its own lockfile. Listing the shared target twice would prune it twice.
           workspaces: |
-            src-tauri -> target/native-dev
+            . -> src-tauri/target/native-dev
             GSM_Overlay/input_server -> target
             native/gsm-native -> target
-            native/gsm-agent -> target
       - name: Record Rust cache restore
         shell: bash
         env:

@@ -9,7 +9,7 @@ gsm-downloads = { path = "../gsm-downloads" }
 anyhow = "1"
 base64 = "0.22"
 tempfile = "3"
-directories = "6"
+dirs = "6"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 libloading = "0.8"
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "api-24", "download-binaries", "copy-dylibs", "tls-native"] }
@@ -27,7 +27,10 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["ApplicationModel", "Management_Deployment"] }
-windows-sys = { version = "0.59", features = ["Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_LibraryLoader", "Win32_System_ProcessStatus", "Win32_System_SystemInformation", "Win32_System_Threading"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

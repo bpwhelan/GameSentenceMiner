@@ -23,24 +23,25 @@ runtime manifest.
 ## Development build storage
 
 Cargo development builds and tests in this checkout use line-table debug
-information for backtraces and skip the incremental compiler cache.
-Cargo still reuses unchanged compilation outputs. Recompiling a changed crate
-can take longer. Set `CARGO_PROFILE_DEV_DEBUG=2` for full debugger symbols or
-`CARGO_PROFILE_DEV_INCREMENTAL=true` to opt into incremental compilation.
+information for local crates, disable debug symbols for third-party
+dependencies (`[profile.dev.package."*"] debug = false`), skip the incremental
+compiler cache, and enable Cargo's automatic 7-day cache GC for `CARGO_HOME`.
+All desktop and `native/gsm-*` crates share a root Cargo workspace (`Cargo.toml`)
+and lockfile so dependency builds are not duplicated per crate.
 
-To reclaim the existing development cache, run this from the repository root
-when no build or test is running. Review the dry run before removing the flag.
-This cleans Cargo's development output and preserves the launch copies used by
-`npm run start:tauri` and the restart workflow.
+To reclaim stale development artifacts and prune old `desktop-runs` snapshots,
+run:
 
 ```powershell
-cargo clean --manifest-path src-tauri/Cargo.toml --profile dev --dry-run
+npm run clean:rust -- --dry-run
+npm run clean:rust
 ```
 
-To put future desktop Cargo output on another drive, set
-`$env:CARGO_TARGET_DIR = 'D:\GSM-cargo-target'` before running the build. Keep
-that setting for packaging and asset collection so they find the same output.
-Helper-specific targets and staged launch copies still live in the checkout.
+To centralize Cargo output across checkouts or put it on another drive, set the
+`CARGO_TARGET_DIR` environment variable (and optionally `sccache` via
+`~/.cargo/config.toml`). Helper builds and staging resolve Cargo's configured
+target directory automatically, and `npm run build:tauri` automatically prunes
+old launch snapshots in `src-tauri/target/desktop-runs`.
 
 ## Agent / Frida downloads
 

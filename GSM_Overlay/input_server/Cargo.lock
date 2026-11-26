@@ -809,7 +809,6 @@ dependencies = [
  "tokio-tungstenite",
  "tracing",
  "tracing-subscriber",
- "tungstenite",
  "winapi",
 ]
 
