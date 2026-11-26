@@ -16,7 +16,7 @@ public static class MigrationDialog {
 $scope = [System.Windows.Automation.TreeScope]
 $type = [System.Windows.Automation.AutomationElement]
 $all = [System.Windows.Automation.Condition]::TrueCondition
-$message = if ($Choice -eq 'OK') {'GSM could not prepare the migration.*'} else {'Switch to the new GSM desktop?*'}
+$message = if ($Choice -eq 'OK') {'GSM could not prepare the migration.'} else {'Switch to the new GSM desktop?'}
 $seen = [Collections.Generic.HashSet[string]]::new()
 $deadline = [DateTime]::UtcNow.AddMinutes(2)
 do {
@@ -29,9 +29,15 @@ do {
         $controls = $window.FindAll($scope::Descendants, $all)
         $text = ($controls | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) -join ' '
         if ($seen.Add($text)) { Write-Output "Installer dialog: $text" }
-        if (!($controls | Where-Object { $_.Current.Name -like $message })) { continue }
+        if (!$text.Contains($message)) { continue }
         $dialog = [IntPtr]$window.Current.NativeWindowHandle
-        $id = @{Yes=6; No=7; OK=1}[$Choice]
+        if ($Choice -eq 'OK') {
+            # A one-button Win32 message box accepts the standard window-close action.
+            if (![MigrationDialog]::PostMessage($dialog, 0x10, 0, 0)) { throw 'Could not dismiss migration error' }
+            Write-Output 'Acknowledged backup failure'
+            exit 0
+        }
+        $id = @{Yes=6; No=7}[$Choice]
         $button = [MigrationDialog]::GetDlgItem($dialog, $id)
         if ($button -ne [IntPtr]::Zero -and [MigrationDialog]::PostMessage($dialog, 0x111, $id, $button)) {
             Write-Output "Selected $Choice in the migration prompt"
