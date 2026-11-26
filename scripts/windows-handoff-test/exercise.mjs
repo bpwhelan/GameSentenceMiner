@@ -40,7 +40,8 @@ async function exited(child) {
 }
 function consent(choice, installerPid = 0) {
   return exited(spawn('pwsh', ['-NoProfile', '-File', path.join(import.meta.dirname, 'consent.ps1'), choice, String(installerPid)],
-    {stdio: 'inherit', windowsHide: true})).then(({code}) => assert.equal(code, 0));
+    {stdio: 'inherit', windowsHide: true, env: {...process.env, GSM_E2E_EXPECTED_DB: databasePath}}))
+    .then(({code}) => assert.equal(code, 0));
 }
 const declined = await Promise.all([
   exited(spawn(installer, ['/S'], {windowsHide: true})),

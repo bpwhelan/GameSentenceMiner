@@ -33,6 +33,7 @@ do {
         if (!$text.Contains($message)) { continue }
         $dialog = [IntPtr]$window.Current.NativeWindowHandle
         if ($Choice -eq 'OK') {
+            if (!$text.Contains($env:GSM_E2E_EXPECTED_DB)) { throw 'Backup failure did not identify the original database path' }
             # A one-button Win32 message box accepts the standard window-close action.
             if (![MigrationDialog]::PostMessage($dialog, 0x10, 0, 0)) { throw 'Could not dismiss migration error' }
             Write-Output 'Acknowledged backup failure'

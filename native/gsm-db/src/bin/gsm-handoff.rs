@@ -102,7 +102,7 @@ fn prepare(pointer: &Path, default: &Path, from: &str, to: &str) -> Result<PathB
     Ok(complete)
 }
 
-fn main() -> Result<()> {
+fn run() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let [from, to, install, electron] = args.as_slice() else {
         return Err("Expected versions and application locations".into());
@@ -120,6 +120,26 @@ fn main() -> Result<()> {
     let location = prepare(&pointer_file_path()?, &default_base_dir()?, from, to)?;
     println!("{}", location.display());
     Ok(())
+}
+
+fn main() -> std::process::ExitCode {
+    if let Err(error) = run() {
+        #[cfg(windows)]
+        {
+            use std::io::Write;
+            // NSIS nsExec detects UTF-16LE. Plain UTF-8 is interpreted as the
+            // Windows ANSI code page and garbles non-ASCII profile paths.
+            let diagnostic: Vec<u8> = format!("\u{feff}{error}")
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes)
+                .collect();
+            let _ = std::io::stdout().write_all(&diagnostic);
+        }
+        #[cfg(not(windows))]
+        eprintln!("{error}");
+        return std::process::ExitCode::FAILURE;
+    }
+    std::process::ExitCode::SUCCESS
 }
 
 #[cfg(windows)]
