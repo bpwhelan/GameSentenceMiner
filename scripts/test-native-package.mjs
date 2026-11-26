@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import {runNativeSmokeProcess} from './run-native-smoke-process.mjs';
-import {createDictionaryFixture} from './dictionary-fixture.mjs';
+import {createDictionaryFixture, seedDictionaryGame} from './dictionary-fixture.mjs';
 import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
@@ -38,6 +38,7 @@ for(const scenario of scenarios.length?scenarios:['windows','workspace','setting
   const profile=path.join(fixture,scenario);await fs.mkdir(profile,{recursive:true});
   await createDictionaryFixture(root,path.join(profile,'dictionary.zip'));
   const dictionary=['yomitan','hachidori'].includes(scenario)?scenario:'';
+  if (dictionary) seedDictionaryGame(profile);
   for(const phase of dictionary?['import','reopen']:['windows']) {
     const resultFile=path.join(profile,`result-${phase}.json`);
     const environment={

@@ -3,6 +3,17 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import yauzl from 'yauzl';
 import archiver from 'archiver';
+import {DatabaseSync} from 'node:sqlite';
+
+export function seedDictionaryGame(profile) {
+  const db = new DatabaseSync(path.join(profile, 'gsm.db'));
+  try {
+    db.exec('CREATE TABLE game_lines(id TEXT PRIMARY KEY, line_text TEXT, timestamp REAL, game_name TEXT, game_id TEXT, translation TEXT)');
+    db.prepare('INSERT INTO game_lines(id, line_text, timestamp, game_name) VALUES (?, ?, ?, ?)').run('home-word', '食べる', 1, 'Dictionary fixture');
+  } finally {
+    db.close();
+  }
+}
 
 // Keep the media, pitch and frequency fixtures used by the overlay tests.
 // Yomitan validates optional update URLs even when isUpdatable is false.
