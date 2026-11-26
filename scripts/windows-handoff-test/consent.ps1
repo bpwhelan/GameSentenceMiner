@@ -3,6 +3,16 @@ $ErrorActionPreference = 'Stop'
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Disposable runner required' }
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class MigrationDialog {
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetDlgItem(IntPtr dialog, int id);
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+}
+'@
 $scope = [System.Windows.Automation.TreeScope]
 $type = [System.Windows.Automation.AutomationElement]
 $all = [System.Windows.Automation.Condition]::TrueCondition
@@ -12,9 +22,10 @@ do {
         if ($window.Current.ClassName -ne '#32770') { continue }
         $controls = $window.FindAll($scope::Descendants, $all)
         if (!($controls | Where-Object { $_.Current.Name -like 'Switch to the new GSM desktop?*' })) { continue }
-        $button = $controls | Where-Object { $_.Current.AutomationId -eq $(if ($Choice -eq 'Yes') {'6'} else {'7'}) } | Select-Object -First 1
-        if ($button) {
-            $button.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+        $dialog = [IntPtr]$window.Current.NativeWindowHandle
+        $id = if ($Choice -eq 'Yes') {6} else {7}
+        $button = [MigrationDialog]::GetDlgItem($dialog, $id)
+        if ($button -ne [IntPtr]::Zero -and [MigrationDialog]::PostMessage($dialog, 0x111, $id, $button)) {
             Write-Output "Selected $Choice in the migration prompt"
             exit 0
         }
