@@ -1,4 +1,4 @@
-param([ValidateSet('Yes','No','OK')][string]$Choice, [int]$InstallerPid)
+param([ValidateSet('Yes','No','OK','Inspect')][string]$Choice, [int]$InstallerPid)
 $ErrorActionPreference = 'Stop'
 if ($env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Disposable runner required' }
 Add-Type -AssemblyName UIAutomationClient
@@ -29,6 +29,7 @@ do {
         $controls = $window.FindAll($scope::Descendants, $all)
         $text = ($controls | ForEach-Object { $_.Current.Name } | Where-Object { $_ }) -join ' '
         if ($seen.Add($text)) { Write-Output "Installer dialog: $text" }
+        if ($Choice -eq 'Inspect') { continue }
         if (!$text.Contains($message)) { continue }
         $dialog = [IntPtr]$window.Current.NativeWindowHandle
         if ($Choice -eq 'OK') {
@@ -44,6 +45,7 @@ do {
             exit 0
         }
     }
+    if ($Choice -eq 'Inspect') { exit 0 }
     Start-Sleep -Milliseconds 250
 } while ([DateTime]::UtcNow -lt $deadline)
 throw "Timed out waiting for the migration dialog with choice $Choice."

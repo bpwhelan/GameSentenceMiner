@@ -19,6 +19,26 @@ fn save_file(source: &Path, target: &Path) -> Result<()> {
     Ok(())
 }
 
+fn save_database(source: &Path, target: &Path) -> Result<()> {
+    if source.try_exists()? {
+        backup::snapshot(source, target).map_err(|error| {
+            let detail = match error.downcast_ref::<rusqlite::Error>() {
+                Some(rusqlite::Error::SqliteFailure(code, _))
+                    if matches!(
+                        code.code,
+                        rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt
+                    ) =>
+                {
+                    "SQLite reported an invalid or damaged database".to_owned()
+                }
+                _ => error.to_string(),
+            };
+            format!("Could not back up {}. {detail}", source.display())
+        })?;
+    }
+    Ok(())
+}
+
 fn prepare(pointer: &Path, default: &Path, from: &str, to: &str) -> Result<PathBuf> {
     // Read both generations of pointer without performing the normal first-launch repair.
     let legacy = default.join("data_dir.json");
@@ -51,19 +71,15 @@ fn prepare(pointer: &Path, default: &Path, from: &str, to: &str) -> Result<PathB
     ] {
         save_file(&active.join(name), &stage.join(name))?;
     }
-    let db = active.join("gsm.db");
-    if db.try_exists()? {
-        backup::snapshot(&db, &stage.join("gsm.db"))?;
-    }
+    save_database(&active.join("gsm.db"), &stage.join("gsm.db"))?;
     let previous = match settings.get("legacyDatabaseDir").and_then(|v| v.as_str()) {
         Some(raw) => Some(normalize_data_dir(raw)?),
         None if effective == legacy => Some(default.to_owned()),
         None => None,
     };
     if let Some(other) = &previous {
-        let source = other.join("gsm.db");
-        if !same_directory(other, &active) && source.try_exists()? {
-            backup::snapshot(&source, &stage.join("legacy-gsm.db"))?;
+        if !same_directory(other, &active) {
+            save_database(&other.join("gsm.db"), &stage.join("legacy-gsm.db"))?;
         }
     }
     gsm_settings::write_atomic(
@@ -98,9 +114,37 @@ fn main() -> Result<()> {
         if install.starts_with(&original) || original.starts_with(&install) {
             return Err("Choose a Tauri installation folder separate from Electron.".into());
         }
+        #[cfg(windows)]
+        wait_for_electron(electron)?;
     }
     let location = prepare(&pointer_file_path()?, &default_base_dir()?, from, to)?;
     println!("{}", location.display());
+    Ok(())
+}
+
+#[cfg(windows)]
+fn wait_for_electron(executable: &Path) -> Result<()> {
+    use std::os::windows::process::CommandExt;
+    let shell = PathBuf::from(std::env::var_os("SystemRoot").ok_or("Missing SystemRoot")?)
+        .join("System32/WindowsPowerShell/v1.0/powershell.exe");
+    // Inspect the process image. Explorer and antivirus can also hold this file open.
+    let script = r#"
+        $name = [IO.Path]::GetFileNameWithoutExtension($env:GSM_HANDOFF_ELECTRON)
+        for ($i = 0; $i -lt 20; $i++) {
+            $running = Get-Process -Name $name -ErrorAction SilentlyContinue |
+                Where-Object { $_.Path -eq $env:GSM_HANDOFF_ELECTRON }
+            if (!$running) { exit 0 }
+            Start-Sleep -Milliseconds 500
+        }
+        exit 1"#;
+    let status = std::process::Command::new(shell)
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .env("GSM_HANDOFF_ELECTRON", executable)
+        .creation_flags(0x08000000) // CREATE_NO_WINDOW
+        .status()?;
+    if !status.success() {
+        return Err("Exit GameSentenceMiner from its tray menu and retry.".into());
+    }
     Ok(())
 }
 

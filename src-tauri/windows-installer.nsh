@@ -41,33 +41,6 @@ Var ElectronUpdate
     SetErrorLevel 1
     Abort
     gsm_handoff_accepted:
-    ; Wait for the registered executable, including any remaining Electron
-    ; subprocesses. Restart Manager only queries handles to this file.
-    ${If} ${FileExists} "$ElectronLaunch"
-      !insertmacro RestartManager_StartSession $R0
-      ${If} $R0 == ""
-        Goto gsm_electron_busy
-      ${EndIf}
-      !insertmacro RestartManager_RegisterFile $R0 "$ElectronLaunch"
-      ${If} $0 == 0
-        StrCpy $R4 20
-        ${Do}
-          System::Call 'RSTRTMGR::RmGetList(i R0, *i .r1, *i 0, p 0, *i .r3) i .r0'
-          ${If} $0 != ${ERROR_MORE_DATA}
-            ${ExitDo}
-          ${EndIf}
-          Sleep 500
-          IntOp $R4 $R4 - 1
-        ${LoopWhile} $R4 > 0
-      ${EndIf}
-      !insertmacro RestartManager_EndSession $R0
-      ${If} $0 != 0
-        gsm_electron_busy:
-        MessageBox MB_OK|MB_ICONSTOP "Exit GameSentenceMiner from its tray menu, then try the update again."
-        SetErrorLevel 1
-        Abort
-      ${EndIf}
-    ${EndIf}
     InitPluginsDir
     SetOutPath "$PLUGINSDIR"
     File /oname=gsm-handoff.exe "$%GSM_HANDOFF_HELPER%"

@@ -100,7 +100,8 @@ async function waitFor(label, check, timeout = 180000) {
 }
 async function exerciseInstalledClient() {
   const app = await _electron.launch({executablePath: electron, args: [], timeout: 90000});
-  const appClosed = once(app.process(), 'exit');
+  const originalProcess = app.process();
+  const appClosed = once(originalProcess, 'exit');
   console.log('Opened the installed Electron client');
   // The shipping client hardcodes GitHub in setFeedURL on every check. Redirect only
   // that provider in this process. Preserve the signed application files on disk.
@@ -150,7 +151,7 @@ async function exerciseInstalledClient() {
           Select-Object -First 1 -ExpandProperty Id
         exit 0
       `], {encoding: 'utf8', windowsHide: true}).trim();
-      return Number(pid) > 0 && Number(pid) !== app.process().pid;
+      return Number(pid) > 0 && Number(pid) !== originalProcess.pid;
     });
     assert.deepEqual(await fs.readdir(backup), []);
     assert.equal(await fs.stat(path.join(process.env.LOCALAPPDATA, 'GSM/gsm-desktop.exe')).catch(() => null), null);
@@ -159,6 +160,9 @@ async function exerciseInstalledClient() {
     return;
   }
   console.log('Electron closed and the user accepted installation');
+  await waitFor('completed pre-upgrade SQLite snapshot', async () =>
+    (await fs.readdir(backup)).some(name => !name.startsWith('.pending-')), 60000);
+  console.log('The installer completed the pre-upgrade snapshot');
   const ready = await waitFor('Tauri desktop gateway and intake', async () => {
     const status = await fetch('http://127.0.0.1:7275/get_status', {signal: AbortSignal.timeout(1500)})
       .then(r => r.json()).catch(() => null);
@@ -198,6 +202,17 @@ async function exerciseInstalledClient() {
 }
 try {
   await exerciseInstalledClient();
+} catch (error) {
+  await consent('Inspect');
+  console.error('Snapshots:', await fs.readdir(backup).catch(() => []));
+  console.error('Native installation:', await fs.readdir(path.join(process.env.LOCALAPPDATA, 'GSM')).catch(() => []));
+  const logDirectory = path.join(active, 'logs');
+  const logs = await fs.readdir(logDirectory).catch(() => []);
+  for (const filename of logs.filter(name => /desktop.*\.log$/i.test(name)).slice(-2)) {
+    const content = await fs.readFile(path.join(logDirectory, filename), 'utf8');
+    console.error(content.split(/\r?\n/).filter(line => /error|fail|database|gateway/i.test(line)).slice(-10).join('\n'));
+  }
+  throw error;
 } finally {
   db.close();
   server.close();
