@@ -16,10 +16,13 @@ const {RUNNER_TEMP, APPDATA, USERPROFILE, GSM_E2E_INSTALLER: installer, GSM_E2E_
   GSM_E2E_ELECTRON: electron} = process.env;
 const fixture = path.join(RUNNER_TEMP, 'gsm-handoff');
 const {_electron} = createRequire(path.join(fixture, 'tools/package.json'))('playwright-core');
-const active = path.join(fixture, 'ゲーム data');
+const stayOnElectron = process.argv.includes('--stay-on-electron');
+const active = stayOnElectron ? path.join(APPDATA, 'GameSentenceMiner') : path.join(fixture, 'ゲーム data');
 const pointer = path.join(USERPROFILE, '.config/GameSentenceMiner/data_dir.json');
-await fs.mkdir(path.dirname(pointer), {recursive: true});
-await fs.writeFile(pointer, JSON.stringify({version: 2, dataDir: active}), {flag: 'wx'});
+if (!stayOnElectron) {
+  await fs.mkdir(path.dirname(pointer), {recursive: true});
+  await fs.writeFile(pointer, JSON.stringify({version: 2, dataDir: active}), {flag: 'wx'});
+}
 await fs.mkdir(path.join(active, 'electron'), {recursive: true});
 const prefs = {pullPreReleases: true, handoffFixture: 'retain'};
 await fs.writeFile(path.join(active, 'electron/config.json'), JSON.stringify(prefs));
@@ -93,7 +96,7 @@ async function waitFor(label, check, timeout = 180000) {
   }
   throw Error('Timed out waiting for ' + label);
 }
-try {
+async function exerciseInstalledClient() {
   const app = await _electron.launch({executablePath: electron, args: [], timeout: 90000});
   const appClosed = once(app.process(), 'exit');
   console.log('Opened the installed Electron client');
@@ -135,9 +138,25 @@ try {
     if (error) throw Error(error);
     return requests.has(filename);
   });
-  await Promise.all([appClosed, consent('Yes')]);
-  console.log('Electron closed and the user accepted installation');
+  await Promise.all([appClosed, consent(stayOnElectron ? 'No' : 'Yes')]);
   assert(requests.has('beta.yml') || requests.has('latest.yml'));
+  if (stayOnElectron) {
+    await waitFor('original Electron application to reopen', () => {
+      const pid = execFileSync('pwsh', ['-NoProfile', '-Command', `
+        Get-Process GameSentenceMiner -ErrorAction SilentlyContinue |
+          Where-Object { $_.Path -eq $env:GSM_E2E_ELECTRON -and $_.MainWindowHandle -ne 0 } |
+          Select-Object -First 1 -ExpandProperty Id
+        exit 0
+      `], {encoding: 'utf8', windowsHide: true}).trim();
+      return Number(pid) > 0 && Number(pid) !== app.process().pid;
+    });
+    assert.deepEqual(await fs.readdir(backup), []);
+    assert.equal(await fs.stat(path.join(process.env.LOCALAPPDATA, 'GSM/gsm-desktop.exe')).catch(() => null), null);
+    assert.equal(db.prepare('SELECT line_text FROM game_lines WHERE id=?').get(lineId).line_text, text);
+    console.log('Verified declining the downloaded update reopened the installed Electron client on its default profile.');
+    return;
+  }
+  console.log('Electron closed and the user accepted installation');
   const ready = await waitFor('Tauri desktop gateway and intake', async () => {
     const status = await fetch('http://127.0.0.1:7275/get_status', {signal: AbortSignal.timeout(1500)})
       .then(r => r.json()).catch(() => null);
@@ -174,6 +193,9 @@ try {
   await fs.access(electron);
   console.log('Verified installed Electron', installedVersion, '→ Tauri', version, 'with desktop-owned intake and gateway.');
   console.log('Verified consent, cancellation, original installation, committed WAL, relocated settings and profile sentinel.');
+}
+try {
+  await exerciseInstalledClient();
 } finally {
   db.close();
   server.close();
