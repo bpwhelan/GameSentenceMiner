@@ -208,7 +208,7 @@ describe('incoming lines during pause', () => {
 		expect(stores.isPaused$.getValue()).toBe(false);
 	});
 
-	test.each([false, true])('expiry respects allow-new-line=%s without autostarting', async (allowNewLine) => {
+	test.each([false, true])('expiry for a missing line is ignored with allow-new-line=%s', async (allowNewLine) => {
 		stores.allowNewLineDuringPause$.next(allowNewLine);
 		stores.autoStartTimerDuringPause$.next(true);
 		stores.newLine$.next([
@@ -219,7 +219,7 @@ describe('incoming lines during pause', () => {
 		]);
 		await tick();
 
-		expect(stores.lineData$.getValue().map((line) => line.id)).toEqual(allowNewLine ? ['expired'] : []);
+		expect(stores.lineData$.getValue()).toEqual([]);
 		expect(stores.isPaused$.getValue()).toBe(true);
 	});
 

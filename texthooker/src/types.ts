@@ -157,6 +157,8 @@ export interface LineItem {
 	streamSequence?: number;
 	revision?: number;
 	recordState?: 'provisional' | 'frozen' | 'expired';
+	scene?: string;
+	capturedAt?: string;
 }
 
 export interface TextFeedSessionLine {
@@ -166,15 +168,30 @@ export interface TextFeedSessionLine {
 	streamSequence?: number;
 	revision?: number;
 	recordState?: 'provisional' | 'frozen' | 'expired';
+	scene?: string;
+	capturedAt?: string;
 }
 
 export interface TextFeedSessionSync {
 	sessionId: string;
+	scene?: string;
 	orderedIds: string[];
 	activeIds: string[];
 	timedOutIds: string[];
 	missingLines: TextFeedSessionLine[];
 	requestedIds: string[];
+}
+
+export interface TextFeedHistoryCursor {
+	beforeTimestamp: number;
+	beforeRowid: number;
+}
+
+export interface TextFeedHistoryPage {
+	scene: string;
+	lines: { id: string; text: string; translation?: string }[];
+	hasMore: boolean;
+	nextCursor: TextFeedHistoryCursor | null;
 }
 
 /** A clip saved for later, as listed by GSM's /api/clips. */

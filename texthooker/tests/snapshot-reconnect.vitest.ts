@@ -123,7 +123,8 @@ function expectPersistedLines(lines: LineItem[]) {
 	expect(stores.lineData$.getValue()).toEqual(lines);
 	vi.advanceTimersByTime(250);
 	expect(JSON.parse(localStorage.getItem(linesStorageKey)!)).toEqual(lines);
-	expect(document.querySelectorAll('main .textline2')).toHaveLength(lines.length);
+	const renderedIds = [...document.querySelectorAll<HTMLElement>('main .textline2')].map((row) => row.dataset.lineId);
+	expect(renderedIds).toEqual(lines.slice(-40).map((line) => line.id));
 }
 
 test('coalesces transcript writes and flushes the latest read state on pagehide', async () => {
@@ -141,7 +142,46 @@ test('coalesces transcript writes and flushes the latest read state on pagehide'
 	expect(transcriptWrites()).toHaveLength(1);
 });
 
-test('bounds the rendered history, preserves it while hidden, and returns to the same page', async () => {
+test('replay expiry keeps the newest 50 lines and updates retained rows in place', async () => {
+	stores.maxLines$.next(50);
+	await receiveSnapshot([]);
+	const records = Array.from({ length: 51 }, (_, index) => ({
+		...recentRecord,
+		id: `line-${index}`,
+		text: `文章 ${index}`,
+		stream_sequence: index + 3,
+	}));
+	for (const record of records) socket.receive({ event: 'text_v2_append', data: record });
+	await svelte.tick();
+	const retained = stores.lineData$.getValue();
+	expect(retained.map((line) => line.id)).toEqual(records.slice(1).map((line) => line.id));
+
+	for (const record of records.slice(0, 2)) {
+		socket.receive({ event: 'text_v2_expire', data: { ...record, state: 'expired', revision: 3 } });
+	}
+	await svelte.tick();
+
+	const [expired, ...remaining] = retained;
+	expectPersistedLines([{ ...expired, gsmStatus: 'timed_out', recordState: 'expired', revision: 3 }, ...remaining]);
+	expect(stores.lineIDs$.getValue()).not.toContain(records[0].id);
+	expect(stores.lineIDs$.getValue()).not.toContain(records[1].id);
+});
+
+test('replay expiry received during reconnect updates the restored row in place', async () => {
+	const arrivedWhileDisconnected = { ...recentRecord, id: 'missed', stream_sequence: 3 };
+	const latest = { ...recentRecord, id: 'latest', stream_sequence: 4 };
+	socket.receive({ event: 'text_v2_snapshot', session_id: sessionId, lines: [arrivedWhileDisconnected, latest] });
+	socket.receive({ event: 'text_v2_expire', data: { ...arrivedWhileDisconnected, state: 'expired', revision: 3 } });
+	await vi.advanceTimersByTimeAsync(0);
+	await svelte.tick();
+
+	const lines = stores.lineData$.getValue();
+	expect(lines.map((line) => line.id)).toEqual(['history', 'recent', 'missed', 'latest']);
+	expect(lines[2]).toMatchObject({ gsmStatus: 'timed_out', recordState: 'expired', revision: 3 });
+	expect(stores.lineIDs$.getValue()).not.toContain('missed');
+});
+
+test('keeps expanded history across native visibility changes and compacts on the newest shortcut', async () => {
 	const previousAnimate = Object.getOwnPropertyDescriptor(Element.prototype, 'animate');
 	Object.defineProperty(Element.prototype, 'animate', {
 		configurable: true,
@@ -155,11 +195,10 @@ test('bounds the rendered history, preserves it while hidden, and returns to the
 	stores.lineData$.next(lines);
 	await svelte.tick();
 	const rendered = () => [...document.querySelectorAll<HTMLElement>('main .textline2')].map(row => row.dataset.lineId);
-	const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('nav button')].find(item => item.textContent === label)!;
-	expect(rendered()).toEqual(lines.slice(-150).map(line => line.id));
-	button('Older lines').click();
+	expect(rendered()).toEqual(lines.slice(-40).map(line => line.id));
+	document.querySelector('main')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
 	await svelte.tick();
-	expect(rendered()).toEqual(lines.slice(150, 300).map(line => line.id));
+	expect(rendered()).toEqual(lines.slice(-80).map(line => line.id));
 
 	const desktop = window as Window & { __GSM_NATIVE_WINDOW_VISIBLE__?: boolean };
 	try {
@@ -171,10 +210,10 @@ test('bounds the rendered history, preserves it while hidden, and returns to the
 		desktop.__GSM_NATIVE_WINDOW_VISIBLE__ = true;
 		window.dispatchEvent(new Event('gsm-native-visibilitychange'));
 		await svelte.tick();
-		expect(rendered()).toEqual(lines.slice(150, 300).map(line => line.id));
-		button('Newer lines').click();
+		expect(rendered()).toEqual(lines.slice(-80).map(line => line.id));
+		document.querySelector<HTMLButtonElement>('button[title="Jump to newest line"]')!.click();
 		await svelte.tick();
-		expect(rendered()).toEqual(lines.slice(-150).map(line => line.id));
+		expect(rendered()).toEqual(lines.slice(-40).map(line => line.id));
 	} finally {
 		delete desktop.__GSM_NATIVE_WINDOW_VISIBLE__;
 		if (previousAnimate) Object.defineProperty(Element.prototype, 'animate', previousAnimate);

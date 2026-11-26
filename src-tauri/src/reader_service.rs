@@ -394,6 +394,29 @@ pub fn reader_copy(app: &AppHandle, text: &str) -> Result<Value, String> {
     Ok(Value::Null)
 }
 
+pub async fn reader_history(app: &AppHandle, payload: Option<Value>) -> Result<Value, String> {
+    let raw = payload.unwrap_or_else(|| json!({}));
+    let query: gsm_history::reader_history::ReaderHistoryQuery =
+        serde_json::from_value(raw).map_err(|_| "Invalid reader history request.".to_string())?;
+    if query.scene.trim().is_empty() {
+        return Ok(json!({ "lines": [], "hasMore": false, "nextCursor": Value::Null }));
+    }
+    let db_path = crate::desktop_services::paths_for(app)
+        .active
+        .join("gsm.db");
+    if !db_path.exists() {
+        return Ok(json!({ "lines": [], "hasMore": false, "nextCursor": Value::Null }));
+    }
+    let history = app.state::<Arc<gsm_history::History>>().inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        history
+            .run(&db_path, gsm_history::Request::ReaderHistory(query))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 async fn adopt_or_load_extension(app: &AppHandle) -> Result<(String, LoadedExtension), String> {
     let manager = app.state::<DictionaryManager>();
     manager.load_selected_extension(app).await
@@ -1147,6 +1170,7 @@ pub async fn try_invoke(
             Some(Ok(Value::Array(list)))
         }
         "reader.connection" => Some(reader_connection(app).await),
+        "reader.history" => Some(reader_history(app, args.first().cloned()).await),
         "reader.request" => {
             let Some(action) = args.first().and_then(Value::as_str) else {
                 return Some(Err("Unknown reader action.".into()));

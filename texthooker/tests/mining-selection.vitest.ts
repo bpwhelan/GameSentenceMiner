@@ -164,9 +164,10 @@ test('double-click editing leaves the original mining selection and buttons do n
 });
 
 test('active rows render a right-side checkbox selector after the action buttons and support keyboard mining', async () => {
-	stores.newLine$.next(['期限切れ', LineType.SOCKET, 'expired', { streamSequence: 4, revision: 1, recordState: 'expired', gsmStatus: 'timed_out' }]);
+	expect(selector('c')).not.toBeNull();
+	stores.newLine$.next(['台詞c', LineType.SOCKET, 'c', { streamSequence: 3, revision: 2, recordState: 'expired', gsmStatus: 'timed_out' }]);
 	await settle();
-	expect(row('expired').querySelector('.mining-selector')).toBeNull();
+	expect(row('c').querySelector('.mining-selector')).toBeNull();
 
 	const target = selector('a');
 	expect(target).not.toBeNull();

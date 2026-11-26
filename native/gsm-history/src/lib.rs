@@ -29,6 +29,7 @@ pub mod mining;
 mod novelty;
 mod overview;
 mod projection;
+pub mod reader_history;
 pub mod recycled;
 mod rollup;
 pub mod schedule;
@@ -54,6 +55,7 @@ pub mod reports {
     pub use super::projection::{Projection, Target};
     pub use super::search::SentenceQuery;
     pub use super::search::DuplicateQuery;
+    pub use super::reader_history::ReaderHistoryQuery;
     pub use super::maintenance::{ArchiveCandidate, DeduplicateQuery, LineRemoval, MaintenancePermit, RemovalSummary, TextDeletionQuery};
     pub use super::stats::local_date;
     pub use super::tokenization::{WordsQuery, KanjiQuery, TokenSearchQuery, WordDetailQuery};
@@ -187,6 +189,7 @@ pub enum Request {
     },
     SearchSentences(search::SentenceQuery),
     SearchDuplicates(search::DuplicateQuery),
+    ReaderHistory(reader_history::ReaderHistoryQuery),
     GamesList,
     OrphanedGames,
     DatabaseStatus,
@@ -424,6 +427,18 @@ impl History {
         self.with_writer(path, |conn| batch.persist(conn))
     }
 
+    pub fn reader_history_before_line(
+        &self,
+        path: &Path,
+        query: reader_history::ReaderHistoryQuery,
+        before_line_id: Option<&str>,
+    ) -> Result<reader_history::ReaderHistoryPage> {
+        self.with_reader(path, |conn| {
+            let tx = conn.transaction()?;
+            query.run_before_line(&tx, before_line_id)
+        })
+    }
+
     pub fn run(&self, path: &Path, request: Request) -> Result<Value> {
         self.run_with_cleaner(path, request, &ReportCleaner::default())
     }
@@ -617,6 +632,10 @@ fn execute(conn: &mut Connection, request: Request, cleaner: &ReportCleaner) -> 
             query.run(&tx)
         }
         Request::SearchDuplicates(query) => {
+            let tx = conn.transaction()?;
+            Ok(serde_json::to_value(query.run(&tx)?)?)
+        }
+        Request::ReaderHistory(query) => {
             let tx = conn.transaction()?;
             Ok(serde_json::to_value(query.run(&tx)?)?)
         }

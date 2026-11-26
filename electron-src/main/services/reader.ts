@@ -50,6 +50,7 @@ export function registerReaderIPC(): void {
     return state ? [...state.values()] : [];
   });
   ipcMain.handle('reader.connection', () => readerConnection());
+  ipcMain.handle('reader.history', () => ({ lines: [], hasMore: false, nextCursor: null }));
   ipcMain.handle('reader.request', (_event, action: unknown, payload: unknown) => readerRequest(action, payload));
   ipcMain.handle('reader.copy', (_event, text: unknown) => {
     if (typeof text !== 'string' || text.length > 1000000) throw new Error('Invalid clipboard text.');

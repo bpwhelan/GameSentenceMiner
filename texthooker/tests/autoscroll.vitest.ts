@@ -5,6 +5,7 @@ let svelte: typeof import('svelte');
 let stores: typeof import('../src/stores/stores');
 let app: ReturnType<typeof import('svelte').mount> | undefined;
 let main: HTMLElement;
+const originalAnimate = Object.getOwnPropertyDescriptor(Element.prototype, 'animate');
 
 beforeEach(async () => {
 	vi.resetModules();
@@ -30,6 +31,14 @@ beforeEach(async () => {
 	vi.stubGlobal('documentPictureInPicture', { requestWindow: vi.fn() });
 	vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
 	vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
+	Object.defineProperty(Element.prototype, 'animate', {
+		configurable: true,
+		value: () => {
+			const animation = { onfinish: null as (() => void) | null, cancel() {} };
+			queueMicrotask(() => animation.onfinish?.());
+			return animation;
+		},
+	});
 
 	svelte = await import('svelte');
 	stores = await import('../src/stores/stores');
@@ -48,6 +57,8 @@ afterEach(async () => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
 	vi.unstubAllGlobals();
+	if (originalAnimate) Object.defineProperty(Element.prototype, 'animate', originalAnimate);
+	else Reflect.deleteProperty(Element.prototype, 'animate');
 	document.body.replaceChildren();
 	localStorage.clear();
 });
@@ -65,7 +76,7 @@ function modelScroll(view: Window, container: HTMLElement, vertical = false, rev
 	const extent = () =>
 		viewport +
 		[...container.querySelectorAll('.line-source, .translation-text')].reduce(
-			(total, paragraph) => total + Math.ceil((paragraph.textContent?.length ?? 0) / 12) * 40,
+			(total, paragraph) => total + (paragraph.closest('[hidden]') ? 0 : Math.ceil((paragraph.textContent?.length ?? 0) / 12) * 40),
 			0,
 		);
 	Object.defineProperties(container, {
@@ -94,6 +105,7 @@ function modelScroll(view: Window, container: HTMLElement, vertical = false, rev
 	return {
 		scroll,
 		newest,
+		oldest: () => !vertical && reverse ? extent() - viewport : 0,
 		get position() {
 			return position;
 		},
@@ -102,6 +114,61 @@ function modelScroll(view: Window, container: HTMLElement, vertical = false, rev
 		},
 	};
 }
+
+test.each([
+	{ vertical: false, reverse: false },
+	{ vertical: false, reverse: true },
+	{ vertical: true, reverse: false },
+	{ vertical: true, reverse: true },
+])('scrolling into history prepends in place and returning to newest compacts the view in layout %j', async ({ vertical, reverse }) => {
+	stores.displayVertical$.next(vertical);
+	stores.reverseLineOrder$.next(reverse);
+	const viewport = modelScroll(window, main, vertical, reverse);
+	const rows = () => [...main.querySelectorAll<HTMLElement>('.textline2')];
+	vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+		const rendered = rows();
+		const index = rendered.indexOf(this);
+		const x = vertical ? (reverse ? index : -index) * 40 - viewport.position : 0;
+		const y = !vertical ? (reverse ? rendered.length - 1 - index : index) * 40 - viewport.position : 0;
+		return new DOMRect(x, y, 40, 40);
+	});
+	const lines = Array.from({ length: 95 }, (_, index) => ({ id: `history-${index}`, text: `文章 ${index}` }));
+	const renderedIds = () => rows().map((row) => row.dataset.lineId);
+	const goTo = async (position: number) => {
+		viewport.position = position;
+		(vertical ? main : document).dispatchEvent(new Event('scroll'));
+		await settleLayout();
+	};
+	stores.lineData$.next(lines);
+	await settleLayout();
+	expect(renderedIds()).toEqual(lines.slice(-40).map((line) => line.id));
+
+	const anchor = rows()[0];
+	viewport.position = viewport.oldest();
+	const anchorPosition = () => {
+		const bounds = anchor.getBoundingClientRect();
+		return vertical ? bounds.left : bounds.top;
+	};
+	const before = anchorPosition();
+	await goTo(viewport.oldest());
+	expect(renderedIds()).toEqual(lines.slice(-80).map((line) => line.id));
+	expect(Math.abs(anchorPosition() - before)).toBe(0);
+
+	await goTo(viewport.oldest());
+	expect(renderedIds()).toEqual(lines.map((line) => line.id));
+	await receiveLine('新しい文章。', 1, 'new');
+	expect(renderedIds().at(-1)).toBe('new');
+	expect(viewport.position).not.toBe(viewport.newest());
+
+	await goTo(viewport.newest());
+	const allLines = stores.lineData$.getValue();
+	expect(allLines).toHaveLength(96);
+	expect(renderedIds()).toEqual(allLines.slice(-40).map((line) => line.id));
+	await receiveLine('もっと新しい文章。', 1, 'newest');
+	expect(renderedIds()).toHaveLength(40);
+	expect(renderedIds().at(-1)).toBe('newest');
+	expect(viewport.position).toBe(viewport.newest());
+});
 
 async function receiveLine(text: string, revision: number, id = 'speech', extra = {}) {
 	stores.newLine$.next([
@@ -118,6 +185,106 @@ async function receiveLine(text: string, revision: number, id = 'speech', extra 
 	]);
 	await settleLayout();
 }
+
+test.each([false, true])('scroll alone pages through saved game history past the live cap with auto-translate=%s', async (autoTranslate) => {
+	const scene = 'Reading scene';
+	stores.autoTranslateLines$.next(autoTranslate);
+	stores.maxLines$.next(50);
+	const viewport = modelScroll(window, main);
+	const live = Array.from({ length: 50 }, (_, i) => ({ id: `live-${i}`, text: `台詞 ${i}`, scene }));
+	const archive = Array.from({ length: 51 }, (_, i) => ({ id: `saved-${i}`, text: `履歴 ${i}` }));
+	const cursor = { beforeTimestamp: 1000, beforeRowid: 12 };
+	const fetcher = vi.mocked(fetch);
+	fetcher.mockResolvedValueOnce({
+		ok: true, json: async () => ({ scene, lines: [...archive.slice(-40), live[0]], hasMore: true, nextCursor: cursor }),
+	} as Response);
+	fetcher.mockResolvedValueOnce({
+		ok: true, json: async () => ({ scene, lines: archive.slice(0, 11), hasMore: false, nextCursor: null }),
+	} as Response);
+	stores.lineData$.next(live);
+	stores.textfeedSessionSync$.next({
+		sessionId: 'reading', scene, orderedIds: [], activeIds: [], timedOutIds: [], missingLines: [], requestedIds: [],
+	});
+	await settleLayout();
+	const goTo = async (position: number) => {
+		viewport.position = position;
+		document.dispatchEvent(new Event('scroll'));
+		await settleLayout();
+	};
+	const renderedIds = () => [...main.querySelectorAll<HTMLElement>('[data-line-id]:not([hidden])')].map((row) => row.dataset.lineId);
+	const historyRequests = () => fetcher.mock.calls
+		.filter(([url]) => String(url).endsWith('/api/textfeed/history'))
+		.map(([, options]) => JSON.parse(String(options?.body)));
+
+	await goTo(viewport.oldest()); // Reveal the rest of the local 50-line window.
+	await goTo(viewport.oldest());
+	expect(renderedIds()).toEqual([...archive.slice(-40), ...live].map((line) => line.id));
+	await goTo(viewport.oldest());
+	expect(renderedIds()).toEqual([...archive, ...live].map((line) => line.id));
+	await goTo(viewport.oldest());
+	expect(historyRequests()).toEqual([{ scene, beforeLineId: live[0].id }, { scene, cursor }]);
+	expect(stores.lineData$.getValue().map(({ id }) => id)).toEqual(live.map(({ id }) => id));
+	expect(main.querySelector('.load-older')).toBeNull();
+	expect(document.querySelector('[aria-label="Transcript search"]')).toBeNull();
+	await goTo(viewport.newest());
+	expect(renderedIds()).toEqual(live.slice(-40).map(({ id }) => id));
+});
+
+test.each([false, true])('search includes saved matches and clearing restores the latest page with auto-translate=%s', async (autoTranslate) => {
+	stores.autoTranslateLines$.next(autoTranslate);
+	const scene = 'Search game';
+	const viewport = modelScroll(window, main);
+	const live = Array.from({ length: 45 }, (_, i) => ({
+		id: `live-${i}`, text: i === 0 || i === 42 ? '猫' : '犬', scene,
+	}));
+	stores.lineData$.next([...live, { id: 'other', text: '猫', scene: 'Different game' }]);
+	stores.textfeedSessionSync$.next({
+		sessionId: 'search', scene, orderedIds: [], activeIds: [], timedOutIds: [], missingLines: [], requestedIds: [],
+	});
+	await settleLayout();
+	const archive = Array.from({ length: 50 }, (_, i) => ({ id: `saved-${i}`, text: '猫' }));
+	vi.mocked(fetch).mockResolvedValueOnce({
+		ok: true, json: async () => ({ scene, lines: [...archive, live[0]], hasMore: false }),
+	} as Response);
+	document.querySelector<HTMLButtonElement>('button[aria-label="Search transcript"]')!.click();
+	await settleLayout();
+	const input = document.querySelector<HTMLInputElement>('input[type="search"]')!;
+	const type = async (value: string) => {
+		input.value = value;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		await settleLayout();
+	};
+	const ids = () => [...main.querySelectorAll<HTMLElement>('[data-line-id]:not([hidden])')].map(row => row.dataset.lineId);
+	await type('猫');
+	const options = vi.mocked(fetch).mock.calls.findLast(([url]) => String(url).endsWith('/api/textfeed/history'))?.[1];
+	expect(JSON.parse(String(options?.body))).toEqual({ scene, query: '猫', allMatches: true });
+	expect(ids()).toEqual([...archive.slice(-38), live[0], live[42]].map(line => line.id));
+	expect(viewport.position).toBe(viewport.newest());
+	viewport.position = viewport.oldest();
+	document.dispatchEvent(new Event('scroll'));
+	await settleLayout();
+	expect(ids()[0]).toBe('saved-0');
+	await type('');
+	expect(ids()).toEqual(stores.lineData$.getValue().slice(-40).map(line => line.id));
+	expect(viewport.position).toBe(viewport.newest());
+});
+
+test('an empty replay snapshot opens the newest saved lines so the reader can scroll immediately', async () => {
+	const viewport = modelScroll(window, main);
+	const scene = 'Previously played game';
+	const archive = Array.from({ length: 40 }, (_, i) => ({ id: `saved-${i}`, text: `履歴 ${i}` }));
+	vi.mocked(fetch).mockResolvedValueOnce({
+		ok: true, json: async () => ({ scene, lines: archive, hasMore: false, nextCursor: null }),
+	} as Response);
+	stores.textfeedSessionSync$.next({
+		sessionId: 'restart', scene, orderedIds: [], activeIds: [], timedOutIds: [], missingLines: [], requestedIds: [],
+	});
+	await settleLayout();
+	expect([...main.querySelectorAll<HTMLElement>('[data-line-id]')].map((row) => row.dataset.lineId))
+		.toEqual(archive.map((line) => line.id));
+	expect(viewport.position).toBe(viewport.newest());
+	expect(stores.lineData$.getValue()).toEqual([]);
+});
 
 test('finalizing a line during auto-translation does not send a second translation request', async () => {
 	stores.autoTranslateLines$.next(true);

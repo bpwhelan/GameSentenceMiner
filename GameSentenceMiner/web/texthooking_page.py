@@ -80,6 +80,11 @@ app.register_blueprint(meiki_ocr_api)
 
 # Local development/desktop renderer origins that may call this Flask server.
 _LOCAL_CORS_ORIGINS = {
+    "http://gsm.localhost",
+    "gsm://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+    "tauri://localhost",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",

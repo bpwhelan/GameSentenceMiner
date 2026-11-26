@@ -124,6 +124,13 @@ impl ReaderEndpoint for Endpoint {
     fn native_only(&self) -> bool {
         crate::app_lifecycle::native_session_requested()
     }
+    fn submit_text(&self, text: String) -> BoxFuture<'_, Result<Value, String>> {
+        Box::pin(super::submit(
+            &self.0,
+            json!({"text":text,"source":"websocket","sourceDisplayName":"HTTP"}),
+            None,
+        ))
+    }
     fn goals_changed(&self) {
         self.0.state::<Intake>().state.lock().unwrap().feed.request_goals(true);
     }
@@ -227,6 +234,9 @@ impl ReaderEndpoint for Endpoint {
         })
     }
     fn query(&self, path: &str, body: Value) -> (StatusCode, Value) {
+        if path == "/api/textfeed/history" {
+            return saved_textfeed_history(&self.0, &body);
+        }
         if path.starts_with("/linux/") {
             return match crate::obs::game_pause::linux_request(&self.0,path,&body) {
                 Ok(value) => (StatusCode::OK,value),
@@ -556,7 +566,53 @@ async fn write_client(socket: &mut ReaderSocket, msg: Message) -> Result<(), tun
 
 /// Negotiate a snapshot and subscribe under the same lock. JSON encoding happens after
 /// releasing the journal, so even a reconnect requesting 1,000 rows cannot stall intake.
-fn snapshot(intake: &Intake, input: &Value, rx: &mut broadcast::Receiver<Utf8Bytes>) -> String {
+fn active_textfeed_scene(app: &AppHandle) -> String {
+    let scene = app.state::<crate::obs::Obs>().current_scene_name();
+    if scene.is_empty() {
+        app.state::<Intake>().state.lock().unwrap().policy.scene.clone()
+    } else {
+        scene
+    }
+}
+
+fn saved_textfeed_history(app: &AppHandle, input: &Value) -> (StatusCode, Value) {
+    let requested_scene = input["scene"].as_str().unwrap_or_default();
+    let active_scene = active_textfeed_scene(app);
+    let scene = if active_scene.is_empty() { requested_scene.to_owned() } else { active_scene };
+    let db = crate::desktop_services::paths_for(app).active.join("gsm.db");
+    if scene.is_empty() || !db.exists() {
+        return (StatusCode::OK, json!({"scene":scene,"lines":[],"hasMore":false,"nextCursor":null}));
+    }
+
+    let same_scene = requested_scene == scene;
+    let cursor = &input["cursor"];
+    let before_line_id = (same_scene || requested_scene.is_empty())
+        .then(|| input["beforeLineId"].as_str())
+        .flatten();
+    let query = gsm_history::reader_history::ReaderHistoryQuery {
+        scene: scene.clone(),
+        limit: gsm_history::reader_history::DEFAULT_READER_HISTORY_LIMIT,
+        before_timestamp: same_scene
+            .then(|| cursor["beforeTimestamp"].as_f64().or_else(|| input["beforeTimestamp"].as_f64()))
+            .flatten(),
+        before_rowid: same_scene.then(|| cursor["beforeRowid"].as_i64()).flatten(),
+        query: input["query"].as_str().map(str::to_owned),
+        all_matches: input["allMatches"].as_bool().unwrap_or(false),
+    };
+    match app.state::<std::sync::Arc<gsm_history::History>>().reader_history_before_line(
+        &db, query, before_line_id,
+    ) {
+        Ok(page) => (StatusCode::OK, json!({
+            "scene": scene, "lines": page.lines, "hasMore": page.has_more, "nextCursor": page.next_cursor,
+        })),
+        Err(error) => {
+            crate::desktop_log::warn(app, "textfeed history", &error.to_string());
+            (StatusCode::INTERNAL_SERVER_ERROR, json!({"error":"Could not load Text Feed history."}))
+        }
+    }
+}
+
+fn snapshot(app: &AppHandle, intake: &Intake, input: &Value, rx: &mut broadcast::Receiver<Utf8Bytes>) -> String {
     let (session, sequence, records) = {
         let s = intake.state.lock().unwrap();
         *rx = s.feed.modern.subscribe();
@@ -570,7 +626,8 @@ fn snapshot(intake: &Intake, input: &Value, rx: &mut broadcast::Receiver<Utf8Byt
             rows.skip(skip).cloned().collect::<Vec<_>>(),
         )
     };
-    json!({"event":"text_v2_snapshot","session_id":session,"snapshot_sequence":sequence,
+    let scene = active_textfeed_scene(app);
+    json!({"event":"text_v2_snapshot","session_id":session,"snapshot_sequence":sequence,"scene":scene,
         "lines":records.iter().map(|r|wire_record(r)).collect::<Vec<_>>()})
     .to_string()
 }
@@ -617,7 +674,7 @@ async fn serve(
                     Some(Message::Text(raw))=>{
                         let input:Value=serde_json::from_str(&raw).unwrap_or(Value::Null);
                         match input["event"].as_str(){
-                            Some("text_v2_snapshot_request")=>snapshot(&intake,&input,&mut rx),
+                            Some("text_v2_snapshot_request")=>snapshot(app,&intake,&input,&mut rx),
                             Some("textfeed_session_sync_request")=>{
                                 let s=intake.state.lock().unwrap();
                                 s.reader.sync(s.stream.session_id(),&input).to_string()

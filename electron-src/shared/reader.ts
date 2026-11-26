@@ -1,4 +1,6 @@
 /** Portable desktop reader contract. No Electron or DOM dependencies. */
+export type ReaderScanModifier = 'shift' | 'ctrl' | 'alt' | 'meta' | 'none';
+
 export interface ReaderLine {
   id: string;
   sessionId: string;
@@ -10,6 +12,38 @@ export interface ReaderLine {
   scene: string;
   capturedAt: string;
   excludedFromStats: boolean;
+  timestamp?: number;
+  rowid?: number;
+  translation?: string;
+}
+
+export interface ReaderHistoryCursor {
+  beforeTimestamp: number;
+  beforeRowid: number;
+}
+
+export interface ReaderHistoryLine {
+  id: string;
+  text: string;
+  scene: string;
+  capturedAt: string;
+  timestamp: number;
+  rowid: number;
+  translation?: string;
+}
+
+export interface ReaderHistoryPage {
+  lines: ReaderHistoryLine[];
+  hasMore: boolean;
+  nextCursor: ReaderHistoryCursor | null;
+}
+
+export interface ReaderHistoryRequest {
+  scene: string;
+  limit?: number;
+  beforeTimestamp?: number;
+  beforeRowid?: number;
+  query?: string;
 }
 
 export interface ReaderState {

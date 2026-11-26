@@ -202,6 +202,7 @@ export class SocketConnection {
 				const orderedIds = lines.filter((item) => typeof item?.id === 'string').map((item) => item.id);
 				textfeedSessionSync$.next({
 					sessionId,
+					scene: typeof payload.scene === 'string' ? payload.scene : undefined,
 					orderedIds,
 					activeIds: lines
 						.filter((item) => item?.state !== 'expired' && typeof item?.id === 'string')
@@ -218,6 +219,8 @@ export class SocketConnection {
 							streamSequence: Number(item.stream_sequence ?? 0),
 							revision: Number(item.revision ?? 1),
 							recordState: item.state,
+							scene: typeof item.scene === 'string' && item.scene ? item.scene : undefined,
+							capturedAt: typeof item.captured_at === 'string' ? item.captured_at : undefined,
 						})),
 					// A v2 snapshot covers only the retained replay window, not all
 					// persisted history. Missing local IDs must not be deleted.
@@ -301,6 +304,8 @@ export class SocketConnection {
 				streamSequence: Number(data.stream_sequence ?? 0),
 				revision: Number(data.revision ?? 1),
 				recordState: data.state,
+				...(typeof data.scene === 'string' && data.scene ? { scene: data.scene } : {}),
+				...(typeof data.captured_at === 'string' ? { capturedAt: data.captured_at } : {}),
 				sessionBackfill,
 			},
 		]);

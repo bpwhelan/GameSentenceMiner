@@ -110,6 +110,8 @@ export function buildTextFeedSessionSyncPlan(
 				streamSequence: missingLine?.streamSequence ?? existingLine.streamSequence,
 				revision: missingLine?.revision ?? existingLine.revision,
 				recordState: missingLine?.recordState ?? existingLine.recordState,
+				...(missingLine?.scene ? { scene: missingLine.scene } : {}),
+				...(missingLine?.capturedAt ? { capturedAt: missingLine.capturedAt } : {}),
 			});
 			continue;
 		}
@@ -129,6 +131,8 @@ export function buildTextFeedSessionSyncPlan(
 				streamSequence: missingLine.streamSequence,
 				revision: missingLine.revision,
 				recordState: missingLine.recordState,
+				...(missingLine.scene ? { scene: missingLine.scene } : {}),
+				...(missingLine.capturedAt ? { capturedAt: missingLine.capturedAt } : {}),
 			});
 		}
 	}

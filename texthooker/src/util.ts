@@ -43,20 +43,17 @@ export function isScrolledToEnd(
 	displayVertical: boolean,
 	threshold = 150,
 ): boolean {
-	if (!scrollElement) {
-		return true;
-	}
+	return !scrollElement || feedScrollDistances(window, scrollElement, reverseLineOrder, displayVertical).newest <= threshold;
+}
 
-	if (displayVertical) {
-		const maxAbs = scrollElement.scrollWidth - scrollElement.clientWidth;
-
-		return maxAbs - Math.abs(scrollElement.scrollLeft) <= threshold;
-	}
-
-	const maxY = scrollElement.scrollHeight - window.innerHeight;
-	const distanceFromEnd = reverseLineOrder ? window.scrollY : maxY - window.scrollY;
-
-	return distanceFromEnd <= threshold;
+export function feedScrollDistances(view: Window, container: HTMLElement, reverse: boolean, vertical: boolean) {
+	const extent = Math.max(0, vertical
+		? container.scrollWidth - container.clientWidth
+		: container.scrollHeight - view.innerHeight);
+	const position = vertical ? Math.abs(container.scrollLeft) : view.scrollY;
+	const offset = Math.max(0, Math.min(position, extent));
+	const oldest = !vertical && reverse ? extent - offset : offset;
+	return { oldest, newest: extent - oldest };
 }
 
 export function updateScroll(

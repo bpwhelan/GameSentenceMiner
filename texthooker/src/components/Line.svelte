@@ -85,6 +85,8 @@
 	export let line: LineItem;
 	export let index: number;
 	export let isLast: boolean;
+	export let readOnly = false;
+	export let hidden = false;
 	export let pipWindow: Window | undefined = undefined;
 	export let audioLineId = '';
 	export let audioIsPlaying = false;
@@ -100,7 +102,7 @@
 	}
 
 	export function getIdIfSelected(range: Range) {
-		return isSelected || (paragraph && range.intersectsNode(paragraph)) ? line.id : undefined;
+		return !hidden && (isSelected || (paragraph && range.intersectsNode(paragraph))) ? line.id : undefined;
 	}
 
 	const dispatch = createEventDispatcher<{
@@ -203,7 +205,7 @@
 		}
 
 		// Keep the reader's position unless continuous following is enabled.
-		if (shouldAutoScroll($lineSettings.alwaysScrollToNewest, getAutoScrollStick(!!pipWindow))) {
+		if (!hidden && shouldAutoScroll($lineSettings.alwaysScrollToNewest, getAutoScrollStick(!!pipWindow))) {
 			updateScroll(
 				pipWindow || window,
 				paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null,
@@ -218,7 +220,7 @@
 	}
 
 	async function followUpdatedLineText() {
-		if (!lineTextMounted || !isLast || !paragraph) {
+		if (hidden || !lineTextMounted || !isLast || !paragraph) {
 			return;
 		}
 		// Revisions reuse this component, so onMount cannot follow growing speech
@@ -488,7 +490,7 @@
 					const container = paragraph.closest<HTMLElement>('.textline2')?.parentElement ?? null;
 					// Capture before render so a delayed translation respects the selected scroll behavior.
 					const shouldFollowTranslation =
-						isLast &&
+						!hidden && isLast &&
 						shouldAutoScroll(
 							$lineSettings.alwaysScrollToNewest,
 							isScrolledToEnd(
@@ -544,6 +546,7 @@
 
 	<div
 		class="textline2"
+		{hidden}
 		class:mining-selected={miningSelected}
 		class:mining-selectable={isActiveGSMLine}
 		class:vertical={isVerticalDisplay}
@@ -563,7 +566,7 @@
 				class:border-accent-focus={isEditable}
 				class:whitespace-pre-wrap={$lineSettings.preserveWhitespace}
 				contenteditable={isEditable}
-				on:dblclick={handleDblClick}
+				on:dblclick={readOnly ? undefined : handleDblClick}
 				on:keyup={dummyFn}
 				bind:this={paragraph}
 				in:introduceLine
@@ -1058,6 +1061,7 @@
 	.translation-blurred { filter: blur(6px); user-select: none; }
 	.translation-blurred:hover, .translation-blurred:focus-visible { filter: none; }
 	.textline2.vertical { display: flex; gap: 10px; }
+	.textline2[hidden] { display: none; }
 	.vertical .line-body { display: flex; flex-direction: column; gap: 12px; }
 	.vertical .line-translation { writing-mode: horizontal-tb; inline-size: 16rem; max-inline-size: 70vh; margin: 0; align-self: flex-start; }
 	.vertical .line-actions-container { writing-mode: horizontal-tb; }

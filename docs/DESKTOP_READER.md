@@ -1,9 +1,9 @@
 # Desktop reading workspace
 
-Home places the live textfeed beside compact capture controls. **Your games**
-opens the library, **Game options** expands per-game controls, and focus mode
-gives the reader the whole workspace. The new layout follows the existing
-textfeed's typography, selection and reading behavior.
+Home places the live textfeed beside a compact capture sidebar. **Your games**
+sits inline at the top of the sidebar, **Game options** expands per-game
+controls, and focus mode gives the reader the whole workspace. The new layout
+follows the existing textfeed's typography, selection and reading behavior.
 
 The reader shares GSM's live text protocol, corrections, mining selection, audio
 replay, translation, screenshots and clip creation. It does not create a second

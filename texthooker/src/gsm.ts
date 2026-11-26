@@ -1,4 +1,4 @@
-import type { SavedClip } from './types';
+import type { LineItem, SavedClip, TextFeedHistoryCursor, TextFeedHistoryPage } from './types';
 
 export function getGSMEndpoint(endpoint: string) {
 	if (window.location.port === '4173' || window.location.port === '5174') {
@@ -10,6 +10,26 @@ export function getGSMEndpoint(endpoint: string) {
 export async function fetchSavedClips(): Promise<SavedClip[]> {
 	const response = await fetch(getGSMEndpoint('/api/clips'));
 	return (await response.json()).clips || [];
+}
+
+export async function fetchTextFeedHistory(
+	scene: string,
+	cursor: TextFeedHistoryCursor | undefined,
+	anchor: Pick<LineItem, 'id' | 'capturedAt'> | undefined,
+	signal: AbortSignal,
+	query?: string,
+): Promise<TextFeedHistoryPage> {
+	const response = await fetch(getGSMEndpoint('/api/textfeed/history'), {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			scene, cursor, query, allMatches: query ? true : undefined, beforeLineId: anchor?.id,
+			beforeTimestamp: anchor?.capturedAt ? Date.parse(anchor.capturedAt) / 1000 : undefined,
+		}),
+		signal,
+	});
+	if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+	return response.json();
 }
 
 export async function trashSavedClips(clips: SavedClip[]) {

@@ -176,3 +176,23 @@ def test_internal_reader_http_uses_desktop_selection(monkeypatch):
     assert response.status_code == 200
     assert response.json == {"selected_ids": ["a"]}
     assert calls == [("readerHttp", {"path": "/update_checkbox", "body": {"id": "a", "checked": True}})]
+
+
+def test_desktop_renderer_origins_receive_cors_headers(monkeypatch):
+    monkeypatch.setattr(texthooking_page, "check_for_lines_outside_replay_buffer", lambda: None)
+    client = texthooking_page.app.test_client()
+
+    for origin in (
+        "http://gsm.localhost",
+        "gsm://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ):
+        response = client.get("/get_ids", headers={"Origin": origin})
+        assert response.status_code == 200
+        assert response.headers["Access-Control-Allow-Origin"] == origin
+
+    untrusted = client.get("/get_ids", headers={"Origin": "https://evil.example"})
+    assert untrusted.status_code == 200
+    assert "Access-Control-Allow-Origin" not in untrusted.headers

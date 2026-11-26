@@ -24,9 +24,6 @@ importers:
       '@tsconfig/svelte':
         specifier: ^5.0.8
         version: 5.0.8
-      '@types/dom-screen-wake-lock':
-        specifier: ^1.0.3
-        version: 1.0.3
       '@types/sortablejs':
         specifier: ^1.15.9
         version: 1.15.9
@@ -63,9 +60,6 @@ importers:
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
-      tslib:
-        specifier: ^2.8.1
-        version: 2.8.1
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -590,9 +584,6 @@ packages:
 
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
-
-  '@types/dom-screen-wake-lock@1.0.3':
-    resolution: {integrity: sha512-3Iten7X3Zgwvk6kh6/NRdwN7WbZ760YgFCsF5AxDifltUQzW1RaW+WRmcVtgwFzLjaNu64H+0MPJ13yRa8g3Dw==}
 
   '@types/esrecurse@4.3.1':
     resolution: {integrity: sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw==}
@@ -1791,8 +1782,6 @@ snapshots:
       assertion-error: 2.0.1
 
   '@types/deep-eql@4.0.2': {}
-
-  '@types/dom-screen-wake-lock@1.0.3': {}
 
   '@types/esrecurse@4.3.1': {}
 

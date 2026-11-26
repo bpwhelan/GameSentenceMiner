@@ -15,6 +15,7 @@
 		mdiDatabaseOff,
 		mdiFolderMultipleImage,
 		mdiInformationOutline,
+		mdiMagnify,
 		mdiNoteEdit,
 		mdiPause,
 		mdiPlay,
@@ -22,7 +23,10 @@
 		mdiWindowMaximize,
 		mdiWindowRestore,
 	} from '@mdi/js';
-	import { debounceTime, filter, fromEvent, map, NEVER, switchMap, tap, throttleTime, type Subscription } from 'rxjs';
+	import {
+		concatMap, debounceTime, filter, from, fromEvent, ignoreElements, map, merge, NEVER, of,
+		switchMap, tap, throttleTime, type Subscription,
+	} from 'rxjs';
 	import { onMount, tick } from 'svelte';
 	import { quintInOut } from 'svelte/easing';
 	import { fade, fly } from 'svelte/transition';
@@ -80,6 +84,8 @@
 		LineType,
 		OnlineFont,
 		type SavedClip,
+		type TextFeedHistoryCursor,
+		type TextFeedHistoryPage,
 		type TextFeedSessionSync,
 		Theme,
 	} from '../types';
@@ -94,6 +100,7 @@
 		applyAfkBlur,
 		applyCustomCSS,
 		applyReplacements,
+		feedScrollDistances,
 		generateRandomUUID,
 		getErrorMessage,
 		isScrolledToEnd,
@@ -112,7 +119,7 @@
 	import SocketConnector from './SocketConnector.svelte';
 	import Spinner from './Spinner.svelte';
 	import Stats from './Stats.svelte';
-	import { describeSavedClips, fetchSavedClips, getGSMEndpoint, trashSavedClips } from '../gsm';
+	import { describeSavedClips, fetchSavedClips, fetchTextFeedHistory, getGSMEndpoint, trashSavedClips } from '../gsm';
 	import {
 		selectMiningRange, miningSelectionChanges, type MiningUpdate, type MiningStartDetail, type MiningClickDetail,
 	} from '../mining-selection';
@@ -132,7 +139,7 @@
 	} | undefined;
 
 	function miningOrder() {
-		const lines: LineItem[] = clipsViewOpen ? clipLines : $lineData$;
+		const lines: LineItem[] = clipsViewOpen ? clipLines : feedLines;
 		return lines
 			.filter((line) => line.gsmStatus === 'active' || (!line.gsmStatus && $lineIDs$.includes(line.id)))
 			.map((line) => line.id);
@@ -319,11 +326,24 @@
 	let settingsElement: SVGElement;
 	let lineContainer: HTMLElement;
 	let lineElements: Line[] = [];
-	const feedPageSize = 150;
+	const feedPageSize = 40;
+	const loadOlderThreshold = 120;
+	const followNewestThreshold = 70;
 	let historyAnchor = '';
-	let historyQuery = '';
-	let historyFindId = '';
-	let historyFindMessage = '';
+	let loadingHistory = false;
+	let historyScene = '';
+	let historyCursor: TextFeedHistoryCursor | null | undefined;
+	let savedHistory: LineItem[] = [];
+	let expandedSavedCount = 0;
+	let savedHistoryRequest: AbortController | undefined;
+	let searchOpen = false;
+	let searchInput: HTMLInputElement;
+	let searchText = '';
+	let searchHistory: LineItem[] = [];
+	let searchPending = false;
+	let searchFailed = false;
+	let searchRequest: AbortController | undefined;
+	let searchTimer: number | undefined;
 	let nativeFeedVisible = true;
 	let feedScroll = { x: 0, y: 0, newest: true };
 	let lineInEdit = false;
@@ -370,14 +390,18 @@
 		),
 	);
 
-	const handleLine$ = newLine$.pipe(
+	const handleLine$ = merge(newLine$, textfeedSessionSync$).pipe(
+		// Apply live messages in order after the reconnect snapshot has finished rendering.
+		concatMap((message) => Array.isArray(message)
+			? of(message)
+			: from(applyTextFeedSessionSync(message)).pipe(ignoreElements()),
+		),
 		filter(([value, lineType, id, lineMeta]) => {
 			const isResetCheckboxes = lineType === LineType.RESETCHECKBOXES;
 			const isAuthoritativeV2 = Number.isFinite(Number(lineMeta?.streamSequence));
 			const isReplayBufferExpiry = lineMeta?.gsmStatus === 'timed_out' || lineMeta?.recordState === 'expired';
 			const isPaste = lineType === LineType.PASTE;
-			const shouldAutoStartTimer =
-				!isReplayBufferExpiry && (isPaste ? $autoStartTimerDuringPausePaste$ : $autoStartTimerDuringPause$);
+			const shouldAutoStartTimer = isPaste ? $autoStartTimerDuringPausePaste$ : $autoStartTimerDuringPause$;
 			const hasNoUserInteraction = !isPaste || (!$notesOpen$ && !$dialogOpen$ && !$settingsOpen$ && !lineInEdit);
 			const skipExternalLine = blockNextExternalLine && lineType === LineType.EXTERNAL;
 
@@ -389,7 +413,12 @@
 				resetCheckBoxes()
 				return false;
 			}
-			// Keep corrections and status updates for displayed stream records flowing
+			if (isReplayBufferExpiry) {
+				if ($lineIDs$.includes(id)) $lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
+				rememberTimedOutId(id);
+				return $lineData$.some((line) => line.id === id);
+			}
+			// Keep corrections for displayed stream records flowing
 			// while paused. New records must still respect the pause settings below.
 			if (isAuthoritativeV2 && $lineData$.some((line) => line.id === id)) {
 				if ($isPaused$ && shouldAutoStartTimer && hasNoUserInteraction && !skipExternalLine) {
@@ -442,27 +471,25 @@
 				if (incomingRevision > Number(existing.revision ?? 0)) {
 					$lineData$[existingLineIndex] = { ...existing, ...lineMeta, text };
 				}
-				if (lineMeta.gsmStatus === 'timed_out') {
-					if ($lineIDs$.includes(id)) $lineIDs$ = $lineIDs$.filter((lineId) => lineId !== id);
-					rememberTimedOutId(id);
-				}
 				return;
 			}
 
 			if (lineMeta.gsmStatus === 'active') {
 				$lineIDs$ = [...$lineIDs$, id];
-			} else if (lineMeta.gsmStatus === 'timed_out') {
-				rememberTimedOutId(id);
 			}
 
 			if (text) {
 				// Capture before render: content grows, so a later check is too late.
-				const mainAtEnd = !historyAnchor && (nativeFeedVisible
+				const mainAtEnd = !historyAnchor && !expandedSavedCount && (nativeFeedVisible
 					? isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$)
 					: feedScroll.newest);
 				const mainShouldScroll = shouldAutoScroll($alwaysScrollToNewest$, mainAtEnd);
-				if (!historyAnchor && !mainShouldScroll && pageStart > 0) {
-					historyAnchor = $lineData$[pageStart]?.id ?? '';
+				if (mainShouldScroll && (historyAnchor || expandedSavedCount)) {
+					historyAnchor = '';
+					expandedSavedCount = 0;
+					isAtNewest = true;
+				} else if (!mainShouldScroll && !historyAnchor) {
+					historyAnchor = pageLines[0]?.id ?? '';
 				}
 				setAutoScrollStick(false, mainShouldScroll);
 				if (pipWindow) {
@@ -485,13 +512,9 @@
 					{ id, text, ...lineMeta },
 				];
 				$lineData$ = isAuthoritativeV2 ? nextLineData : applyEqualLineStartMerge(nextLineData);
+				if (lineMeta.scene && setHistoryScene(lineMeta.scene)) void preloadSavedHistory();
 			}
 		}),
-		reduceToEmptyString(),
-	);
-
-	const handleTextFeedSessionSync$ = textfeedSessionSync$.pipe(
-		tap((sync: TextFeedSessionSync) => void applyTextFeedSessionSync(sync)),
 		reduceToEmptyString(),
 	);
 
@@ -503,6 +526,7 @@
 
 	const pasteHandler$ = enablePaste$.pipe(
 		switchMap((enablePaste) => (enablePaste ? fromEvent<ClipboardEvent>(document, 'paste') : NEVER)),
+		filter((event) => event.target !== searchInput),
 		tap((event) => newLine$.next([event.clipboardData?.getData('text/plain') ?? '', LineType.PASTE, ''])),
 		reduceToEmptyString(),
 	);
@@ -525,12 +549,9 @@
 
 	// Capture-phase so element scroll (vertical mode) is caught too, not just window.
 	const scrollHandler$ = fromEvent(window, 'scroll', { capture: true, passive: true }).pipe(
+		filter((event) => event.target === window || event.target === document || event.target === lineContainer),
 		throttleTime(100, undefined, { leading: true, trailing: true }),
-		tap(() => {
-			if (nativeFeedVisible) {
-				isAtNewest = !historyAnchor && isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$);
-			}
-		}),
+		tap(handleFeedScroll),
 		reduceToEmptyString(),
 	);
 
@@ -539,13 +560,26 @@
 
 	// Automatic translations currently belong to mounted rows. Keep that mode's
 	// background processing live even while the window is hidden.
-	$: pageStart = $autoTranslateLines$ ? 0 : historyAnchor
-		? Math.max(0, $lineData$.findIndex((line) => line.id === historyAnchor))
-		: Math.max(0, $lineData$.length - feedPageSize);
-	$: pageLines = $autoTranslateLines$ ? $lineData$ : $lineData$.slice(pageStart, pageStart + feedPageSize);
-	$: if ($autoTranslateLines$ || !$lineData$.length) historyAnchor = '';
+	$: needle = searchText.trim().toLocaleLowerCase();
+	$: searchScene = historyScene || (needle && $lineData$.findLast(line => line.scene)?.scene) || '';
+	$: scheduleSearch(searchText.trim(), searchScene);
+	$: feedLines = needle ? mergeSearchLines(searchHistory, $lineData$, needle, searchScene, removedGSMLineIds) : $lineData$;
+	$: sourceIndices = needle || $autoTranslateLines$ ? new Map($lineData$.map((line, index) => [line.id, index])) : undefined;
+	$: pageStart = historyAnchor
+		? Math.max(0, feedLines.findIndex((line) => line.id === historyAnchor))
+		: Math.max(0, feedLines.length - feedPageSize);
+	$: pageLines = feedLines.slice(pageStart);
+	// Translation runs on mounted live rows, including rows outside the current view.
+	$: visibleIds = new Set(pageLines.map(line => line.id));
+	$: mountedLines = $autoTranslateLines$ ? [...$lineData$.filter(line => !visibleIds.has(line.id)), ...pageLines] : pageLines;
+	$: liveIds = new Set($lineData$.map((line) => line.id));
+	$: availableSavedHistory = needle ? [] : savedHistory.filter((line) => !liveIds.has(line.id));
+	$: shownSavedCount = Math.max(0, feedPageSize - pageLines.length, expandedSavedCount);
+	$: shownSavedHistory = availableSavedHistory.slice(Math.max(0, availableSavedHistory.length - shownSavedCount));
+	$: if (!feedLines.length) historyAnchor = '';
 	$: if (isAtNewest) newLinesBelow = 0;
-	$: showScrollToNewest = (!isAtNewest || !!historyAnchor) && !!$lineData$.length;
+	$: showScrollToNewest = (!isAtNewest || !!historyAnchor || !!expandedSavedCount) &&
+		!!(pageLines.length || shownSavedHistory.length);
 	$: newestIconPath = $displayVertical$
 		? $reverseLineOrder$
 			? mdiChevronRight
@@ -582,6 +616,9 @@
 		return () => {
 			window.removeEventListener('gsm-native-visibilitychange', syncNativeFeedVisibility);
 			textFeedSessionSyncVersion += 1;
+			savedHistoryRequest?.abort();
+			searchRequest?.abort();
+			window.clearTimeout(searchTimer);
 			audioEventsSub?.unsubscribe();
 			finishMiningSelection(false);
 			window.removeEventListener('focus', loadSavedClips);
@@ -595,7 +632,7 @@
 
 	function mountFunction() {
 		isSmFactor = window.matchMedia('(min-width: 640px)').matches;
-		executeUpdateScroll();
+		if (!historyAnchor && !expandedSavedCount && isAtNewest) executeUpdateScroll();
 	}
 
 	async function syncNativeFeedVisibility() {
@@ -605,7 +642,8 @@
 			feedScroll = {
 				x: lineContainer.scrollLeft,
 				y: window.scrollY,
-				newest: !historyAnchor && isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$),
+				newest: !historyAnchor && !expandedSavedCount &&
+					isScrolledToEnd(window, lineContainer, $reverseLineOrder$, $displayVertical$),
 			};
 			finishMiningSelection(false);
 		}
@@ -618,40 +656,206 @@
 		else window.scrollTo(0, feedScroll.y);
 	}
 
-	async function browseFeed(direction: -1 | 1) {
-		const start = Math.max(0, pageStart + direction * feedPageSize);
-		historyAnchor = start + feedPageSize < $lineData$.length ? $lineData$[start].id : '';
-		isAtNewest = !historyAnchor;
-		await tick();
-		executeUpdateScroll();
+	function handleFeedScroll() {
+		if (!nativeFeedVisible || clipsViewOpen || !lineContainer) return;
+		const { oldest, newest } = feedScrollDistances(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+		isAtNewest = newest <= followNewestThreshold;
+		if (isAtNewest) {
+			if ((historyAnchor || expandedSavedCount) && !miningSelectedIds.size && !selectedLineIds.length && !lineInEdit) {
+				void scrollToNewest('auto');
+			}
+			return;
+		}
+		historyAnchor ||= pageLines[0]?.id ?? '';
+		if (oldest <= loadOlderThreshold) void loadOlderLines();
 	}
 
-	async function findHistoryLine() {
-		const query = historyQuery.trim().toLocaleLowerCase();
-		if (!query) return;
-		const lines = $lineData$;
-		const previousMatch = lines.findIndex((line) => line.id === historyFindId);
-		let index = (previousMatch < 0 ? lines.length : previousMatch) - 1;
-		for (let checked = 0; checked < lines.length; checked++) {
-			if (index < 0) index = lines.length - 1;
-			if (lines[index].text.toLocaleLowerCase().includes(query)) {
-				historyFindId = lines[index].id;
-				historyFindMessage = `Match at line ${index + 1}`;
-				if (index < pageStart || index >= pageStart + pageLines.length) {
-					const start = Math.max(0, index - Math.floor(feedPageSize / 2));
-					historyAnchor = start + feedPageSize < lines.length ? lines[start].id : '';
-				}
-				await tick();
-				const row = lineContainer.querySelector(`[data-line-id="${CSS.escape(historyFindId)}"]`);
-				row?.scrollIntoView({ block: 'center', inline: 'center' });
-				return;
-			}
-			index--;
+	function setHistoryScene(scene: string) {
+		if (historyScene === scene) return false;
+		savedHistoryRequest?.abort();
+		historyScene = scene;
+		historyCursor = undefined;
+		savedHistory = [];
+		expandedSavedCount = 0;
+		return true;
+	}
+
+	async function toggleSearch(open: boolean) {
+		searchOpen = open;
+		if (!open) searchText = '';
+		else {
+			await tick();
+			searchInput?.focus();
 		}
-		historyFindMessage = 'No matching lines';
+	}
+
+	function mergeSearchLines(saved: LineItem[], live: LineItem[], query: string, scene: string, removed: Set<string>) {
+		// Keep saved rows in capture order, but let live revisions supply the text and actions.
+		const byId = new Map(live.map(line => [line.id, line]));
+		const matches: LineItem[] = [];
+		for (const line of saved) {
+			const current = byId.get(line.id);
+			byId.delete(line.id);
+			if (removed.has(line.id)) continue;
+			if (!current) matches.push(line);
+			else if (matchesLive(current)) matches.push(current);
+		}
+		for (const line of byId.values()) {
+			if (matchesLive(line)) matches.push(line);
+		}
+		return matches;
+
+		function matchesLive(line: LineItem) {
+			return (!scene || !line.scene || line.scene === scene) && line.text.toLocaleLowerCase().includes(query);
+		}
+	}
+
+	function scheduleSearch(query: string, scene: string) {
+		const wasSearching = !!searchRequest;
+		searchRequest?.abort();
+		window.clearTimeout(searchTimer);
+		searchRequest = undefined;
+		searchHistory = [];
+		searchFailed = false;
+		searchPending = !!query;
+		if (!query && !wasSearching) return;
+		historyAnchor = '';
+		expandedSavedCount = 0;
+		isAtNewest = true;
+		void scrollToNewest('auto');
+		if (!query) {
+			void preloadSavedHistory();
+			return;
+		}
+		savedHistoryRequest?.abort();
+		const request = new AbortController();
+		searchRequest = request;
+		searchTimer = window.setTimeout(async () => {
+			try {
+				const page = await fetchTextFeedHistory(scene, undefined, undefined, request.signal, query);
+				if (request.signal.aborted) return;
+				if (page.scene && page.scene !== scene) {
+					setHistoryScene(page.scene);
+					return;
+				}
+				searchHistory = page.lines.map(line => ({ ...line, gsmStatus: 'previous_session', sessionBackfill: true }));
+				await tick();
+				if (!request.signal.aborted && isAtNewest) updateScroll(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+			} catch {
+				if (!request.signal.aborted) searchFailed = true;
+			} finally {
+				if (!request.signal.aborted) searchPending = false;
+			}
+		}, 150);
+	}
+
+	async function preloadSavedHistory() {
+		await tick();
+		if (!needle && historyScene && !savedHistory.length && $lineData$.length < feedPageSize) {
+			await loadOlderLines(true);
+		}
+	}
+
+	async function requestSavedHistory(): Promise<TextFeedHistoryPage | undefined> {
+		if (historyCursor === null) return;
+		const request = new AbortController();
+		const timeout = window.setTimeout(() => request.abort(), 8000);
+		savedHistoryRequest = request;
+		try {
+			let cursor = historyCursor;
+			let scene = historyScene || $lineData$.findLast((line) => line.scene)?.scene || '';
+			const oldest = $lineData$.find((line) => line.scene && line.scene === scene) ??
+				$lineData$.find((line) => !line.scene && line.gsmStatus !== 'external');
+			let page;
+			do {
+				page = await fetchTextFeedHistory(scene, cursor, cursor ? undefined : oldest, request.signal);
+				if (request.signal.aborted || !Array.isArray(page.lines)) return;
+				scene = page.scene;
+				cursor = page.nextCursor ?? undefined;
+			} while (page.hasMore && cursor && page.lines.every((line) => liveIds.has(line.id)));
+			return page;
+		} catch (error) {
+			if (!request.signal.aborted) console.debug('Could not load saved Text Feed history', error);
+		} finally {
+			window.clearTimeout(timeout);
+			if (savedHistoryRequest === request) savedHistoryRequest = undefined;
+		}
+	}
+
+	// A short transcript may have no scroll range yet, so an upward wheel gesture
+	// can still request history even when the browser emits no scroll event.
+	function handleHistoryWheel(event: WheelEvent) {
+		if (event.ctrlKey || clipsViewOpen || !nativeFeedVisible || !lineContainer) return;
+		const towardOlder = $displayVertical$ && event.deltaX
+			? ($reverseLineOrder$ ? event.deltaX < 0 : event.deltaX > 0)
+			: (!$displayVertical$ && $reverseLineOrder$ ? event.deltaY > 0 : event.deltaY < 0);
+		const { oldest, newest } = feedScrollDistances(window, lineContainer, $reverseLineOrder$, $displayVertical$);
+		if (towardOlder && oldest <= loadOlderThreshold && newest <= followNewestThreshold) void loadOlderLines();
+	}
+
+	async function loadOlderLines(preload = false) {
+		if (loadingHistory || clipsViewOpen || !nativeFeedVisible || !lineContainer) return;
+		const cachedOlder = availableSavedHistory.length > shownSavedHistory.length;
+		if (!pageStart && !cachedOlder && (needle || historyCursor === null)) return;
+		const requestedScene = historyScene;
+		loadingHistory = true;
+		try {
+			const page = pageStart || cachedOlder ? undefined : await requestSavedHistory();
+			if (!pageStart && !cachedOlder && !page) return;
+			if (!lineContainer || !nativeFeedVisible || clipsViewOpen) return;
+			await prependHistory(page, preload);
+		} finally {
+			loadingHistory = false;
+			if (historyScene !== requestedScene && !savedHistory.length) void preloadSavedHistory();
+		}
+	}
+
+	async function prependHistory(page: TextFeedHistoryPage | undefined, preload: boolean) {
+		const anchor = lineContainer.querySelector<HTMLElement>('[data-line-id]:not([hidden])');
+		const vertical = $displayVertical$;
+		const reverse = $reverseLineOrder$;
+		const before = anchor?.getBoundingClientRect();
+		const atOlderEdge = feedScrollDistances(window, lineContainer, reverse, vertical).oldest <= loadOlderThreshold;
+		if (page) {
+			setHistoryScene(page.scene);
+			historyCursor = page.hasMore ? page.nextCursor : page.scene ? null : undefined;
+			const known = new Set(savedHistory.map((line) => line.id));
+			savedHistory = [
+				...page.lines.filter((line) => !known.has(line.id) && !liveIds.has(line.id)).map((line): LineItem => ({
+					...line, gsmStatus: 'previous_session', sessionBackfill: true,
+				})),
+				...savedHistory,
+			];
+		}
+		if (!preload && atOlderEdge) {
+			isAtNewest = false;
+			if (pageLines.length) {
+				historyAnchor = feedLines[Math.max(0, pageStart - feedPageSize)]?.id ?? '';
+			}
+			if (!pageStart) expandedSavedCount = shownSavedHistory.length + feedPageSize;
+		}
+		// Rows reveal their text on the next tick after mounting.
+		await tick();
+		await tick();
+		if (preload && isAtNewest) {
+			updateScroll(window, lineContainer, reverse, vertical);
+		} else if (before && anchor?.isConnected && nativeFeedVisible && !clipsViewOpen &&
+			vertical === $displayVertical$ && reverse === $reverseLineOrder$) {
+			const after = anchor.getBoundingClientRect();
+			if (vertical && after.left !== before.left) {
+				lineContainer.scrollTo({ left: lineContainer.scrollLeft + after.left - before.left, behavior: 'instant' });
+			} else if (!vertical && after.top !== before.top) {
+				window.scrollTo({ top: window.scrollY + after.top - before.top, behavior: 'instant' });
+			}
+		}
 	}
 
 	function handleKeyPress(event: KeyboardEvent) {
+		if (searchOpen && event.key === 'Escape') {
+			void toggleSearch(false);
+			return;
+		}
+		if (event.target === searchInput) return;
 		if ($notesOpen$ || $dialogOpen$ || $settingsOpen$ || lineInEdit) {
 			return;
 		}
@@ -1029,6 +1233,7 @@
 	function toggleClipsView() {
 		clipsViewOpen = !clipsViewOpen;
 		if (clipsViewOpen) {
+			void toggleSearch(false);
 			void loadSavedClips();
 		}
 	}
@@ -1097,6 +1302,7 @@
 		}
 
 		const syncVersion = ++textFeedSessionSyncVersion;
+		if (sync.scene) setHistoryScene(sync.scene);
 		currentGSMSessionId = sync.sessionId;
 		activateRemovedGSMSession(sync.sessionId);
 		await yieldToBrowser();
@@ -1117,6 +1323,7 @@
 			$lineData$ = retainedLines;
 			$lineData$ = applyMaxLinesAndGetRemainingLineData();
 			updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
+			if (sync.scene) void preloadSavedHistory();
 			return;
 		}
 
@@ -1164,6 +1371,7 @@
 		}
 		$lineData$ = applyMaxLinesAndGetRemainingLineData();
 		updateGSMLineStatuses(sync.activeIds, sync.timedOutIds, sync.sessionId);
+		if (sync.scene) void preloadSavedHistory();
 	}
 
 	function yieldToBrowser() {
@@ -1510,10 +1718,18 @@
 		}
 	}
 
-	async function scrollToNewest() {
+	async function scrollToNewest(behavior: ScrollBehavior = 'smooth') {
+		const compacting = !!historyAnchor || !!expandedSavedCount;
 		historyAnchor = '';
+		expandedSavedCount = 0;
+		if (compacting && $lineData$.length >= feedPageSize) {
+			savedHistoryRequest?.abort();
+			savedHistory = [];
+			historyCursor = undefined;
+		}
+		isAtNewest = true;
 		await tick();
-		updateScroll(window, lineContainer, $reverseLineOrder$, $displayVertical$, 'smooth');
+		updateScroll(window, lineContainer, $reverseLineOrder$, $displayVertical$, compacting ? 'auto' : behavior);
 	}
 
 	function handleMissedLine() {
@@ -1725,10 +1941,15 @@
 	}
 </script>
 
-<svelte:window on:keyup={handleKeyPress} />
+<svelte:window on:keyup={handleKeyPress} on:keydown={event => {
+	if (!clipsViewOpen && !$settingsOpen$ && !$dialogOpen$ && !$notesOpen$ &&
+		(event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+		event.preventDefault();
+		void toggleSearch(true);
+	}
+}} />
 
 {$handleLine$ ?? ''}
-{$handleTextFeedSessionSync$ ?? ''}
 {$pasteHandler$ ?? ''}
 {$copyBlocker$ ?? ''}
 {$resizeHandler$ ?? ''}
@@ -1741,6 +1962,19 @@
 <DialogManager />
 
 <header class="fixed top-0 right-0 flex justify-end items-center p-2 bg-base-100" bind:this={settingsContainer}>
+	{#if !clipsViewOpen}
+		<button type="button" class="mr-2 hover:text-primary" aria-label="Search transcript"
+			title="Search transcript (Ctrl+F)" aria-expanded={searchOpen} on:click={() => toggleSearch(!searchOpen)}>
+			<Icon path={mdiMagnify} width={iconSize} height={iconSize} />
+		</button>
+		{#if searchOpen}
+			<div class="absolute right-2 top-full flex items-center gap-2 rounded bg-base-100 p-2 shadow">
+				<input class="input input-sm w-48" type="search" aria-label="Transcript search" placeholder="Search transcript"
+					bind:this={searchInput} bind:value={searchText} />
+				<button type="button" aria-label="Close search" on:click={() => toggleSearch(false)}>✕</button>
+			</div>
+		{/if}
+	{/if}
 	<Stats on:afkBlur={onAfkBlur} />
 	{#if $websocketUrl$}
 		<SocketConnector />
@@ -1885,6 +2119,7 @@
 	style:font-family={$onlineFont$ !== OnlineFont.OFF ? $onlineFont$ : undefined}
 	style:writing-mode={$displayVertical$ ? 'vertical-rl' : 'horizontal-tb'}
 	bind:this={lineContainer}
+	on:wheel|passive={handleHistoryWheel}
 >
 	{@html newLineCharacter}
 	{#if !nativeFeedVisible && !$autoTranslateLines$ && !lineInEdit}
@@ -1912,37 +2147,48 @@
 			/>
 		{/each}
 	{:else}
-		{#each pageLines as line, offset (line.id)}
-			{@const index = pageStart + offset}
-			<Line
-				{line}
-				{index}
-				isLast={$lineData$.length - 1 === index}
-				miningSelected={miningSelectedIds.has(line.id)}
-				on:miningStart={beginMiningSelection}
-				on:miningToggle={toggleMiningSelection}
-				on:miningClick={clickMiningRow}
-				audioLineId={activeAudioLineId}
-				audioIsPlaying={browserAudioPlaying}
-				audioPendingLineId={pendingAudioLineId}
-				bind:this={lineElements[offset]}
-				isSelected={selectedLineIds.includes(line.id)}
-				on:selected={({ detail }) => {
-					selectedLineIds = [...selectedLineIds, detail];
-				}}
-				on:deselected={({ detail }) => {
-					selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
-				}}
-				on:edit={handleLineEdit}
-				on:audioToggle={handleAudioToggle}
-				on:videoTrim={handleVideoTrim}
-				on:saveClip={handleSaveClip}
-				on:deleteClip={handleDeleteClip}
-				on:openClipFolder={handleOpenClipFolder}
-				isSavingClip={savingClipIds.includes(line.id)}
-				isClipSaved={clipByLine.has(line.id)}
-				clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
-			/>
+		{#if needle && (searchPending || searchFailed || (!shownSavedHistory.length && !pageLines.length))}
+			<p class="text-sm opacity-75" role="status">{searchPending ? 'Searching…' : searchFailed ? 'Could not search saved history.' : 'No matching lines.'}</p>
+		{/if}
+		{#each shownSavedHistory as line (line.id)}
+			<Line {line} index={-1} isLast={false} readOnly />
+		{/each}
+		{#each mountedLines as line, offset (line.id)}
+			{@const index = sourceIndices ? sourceIndices.get(line.id) ?? -1 : pageStart + offset}
+			{#if index < 0}
+				<Line {line} {index} isLast={false} readOnly />
+			{:else}
+				<Line
+					{line}
+					{index}
+					hidden={!visibleIds.has(line.id)}
+					isLast={$lineData$.length - 1 === index}
+					miningSelected={miningSelectedIds.has(line.id)}
+					on:miningStart={beginMiningSelection}
+					on:miningToggle={toggleMiningSelection}
+					on:miningClick={clickMiningRow}
+					audioLineId={activeAudioLineId}
+					audioIsPlaying={browserAudioPlaying}
+					audioPendingLineId={pendingAudioLineId}
+					bind:this={lineElements[offset]}
+					isSelected={selectedLineIds.includes(line.id)}
+					on:selected={({ detail }) => {
+						selectedLineIds = [...selectedLineIds, detail];
+					}}
+					on:deselected={({ detail }) => {
+						selectedLineIds = selectedLineIds.filter((selectedLineId) => selectedLineId !== detail);
+					}}
+					on:edit={handleLineEdit}
+					on:audioToggle={handleAudioToggle}
+					on:videoTrim={handleVideoTrim}
+					on:saveClip={handleSaveClip}
+					on:deleteClip={handleDeleteClip}
+					on:openClipFolder={handleOpenClipFolder}
+					isSavingClip={savingClipIds.includes(line.id)}
+					isClipSaved={clipByLine.has(line.id)}
+					clipSizeBytes={clipByLine.get(line.id)?.size_bytes}
+				/>
+			{/if}
 		{/each}
 	{/if}
 	
@@ -1950,18 +2196,6 @@
 </main>
 
 <div class="reader-footer">
-{#if !clipsViewOpen && !$autoTranslateLines$ && $lineData$.length > feedPageSize}
-	<nav class="feed-page-nav" aria-label="Transcript pages">
-		<button type="button" disabled={!pageStart} on:click={() => browseFeed(-1)}>Older lines</button>
-		<button type="button" disabled={!historyAnchor} on:click={() => browseFeed(1)}>Newer lines</button>
-		<form on:submit|preventDefault={findHistoryLine}>
-			<input type="search" aria-label="Search transcript" placeholder="Search transcript" bind:value={historyQuery}
-				on:input={() => { historyFindId = ''; historyFindMessage = ''; }} on:keydown|stopPropagation={() => {}} />
-			<button type="submit" disabled={!historyQuery.trim()}>Find</button>
-		</form>
-		{#if historyFindMessage}<span role="status">{historyFindMessage}</span>{/if}
-	</nav>
-{/if}
 {#if miningSelectedIds.size || miningSaving || miningError}
 	<aside class="mining-toolbar" aria-label="Mining selection" aria-busy={miningSaving}>
 		<span class="mining-summary" role="status">
@@ -1980,7 +2214,7 @@
 	<div transition:fade={{ duration: 150 }}>
 		<button
 			class="flex items-center gap-1 rounded-full border border-base-content/20 bg-base-100/95 py-1.5 pl-2 pr-3 text-xs shadow-lg backdrop-blur transition-colors hover:text-primary"
-			on:click={scrollToNewest}
+		on:click={() => void scrollToNewest()}
 			title="Jump to newest line"
 		>
 			<Icon path={newestIconPath} width="1rem" height="1rem" />
@@ -2067,26 +2301,6 @@
 	{/if}
 </div>
 <style>
-	.feed-page-nav {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-wrap: wrap;
-		gap: 8px;
-		padding: 5px 8px;
-		border-radius: 8px;
-		background: var(--color-base-100);
-		box-shadow: 0 2px 10px rgb(0 0 0 / 20%);
-		font-size: 13px;
-	}
-	.feed-page-nav form { display: flex; gap: 4px; }
-	.feed-page-nav input { width: min(120px, 32vw); padding-inline: 4px; }
-	.feed-page-nav button {
-		padding: 6px 10px;
-		border: 1px solid color-mix(in srgb, var(--color-base-content) 20%, transparent);
-		border-radius: 6px;
-	}
-	.feed-page-nav button:disabled { opacity: .45; }
 	.reader-footer {
 		position: fixed;
 		z-index: 50;
