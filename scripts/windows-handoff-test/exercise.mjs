@@ -82,7 +82,59 @@ try {
   const appClosed = once(app.process(), 'exit');
   // The shipping client hardcodes GitHub in setFeedURL on every check. Redirect only
   // that provider in this process. Preserve the signed application files on disk.
-  const installedVersion = await app.evaluate(({app}, url => url).catch(() => {}));
+  const installedVersion = await app.evaluate(({app}, url) => {
+    const req = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/package.json');
+    const updater = req('electron-updater').autoUpdater;
+    const setFeed = updater.setFeedURL.bind(updater);
+    updater.setFeedURL = () => setFeed({provider: 'generic', url});
+    updater.setFeedURL();
+    return app.getVersion();
+  }, feed);
+  assert.equal(installedVersion, '2026.10.2');
+  const hub = await waitFor('Electron Hub', () => app.windows().find(w => /renderer[\\/]index\.html/i.test(w.url())));
+  await hub.waitForFunction(() => typeof window.ipcRenderer?.invoke === 'function');
+  // Same command as the Install button. The installed manager checks the version,
+  // verifies the downloaded bytes, closes its services and hands off to NSIS.
+  await hub.evaluate(v => {
+    window.handoffError = '';
+    void window.ipcRenderer.invoke('settings.installAppUpdate', v)
+      .catch(error => { window.handoffError = String(error); });
+  }, version);
+  await waitFor('Electron download from loopback', async () => {
+    const error = await hub.evaluate(() => window.handoffError).catch(() => '');
+    if (error) throw Error(error);
+    return requests.has(filename);
+  });
+  await Promise.all([appClosed, consent('Yes')]);
+  assert(requests.has('beta.yml') || requests.has('latest.yml'));
+  const ready = await waitFor('Tauri desktop gateway and intake', async () => {
+    const status = await fetch('http://127.0.0.1:7275/get_status', {signal: AbortSignal.timeout(1500)})
+      .then(r => r.json()).catch(() => null);
+    return status?.ready && status.text_runtime?.owner === 'desktop' && status;
+  });
+  assert.equal(ready.transport_runtime.transport.state, 'running');
+  const snapshots = await fs.readdir(backup);
+  assert.equal(snapshots.length, 1);
+  const saved = path.join(backup, snapshots[0]);
+  const snapshot = JSON.parse(await fs.readFile(path.join(saved, 'snapshot.json')));
+  assert.equal(snapshot.sourceVersion, installedVersion);
+  assert.equal(snapshot.targetVersion, version);
+  assert.equal(snapshot.dataDir, active);
+  const savedDB = new DatabaseSync(path.join(saved, 'gsm.db'), {readOnly: true});
+  for (const database of [savedDB, db]) {
+    assert.equal(database.prepare('SELECT value FROM handoff_fixture').get().value, 'committed WAL row');
+    assert.equal(database.prepare('PRAGMA quick_check').get().quick_check, 'ok');
+  }
+  savedDB.close();
+  for (const root of [saved, active]) {
+    assert.equal(JSON.parse(await fs.readFile(path.join(root, 'electron/config.json'))).handoffFixture, 'retain');
+  }
+  assert.equal(JSON.parse(await fs.readFile(pointer)).dataDir, active);
+  assert.equal(await fs.readFile(dictionary, 'utf8'), 'original profile');
+  await fs.access(electron);
+  console.log('Verified installed Electron', installedVersion, '→ Tauri', version, 'with desktop-owned intake and gateway.');
+  console.log('Verified consent, cancellation, original installation, committed WAL, relocated settings and profile sentinel.');
 } finally {
+  db.close();
   server.close();
 }
