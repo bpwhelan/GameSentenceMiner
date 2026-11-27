@@ -1,6 +1,6 @@
 # Privacy Policy for JitenReader Browser Extension
 
-Last updated: February 5, 2026
+Last updated: September 29, 2026
 
 JitenReader is a browser extension that parses Japanese text on web pages using the Jiten.moe service. To provide this functionality, the extension reads Japanese text from web pages you visit and transmits it to Jiten.moe's servers for processing. All data is transmitted securely over HTTPS. This policy describes in full how user data is collected, processed, stored, and shared.
 
@@ -9,6 +9,7 @@ JitenReader is a browser extension that parses Japanese text on web pages using 
 JitenReader processes the following data to provide its functionality:
 
 - **Japanese text from web pages**: The extension reads visible Japanese text on pages you visit in order to parse and annotate it.
+- **Text you paste into the clipboard reader**: Only lines that contain Japanese are sent for parsing. Other lines stay on your device.
 - **API key**: Your Jiten.moe API key, entered by you in the extension settings.
 - **User preferences**: Extension settings such as keybinds, theme colours, highlighting options, and parser configuration.
 - **SRS review actions**: When you grade a word or change its vocabulary state (e.g. mining, blacklisting, suspending), those actions are recorded.
@@ -28,6 +29,7 @@ The extension does **not** collect browsing history, analytics, telemetry, or an
 - All extension settings, including your API key, are stored **locally on your device** using the browser's extension storage (`chrome.storage.local`).
 - No data is synced to the cloud by the extension.
 - Parsed word data is held in memory only for the duration of your browsing session and is not persisted.
+- Lines in the clipboard reader are saved in the extension's local storage on your device until you delete or clear them.
 
 ## Data Sharing
 
@@ -58,6 +60,10 @@ The extension requires the following browser permissions:
 - **Storage**: To save your settings and API key locally.
 - **Context Menus**: To provide a right-click "Lookup selected text" option.
 - **Scripting**: To inject styles for text highlighting and popup display.
+
+The following permission is optional and only requested when you turn on the matching option:
+
+- **Clipboard read** (`clipboardRead`): Requested when you turn on auto-paste in the clipboard reader. While auto-paste is on and the clipboard reader is open, it checks your clipboard and adds new parsed text as a line.
 
 ## Contact
 

@@ -666,8 +666,9 @@ export class TextScanner extends EventDispatcher {
      */
     _modifierKeySet(activeModifiers) {
         const point = this._lastMouseMove;
-        if (point !== null && this._isGsmHomeReadingPoint(point.clientX, point.clientY)) {
-            return activeModifiers.includes('shift');
+        const homeModifier = point === null ? null : this._getGsmHomeReadingModifier(point.clientX, point.clientY);
+        if (homeModifier !== null) {
+            return activeModifiers.some((modifier) => modifier === homeModifier);
         }
         /** @type {string[]} */
         const settingsModifiers = [];

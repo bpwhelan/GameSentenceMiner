@@ -11,12 +11,11 @@ The desktop entry point is in `src-tauri/`. Edit backend features in the Rust wo
 - With `--handoff`, the command returns once the running app accepts the request and displays the warning. Without it, the command waits for the new app and backend to be ready. Treat a nonzero exit as a failure; do not report success or use broad process-name kills as a fallback.
 - See `docs/AGENT_RESTART.md` for timing options, startup behavior, and troubleshooting.
 
-## Yomitan Edit Workflow
+## Yomitan and Jiten Reader Edit Workflow
 
-- Do not edit built/compiled files under `GSM_Overlay/yomitan/` directly.
-- For Yomitan logic changes, edit source files in `C:\Users\Beangate\GSM\yomitan-gsm\ext\` (for example: `ext/js/language/text-scanner.js`).
-- After source edits, rebuild and sync the overlay copy by running:
-  - `C:\Users\Beangate\GSM\yomitan-gsm\local-build-chrome-overlay.ps1`
+- Edit Yomitan in the `bpwhelan/yomitan-gsm` fork under `ext/`. Edit Jiten Reader in `bpwhelan/JitenReader-GSM` under `src/`.
+- Each fork contains `local-build-chrome-overlay.ps1`. Run it from the fork with `-GsmRoot <path-to-GameSentenceMiner>` to rebuild and sync its generated extension into the intended checkout.
+- Fetch upstream tags when updating Yomitan. Its build uses the newest version tag merged into the fork.
 
 ## Hachidori Integration Workflow
 

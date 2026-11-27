@@ -228,8 +228,8 @@ Runtime includes libraries compiled into the shipped web interfaces. Their usage
 
 | Package | Purpose | Usage | Justification |
 | --- | --- | --- | --- |
-| `Hachidori` 0.5.0 | Dictionary lookup | [`GSM_Overlay/hachidori/manifest.json`](GSM_Overlay/hachidori/manifest.json) | The overlay integrates this extension through the GSM Hachidori bridge. |
-| `Jiten Reader` 1.3.3 | Reader integration | [`GSM_Overlay/jiten.reader/manifest.json`](GSM_Overlay/jiten.reader/manifest.json) | The overlay ships the reader extension and its lookup scripts. |
+| `Hachidori` 0.5.2 | Dictionary lookup | [`GSM_Overlay/hachidori/manifest.json`](GSM_Overlay/hachidori/manifest.json) | The overlay integrates this extension through the GSM Hachidori bridge. |
+| `Jiten Reader` 1.4.1 | Reader integration | [`GSM_Overlay/jiten.reader/manifest.json`](GSM_Overlay/jiten.reader/manifest.json) | The overlay ships the reader extension and its lookup scripts. |
 | `Jiten.Parser rewrite rules` a2fd4a6ccbbc | Japanese morphological rewrite rules | [`GSM_Overlay/third_party/jiten-parser/manifest.json`](GSM_Overlay/third_party/jiten-parser/manifest.json) | The input server applies the imported rules in language/src/jiten_rules.rs. |
 | `libasound2t64 or libasound2` distribution version | ALSA output | [`src-tauri/tauri.bundle.conf.json`](src-tauri/tauri.bundle.conf.json) | Provides the audio library on both sides of the distribution ABI transition. |
 | `libayatana-appindicator3-1` distribution version | System tray | [`src-tauri/tauri.bundle.conf.json`](src-tauri/tauri.bundle.conf.json) | Exposes the Linux tray indicator. |
@@ -238,7 +238,7 @@ Runtime includes libraries compiled into the shipped web interfaces. Their usage
 | `Microsoft.CognitiveServices.Speech` 1.41.1 | Windows embedded speech recognition | [`native/windows-speech-recognition/CMakeLists.txt`](native/windows-speech-recognition/CMakeLists.txt) | The helper links the SDK and delay-loads its core DLL. The pinned ABI matches the embedded speech runtime. |
 | `MinHook` 1.3.4 | Native hook support | [`native/game-background-hooks/CMakeLists.txt`](native/game-background-hooks/CMakeLists.txt) | Compiled into the Windows helper DLL. The vendored version and license are recorded in NOTICE.md. |
 | `vita-vn-ocr` b02e81205fa4 / 205f47ec4e56 | OCR recognizer and spotter | [`native/vita-ocr/CMakeLists.txt`](native/vita-ocr/CMakeLists.txt) | The C targets compile verified upstream sources. desktop-source-lock.json and source-lock.json pin the desktop and original source revisions. |
-| `Yomitan` 26.11.10.0 | Dictionary lookup | [`GSM_Overlay/yomitan/manifest.json`](GSM_Overlay/yomitan/manifest.json) | The overlay loads the vendored extension and its dictionary assets. |
+| `Yomitan` 26.11.25.0 | Dictionary lookup | [`GSM_Overlay/yomitan/manifest.json`](GSM_Overlay/yomitan/manifest.json) | The overlay loads the vendored extension and its dictionary assets. |
 
 ### Development, build and test
 

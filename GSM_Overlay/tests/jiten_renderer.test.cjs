@@ -13,12 +13,13 @@ test('shipped Reader bundles reuse one request ID across retries', async () => {
     const calls = [];
     let sequence = 0;
     const context = vm.createContext({
-      URL, AbortSignal, MAX_RETRIES: 3, REQUEST_TIMEOUT_MS: 30000, INITIAL_BACKOFF_MS: 500,
+      URL, AbortController, setTimeout, clearTimeout, MAX_RETRIES: 3, CONNECT_TIMEOUT_MS: 10000,
       rejectedApiToken: undefined, crypto: { randomUUID: () => `operation-${++sequence}` },
-      wait: async () => {}, isRetryable: () => true,
+      waitBeforeRetry: async () => {}, isRetryable: () => true,
+      readBody: response => response.text(), DOWNLOAD_STALLED: Symbol('download stalled'),
       fetch: async (_url, init) => {
         calls.push(init.headers['X-GSM-Request-Id']);
-        return { status: calls.length % 2 ? 503 : 200, ok: calls.length % 2 === 0, json: async () => ({ ok: true }) };
+        return { status: calls.length % 2 ? 503 : 200, ok: calls.length % 2 === 0, text: async () => '{"ok":true}' };
       },
     });
     vm.runInContext(source.slice(start, end) + '\nglobalThis.request = requestByUrl;', context);
@@ -38,6 +39,8 @@ function loadHighlighter() {
   const createElement = (tag) => {
     const element = {
       tag, style: {}, dataset: {}, children: [], isConnected: true, words: false, unparsedWords: false,
+      get childNodes() { return this.children; },
+      replaceChildren(...children) { this.children = children; },
       appendChild(child) { this.children.push(child); },
       set innerHTML(_value) { this.children = []; this.words = false; this.unparsedWords = false; },
       querySelectorAll(selector) {

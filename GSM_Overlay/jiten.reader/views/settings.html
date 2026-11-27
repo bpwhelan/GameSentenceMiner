@@ -19,6 +19,10 @@
 <body style="font-size: 100%">
 <div class="container" style="padding-top: 1em">
   <h4 style="text-align: center; opacity: 0.85">Settings</h4>
+  <div id="parsingPausedNotice" class="parsing-paused-notice" style="display: none">
+    <p>Parsing is paused. No pages will be parsed until you resume it.</p>
+    <input type="button" id="resumeParsingButton" class="button outline small" value="Resume parsing" />
+  </div>
   <div class="settings-search">
     <input type="search" id="settings-search" placeholder="Search settings..." autocomplete="off" internal />
   </div>
@@ -338,6 +342,17 @@
                 <input type="checkbox" id="skipFurigana" name="skipFurigana" />
                 <label for="skipFurigana">Prevent Furigana from generating</label>
               </div>
+             </div>
+
+            <div data-show="!skipFurigana" indent>
+              <div class="checkbox">
+                <input type="checkbox" id="furiganaOnlyOnNew" name="furiganaOnlyOnNew" />
+                <label for="furiganaOnlyOnNew">Only add furigana to new words</label>
+              </div>
+              <p style="opacity: 0.8" indent up>
+                New words are the card states picked at the top of this section. Furigana already on the
+                page stays.
+              </p>
             </div>
 
             <div>
@@ -781,6 +796,11 @@
             <keybind-input id="readerModeKey" name="readerModeKey"></keybind-input>
           </div>
 
+          <div>
+            <label for="clipboardReaderKey">Open clipboard reader</label>
+            <keybind-input id="clipboardReaderKey" name="clipboardReaderKey"></keybind-input>
+          </div>
+
           <div data-show="statusBarEnabled">
             <label for="toggleStatusBarKey">Toggle status bar</label>
             <keybind-input id="toggleStatusBarKey" name="toggleStatusBarKey"></keybind-input>
@@ -811,6 +831,11 @@
           <div>
             <label for="addToBlacklistKey">Add word to blacklist</label>
             <keybind-input id="addToBlacklistKey" name="addToBlacklistKey"></keybind-input>
+          </div>
+
+          <div>
+            <label for="addToSuspendedKey">Suspend or unsuspend word</label>
+            <keybind-input id="addToSuspendedKey" name="addToSuspendedKey"></keybind-input>
           </div>
 
           <div>
@@ -935,6 +960,17 @@
         <summary>Parsing</summary>
         <div class="form-box-parent">
           <div class="form-box">
+            <div>
+              <div class="checkbox">
+                <input type="checkbox" id="parsingPaused" internal />
+                <label for="parsingPaused">Pause parsing</label>
+              </div>
+              <p style="opacity: 0.8">
+                While paused, pages are not parsed, the parse button and parse key are turned off, and mass review is
+                unavailable. The same switch is in the extension icon menu.
+              </p>
+            </div>
+
             <div>
               <div class="checkbox">
                 <input type="checkbox" id="hideInactiveTabs" name="hideInactiveTabs" />
@@ -1167,7 +1203,7 @@
               This is your <b>blacklist deck</b>. Cards you don't want to learn will be saved
               here.
             </p>
-            <p>Words from this deck will be displayed as suspended.</p>
+            <p>Words from this deck will be displayed as blacklisted.</p>
             <p>The Word and Reading configuration will also be used to look up words in Anki.</p>
           </mining-input>
         </div>

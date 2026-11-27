@@ -47,7 +47,7 @@ test('a cached lookup is independent of the native error from an unrelated faile
     engine, throwIfEngineFailed: check, ensureLoaded: async () => {}, lookupArguments: () => ['食べる'],
     gsmLookup: (...args) => cache.call(1, engine, check, ...args),
     withDefinitionTags: reply => reply, withoutPersonalDictionary: reply => reply,
-    termLookupReply: JSON.parse, kanaRuby: () => false,
+    withoutKanjiWordFrequencies: reply => reply, termLookupReply: JSON.parse, kanaRuby: () => false,
   });
   await lookup({}); failed = true;
   assert.equal((await lookup({})).dictionaryCount, 1);

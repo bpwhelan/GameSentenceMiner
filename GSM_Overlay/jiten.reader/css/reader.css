@@ -360,6 +360,179 @@
   margin: 2em 0;
 }
 
+#ajb-reader .clipboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin-bottom: 1em;
+  padding-top: 0.75em;
+  padding-bottom: 0.75em;
+  background: var(--reader-bg);
+}
+
+#ajb-reader .clipboard-source-input {
+  box-sizing: border-box;
+  width: calc(100% - 3.5em);
+  margin: 0;
+  padding: 0.1em 0.2em;
+  border: 1px solid transparent;
+  border-radius: 0.3em;
+  background: none;
+  color: var(--reader-fg);
+  font: inherit;
+  font-size: 1.3em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+#ajb-reader .clipboard-source-input:hover {
+  border-color: var(--reader-border);
+}
+#ajb-reader .clipboard-source-input:focus-visible {
+  border-color: var(--reader-fg);
+  outline: none;
+}
+
+#ajb-reader .clipboard-toolbar,
+#ajb-reader .clipboard-hint,
+#ajb-reader .clipboard-status {
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#ajb-reader .clipboard-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1.1em;
+  margin-top: 0.6em;
+  color: var(--reader-fg);
+}
+#ajb-reader .clipboard-toolbar .reader-btn:focus-visible {
+  outline: 2px solid var(--reader-fg);
+  outline-offset: 2px;
+}
+#ajb-reader .clipboard-toolbar [hidden] {
+  display: none;
+}
+
+#ajb-reader .clipboard-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  cursor: pointer;
+  user-select: none;
+}
+#ajb-reader .clipboard-option input {
+  width: 1em;
+  height: 1em;
+  margin: 0;
+  accent-color: var(--reader-fg);
+  cursor: pointer;
+}
+
+#ajb-reader .clipboard-toolbar-spacer {
+  flex: 1;
+}
+
+#ajb-reader .clipboard-stats {
+  color: var(--reader-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#ajb-reader .clipboard-hint {
+  margin: 0.6em 0 0;
+  color: var(--reader-muted);
+}
+
+#ajb-reader .clipboard-status {
+  margin: 0.4em 0 0;
+  color: var(--reader-fg);
+}
+
+#ajb-reader .clipboard-hint[hidden],
+#ajb-reader .clipboard-status[hidden] {
+  display: none;
+}
+
+#ajb-reader .reader-content .clipboard-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75em;
+  padding: 0.45em 0;
+  border-bottom: 1px solid var(--reader-border);
+}
+#ajb-reader .reader-content .clipboard-entry:last-child {
+  border-bottom: none;
+}
+
+#ajb-reader .reader-content .clipboard-text {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+#ajb-reader .reader-content .clipboard-time {
+  flex: none;
+  color: var(--reader-muted);
+  font-size: 0.7em;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+html.clipboard-hide-times #ajb-reader .clipboard-time {
+  display: none;
+}
+
+#ajb-reader .reader-content .clipboard-delete-btn {
+  flex: none;
+  align-self: center;
+  appearance: none;
+  padding: 0.25em 0.45em;
+  border: none;
+  border-radius: 0.3em;
+  background: none;
+  color: var(--reader-muted);
+  cursor: pointer;
+  font: 13px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  opacity: 0;
+}
+#ajb-reader .reader-content .clipboard-delete-btn:hover {
+  background: var(--reader-btn-bg);
+  color: var(--reader-fg);
+}
+#ajb-reader .reader-content .clipboard-delete-btn:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--reader-fg);
+}
+@media (hover: none) {
+  #ajb-reader .reader-content .clipboard-delete-btn {
+    opacity: 1;
+  }
+}
+
+#ajb-reader .reader-content .clipboard-entry:hover .clipboard-delete-btn {
+  opacity: 1;
+}
+
+#ajb-reader .reader-content .reader-line {
+  display: block;
+}
+
+#ajb-reader .reader-content .reader-skipped {
+  color: var(--reader-muted);
+}
+
+.clipboard-paste-target {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 html.ajb-reader-open {
   overflow: hidden;
 }

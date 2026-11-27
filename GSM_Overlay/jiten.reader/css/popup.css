@@ -615,6 +615,7 @@ label.outline[disabled] {
 .popup section.controls {
   display: flex;
   flex-direction: row;
+  flex-wrap: wrap;
   gap: 0.4em;
 }
 .popup section.controls a {

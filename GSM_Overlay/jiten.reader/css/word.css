@@ -6,6 +6,11 @@
   margin-inline: 0;
 }
 
+.mokuro-parser .jiten-word,
+.mokuro-legacy-parser .jiten-word {
+  margin-inline: 0;
+}
+
 .ttsu-parser .jiten-word > ruby[data-furi] {
   display: inline-block;
   position: relative;

@@ -63,6 +63,17 @@
   font-weight: bold;
 }
 
+.coverage-young {
+  color: #facc15;
+  font-size: 0.9em;
+  opacity: 0.8;
+}
+
+.stat-divider {
+  height: 1px;
+  background-color: #333;
+}
+
 .stats-dropdown {
   position: absolute;
   bottom: calc(100% + 0.5em);

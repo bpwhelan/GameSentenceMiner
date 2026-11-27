@@ -741,12 +741,12 @@ export class Backend {
 
             const valid = isNoteDataValid(note);
 
-            if (isDuplicate && duplicateNoteIds[originalIndices.indexOf(i)].length === 0) {
-                duplicateNoteIds[originalIndices.indexOf(i)] = [INVALID_NOTE_ID];
-            }
-
-            const noteIds = isDuplicate ? duplicateNoteIds[originalIndices.indexOf(i)] : null;
+            let noteIds = isDuplicate ? duplicateNoteIds[originalIndices.indexOf(i)] : null;
             const noteInfos = (fetchAdditionalInfo && noteIds !== null && noteIds.length > 0) ? await this._notesCardsInfo(noteIds) : [];
+
+            if (isDuplicate && noteIds !== null && noteIds.length === 0) {
+                noteIds = [INVALID_NOTE_ID];
+            }
 
             const info = {
                 canAdd: valid,
@@ -1419,6 +1419,7 @@ export class Backend {
                     if (queryParams.query) {
                         await this._updateSearchQuery(id, queryParams.query, true);
                     }
+                    await this._selectSearch(id);
                     return true;
                 }
             }
@@ -1707,6 +1708,18 @@ export class Backend {
         await this._sendMessageTabPromise(
             tabId,
             {action: 'searchDisplayControllerUpdateSearchQuery', params: {text, animate}},
+            {frameId: 0},
+        );
+    }
+
+    /**
+     * @param {number} tabId
+     * @returns {Promise<void>}
+     */
+    async _selectSearch(tabId) {
+        await this._sendMessageTabPromise(
+            tabId,
+            {action: 'searchDisplayControllerSelectSearch'},
             {frameId: 0},
         );
     }

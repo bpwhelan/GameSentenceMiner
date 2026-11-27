@@ -385,6 +385,13 @@ const languageDescriptors = [
         languageTransforms: georgianTransforms,
     },
     {
+        iso: 'kk',
+        iso639_3: 'kaz',
+        name: 'Kazakh',
+        exampleText: 'оқу', // Kazakh for "to read"
+        textPreprocessors: capitalizationPreprocessors,
+    },
+    {
         iso: 'kn',
         iso639_3: 'kan',
         name: 'Kannada',
@@ -428,6 +435,13 @@ const languageDescriptors = [
         iso639_3: 'mlt',
         name: 'Maltese',
         exampleText: 'kiteb',
+        textPreprocessors: capitalizationPreprocessors,
+    },
+    {
+        iso: 'hy',
+        iso639_3: 'hye',
+        name: 'Armenian',
+        exampleText: 'կարդալ',
         textPreprocessors: capitalizationPreprocessors,
     },
     {

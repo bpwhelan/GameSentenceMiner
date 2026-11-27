@@ -1071,3 +1071,22 @@ profile-selector select option {
 .reader-theme-swatch.active {
   box-shadow: 0 0 0 2px var(--jiten-bg, #181818), 0 0 0 4px var(--jiten-accent, #d8b9fa);
 }
+
+.parsing-paused-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5em 1em;
+  margin-bottom: 1em;
+  padding: 0.75em 1em;
+  border: 1px solid #e74c3c;
+  border-radius: 8px;
+  color: #e74c3c;
+}
+.parsing-paused-notice p {
+  margin: 0;
+}
+.parsing-paused-notice input[type=button] {
+  margin: 0;
+}
