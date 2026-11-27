@@ -91,6 +91,9 @@ describe('coordinated native release',()=>{
     });
     it('builds the input server from the same checkout on every target',()=>{
         const platforms = JSON.parse(fs.readFileSync('.github/desktop-platforms.json', 'utf8'));
+        const selector = native.jobs.version.steps.find((step:{id?:string}) => step.id === 'platforms');
+        expect(selector.env.PLATFORM).toBe("${{ inputs.publish && 'all' || inputs.platform || 'all' }}");
+        expect(selector.run).toContain('.github/desktop-platforms.json');
         expect(native.jobs.build.strategy.matrix).toBe('${{ fromJSON(needs.version.outputs.matrix) }}');
         const selection = native.jobs.version.steps.find((step:{id?:string}) => step.id === 'platforms');
         expect(selection.env.PLATFORM).toContain("inputs.publish && 'all'");
