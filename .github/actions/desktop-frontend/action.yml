@@ -1,5 +1,9 @@
 name: Build and check the desktop renderer
 description: Produce the common web resources consumed by every native runner.
+inputs:
+  upload:
+    description: Share the built renderer with packaging jobs
+    default: 'false'
 runs:
   using: composite
   steps:
@@ -21,6 +25,7 @@ runs:
         node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs GSM_Overlay/tests/native_dictionary_transport.test.cjs GSM_Overlay/tests/text_hover.test.cjs
         node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
     - uses: actions/upload-artifact@v4
+      if: inputs.upload == 'true'
       with:
         name: desktop-web-resources
         path: |

@@ -19,21 +19,23 @@ installers and portable ZIPs are written to `dist/native-release/<platform>-<arc
 - **Development checks** run on desktop pull requests and pushes to `main`.
   A Linux job builds the renderer and runs the full Vitest suite. Renderer-only
   changes finish there. Changes to Rust, shared code, packaging or
-  resources also run the Rust workspace tests and development desktop
-  smoke tests on Linux, Windows and Apple Silicon. A new commit cancels the
-  superseded development run.
+  resources also run the Rust workspace tests on Linux, Windows and Apple Silicon.
+  A new commit cancels the superseded development run.
 - **Preview and release builds** share the same renderer artifact across Windows
   x64, Linux x64, Apple Silicon and Intel macOS. Each platform stages its native
-  helpers and builds the shipping desktop once. Full builds run the desktop
-  scenarios against that executable and its staged resources outside the
-  checkout. Workspace unit tests run concurrently on the three operating
-  systems. Cargo tests the standalone Agent separately so its Frida build cannot
+  helpers and builds the shipping desktop once. Workspace unit tests run concurrently on
+  the three operating systems. Cargo tests the standalone Agent separately so its Frida build cannot
   supply SQLite to the desktop test binary. Publication waits for the tests and
   all four packages.
 - **Rust caching** uses a pinned toolchain and `sccache` with GitHub Actions
   storage. Each OS, architecture and Cargo profile restores a disk cache capped
-  at 1 GiB. A successful compile can save the archive before GUI smoke tests.
+  at 1 GiB. Build and test jobs save the archive after compilation.
   The post-job statistics report actual compiler hits, misses and uncached work.
+- **Desktop GUI smoke tests** run on demand from Actions. Select “Desktop GUI smoke tests”,
+  enter the numeric run ID of a preview or release with `native-release-*` artifacts,
+  and choose one platform or all four. The runner extracts the uploaded package and
+  uses the tests from its source commit. Reruns reuse the same artifact during its
+  14-day retention period. Development checks and releases run independently.
 - **Overlay latency** is recorded during the dictionary reopen smoke test.
   To check the five-sample median against the 500 ms budget on a controlled
   machine, set `GSM_BENCHMARK_WARM_ACTIVATION=1` before running

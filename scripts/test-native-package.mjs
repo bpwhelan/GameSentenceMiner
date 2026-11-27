@@ -6,14 +6,22 @@ import {execFileSync} from 'node:child_process';
 import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
-const releaseDir = path.join(await nativeTargetDirectory(), 'release');
+const requested = process.argv.slice(2);
+const installed = requested[0] === '--installed';
+if (installed) requested.shift();
+const releaseDir = installed ? undefined : path.join(await nativeTargetDirectory(), 'release');
 
 // Keep application resources outside the checkout so its dependencies cannot fill
 // gaps in a package. macOS also needs the shipped Info.plist and Frameworks layout.
-const fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'gsm-packaged-check-'));
+const fixture = installed ? undefined : await fs.mkdtemp(path.join(os.tmpdir(), 'gsm-packaged-check-'));
 let executable;
 let app;
-if (process.platform === 'darwin') {
+if (installed) {
+  executable = process.env.GSM_NATIVE_TEST_EXECUTABLE;
+  app = process.env.GSM_SMOKE_APP_DIR;
+  if (!executable || !app) throw Error('Provide the extracted executable and resource directory for --installed.');
+  await fs.access(executable);
+} else if (process.platform === 'darwin') {
   const config = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
   const name = `${config.productName}.app`;
   const bundle = path.join(fixture, name);
@@ -45,7 +53,6 @@ for (const forbidden of ['runtime', 'node_modules', 'desktop-runtime', 'dist/mai
   }
 }
 
-const requested = process.argv.slice(2);
 const scenarios = requested.includes('--all') ? [] : requested.length ? requested :
   ['windows', 'workspace', 'settings', 'yomitan', 'hachidori', 'overlay'];
 const env = {
@@ -61,7 +68,8 @@ for (const name of [
   delete env[name];
 }
 if (process.platform === 'darwin') delete env.DYLD_LIBRARY_PATH;
-console.log('Testing packaged application outside the checkout:', fixture);
-execFileSync(process.execPath, [path.join(root, 'scripts/check-native-desktop.mjs'), ...scenarios], {
+console.log('Testing packaged application outside the checkout:', executable);
+const testRoot = installed && process.env.GSM_SMOKE_TEST_ROOT || root;
+execFileSync(process.execPath, [path.join(testRoot, 'scripts/check-native-desktop.mjs'), ...scenarios], {
   cwd: app, env, stdio: 'inherit', windowsHide: true,
 });

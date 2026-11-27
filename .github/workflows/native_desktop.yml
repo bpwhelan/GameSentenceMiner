@@ -74,6 +74,8 @@ jobs:
           GSM_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: node scripts/set-native-ci-version.mjs
       - uses: ./.github/actions/desktop-frontend
+        with:
+          upload: true
 
   units:
     name: Native unit checks
@@ -115,7 +117,6 @@ jobs:
         uses: ./.github/actions/desktop-rust
         with:
           profile: release
-          webviews: ${{ !inputs.portable_preview }}
       - name: Set the coordinated release version
         run: |
           node scripts/set-native-ci-version.mjs
@@ -136,7 +137,7 @@ jobs:
           npm run build:windows-helpers
           npm run stage:native -- ${{ inputs.portable_preview && '--portable-preview' || '' }}
           node scripts/verify-native-package.mjs
-      - name: Build bundles for testing or Windows release code signing
+      - name: Build native bundles
         if: ${{ !inputs.portable_preview && (!inputs.publish || (runner.os == 'Windows' && !inputs.prerelease)) }}
         run: node scripts/build-native-desktop.mjs
       - name: Build signed update bundles
@@ -170,25 +171,6 @@ jobs:
         with:
           path: .ci-sccache
           key: ${{ steps.rust.outputs.save-key }}
-      - name: Exercise the packaged desktop and its native services
-        if: ${{ !inputs.portable_preview }}
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            bash scripts/test-native-linux.sh package --all
-          else
-            node scripts/test-native-package.mjs --all
-          fi
-      - name: Preserve macOS crash reports
-        if: failure() && runner.os == 'macOS'
-        uses: actions/upload-artifact@v4
-        with:
-          name: desktop-crashes-${{ matrix.platform }}
-          path: |
-            ~/Library/Logs/DiagnosticReports/gsm-desktop*.ips
-            ~/Library/Logs/DiagnosticReports/GSM-*.ips
-          if-no-files-found: ignore
-          retention-days: 5
       - uses: actions/upload-artifact@v4
         if: inputs.portable_preview
         with:

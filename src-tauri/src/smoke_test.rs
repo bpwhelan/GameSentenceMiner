@@ -2333,6 +2333,9 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         if hotkeys != true {
             return Err("Overlay settings did not select Hotkeys".into());
         }
+        // The guide is the first scenario to publish synthetic capture transitions.
+        #[cfg(not(windows))]
+        app.state::<crate::obs::Obs>().set_smoke_target("Guide game", fixture_hwnd);
         smoke_vn_guide(app, &settings_win).await?;
 
         let theme =
@@ -2378,10 +2381,6 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         }
         evaluate_raw(app, &main_win, include_str!("../smoke/overlay.js")).await?;
         evaluate_raw(app, &main_win, "window.__gsmSmokeOverlay.geometry()").await?;
-        // A non-Windows host has no game HWND. Introduce the synthetic capture
-        // when this scenario starts driving capture transitions.
-        #[cfg(not(windows))]
-        app.state::<crate::obs::Obs>().set_smoke_target("Guide game", fixture_hwnd);
         host.handle_ws2_text(
             app,
             &json!({"type":"capture_status","available":true,"window_state":"active"}).to_string(),

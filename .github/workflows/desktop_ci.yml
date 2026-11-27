@@ -15,8 +15,11 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'vitest.config.*'
-      - '.github/actions/**'
-      - '.github/workflows/*desktop*.yml'
+      - '.github/actions/desktop-rust/**'
+      - '.github/actions/desktop-frontend/**'
+      - '.github/workflows/desktop_ci.yml'
+      - '.github/workflows/desktop_verify.yml'
+      - '.github/workflows/native_desktop.yml'
   push:
     branches: [main]
     paths: *desktop_paths
@@ -66,5 +69,3 @@ jobs:
     needs: frontend
     if: needs.frontend.outputs.native == 'true'
     uses: ./.github/workflows/desktop_verify.yml
-    with:
-      smoke: true

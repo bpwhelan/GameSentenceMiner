@@ -38,16 +38,22 @@ describe('coordinated native release',()=>{
         expect(native.jobs.units.if).toBe('${{ !inputs.portable_preview }}');
         expect(native.jobs.units.uses).toBe('./.github/workflows/desktop_verify.yml');
     });
-    it('shares one renderer and exercises the release binary on every packaging platform', () => {
+    it('shares one renderer and keeps GUI smoke tests out of builds and unit checks', () => {
         const steps = native.jobs.build.steps as Array<{uses?:string;run?:string;with?:{name?:string}}>;
         const commands = steps.map(step => step.run || '').join('\n');
         expect(native.on.pull_request).toBeUndefined();
         expect(native.jobs.version.steps).toContainEqual(expect.objectContaining({uses:'./.github/actions/desktop-frontend'}));
         expect(steps.find(step => step.uses?.startsWith('actions/download-artifact@'))?.with?.name).toBe('desktop-web-resources');
         expect(commands).not.toMatch(/build:tauri|build-native-dev|npm run build(?:\s|$)/m);
-        expect(commands).toContain('test-native-package.mjs --all');
-        expect(commands).toContain('test-native-linux.sh package --all');
+        expect(commands).not.toMatch(/test-native-package|test-native-linux|check-native-desktop/);
+        const smoke = workflow('desktop_smoke.yml');
+        expect(Object.keys(smoke.on)).toEqual(['workflow_dispatch']);
+        expect(smoke.jobs.smoke.steps).toContainEqual(expect.objectContaining({
+            uses: 'actions/download-artifact@v4',
+            with: expect.objectContaining({'run-id': '${{ inputs.run_id }}'}),
+        }));
         const checks = workflow('desktop_verify.yml').jobs.test;
+        expect(JSON.stringify(checks.steps)).not.toMatch(/build-native-dev|check-native-desktop|test-native-linux/);
         const cargoTests = checks.steps.flatMap((step:{run?:string}) => step.run?.match(/^cargo test\b[^\n]*/gm) || []);
         expect(cargoTests).toHaveLength(2);
         expect(cargoTests).toContainEqual(expect.stringContaining('--workspace --exclude gsm-agent'));

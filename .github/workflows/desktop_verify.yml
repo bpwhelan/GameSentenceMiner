@@ -2,11 +2,6 @@ name: Desktop workspace tests
 
 on:
   workflow_call:
-    inputs:
-      smoke:
-        description: Build the development executable and exercise its webviews
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -25,39 +20,15 @@ jobs:
         uses: ./.github/actions/desktop-rust
         with:
           profile: test
-          webviews: ${{ inputs.smoke }}
       - name: Test the Rust workspace
         run: cargo test --locked --workspace --exclude gsm-agent
       # The desktop uses gsm-agent without Frida. Building both feature sets in one
       # Cargo invocation links Frida's SQLite into the desktop test harness on macOS.
       - name: Test the standalone agent runtime
         run: cargo test --locked -p gsm-agent
-      - uses: actions/setup-node@v6
-        if: inputs.smoke
-        with:
-          node-version: '22.23.1'
-          cache: npm
-      - if: inputs.smoke
-        run: npm ci --no-audit --no-fund
-      - uses: actions/download-artifact@v4
-        if: inputs.smoke
-        with:
-          name: desktop-web-resources
-      - name: Build the development desktop for smoke tests
-        if: inputs.smoke
-        run: node scripts/build-native-dev.mjs --debug
       - name: Save compiler outputs
         if: steps.rust.outputs.save-key != ''
         uses: actions/cache/save@v6
         with:
           path: .ci-sccache
           key: ${{ steps.rust.outputs.save-key }}
-      - name: Exercise the development desktop
-        if: inputs.smoke
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            bash scripts/test-native-linux.sh all
-          else
-            node scripts/check-native-desktop.mjs
-          fi
