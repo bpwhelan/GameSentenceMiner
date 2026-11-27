@@ -102,17 +102,28 @@ fn replace(from: &Path, to: &Path) -> Result<()> {
     use windows_sys::Win32::Storage::FileSystem::{
         MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
     };
-    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
-    if unsafe {
-        MoveFileExW(
-            from.as_ptr(),
-            to.as_ptr(),
-            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-        )
-    } == 0
-    {
-        return Err(std::io::Error::last_os_error().to_string());
+    let source: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    // Readers can briefly prevent replacement. Keep the flushed source and
+    // the original destination intact between attempts.
+    let mut delays = [40, 80, 160, 320, 640].into_iter();
+    loop {
+        if unsafe {
+            MoveFileExW(
+                source.as_ptr(),
+                destination.as_ptr(),
+                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+            )
+        } != 0 {
+            return Ok(());
+        }
+        let error = std::io::Error::last_os_error();
+        if matches!(error.raw_os_error(), Some(5 | 32 | 33)) {
+            if let Some(delay) = delays.next() {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+                continue;
+            }
+        }
+        return Err(format!("Could not replace {}: {error}", to.display()));
     }
-    Ok(())
 }
