@@ -1,0 +1,28 @@
+name: Set up the Windows smoke test runtime
+description: Install the pinned WebView2 version used by the desktop integration tests.
+runs:
+  using: composite
+  steps:
+    - name: Set up the tested Windows WebView2 runtime
+      shell: pwsh
+      run: |
+        # The runner image's 157.0.4341.46 can hang during extension worker startup.
+        $version = '158.0.4370.33'
+        $package = "Microsoft.WebView2.FixedVersionRuntime.$version.x64"
+        $source = "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/ecc2761e-1380-46ee-9552-995b039e4e47/$package.cab"
+        $cab = Join-Path $env:RUNNER_TEMP "$package.cab"
+        $destination = Join-Path $env:RUNNER_TEMP 'gsm-test-webview2'
+        New-Item -ItemType Directory -Force -Path $destination | Out-Null
+        curl.exe --fail --silent --show-error --location --retry 3 --output $cab $source
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        if ((Get-FileHash -LiteralPath $cab).Hash -ne '835DA387DF67797F710881F553BB6934D98F24D08E370456F48D38ED4E072B62') {
+          throw "WebView2 $version download failed SHA-256 verification"
+        }
+        expand.exe $cab '-F:*' $destination | Out-Null
+        if ($LASTEXITCODE) { exit $LASTEXITCODE }
+        Remove-Item -LiteralPath $cab
+        $runtime = Join-Path $destination $package
+        $exe = Get-Item -LiteralPath (Join-Path $runtime 'msedgewebview2.exe')
+        if ($exe.VersionInfo.ProductVersion -ne $version) { throw 'Unexpected WebView2 binary version' }
+        "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=$runtime" >> $env:GITHUB_ENV
+        "Windows smoke tests use WebView2 $version." >> $env:GITHUB_STEP_SUMMARY

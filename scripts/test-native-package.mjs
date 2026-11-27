@@ -1,64 +1,75 @@
+import {existsSync} from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {runNativeSmokeProcess} from './run-native-smoke-process.mjs';
-import {createDictionaryFixture, seedDictionaryGame} from './dictionary-fixture.mjs';
+import {execFileSync} from 'node:child_process';
 import {nativeTargetDirectory} from './native-paths.mjs';
 
-const root=path.resolve(import.meta.dirname,'..');
-const target=await nativeTargetDirectory();
-const releaseDir=path.join(target,'release');
-const builtExecutable=path.join(releaseDir,process.platform==='win32'?'gsm-desktop.exe':'gsm-desktop');
-await fs.access(builtExecutable);
+const root = path.resolve(import.meta.dirname, '..');
+const requested = process.argv.slice(2);
+const installed = requested[0] === '--installed';
+if (installed) requested.shift();
+const releaseDir = installed ? undefined : path.join(await nativeTargetDirectory(), 'release');
 
-// Outside the checkout: a missing packaged dependency must not resolve from
-// the developer's checkout. The executable and resources are release builds.
-const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'gsm-packaged-check-'));
-const executable=path.join(fixture,path.basename(builtExecutable));
-await fs.copyFile(builtExecutable,executable);
-if(process.platform==='win32') {
-  for(const entry of await fs.readdir(releaseDir)) {
-    if(entry.endsWith('.dll')) await fs.copyFile(path.join(releaseDir,entry),path.join(fixture,entry));
-  }
+// Keep application resources outside the checkout so its dependencies cannot fill
+// gaps in a package. macOS also needs the shipped Info.plist and Frameworks layout.
+const fixture = installed ? undefined : await fs.mkdtemp(path.join(os.tmpdir(), 'gsm-packaged-check-'));
+let executable;
+let app;
+if (installed) {
+  executable = process.env.GSM_NATIVE_TEST_EXECUTABLE;
+  app = process.env.GSM_SMOKE_APP_DIR;
+  if (!executable || !app) throw Error('Provide the extracted executable and resource directory for --installed.');
+  await fs.access(executable);
+} else if (process.platform === 'darwin') {
+  const config = JSON.parse(await fs.readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+  const name = `${config.productName}.app`;
+  const bundle = path.join(fixture, name);
+  execFileSync('/usr/bin/ditto', [path.join(releaseDir, 'bundle/macos', name), bundle]);
+  const contents = path.join(bundle, 'Contents');
+  const binary = execFileSync('/usr/bin/plutil', [
+    '-extract', 'CFBundleExecutable', 'raw', '-o', '-', path.join(contents, 'Info.plist'),
+  ], {encoding: 'utf8'}).trim();
+  executable = path.join(contents, 'MacOS', binary);
+  app = path.join(contents, 'Resources', 'app');
 } else {
-  await fs.chmod(executable,0o755);
+  const binary = process.platform === 'win32' ? 'gsm-desktop.exe' : 'gsm-desktop';
+  executable = path.join(fixture, binary);
+  await fs.copyFile(path.join(releaseDir, binary), executable);
+  if (process.platform === 'win32') {
+    for (const entry of await fs.readdir(releaseDir)) {
+      if (entry.endsWith('.dll')) await fs.copyFile(path.join(releaseDir, entry), path.join(fixture, entry));
+    }
+  } else {
+    await fs.chmod(executable, 0o755);
+  }
+  app = path.join(fixture, 'app');
+  await fs.cp(path.join(root, 'build/native-desktop/app'), app, {recursive: true});
 }
-const app=path.join(fixture,'app');
-await fs.cp(path.join(root,'build/native-desktop/app'),app,{recursive:true});
-for(const forbidden of ['runtime','node_modules','desktop-runtime','dist/main','dist/shared']) {
-  if(await fs.access(path.join(app,forbidden)).then(()=>true,()=>false)) {
+await fs.access(path.join(app, 'dist/renderer/index.html'));
+for (const forbidden of ['runtime', 'node_modules', 'desktop-runtime', 'dist/main', 'dist/shared']) {
+  if (existsSync(path.join(app, forbidden))) {
     throw Error(`Forbidden Node/JS runtime directory found in staged app: ${forbidden}`);
   }
 }
-await fs.mkdir(path.join(app,'native/gsm-overlay/tests/fixtures'),{recursive:true});
-await fs.copyFile(path.join(root,'native/gsm-overlay/tests/fixtures/dialogue.png'),path.join(app,'native/gsm-overlay/tests/fixtures/dialogue.png'));
 
-const scenarios=process.argv.slice(2);
-for(const scenario of scenarios.length?scenarios:['windows','workspace','settings','yomitan','hachidori','overlay']) {
-  const profile=path.join(fixture,scenario);await fs.mkdir(profile,{recursive:true});
-  await createDictionaryFixture(root,path.join(profile,'dictionary.zip'));
-  const dictionary=['yomitan','hachidori'].includes(scenario)?scenario:'';
-  if (dictionary) seedDictionaryGame(profile);
-  for(const phase of dictionary?['import','reopen']:['windows']) {
-    const resultFile=path.join(profile,`result-${phase}.json`);
-    const environment={
-      ...process.env,
-      PATH:process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32'):'/usr/bin:/bin',
-      GSM_APP_ROOT:app,
-      GSM_PROFILE_DIR:profile,
-      GSM_SMOKE_TEST:'1',
-      GSM_PACKAGE_TEST:'1',
-      GSM_SMOKE_SCENARIO:scenario,
-      GSM_SMOKE_DICTIONARY:dictionary,
-      GSM_SMOKE_PHASE:phase,
-      GSM_TEST_RESULT:resultFile,
-    };
-    delete environment.GSM_NODE_EXECUTABLE;
-    delete environment.GSM_NATIVE_DEPS;
-    delete environment.GSM_TEST_SERVICE;
-    delete environment.NODE_PATH;
-    await runNativeSmokeProcess(executable, app, environment, scenario, phase);
-  }
-  console.log(`PASS packaged ${scenario}`);
+const scenarios = requested.includes('--all') ? [] : requested.length ? requested :
+  ['windows', 'workspace', 'settings', 'yomitan', 'hachidori', 'overlay'];
+const env = {
+  ...process.env,
+  GSM_NATIVE_TEST_EXECUTABLE: executable,
+  GSM_SMOKE_APP_DIR: app,
+  PATH: process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32') : '/usr/bin:/bin',
+};
+for (const name of [
+  'GSM_NODE_EXECUTABLE', 'GSM_NATIVE_DEPS', 'GSM_TEST_SERVICE', 'ELECTRON_RUN_AS_NODE', 'NODE_PATH',
+  'GSM_SMOKE_RENDERER_DIR', 'VITE_DEV_SERVER_URL', 'GSM_INPUT_SERVER_URL',
+]) {
+  delete env[name];
 }
-console.log('Packaged application verification evidence:',fixture);
+if (process.platform === 'darwin') delete env.DYLD_LIBRARY_PATH;
+console.log('Testing packaged application outside the checkout:', executable);
+const testRoot = installed && process.env.GSM_SMOKE_TEST_ROOT || root;
+execFileSync(process.execPath, [path.join(testRoot, 'scripts/check-native-desktop.mjs'), ...scenarios], {
+  cwd: app, env, stdio: 'inherit', windowsHide: true,
+});

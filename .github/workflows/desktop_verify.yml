@@ -1,0 +1,34 @@
+name: Desktop workspace tests
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@v6
+      - id: rust
+        uses: ./.github/actions/desktop-rust
+        with:
+          profile: test
+      - name: Test the Rust workspace
+        run: cargo test --locked --workspace --exclude gsm-agent
+      # The desktop uses gsm-agent without Frida. Building both feature sets in one
+      # Cargo invocation links Frida's SQLite into the desktop test harness on macOS.
+      - name: Test the standalone agent runtime
+        run: cargo test --locked -p gsm-agent
+      - name: Save compiler outputs
+        if: steps.rust.outputs.save-key != ''
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-sccache
+          key: ${{ steps.rust.outputs.save-key }}

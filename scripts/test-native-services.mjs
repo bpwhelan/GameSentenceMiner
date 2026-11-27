@@ -5,6 +5,7 @@ import path from 'node:path';
 import {nativeExecutable} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
+const appRoot = process.env.GSM_SMOKE_APP_DIR || root;
 const executable=nativeExecutable();
 const temp=await fs.mkdtemp(path.join(os.tmpdir(),'gsm-native-services-'));
 const modes=process.argv.slice(2);
@@ -17,7 +18,7 @@ for(const mode of targets) {
   const env={
     ...process.env,
     ...(process.platform === 'win32' ? {PATH: path.join(process.env.SystemRoot || 'C:\\Windows', 'System32')} : {}),
-    GSM_APP_ROOT:root,
+    GSM_APP_ROOT:appRoot,
     GSM_PROFILE_DIR:profile,
     GSM_SMOKE_TEST:'1',
     GSM_SMOKE_SUITE:mode,
@@ -25,7 +26,7 @@ for(const mode of targets) {
   };
   delete env.GSM_NODE_EXECUTABLE;delete env.GSM_TEST_SERVICE;delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_PATH;
   await new Promise((resolve,reject)=>{
-    const child=spawn(executable,[],{cwd:root,env,windowsHide:true,stdio:'inherit'});
+    const child=spawn(executable,[],{cwd:appRoot,env,windowsHide:true,stdio:'inherit'});
     const timer=setTimeout(()=>{child.kill();reject(Error(`Native service smoke timed out (${mode})`));},180000);
     child.on('error',error=>{clearTimeout(timer);reject(error);});
     child.on('exit',code=>{clearTimeout(timer);code===0?resolve():reject(Error(`Native service smoke failed (${mode}: ${code})`));});

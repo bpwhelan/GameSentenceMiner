@@ -1,0 +1,137 @@
+name: Desktop GUI smoke tests
+run-name: Smoke test ${{ inputs.platform }} from build ${{ inputs.run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Build run ID containing native-release artifacts
+        type: string
+        required: true
+      platform:
+        description: Package to exercise
+        type: choice
+        options: [all, linux-x64, win32-x64, darwin-arm64, darwin-x64]
+        default: all
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      matrix: ${{ steps.source.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" |
+            jq -er --arg repo "$GITHUB_REPOSITORY" 'select(.head_repository.full_name == $repo and (.event == "workflow_dispatch" or .event == "push")) | .head_sha')
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          matrix=$(jq -ce --arg platform "$PLATFORM" 'map(select($platform == "all" or .platform == $platform)) | select(length > 0) | {include:.}' .github/desktop-platforms.json)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  smoke:
+    needs: select
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          path: source
+          ref: ${{ needs.select.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          name: native-release-${{ matrix.platform }}
+          path: ${{ runner.temp }}/native-release
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.1'
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - working-directory: source
+        run: npm ci --no-audit --no-fund
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/desktop-webview2
+      - name: Extract the Windows portable app
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archives = @(Get-ChildItem "$env:RUNNER_TEMP/native-release/*-win-unpacked.zip")
+          if ($archives.Count -ne 1) { throw 'Expected one Windows portable ZIP' }
+          $dir = New-Item -ItemType Directory "$env:RUNNER_TEMP/gsm-portable"
+          tar.exe -xf $archives[0].FullName -C $dir.FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "GSM_NATIVE_TEST_EXECUTABLE=$dir/GameSentenceMiner.exe" >> $env:GITHUB_ENV
+          "GSM_SMOKE_APP_DIR=$dir/app" >> $env:GITHUB_ENV
+      - name: Install the Linux package and virtual display
+        if: runner.os == 'Linux'
+        run: |
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/native-release/*.deb)
+          [[ ${#files[@]} == 1 ]]
+          sudo apt-get update
+          sudo apt-get install -y "${files[0]}" xvfb openbox dbus-x11
+          package=$(dpkg-deb -f "${files[0]}" Package)
+          binary=$(dpkg-query -L "$package" | grep -E '^/usr/bin/[^/]+$')
+          index=$(dpkg-query -L "$package" | grep '/app/dist/renderer/index.html$')
+          test -x "$binary"
+          test -f "$index"
+          echo "GSM_NATIVE_TEST_EXECUTABLE=$binary" >> "$GITHUB_ENV"
+          echo "GSM_SMOKE_APP_DIR=${index%/dist/renderer/index.html}" >> "$GITHUB_ENV"
+      - name: Extract the macOS application
+        if: runner.os == 'macOS'
+        run: |
+          shopt -s nullglob
+          files=("$RUNNER_TEMP"/native-release/*.dmg)
+          [[ ${#files[@]} == 1 ]]
+          mount="$RUNNER_TEMP/gsm-dmg"
+          mkdir "$mount"
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount" "${files[0]}"
+          trap 'hdiutil detach "$mount"' EXIT
+          apps=("$mount"/*.app)
+          [[ ${#apps[@]} == 1 ]]
+          bundle="$RUNNER_TEMP/$(basename "${apps[0]}")"
+          ditto "${apps[0]}" "$bundle"
+          binary=$(plutil -extract CFBundleExecutable raw -o - "$bundle/Contents/Info.plist")
+          echo "GSM_NATIVE_TEST_EXECUTABLE=$bundle/Contents/MacOS/$binary" >> "$GITHUB_ENV"
+          echo "GSM_SMOKE_APP_DIR=$bundle/Contents/Resources/app" >> "$GITHUB_ENV"
+      - name: Exercise the packaged desktop and native services
+        env:
+          GSM_SMOKE_TEST_ROOT: ${{ github.workspace }}/source
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            bash scripts/test-native-linux.sh package --installed --all
+          else
+            node scripts/test-native-package.mjs --installed --all
+          fi
+      - name: Preserve macOS crash reports
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-crashes-${{ matrix.platform }}
+          path: ~/Library/Logs/DiagnosticReports/*.ips
+          if-no-files-found: ignore
+          retention-days: 5

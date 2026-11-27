@@ -1,0 +1,73 @@
+name: Desktop development checks
+
+on:
+  pull_request:
+    paths: &desktop_paths
+      - 'Cargo.*'
+      - '.cargo/**'
+      - 'src-tauri/**'
+      - 'native/**'
+      - 'electron-src/**'
+      - 'GSM_Overlay/**'
+      - 'assets/**'
+      - 'resources/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - 'tsconfig*.json'
+      - 'vitest.config.*'
+      - '.github/desktop-platforms.json'
+      - '.github/actions/desktop-rust/**'
+      - '.github/actions/desktop-frontend/**'
+      - '.github/workflows/desktop_ci.yml'
+      - '.github/workflows/desktop_verify.yml'
+      - '.github/workflows/native_desktop.yml'
+      - '.github/workflows/windows_release_migration.yml'
+  push:
+    branches: [main]
+    paths: *desktop_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: desktop-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Renderer and shared checks
+    runs-on: ubuntu-24.04
+    outputs:
+      native: ${{ steps.scope.outputs.native }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+      - name: Select native checks
+        id: scope
+        shell: bash
+        env:
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            # The first parent of GitHub's trial merge is the PR base.
+            base="HEAD^1"
+          elif [[ "$GITHUB_EVENT_NAME" == push && ! "$PUSH_BASE" =~ ^0+$ ]]; then
+            # A push can contain multiple commits. Include all of them in the comparison.
+            if git cat-file -e "$PUSH_BASE^{commit}" || git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
+              base="$PUSH_BASE"
+            fi
+          fi
+          if [[ -n "$base" ]] &&
+             git diff --quiet "$base" HEAD -- . ':(exclude)electron-src/renderer/**' ':(exclude)docs/**' ':(exclude)*.md'; then
+            echo "native=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "native=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./.github/actions/desktop-frontend
+
+  native:
+    needs: frontend
+    if: needs.frontend.outputs.native == 'true'
+    uses: ./.github/workflows/desktop_verify.yml

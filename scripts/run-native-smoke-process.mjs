@@ -18,19 +18,21 @@ export async function runNativeSmokeProcess(executable, cwd, env, scenario, phas
   const resultFile = env.GSM_TEST_RESULT;
   const profile = env.GSM_PROFILE_DIR;
   for (let attempt = 1; attempt <= 2; attempt++) {
-    const code = await new Promise((resolve, reject) => {
+    const {code, signal} = await new Promise((resolve, reject) => {
       const child = spawn(executable, [], {cwd, env, windowsHide: true, stdio: 'inherit'});
       const timer = setTimeout(() => {
         child.kill();
         reject(Error(`Native smoke timed out (${scenario}/${phase}); evidence: ${profile}`));
       }, 180000);
       child.once('error', error => { clearTimeout(timer); reject(error); });
-      child.once('exit', code => { clearTimeout(timer); resolve(code); });
+      child.once('exit', (code, signal) => { clearTimeout(timer); resolve({code, signal}); });
     });
     const result = await fs.readFile(resultFile, 'utf8').then(JSON.parse).catch(() => null);
     if (code === 0 && result?.code === 0) return result;
     if (attempt === 2 || !await coldBrowserFailure(scenario, phase, result?.error, profile)) {
-      throw Error(`Native smoke failed (${scenario}/${phase}: ${result?.error ?? 'exit ' + code}); evidence: ${profile}`);
+      const termination = signal ? `signal ${signal}` : `exit ${code}`;
+      const detail = result?.error ?? (result?.code === 0 ? 'Desktop finished its checks before shutdown' : 'Desktop did not write a result');
+      throw Error(`Native smoke failed (${scenario}/${phase}, ${termination}): ${detail}. Evidence: ${profile}`);
     }
     // The first browser process stopped during initialization, before the fixture
     // dictionary or behavioral checks. Preserve its evidence and run those checks

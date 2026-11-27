@@ -1,0 +1,32 @@
+name: Verify the signed Windows upgrade
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.23.1'
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-release-win32-x64
+          path: dist/native-release/win32-x64
+      - name: Install the shipping Electron client
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GSM_RELEASE_VERSION: ${{ inputs.version }}
+        run: ./scripts/windows-handoff-test/prepare.ps1 -TargetVersion $env:GSM_RELEASE_VERSION -InstallerPath "dist/native-release/win32-x64/GameSentenceMiner-Setup-$env:GSM_RELEASE_VERSION.exe"
+      - name: Upgrade Electron using the final signed installer
+        run: node scripts/windows-handoff-test/exercise.mjs

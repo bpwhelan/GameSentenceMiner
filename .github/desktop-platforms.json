@@ -1,0 +1,6 @@
+[
+  {"platform": "win32-x64", "os": "windows-2025"},
+  {"platform": "linux-x64", "os": "ubuntu-24.04"},
+  {"platform": "darwin-arm64", "os": "macos-15"},
+  {"platform": "darwin-x64", "os": "macos-15-intel"}
+]

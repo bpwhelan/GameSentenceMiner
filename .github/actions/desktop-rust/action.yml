@@ -1,0 +1,75 @@
+name: Set up the native desktop toolchain
+description: Install platform dependencies and cache Rust compilation by compiler and crate inputs.
+inputs:
+  profile:
+    description: Cargo profile used by this job (test or release)
+    required: true
+outputs:
+  save-key:
+    description: Archive key to save after compilation, empty on an exact restore
+    value: ${{ steps.cache.outputs.cache-hit != 'true' && steps.cache.outputs.cache-primary-key || '' }}
+runs:
+  using: composite
+  steps:
+    - id: rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: '1.100.0'
+    - name: Configure Cargo
+      shell: bash
+      run: |
+        {
+          echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target"
+          echo "CARGO_INCREMENTAL=0"
+          echo "CARGO_PROFILE_DEV_DEBUG=0"
+          echo "RUSTC_WRAPPER=sccache"
+          echo "SCCACHE_DIR=$GITHUB_WORKSPACE/.ci-sccache"
+          echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE"
+          echo "SCCACHE_CACHE_SIZE=1G"
+          # Bundling can outlast the daemon's default idle timeout.
+          echo "SCCACHE_IDLE_TIMEOUT=0"
+          # ort-sys locates DLLs using Cargo's previous OUT_DIR layout.
+          if [[ "$RUNNER_OS" == Windows ]]; then echo "__CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT=1"; fi
+        } >> "$GITHUB_ENV"
+    # One bounded archive per platform/profile avoids a cache API upload for every rustc call.
+    - name: Restore compiler outputs
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: .ci-sccache
+        key: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ inputs.profile }}-${{ hashFiles('Cargo.lock', 'GSM_Overlay/input_server/Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
+        restore-keys: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ inputs.profile }}-
+    - name: Set up the compiler cache
+      uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+      with:
+        version: v0.20.1
+    - name: Install Linux desktop libraries
+      shell: bash
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libgbm-dev libpipewire-0.3-dev libclang-dev libudev-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libnspr4 libnss3 libasound2-dev patchelf libfuse2
+    - name: Install ONNX Runtime for Intel macOS
+      shell: bash
+      if: runner.os == 'macOS' && runner.arch == 'X64'
+      run: |
+        # ort-sys no longer ships an Intel Mac build. Use the pinned CPU build
+        # distributed by Handy for the same ONNX Runtime ABI (1.24.2).
+        ort_dir="$RUNNER_TEMP/gsm-onnxruntime"
+        mkdir -p "$ort_dir"
+        curl --fail --silent --show-error --location --retry 3 -o "$ort_dir/runtime.tgz" \
+          https://blob.handy.computer/onnxruntime-osx-x86_64-1.24.2.tgz
+        echo "590cee05699047b85e4a8115b4cec792073c2972ce78de383356a552a296a9c4  $ort_dir/runtime.tgz" | shasum -a 256 -c
+        tar -xzf "$ort_dir/runtime.tgz" -C "$ort_dir" --strip-components 2 \
+          onnxruntime-osx-x86_64-1.24.2/lib/libonnxruntime.1.24.2.dylib
+        ln -s libonnxruntime.1.24.2.dylib "$ort_dir/libonnxruntime.dylib"
+        curl --fail --silent --show-error --location --retry 3 -o "$ort_dir/licenses.zip" \
+          https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.2/microsoft.ml.onnxruntime.1.24.2.nupkg
+        echo "782564d3d68e87269ea1812cc94710ad06fe014faf093f01a6f89d0bd58719d3  $ort_dir/licenses.zip" | shasum -a 256 -c
+        unzip -q "$ort_dir/licenses.zip" LICENSE ThirdPartyNotices.txt -d "$ort_dir"
+        {
+          echo "ORT_LIB_PATH=$ort_dir"
+          echo "ORT_PREFER_DYNAMIC_LINK=1"
+          echo "GSM_MACOS_ORT_DIR=$ort_dir"
+          echo "DYLD_LIBRARY_PATH=$ort_dir"
+        } >> "$GITHUB_ENV"

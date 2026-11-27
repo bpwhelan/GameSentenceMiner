@@ -57,7 +57,6 @@ struct Control {
     directory: Option<String>,
     replay_seconds: Option<u32>,
     profiles: Profiles,
-    #[cfg(windows)]
     smoke_fixture: bool,
 }
 
@@ -181,7 +180,6 @@ impl Session {
     }
     pub(super) fn invalidate(&self, scene: Option<(&str, &str)>) {
         let mut control = self.control.lock().unwrap();
-        #[cfg(windows)]
         if control.smoke_fixture {
             return;
         }
@@ -285,8 +283,7 @@ impl Obs {
         nonblank(&data)
     }
 
-    #[cfg(windows)]
-    pub(crate) fn set_smoke_target(&self, scene: &str, hwnd: u64) {
+    pub(crate) fn set_smoke_target(&self, scene: &str, hwnd: Option<u64>) {
         let session = &self.0.session;
         let mut control = session.control.lock().unwrap();
         control.smoke_fixture = true;
@@ -294,7 +291,7 @@ impl Obs {
         state["available"] = json!(true);
         state["active"] = json!(true);
         state["target_id"] = json!(hwnd);
-        state["target_pid"] = json!(std::process::id());
+        state["target_pid"] = json!(hwnd.map(|_| std::process::id()));
         session.publish(state, &control);
     }
 
@@ -540,7 +537,6 @@ impl Obs {
             let audio_target;
             let (changed, profile_changed) = {
                 let mut control = session.control.lock().unwrap();
-                #[cfg(windows)]
                 if control.smoke_fixture {
                     return;
                 }

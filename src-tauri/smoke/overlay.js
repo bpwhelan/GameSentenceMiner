@@ -39,13 +39,14 @@
         try {
           for (let i = 0; i < 120 && !checked; i++) await wait(25);
           check(checked, 'Key-up never checked the visible lookup');
-          const box = document.querySelector('.text-box');
-          const rect = box.getBoundingClientRect();
           dispatch('text-hover-pointer', { ...lookupPoint, buttons: 0, shiftKey: false });
           await wait(350);
+          check(manualHotkeyPressed, 'Hybrid deactivated after key-up with a visible lookup');
+          check(isManualLookupVisible(), 'The lookup closed after key-up');
+          const box = document.querySelector('.text-box');
+          check(box?.getBoundingClientRect().width > 0, 'The OCR hit target disappeared after key-up');
           const style = getComputedStyle(box);
-          check(manualHotkeyPressed && isManualLookupVisible() && rect.width > 0 && style.pointerEvents === 'auto',
-            'Hybrid lost the lookup or its hit target after key-up');
+          check(style.pointerEvents === 'auto', `OCR hit target ignores the pointer after key-up: ${style.pointerEvents}`);
           check(style.color === 'rgba(255, 255, 255, 0)' && style.backgroundColor === 'rgba(15, 15, 15, 0)',
             'Push to Show painted OCR text over the game');
           if (dictionaryReader === 'yomitan') check(getVisibleYomitanPopupFrames().length > 0, 'Yomitan frame is hidden');
@@ -127,16 +128,17 @@
           await wait(100);
           // Hachidori's zero-size host contains a closed shadow root. Its bridge
           // announces the actual popup after lookup; host geometry is always zero.
-          const popup = reader === 'yomitan' ? document.querySelector('iframe.yomitan-popup') : null;
-          if ((reader === 'hachidori' && hachidoriShown) ||
-              (popup && popup.getBoundingClientRect().width > 0 && getComputedStyle(popup).visibility !== 'hidden')) {
+          // An initializing Yomitan frame can have width before it has a hit area.
+          // Use the same visibility signal and geometry that key-up will inspect.
+          const visible = reader === 'hachidori' ? hachidoriShown : getVisibleYomitanPopupFrames().length > 0;
+          if (shownAt !== undefined && visible) {
             if (shownAt - hoveredAt > 1000) {
               const marks = performance.getEntriesByType('mark')
                 .filter(entry => entry.startTime >= hoveredAt)
                 .map(entry => [entry.name, Math.round(entry.startTime - hoveredAt)]);
               console.warn('Slow hover performance marks (ms)', JSON.stringify(marks));
             }
-            return shownAt === undefined ? null : Math.round(shownAt - hoveredAt);
+            return Math.round(shownAt - hoveredAt);
           }
         }
         throw Error(`No ${reader} popup after hovering production overlay text (hit=${document.elementFromPoint(x,y)?.className}, visibility=${document.visibilityState}, capture=${overlayCaptureAvailable}, manual=${manualHotkeyPressed}, popup=${yomitanShowing}, rect=${JSON.stringify(rect.toJSON())})`);

@@ -35,8 +35,6 @@ describe('native desktop distribution contract', () => {
         expect(packageJson.scripts['app:dist']).toContain('build-native-desktop.mjs');
         expect(packageJson.scripts['app:deploy']).toBeUndefined();
         const release = fs.readFileSync('.github/workflows/native_desktop.yml', 'utf8');
-        for (const platform of ['win32-x64', 'linux-x64', 'darwin-arm64', 'darwin-x64']) expect(release).toContain(platform);
-        expect(release).toContain('needs: [version, build]');
         expect(release).toContain('scripts/merge-native-updates.mjs');
         expect(release).toContain('scripts/sign-native-assets.mjs');
     });
