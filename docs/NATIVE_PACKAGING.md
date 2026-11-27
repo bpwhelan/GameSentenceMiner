@@ -23,7 +23,8 @@ installers and portable ZIPs are written to `dist/native-release/<platform>-<arc
   A new commit cancels the superseded development run.
 - **Preview and release builds** share the same renderer artifact across Windows
   x64, Linux x64, Apple Silicon and Intel macOS. Each platform stages its native
-  helpers and builds the shipping desktop once. Workspace unit tests run concurrently on
+  helpers and builds the shipping desktop once. Unsigned previews can target one
+  platform or all four. Published releases also run workspace unit tests on
   the three operating systems. Cargo tests the standalone Agent separately so its Frida build cannot
   supply SQLite to the desktop test binary. Publication waits for the tests and
   all four packages. Releases offered to existing Electron users also check the signed

@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      platform:
+        description: Platform for an unsigned build
+        type: string
+        default: all
       electron_beta:
         type: boolean
         default: false
@@ -27,6 +31,7 @@ jobs:
     permissions:
       contents: read
     outputs:
+      matrix: ${{ steps.platforms.outputs.matrix }}
       version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
@@ -35,6 +40,13 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22.23.1'
+      - name: Select packaging platforms
+        id: platforms
+        env:
+          PLATFORM: ${{ inputs.publish && 'all' || inputs.platform || 'all' }}
+        run: |
+          matrix=$(jq -ce --arg platform "$PLATFORM" 'map(select($platform == "all" or .platform == $platform)) | select(length > 0) | {include:.}' .github/desktop-platforms.json)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
       - name: Check updater signing is configured before starting the matrix
         if: inputs.publish
         env:
@@ -79,7 +91,7 @@ jobs:
 
   units:
     name: Native unit checks
-    if: ${{ !inputs.portable_preview }}
+    if: inputs.publish
     needs: version
     uses: ./.github/workflows/desktop_verify.yml
     permissions:
@@ -89,16 +101,7 @@ jobs:
     needs: version
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-2025
-            platform: win32-x64
-          - os: ubuntu-24.04
-            platform: linux-x64
-          - os: macos-15
-            platform: darwin-arm64
-          - os: macos-15-intel
-            platform: darwin-x64
+      matrix: ${{ fromJSON(needs.version.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 100
     permissions:

@@ -3,6 +3,12 @@ run-name: Build native desktop previews
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Package to build
+        type: choice
+        default: all
+        options: [all, win32-x64, linux-x64, darwin-arm64, darwin-x64]
 
 permissions:
   contents: read
@@ -14,3 +20,4 @@ jobs:
     uses: ./.github/workflows/native_desktop.yml
     with:
       prerelease: true
+      platform: ${{ inputs.platform }}

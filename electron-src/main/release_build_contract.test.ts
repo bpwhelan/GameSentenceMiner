@@ -35,7 +35,7 @@ describe('coordinated native release',()=>{
             uses: 'actions/upload-artifact@v4',
             with: expect.objectContaining({path: 'dist/native-preview/*.zip'}),
         }));
-        expect(native.jobs.units.if).toBe('${{ !inputs.portable_preview }}');
+        expect(native.jobs.units.if).toBe('inputs.publish');
         expect(native.jobs.units.uses).toBe('./.github/workflows/desktop_verify.yml');
     });
     it('shares one renderer and keeps GUI smoke tests out of builds and unit checks', () => {
@@ -90,7 +90,11 @@ describe('coordinated native release',()=>{
         expect((await provider.getLatestVersion()).tag).toBe(tags[1]);
     });
     it('builds the input server from the same checkout on every target',()=>{
-        expect(native.jobs.build.strategy.matrix.include.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);
+        const platforms = JSON.parse(fs.readFileSync('.github/desktop-platforms.json', 'utf8'));
+        expect(native.jobs.build.strategy.matrix).toBe('${{ fromJSON(needs.version.outputs.matrix) }}');
+        const selection = native.jobs.version.steps.find((step:{id?:string}) => step.id === 'platforms');
+        expect(selection.env.PLATFORM).toContain("inputs.publish && 'all'");
+        expect(platforms.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);
         const commands=native.jobs.build.steps.map((step:{run?:string})=>step.run||'').join('\n');
         expect(commands).toContain('npm run build:input-server');
         expect(commands).not.toContain('gh release download overlay-server');

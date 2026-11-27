@@ -15,6 +15,7 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'vitest.config.*'
+      - '.github/desktop-platforms.json'
       - '.github/actions/desktop-rust/**'
       - '.github/actions/desktop-frontend/**'
       - '.github/workflows/desktop_ci.yml'
