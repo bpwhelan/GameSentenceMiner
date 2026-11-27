@@ -227,14 +227,6 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      - name: Install the shipping Electron client for the release update test
-        if: inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./scripts/windows-handoff-test/prepare.ps1 -TargetVersion $env:GSM_RELEASE_VERSION -InstallerPath "dist/native-release/win32-x64/GameSentenceMiner-Setup-$env:GSM_RELEASE_VERSION.exe"
-      - name: Upgrade Electron using the final signed Windows installer
-        if: inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'
-        run: node scripts/windows-handoff-test/exercise.mjs
       - uses: actions/upload-artifact@v4
         if: ${{ !inputs.portable_preview }}
         with:
@@ -244,11 +236,20 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+  migration:
+    needs: [version, build]
+    if: inputs.publish && (!inputs.prerelease || inputs.electron_beta)
+    uses: ./.github/workflows/windows_release_migration.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
   publish:
     # Inherit the caller's token. Requesting write here also rejects read-only
     # build workflows at validation time, even when this job is skipped.
-    if: inputs.publish
-    needs: [version, units, build]
+    if: >-
+      !cancelled() && inputs.publish && needs.build.result == 'success' && needs.units.result == 'success' &&
+      (needs.migration.result == 'success' || (inputs.prerelease && !inputs.electron_beta && needs.migration.result == 'skipped'))
+    needs: [version, units, build, migration]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6

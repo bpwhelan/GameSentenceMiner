@@ -20,6 +20,7 @@ on:
       - '.github/workflows/desktop_ci.yml'
       - '.github/workflows/desktop_verify.yml'
       - '.github/workflows/native_desktop.yml'
+      - '.github/workflows/windows_release_migration.yml'
   push:
     branches: [main]
     paths: *desktop_paths

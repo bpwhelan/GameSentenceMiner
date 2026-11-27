@@ -60,9 +60,13 @@ describe('coordinated native release',()=>{
         expect(cargoTests).toContainEqual(expect.stringContaining('-p gsm-agent'));
     });
     it('exercises the final Windows installer before publishing an Electron beta',()=>{
-        const handoff = native.jobs.build.steps.filter((step:{run?:string})=>step.run?.includes('scripts/windows-handoff-test/'));
-        expect(handoff).toHaveLength(2);
-        for (const step of handoff) expect(step.if).toBe("inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'");
+        expect(native.jobs.migration.if).toBe('inputs.publish && (!inputs.prerelease || inputs.electron_beta)');
+        expect(native.jobs.migration.needs).toContain('build');
+        const steps = workflow('windows_release_migration.yml').jobs.upgrade.steps;
+        expect(steps).toContainEqual(expect.objectContaining({
+            uses: 'actions/download-artifact@v4', with: expect.objectContaining({name: 'native-release-win32-x64'}),
+        }));
+        expect(steps).toContainEqual(expect.objectContaining({run: 'node scripts/windows-handoff-test/exercise.mjs'}));
     });
     it('uses a dedicated preview tag and exports notes under the name the app reads',()=>{
         expect(native.jobs.version.steps.find((step:{id?:string})=>step.id === 'version').run).toContain('--preid preview');
@@ -92,8 +96,9 @@ describe('coordinated native release',()=>{
         expect(commands).not.toContain('gh release download overlay-server');
     });
     it('publishes only after all platform builds and verification succeed',()=>{
-        expect(native.jobs.publish.needs).toEqual(['version','units','build']);
-        expect(native.jobs.publish.if).toBe('inputs.publish');
+        expect(native.jobs.publish.needs).toEqual(['version','units','build','migration']);
+        expect(native.jobs.publish.if).toContain("needs.migration.result == 'success'");
+        expect(native.jobs.publish.if).toContain("inputs.prerelease && !inputs.electron_beta && needs.migration.result == 'skipped'");
         const commands=native.jobs.publish.steps.map((step:{run?:string})=>step.run||'').join('\n');
         expect(commands.indexOf('merge-native-updates.mjs')).toBeLessThan(commands.indexOf('publish-native-assets.mjs'));
         expect(commands).toContain('export-changelog-release-asset.mjs');
