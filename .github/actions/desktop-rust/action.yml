@@ -29,6 +29,8 @@ runs:
           echo "SCCACHE_DIR=$GITHUB_WORKSPACE/.ci-sccache"
           echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE"
           echo "SCCACHE_CACHE_SIZE=1G"
+          # Bundling and GUI checks can outlast the daemon's default idle timeout.
+          echo "SCCACHE_IDLE_TIMEOUT=0"
           # ort-sys locates DLLs using Cargo's previous OUT_DIR layout.
           if [[ "$RUNNER_OS" == Windows ]]; then echo "__CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT=1"; fi
         } >> "$GITHUB_ENV"

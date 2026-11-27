@@ -95,9 +95,6 @@ pub fn spawn_if_requested(app: AppHandle) {
     };
     tauri::async_runtime::spawn(async move {
         let outcome = run_smoke(&app).await;
-        for window in app.webview_windows().into_values() {
-            let _ = window.destroy();
-        }
         let (code, payload) = match outcome {
             Ok(detail) => (0, json!({ "code": 0, "detail": detail })),
             Err(err) => {
@@ -109,6 +106,11 @@ pub fn spawn_if_requested(app: AppHandle) {
             let _ = std::fs::create_dir_all(parent);
         }
         let _ = std::fs::write(&result_path, payload.to_string());
+        // Let AppKit tear down its own windows on the event loop when exiting.
+        #[cfg(not(target_os = "macos"))]
+        for window in app.webview_windows().into_values() {
+            let _ = window.destroy();
+        }
         app.exit(code);
     });
 }
@@ -181,7 +183,14 @@ async fn wait_overlay_dictionary(app: &AppHandle) -> Result<(), String> {
         while app.state::<crate::overlay_host::OverlayHost>().status()["dictionaryReady"] != true {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
-    }).await.map_err(|_| "Overlay dictionary did not become ready".to_owned())
+    }).await.map_err(|_| {
+        let manager = app.state::<DictionaryManager>();
+        let attached = manager.get_home_reader_extension(OVERLAY_MAIN_LABEL);
+        let mut windows: Vec<_> = app.webview_windows().into_keys().collect();
+        windows.sort();
+        eprintln!("[smoke] Overlay readiness timed out. Attached reader: {attached:?}, windows: {windows:?}");
+        "Overlay dictionary did not become ready".to_owned()
+    })
 }
 
 async fn wait_hub_visibility(app: &AppHandle, visible: bool) -> Result<(), String> {
@@ -297,6 +306,55 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
     let suite = std::env::var("GSM_SMOKE_SUITE")
         .or_else(|_| std::env::var("GSM_SMOKE_SCENARIO"))
         .unwrap_or_else(|_| "foundation".into());
+    if suite == "overlay" {
+        // The hub starts reading overlay settings while its document loads. Seed the
+        // selected reader and guide before any service or webview sees this profile.
+        let overlay_data = overlay_data_path(app);
+        std::fs::create_dir_all(&overlay_data).map_err(|e| e.to_string())?;
+        let guide_catalogue = overlay_data.join("test-catalogue");
+        let guide_game = guide_catalogue.join("test-game");
+        std::fs::create_dir_all(&guide_game).map_err(|e| e.to_string())?;
+        for (file, data) in [
+            (
+                "catalog.json",
+                json!({"vndb_id":"v93","title":"Test VN guide"}),
+            ),
+            (
+                "guide.json",
+                json!({"vndb_id":"v93","title":"Test VN guide","routes":[
+                    {"id":"first","title":"First route","reviewed":true},
+                    {"id":"second","title":"Second route","reviewed":true}
+                ]}),
+            ),
+            (
+                "route_first.json",
+                json!([{"simpleJp":"公園に行く"},{"simpleJp":"図書館に行く"}]),
+            ),
+            ("route_second.json", json!([{"simpleJp":"家に帰る"}])),
+        ] {
+            std::fs::write(guide_game.join(file), data.to_string()).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(
+            overlay_data.join("settings.json"),
+            json!({
+                "dictionaryReaderSelection": "hachidori",
+                "pushToShowEnforcedDialogDismissed": true,
+                "mainBoxStartupWarningAcknowledged": true,
+                "openSettingsOnStartup": false,
+                "hideOnStartup": true,
+                "manualMode": true,
+                "showHotkey": "Control+Alt+Shift+F11",
+                "enableJitenReader": true,
+                "gamepadEnabled": false,
+                "gamepadControllerEnabled": false,
+                "gamepadKeyboardEnabled": false,
+                "routeAllHotkeysThroughInputServer": false,
+                "vnGuideCatalogueSource": guide_catalogue.to_string_lossy()
+            })
+            .to_string(),
+        )
+        .map_err(|e| e.to_string())?;
+    }
     if suite == "longplay" { return longplay::run(app).await; }
     if suite == "mining-settings" {
         let timeout = Duration::from_secs(25);
@@ -2090,52 +2148,18 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         };
         #[cfg(not(windows))]
         let fixture_hwnd: Option<u64> = None;
+        #[cfg(windows)]
         app.state::<crate::obs::Obs>().set_smoke_target("Guide game", fixture_hwnd);
-        let overlay_data = overlay_data_path(app);
-        std::fs::create_dir_all(&overlay_data).map_err(|e| e.to_string())?;
-        let guide_catalogue = overlay_data.join("test-catalogue");
-        let guide_game = guide_catalogue.join("test-game");
-        std::fs::create_dir_all(&guide_game).map_err(|e| e.to_string())?;
-        for (file, data) in [
-            (
-                "catalog.json",
-                json!({"vndb_id":"v93","title":"Test VN guide"}),
-            ),
-            (
-                "guide.json",
-                json!({"vndb_id":"v93","title":"Test VN guide","routes":[
-                    {"id":"first","title":"First route","reviewed":true},
-                    {"id":"second","title":"Second route","reviewed":true}
-                ]}),
-            ),
-            (
-                "route_first.json",
-                json!([{"simpleJp":"公園に行く"},{"simpleJp":"図書館に行く"}]),
-            ),
-            ("route_second.json", json!([{"simpleJp":"家に帰る"}])),
-        ] {
-            std::fs::write(guide_game.join(file), data.to_string()).map_err(|e| e.to_string())?;
+
+        // The lifecycle test starts with the configured reader ready, then observes the
+        // real overlay document attaching it. Cold reader startup has its own assertion.
+        let manager = app.state::<DictionaryManager>();
+        let (reader, extension) = manager.load_selected_extension(app).await?;
+        if reader != "hachidori" {
+            return Err(format!("Expected the fixture's Hachidori reader, got {reader}"));
         }
-        std::fs::write(
-            overlay_data.join("settings.json"),
-            json!({
-                "dictionaryReaderSelection": "hachidori",
-                "pushToShowEnforcedDialogDismissed": true,
-                "mainBoxStartupWarningAcknowledged": true,
-                "openSettingsOnStartup": false,
-                "hideOnStartup": true,
-                "manualMode": true,
-                "showHotkey": "Control+Alt+Shift+F11",
-                "enableJitenReader": true,
-                "gamepadEnabled": false,
-                "gamepadControllerEnabled": false,
-                "gamepadKeyboardEnabled": false,
-                "routeAllHotkeysThroughInputServer": false
-                ,"vnGuideCatalogueSource":guide_catalogue.to_string_lossy()
-            })
-            .to_string(),
-        )
-        .map_err(|e| e.to_string())?;
+        manager.ensure_hachidori_engine(app, &extension).await
+            .map_err(|error| format!("Starting the overlay fixture's Hachidori engine: {error}"))?;
 
         let host = app.state::<crate::overlay_host::OverlayHost>();
         host.prepare(app).await?;
@@ -2354,6 +2378,10 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
         }
         evaluate_raw(app, &main_win, include_str!("../smoke/overlay.js")).await?;
         evaluate_raw(app, &main_win, "window.__gsmSmokeOverlay.geometry()").await?;
+        // A non-Windows host has no game HWND. Introduce the synthetic capture
+        // when this scenario starts driving capture transitions.
+        #[cfg(not(windows))]
+        app.state::<crate::obs::Obs>().set_smoke_target("Guide game", fixture_hwnd);
         host.handle_ws2_text(
             app,
             &json!({"type":"capture_status","available":true,"window_state":"active"}).to_string(),

@@ -9,6 +9,9 @@ runs:
         cache: npm
     - run: npm ci --no-audit --no-fund
       shell: bash
+    - name: Verify the checked-in themes before the build regenerates them
+      run: npm run sync:theme -- --check
+      shell: bash
     - run: npm run build
       shell: bash
     - name: Check renderer, shared code and packaging contracts

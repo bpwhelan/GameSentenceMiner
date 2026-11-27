@@ -174,12 +174,21 @@ jobs:
         if: ${{ !inputs.portable_preview }}
         shell: bash
         run: |
-          if [[ -n "${GSM_MACOS_ORT_DIR:-}" ]]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
           if [[ "$RUNNER_OS" == Linux ]]; then
             bash scripts/test-native-linux.sh package --all
           else
             node scripts/test-native-package.mjs --all
           fi
+      - name: Preserve macOS crash reports
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-crashes-${{ matrix.platform }}
+          path: |
+            ~/Library/Logs/DiagnosticReports/gsm-desktop*.ips
+            ~/Library/Logs/DiagnosticReports/GSM-*.ips
+          if-no-files-found: ignore
+          retention-days: 5
       - uses: actions/upload-artifact@v4
         if: inputs.portable_preview
         with:

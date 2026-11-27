@@ -172,8 +172,9 @@ node scripts/verify-native-package.mjs
 node scripts/test-native-package.mjs
 ```
 
-The package smoke test copies the release executable, staged application and
-test fixtures into an isolated directory. Use `node scripts/test-native-package.mjs --all`
+The package smoke test copies the release executable and application resources
+outside the checkout. On macOS it runs the executable inside the shipped
+`.app` with its own Info.plist, resources and frameworks. Use `node scripts/test-native-package.mjs --all`
 to exercise the same scenarios as the full release workflow. On Linux,
 `bash scripts/test-native-linux.sh package --all` provides Xvfb, the window
 manager and the D-Bus session.
