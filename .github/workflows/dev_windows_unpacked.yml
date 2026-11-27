@@ -25,6 +25,10 @@ jobs:
       sha: ${{ steps.source.outputs.sha }}
       matrix: ${{ steps.source.outputs.matrix }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github
+          persist-credentials: false
       - id: source
         env:
           GH_TOKEN: ${{ github.token }}
@@ -35,12 +39,7 @@ jobs:
           sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" |
             jq -er --arg repo "$GITHUB_REPOSITORY" 'select(.head_repository.full_name == $repo and (.event == "workflow_dispatch" or .event == "push")) | .head_sha')
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          matrix=$(jq -cn --arg platform "$PLATFORM" '[
-            {platform:"linux-x64", os:"ubuntu-24.04"},
-            {platform:"win32-x64", os:"windows-2025"},
-            {platform:"darwin-arm64", os:"macos-15"},
-            {platform:"darwin-x64", os:"macos-15-intel"}
-          ] | map(select($platform == "all" or .platform == $platform)) | select(length > 0) | {include:.}')
+          matrix=$(jq -ce --arg platform "$PLATFORM" 'map(select($platform == "all" or .platform == $platform)) | select(length > 0) | {include:.}' .github/desktop-platforms.json)
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   smoke:

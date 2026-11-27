@@ -35,7 +35,7 @@ describe('coordinated native release',()=>{
             uses: 'actions/upload-artifact@v4',
             with: expect.objectContaining({path: 'dist/native-preview/*.zip'}),
         }));
-        expect(native.jobs.units.if).toBe('${{ !inputs.portable_preview }}');
+        expect(native.jobs.units.if).toBe('inputs.publish');
         expect(native.jobs.units.uses).toBe('./.github/workflows/desktop_verify.yml');
     });
     it('shares one renderer and keeps GUI smoke tests out of builds and unit checks', () => {
@@ -60,9 +60,13 @@ describe('coordinated native release',()=>{
         expect(cargoTests).toContainEqual(expect.stringContaining('-p gsm-agent'));
     });
     it('exercises the final Windows installer before publishing an Electron beta',()=>{
-        const handoff = native.jobs.build.steps.filter((step:{run?:string})=>step.run?.includes('scripts/windows-handoff-test/'));
-        expect(handoff).toHaveLength(2);
-        for (const step of handoff) expect(step.if).toBe("inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'");
+        expect(native.jobs.migration.if).toBe('inputs.publish && (!inputs.prerelease || inputs.electron_beta)');
+        expect(native.jobs.migration.needs).toContain('build');
+        const steps = workflow('windows_release_migration.yml').jobs.upgrade.steps;
+        expect(steps).toContainEqual(expect.objectContaining({
+            uses: 'actions/download-artifact@v4', with: expect.objectContaining({name: 'native-release-win32-x64'}),
+        }));
+        expect(steps).toContainEqual(expect.objectContaining({run: 'node scripts/windows-handoff-test/exercise.mjs'}));
     });
     it('uses a dedicated preview tag and exports notes under the name the app reads',()=>{
         expect(native.jobs.version.steps.find((step:{id?:string})=>step.id === 'version').run).toContain('--preid preview');
@@ -86,14 +90,19 @@ describe('coordinated native release',()=>{
         expect((await provider.getLatestVersion()).tag).toBe(tags[1]);
     });
     it('builds the input server from the same checkout on every target',()=>{
-        expect(native.jobs.build.strategy.matrix.include.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);
+        const platforms = JSON.parse(fs.readFileSync('.github/desktop-platforms.json', 'utf8'));
+        expect(native.jobs.build.strategy.matrix).toBe('${{ fromJSON(needs.version.outputs.matrix) }}');
+        const selection = native.jobs.version.steps.find((step:{id?:string}) => step.id === 'platforms');
+        expect(selection.env.PLATFORM).toContain("inputs.publish && 'all'");
+        expect(platforms.map((entry:{platform:string})=>entry.platform)).toEqual(['win32-x64','linux-x64','darwin-arm64','darwin-x64']);
         const commands=native.jobs.build.steps.map((step:{run?:string})=>step.run||'').join('\n');
         expect(commands).toContain('npm run build:input-server');
         expect(commands).not.toContain('gh release download overlay-server');
     });
     it('publishes only after all platform builds and verification succeed',()=>{
-        expect(native.jobs.publish.needs).toEqual(['version','units','build']);
-        expect(native.jobs.publish.if).toBe('inputs.publish');
+        expect(native.jobs.publish.needs).toEqual(['version','units','build','migration']);
+        expect(native.jobs.publish.if).toContain("needs.migration.result == 'success'");
+        expect(native.jobs.publish.if).toContain("inputs.prerelease && !inputs.electron_beta && needs.migration.result == 'skipped'");
         const commands=native.jobs.publish.steps.map((step:{run?:string})=>step.run||'').join('\n');
         expect(commands.indexOf('merge-native-updates.mjs')).toBeLessThan(commands.indexOf('publish-native-assets.mjs'));
         expect(commands).toContain('export-changelog-release-asset.mjs');

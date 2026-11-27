@@ -9,7 +9,7 @@ Tauri packages exclude the Qt host wheel, `pyproject.toml`, `uv.lock` and
 `.python-version`. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md)
 for the legacy environment marker and Windows installer handoff.
 
-Build reporting, asset collection and package smoke tests resolve Cargo's
+Build reporting, asset collection and local package smoke tests resolve Cargo's
 `target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR`
 overrides. Bundles are under `<target_directory>/release/bundle`. Collected
 installers and portable ZIPs are written to `dist/native-release/<platform>-<arch>`.
@@ -23,10 +23,12 @@ installers and portable ZIPs are written to `dist/native-release/<platform>-<arc
   A new commit cancels the superseded development run.
 - **Preview and release builds** share the same renderer artifact across Windows
   x64, Linux x64, Apple Silicon and Intel macOS. Each platform stages its native
-  helpers and builds the shipping desktop once. Workspace unit tests run concurrently on
+  helpers and builds the shipping desktop once. Unsigned previews can target one
+  platform or all four. Published releases also run workspace unit tests on
   the three operating systems. Cargo tests the standalone Agent separately so its Frida build cannot
   supply SQLite to the desktop test binary. Publication waits for the tests and
-  all four packages.
+  all four packages. Releases offered to existing Electron users also check the signed
+  installer in the Windows migration workflow after the build uploads it.
 - **Rust caching** uses a pinned toolchain and `sccache` with GitHub Actions
   storage. Each OS, architecture and Cargo profile restores a disk cache capped
   at 1 GiB. Build and test jobs save the archive after compilation.

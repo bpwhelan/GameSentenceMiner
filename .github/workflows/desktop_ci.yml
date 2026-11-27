@@ -15,11 +15,13 @@ on:
       - 'package*.json'
       - 'tsconfig*.json'
       - 'vitest.config.*'
+      - '.github/desktop-platforms.json'
       - '.github/actions/desktop-rust/**'
       - '.github/actions/desktop-frontend/**'
       - '.github/workflows/desktop_ci.yml'
       - '.github/workflows/desktop_verify.yml'
       - '.github/workflows/native_desktop.yml'
+      - '.github/workflows/windows_release_migration.yml'
   push:
     branches: [main]
     paths: *desktop_paths
