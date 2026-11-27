@@ -8,6 +8,8 @@ import {createDictionaryFixture, seedDictionaryGame} from './dictionary-fixture.
 import {nativeExecutable, nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
+const packagedRoot = process.env.GSM_SMOKE_APP_DIR;
+const resources = packagedRoot || root;
 const executable=nativeExecutable();
 const temp=await fs.mkdtemp(path.join(process.env.GSM_SMOKE_PARENT || os.tmpdir(),'gsm-native-smoke-'));
 const modes=process.argv.slice(2);
@@ -42,10 +44,10 @@ for(const mode of targets) {
   let scopedSearches = 0;
   let expectedFrequency;
   const hasGateway = database || longplay || capture || speech || modelSettings || pythonless || miningSettings || cardReview;
-  const isolated = mode === 'workspace' || mode === 'anki-grouping' || hasGateway;
-  const appRoot = isolated ? path.join(profile, 'app') : root;
+  const isolated = (mode === 'workspace' && !packagedRoot) || mode === 'anki-grouping' || hasGateway;
+  const appRoot = isolated ? path.join(profile, 'app') : resources;
   if (isolated) {
-    await fs.cp(process.env.GSM_SMOKE_RENDERER_DIR || path.join(root, 'dist', 'renderer'), path.join(appRoot, 'dist', 'renderer'), {recursive: true});
+    await fs.cp(process.env.GSM_SMOKE_RENDERER_DIR || path.join(resources, 'dist', 'renderer'), path.join(appRoot, 'dist', 'renderer'), {recursive: true});
     // A raw cargo binary has no sibling input helper. Stage the built native
     // helper alone so the isolated wizard can exercise real dictionary setup.
     const helper = process.platform === 'win32' ? 'gsm_overlay_server.exe' : 'gsm_overlay_server';
@@ -54,7 +56,9 @@ for(const mode of targets) {
     if (pythonless || !hasSibling) {
       const relative = 'GSM_Overlay/input_server/target/release';
       let source = sibling;
-      if (!hasSibling) {
+      if (packagedRoot) {
+        source = path.join(packagedRoot, 'GSM_Overlay', helper);
+      } else if (!hasSibling) {
         const inputTarget = await nativeTargetDirectory({manifest: 'GSM_Overlay/input_server/Cargo.toml'});
         const configured = path.join(inputTarget, 'release', helper);
         source = (await fs.stat(configured).catch(() => null))?.isFile()
@@ -188,7 +192,7 @@ for(const mode of targets) {
     await fs.mkdir(oldInstall, {recursive:true});
     await fs.writeFile(path.join(oldInstall, 'installation.json'), JSON.stringify({model:'large'}));
     await fs.writeFile(path.join(oldInstall, 'native-runtime.json'), JSON.stringify({backend:'c', library:'legacy.dll'}));
-    await fs.cp(path.join(root, 'resources', 'assets', 'vocr'), path.join(appRoot, 'resources', 'assets', 'vocr'), {recursive:true});
+    await fs.cp(path.join(resources, 'resources', 'assets', 'vocr'), path.join(appRoot, 'resources', 'assets', 'vocr'), {recursive:true});
   }
   if (hasGateway) {
     const {DatabaseSync} = await import('node:sqlite');
@@ -206,7 +210,7 @@ for(const mode of targets) {
         db.exec("CREATE TABLE game_lines(id TEXT PRIMARY KEY,line_text TEXT,timestamp TEXT,game_name TEXT); INSERT INTO game_lines VALUES('old','移行','123','fixture')");
         if (mode === 'vocabulary') {
           const sources = 'resources/web/templates/components/word_frequency_sources';
-          await fs.cp(path.join(root,sources),path.join(appRoot,sources),{recursive:true});
+          await fs.cp(path.join(resources,sources),path.join(appRoot,sources),{recursive:true});
           const dictionary = JSON.parse(await fs.readFile(path.join(appRoot,sources,'jiten_global.json'),'utf8'));
           expectedFrequency = {count:dictionary.entry_count, rank:dictionary.entries[0][1]};
           db.exec(await fs.readFile(path.join(root,'native/gsm-db/migrations/vocabulary_001_tables.sql'),'utf8'));

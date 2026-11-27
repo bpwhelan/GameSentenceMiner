@@ -15,7 +15,7 @@ pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
         )
     };
     let scene = "Speech fixture";
-    obs.set_smoke_target(scene, 1);
+    obs.set_smoke_target(scene, Some(1));
     if start("Other scene").await?["success"] != false {
         return Err("Speech accepted a mismatched scene".into());
     }
@@ -38,7 +38,7 @@ pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
     })
     .await
     .map_err(|_| "Final recognition did not reach the reader")??;
-    obs.set_smoke_target("Other scene", 2);
+    obs.set_smoke_target("Other scene", Some(2));
     tokio::time::timeout(Duration::from_secs(2), async {
         while workspace.speech.status()["reason"] != "scene changed" {
             tokio::time::sleep(Duration::from_millis(5)).await;

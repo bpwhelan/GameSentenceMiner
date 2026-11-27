@@ -35,14 +35,22 @@ describe('coordinated native release',()=>{
             uses: 'actions/upload-artifact@v4',
             with: expect.objectContaining({path: 'dist/native-preview/*.zip'}),
         }));
-        expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
-            if: 'inputs.portable_preview',
-            run: expect.stringContaining('scripts/package-native-portable.test.mjs'),
-        }));
-        expect(native.jobs.build.steps).toContainEqual(expect.objectContaining({
-            if: '${{ !inputs.portable_preview }}',
-            run: expect.stringContaining('cargo test --locked --manifest-path src-tauri/Cargo.toml'),
-        }));
+        expect(native.jobs.units.if).toBe('${{ !inputs.portable_preview }}');
+        expect(native.jobs.units.uses).toBe('./.github/workflows/desktop_verify.yml');
+    });
+    it('shares one renderer and exercises the release binary on every packaging platform', () => {
+        const steps = native.jobs.build.steps as Array<{uses?:string;run?:string;with?:{name?:string}}>;
+        const commands = steps.map(step => step.run || '').join('\n');
+        expect(native.on.pull_request).toBeUndefined();
+        expect(native.jobs.version.steps).toContainEqual({uses:'./.github/actions/desktop-frontend'});
+        expect(steps.find(step => step.uses?.startsWith('actions/download-artifact@'))?.with?.name).toBe('desktop-web-resources');
+        expect(commands).not.toMatch(/build:tauri|build-native-dev|npm run build(?:\s|$)/m);
+        expect(commands).toContain('test-native-package.mjs --all');
+        expect(commands).toContain('test-native-linux.sh package --all');
+        const checks = workflow('desktop_verify.yml').jobs.test;
+        expect(checks.steps.filter((step:{run?:string}) => step.run?.startsWith('cargo test'))).toEqual([
+            {name:'Test the Rust workspace', run:'cargo test --locked --workspace'},
+        ]);
     });
     it('exercises the final Windows installer before publishing an Electron beta',()=>{
         const handoff = native.jobs.build.steps.filter((step:{run?:string})=>step.run?.includes('scripts/windows-handoff-test/'));
@@ -50,7 +58,7 @@ describe('coordinated native release',()=>{
         for (const step of handoff) expect(step.if).toBe("inputs.publish && (!inputs.prerelease || inputs.electron_beta) && runner.os == 'Windows'");
     });
     it('uses a dedicated preview tag and exports notes under the name the app reads',()=>{
-        expect(native.jobs.version.steps.at(-1).run).toContain('--preid preview');
+        expect(native.jobs.version.steps.find((step:{id?:string})=>step.id === 'version').run).toContain('--preid preview');
         const notes = native.jobs.publish.steps.find((step:{run?:string})=>step.run?.includes('export-changelog-release-asset'));
         expect(notes.run).toContain('changelog-v${RELEASE_VERSION}.json');
     });
@@ -77,7 +85,7 @@ describe('coordinated native release',()=>{
         expect(commands).not.toContain('gh release download overlay-server');
     });
     it('publishes only after all platform builds and verification succeed',()=>{
-        expect(native.jobs.publish.needs).toEqual(['version','build']);
+        expect(native.jobs.publish.needs).toEqual(['version','units','build']);
         expect(native.jobs.publish.if).toBe('inputs.publish');
         const commands=native.jobs.publish.steps.map((step:{run?:string})=>step.run||'').join('\n');
         expect(commands.indexOf('merge-native-updates.mjs')).toBeLessThan(commands.indexOf('publish-native-assets.mjs'));

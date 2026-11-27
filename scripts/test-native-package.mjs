@@ -1,8 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import {runNativeSmokeProcess} from './run-native-smoke-process.mjs';
-import {createDictionaryFixture, seedDictionaryGame} from './dictionary-fixture.mjs';
+import {execFileSync} from 'node:child_process';
 import {nativeTargetDirectory} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
@@ -33,32 +32,20 @@ for(const forbidden of ['runtime','node_modules','desktop-runtime','dist/main','
 await fs.mkdir(path.join(app,'native/gsm-overlay/tests/fixtures'),{recursive:true});
 await fs.copyFile(path.join(root,'native/gsm-overlay/tests/fixtures/dialogue.png'),path.join(app,'native/gsm-overlay/tests/fixtures/dialogue.png'));
 
-const scenarios=process.argv.slice(2);
-for(const scenario of scenarios.length?scenarios:['windows','workspace','settings','yomitan','hachidori','overlay']) {
-  const profile=path.join(fixture,scenario);await fs.mkdir(profile,{recursive:true});
-  await createDictionaryFixture(root,path.join(profile,'dictionary.zip'));
-  const dictionary=['yomitan','hachidori'].includes(scenario)?scenario:'';
-  if (dictionary) seedDictionaryGame(profile);
-  for(const phase of dictionary?['import','reopen']:['windows']) {
-    const resultFile=path.join(profile,`result-${phase}.json`);
-    const environment={
-      ...process.env,
-      PATH:process.platform==='win32'?path.join(process.env.SystemRoot||'C:\\Windows','System32'):'/usr/bin:/bin',
-      GSM_APP_ROOT:app,
-      GSM_PROFILE_DIR:profile,
-      GSM_SMOKE_TEST:'1',
-      GSM_PACKAGE_TEST:'1',
-      GSM_SMOKE_SCENARIO:scenario,
-      GSM_SMOKE_DICTIONARY:dictionary,
-      GSM_SMOKE_PHASE:phase,
-      GSM_TEST_RESULT:resultFile,
-    };
-    delete environment.GSM_NODE_EXECUTABLE;
-    delete environment.GSM_NATIVE_DEPS;
-    delete environment.GSM_TEST_SERVICE;
-    delete environment.NODE_PATH;
-    await runNativeSmokeProcess(executable, app, environment, scenario, phase);
-  }
-  console.log(`PASS packaged ${scenario}`);
+const requested = process.argv.slice(2);
+const scenarios = requested.includes('--all') ? [] : requested.length ? requested :
+  ['windows', 'workspace', 'settings', 'yomitan', 'hachidori', 'overlay'];
+const env = {
+  ...process.env,
+  GSM_NATIVE_TEST_EXECUTABLE: executable,
+  GSM_SMOKE_APP_DIR: app,
+  GSM_SMOKE_PARENT: fixture,
+  PATH: process.platform === 'win32' ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32') : '/usr/bin:/bin',
+};
+for (const name of ['GSM_NODE_EXECUTABLE', 'GSM_NATIVE_DEPS', 'GSM_TEST_SERVICE', 'ELECTRON_RUN_AS_NODE', 'NODE_PATH']) {
+  delete env[name];
 }
-console.log('Packaged application verification evidence:',fixture);
+console.log('Testing packaged application outside the checkout:', fixture);
+execFileSync(process.execPath, [path.join(root, 'scripts/check-native-desktop.mjs'), ...scenarios], {
+  cwd: app, env, stdio: 'inherit', windowsHide: true,
+});

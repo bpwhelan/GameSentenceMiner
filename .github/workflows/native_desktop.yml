@@ -1,30 +1,6 @@
-name: Native desktop on all platforms
+name: Package the native desktop
 
 on:
-  pull_request:
-    paths:
-      - 'desktop-runtime/**'
-      - 'src-tauri/**'
-      - 'native/gsm-overlay/**'
-      - 'native/gsm-texthook/**'
-      - 'native/gsm-agent/**'
-      - 'native/gsm-runtime/**'
-      - 'native/gsm-intake/**'
-      - 'native/gsm-mining/**'
-      - 'native/gsm-settings/**'
-      - 'native/gsm-text-preview/**'
-      - 'native/gsm-db/**'
-      - 'native/gsm-web/**'
-      - 'resources/**'
-      - 'native/gsm-history/**'
-      - 'native/gsm-packages/**'
-      - 'native/gsm-downloads/**'
-      - 'electron-src/**'
-      - 'GSM_Overlay/**'
-      - 'scripts/*native*'
-      - 'scripts/publish-download-assets.mjs'
-      - 'package*.json'
-      - '.github/workflows/*desktop*'
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -46,16 +22,17 @@ on:
 
 jobs:
   version:
+    name: Prepare version and renderer
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.23.1'
       - name: Check updater signing is configured before starting the matrix
@@ -92,6 +69,19 @@ jobs:
             version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set the renderer version
+        env:
+          GSM_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/set-native-ci-version.mjs
+      - uses: ./.github/actions/desktop-frontend
+
+  units:
+    name: Native unit checks
+    if: ${{ !inputs.portable_preview }}
+    needs: version
+    uses: ./.github/workflows/desktop_verify.yml
+    permissions:
+      contents: read
 
   build:
     needs: version
@@ -115,143 +105,25 @@ jobs:
       id-token: write
     env:
       GSM_RELEASE_VERSION: ${{ needs.version.outputs.version }}
-      CARGO_INCREMENTAL: '0'
-      # Keep the four platform dependency caches within the repository storage limit.
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target/native-dev
-      # ort-sys 2.0.0-rc.12 locates the DLL destination using Cargo's old OUT_DIR layout.
-      __CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT: ${{ matrix.platform == 'win32-x64' && '1' || '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.23.1'
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        id: rust-cache
+      - uses: ./.github/actions/desktop-rust
         with:
-          cache-on-failure: true
-          cache-bin: false
-          # The input server has its own lockfile. Listing the shared target twice would prune it twice.
-          workspaces: |
-            . -> src-tauri/target/native-dev
-            GSM_Overlay/input_server -> target
-      - name: Record Rust cache restore
-        shell: bash
-        env:
-          EXACT_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
-        run: |
-          echo "Rust dependency cache for \`${{ matrix.platform }}\`: exact match = \`$EXACT_HIT\`." >> "$GITHUB_STEP_SUMMARY"
-      - name: Set up the tested Windows WebView2 runtime
-        if: runner.os == 'Windows' && !inputs.portable_preview
-        shell: pwsh
-        run: |
-          # The runner image's 157.0.4341.46 can hang during extension worker startup.
-          # Use the same fixed runtime for the debug and packaged smoke tests.
-          $version = '158.0.4370.33'
-          $package = "Microsoft.WebView2.FixedVersionRuntime.$version.x64"
-          $source = "https://msedge.sf.dl.delivery.mp.microsoft.com/filestreamingservice/files/ecc2761e-1380-46ee-9552-995b039e4e47/$package.cab"
-          $cab = Join-Path $env:RUNNER_TEMP "$package.cab"
-          $destination = Join-Path $env:RUNNER_TEMP 'gsm-test-webview2'
-          New-Item -ItemType Directory -Force -Path $destination | Out-Null
-          curl.exe --fail --silent --show-error --location --retry 3 --output $cab $source
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          if ((Get-FileHash -LiteralPath $cab).Hash -ne '835DA387DF67797F710881F553BB6934D98F24D08E370456F48D38ED4E072B62') {
-            throw "WebView2 $version download failed SHA-256 verification"
-          }
-          expand.exe $cab '-F:*' $destination | Out-Null
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          Remove-Item -LiteralPath $cab
-          $runtime = Join-Path $destination $package
-          $exe = Get-Item -LiteralPath (Join-Path $runtime 'msedgewebview2.exe')
-          if ($exe.VersionInfo.ProductVersion -ne $version) { throw 'Unexpected WebView2 binary version' }
-          "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER=$runtime" >> $env:GITHUB_ENV
-          "Windows smoke tests use WebView2 $version." >> $env:GITHUB_STEP_SUMMARY
-      - name: Install Linux desktop libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libgbm-dev libpipewire-0.3-dev libclang-dev libudev-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xfixes0-dev libxcb-shape0-dev libnspr4 libnss3 libasound2-dev patchelf xvfb openbox libfuse2
-      - name: Install ONNX Runtime for Intel macOS
-        if: matrix.platform == 'darwin-x64'
-        run: |
-          # ort-sys no longer ships an Intel Mac build. Use the pinned CPU build
-          # distributed by Handy for the same ONNX Runtime ABI (1.24.2).
-          ort_dir="$RUNNER_TEMP/gsm-onnxruntime"
-          mkdir -p "$ort_dir"
-          curl --fail --silent --show-error --location --retry 3 -o "$ort_dir/runtime.tgz" \
-            https://blob.handy.computer/onnxruntime-osx-x86_64-1.24.2.tgz
-          echo "590cee05699047b85e4a8115b4cec792073c2972ce78de383356a552a296a9c4  $ort_dir/runtime.tgz" | shasum -a 256 -c
-          tar -xzf "$ort_dir/runtime.tgz" -C "$ort_dir" --strip-components 2 \
-            onnxruntime-osx-x86_64-1.24.2/lib/libonnxruntime.1.24.2.dylib
-          ln -s libonnxruntime.1.24.2.dylib "$ort_dir/libonnxruntime.dylib"
-          curl --fail --silent --show-error --location --retry 3 -o "$ort_dir/licenses.zip" \
-            https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.2/microsoft.ml.onnxruntime.1.24.2.nupkg
-          echo "782564d3d68e87269ea1812cc94710ad06fe014faf093f01a6f89d0bd58719d3  $ort_dir/licenses.zip" | shasum -a 256 -c
-          unzip -q "$ort_dir/licenses.zip" LICENSE ThirdPartyNotices.txt -d "$ort_dir"
-          {
-            echo "ORT_LIB_PATH=$ort_dir"
-            echo "ORT_PREFER_DYNAMIC_LINK=1"
-            echo "GSM_MACOS_ORT_DIR=$ort_dir"
-          } >> "$GITHUB_ENV"
+          webviews: ${{ !inputs.portable_preview }}
       - name: Set the coordinated release version
-        run: node scripts/set-native-ci-version.mjs
-      - name: Install development dependencies
-        run: npm ci --no-audit --no-fund
-      - name: Build the desktop and native input service
-        if: ${{ !inputs.portable_preview }}
-        run: npm run build:tauri
-      - name: Check shared services and reader behavior
-        if: ${{ !inputs.portable_preview }}
-        shell: bash
         run: |
-          if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
-          npm run test:ts -- --maxWorkers=2 electron-src/renderer/ electron-src/shared/ release_build_contract.test.ts vocr_package.test.ts
-          node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs GSM_Overlay/tests/native_dictionary_transport.test.cjs GSM_Overlay/tests/text_hover.test.cjs
-          node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
-          cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
-          cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-texthook/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-agent/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-runtime/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-intake/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-mining/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-settings/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-text-preview/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-web/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-db/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-history/Cargo.toml
-          # The native preview no longer installs the retired interpreter environment.
-          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
-          cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
-      - name: Exercise the native runtime bus and desktop bridge
-        if: runner.os != 'Linux' && !inputs.portable_preview
-        shell: bash
-        run: |
-          if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
-          node scripts/test-native-desktop.mjs runtime
-          node scripts/test-native-desktop.mjs foundation
-      - name: Check first install and reopen without Python
-        if: runner.os == 'Windows' && !inputs.portable_preview
-        run: node scripts/test-native-desktop.mjs pythonless
-      - name: Exercise native windows, dictionaries, transfer, Home and overlay
-        if: runner.os != 'Linux' && !inputs.portable_preview
-        shell: bash
-        run: |
-          if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
-          node scripts/check-native-desktop.mjs
-      - name: Exercise Linux webviews under a window manager
-        if: runner.os == 'Linux' && !inputs.portable_preview
-        run: bash scripts/test-native-linux.sh all
-      - name: Build preview resources and check packaging contracts
-        if: inputs.portable_preview
-        shell: bash
-        run: |
-          npm run build
-          npm run build:input-server
-          npm run test:ts -- --maxWorkers=2 electron-src/main/release_build_contract.test.ts electron-src/main/prerelease_build_contract.test.ts
-          node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
+          node scripts/set-native-ci-version.mjs
+          npm run sync:version
+      - run: npm ci --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-web-resources
+      - name: Build the native input helper
+        run: npm run build:input-server
       - name: Record prerelease metadata
         if: inputs.prerelease
         run: |
@@ -277,9 +149,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Verify isolated Windows release resources
-        if: runner.os == 'Windows' && !inputs.portable_preview
-        run: node scripts/test-native-package.mjs
+      - name: Exercise the packaged desktop and its native services
+        if: ${{ !inputs.portable_preview }}
+        shell: bash
+        run: |
+          if [[ -n "${GSM_MACOS_ORT_DIR:-}" ]]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            bash scripts/test-native-linux.sh package --all
+          else
+            node scripts/test-native-package.mjs --all
+          fi
       - name: Build and package the portable preview
         if: inputs.portable_preview
         shell: bash
@@ -370,11 +249,11 @@ jobs:
     # Inherit the caller's token. Requesting write here also rejects read-only
     # build workflows at validation time, even when this job is skipped.
     if: inputs.publish
-    needs: [version, build]
+    needs: [version, units, build]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: '22.23.1'
       - uses: actions/download-artifact@v4

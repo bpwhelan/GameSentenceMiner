@@ -6,13 +6,14 @@ import {spawn} from 'node:child_process';
 import {nativeExecutable} from './native-paths.mjs';
 
 const root=path.resolve(import.meta.dirname,'..');
+const appRoot = process.env.GSM_SMOKE_APP_DIR || root;
 const fixture=await fs.mkdtemp(path.join(os.tmpdir(),'gsm-native-transfer-'));
-const environment={...process.env,GSM_LEGACY_FIXTURE:fixture,GSM_APP_ROOT:root,GSM_PROFILE_DIR:path.join(fixture,'profile'),GSM_SMOKE_TEST:'1'};
+const environment={...process.env,GSM_LEGACY_FIXTURE:fixture,GSM_APP_ROOT:appRoot,GSM_PROFILE_DIR:path.join(fixture,'profile'),GSM_SMOKE_TEST:'1'};
 delete environment.GSM_NODE_EXECUTABLE;delete environment.GSM_TEST_SERVICE;delete environment.ELECTRON_RUN_AS_NODE;
 
 async function run(executable,args,env) {
   await new Promise((resolve,reject)=>{
-    const child=spawn(executable,args,{cwd:root,env,windowsHide:true,stdio:'inherit'});
+    const child=spawn(executable,args,{cwd:appRoot,env,windowsHide:true,stdio:'inherit'});
     const timer=setTimeout(()=>{child.kill();reject(Error('Dictionary transfer verification timed out'));},180000);
     child.on('error',error=>{clearTimeout(timer);reject(error);});
     child.on('exit',code=>{clearTimeout(timer);code===0?resolve():reject(Error(`Transfer fixture failed (${code})`));});
