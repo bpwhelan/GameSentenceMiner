@@ -1,19 +1,19 @@
-// Experimental YouTube mining in the service worker: YouTube's names for the
+// YouTube mining in the service worker: YouTube's names for the
 // video-site service (background-video.js): the recorder frame's port, line
-// recordings, and the WAV the player page cuts from what the viewer heard.
+// recordings, and the MP3 the player page cuts from what the viewer heard.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { createVideoSiteService } from "./background-video.js";
 import { YOUTUBE_SCRIPTS } from "./youtube.js";
 
-// Experimental YouTube mining (docs/architecture.md, YouTube mining). The
-// player can play on any page of the site, in its miniplayer.
+// Anki → Video mining → YouTube mining (docs/architecture.md, YouTube mining).
+// The player can play on any page of the site, in its miniplayer.
 const YOUTUBE_TARGET = "hachidori-youtube";
 const YOUTUBE_RECORDER_PORT = "hachidori-youtube-recorder";
 const YOUTUBE_PAGE_URL = /^https:\/\/www\.youtube\.com\//u;
 
 const youtubeMining = createVideoSiteService({
   name: "YouTube",
-  flag: "youtubeMining",
+  enabled: options => options.youtubeMining === true,
   target: YOUTUBE_TARGET,
   recorderPort: YOUTUBE_RECORDER_PORT,
   recorderPage: "youtube-recorder.html",

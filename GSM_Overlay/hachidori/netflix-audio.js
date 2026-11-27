@@ -3,8 +3,8 @@
 // Experimental Netflix mining's line audio. netflix.js registers this classic
 // script before netflix-content.js on https://www.netflix.com/* (top frame,
 // document_start) while Settings → Advanced → Experimental features → Netflix
-// mining is on. The recorder frame's netflix-capture.js imports it for the WAV
-// encoder, the silence test and the capture clock.
+// mining is on. The recorder frame's netflix-capture.js imports it for the
+// silence test and the capture clock.
 //
 // createLineAudio keeps the last 30 seconds of the watch page's <video> sound,
 // as played at 1×, so that a line the viewer has just heard can be cut out by
@@ -57,49 +57,6 @@
 
   // Protected playback can deliver a stream of exact zeros. Quiet audio is not silence.
   const isSilent = samples => samples.every(sample => sample === 0);
-
-  function setAscii(view, offset, value) {
-    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.codePointAt(index));
-  }
-
-  // 16-bit mono PCM WAV, revived from the removed media recorder's capture-buffer.js.
-  function encodeMonoWav(samples, sampleRate) {
-    if (!(samples instanceof Float32Array)) throw new Error("WAV input must be mono Float32 samples.");
-    if (!Number.isSafeInteger(sampleRate) || sampleRate <= 0) throw new Error("The WAV sample rate is invalid.");
-    const byteLength = 44 + samples.length * 2;
-    const output = new ArrayBuffer(byteLength);
-    const view = new DataView(output);
-    setAscii(view, 0, "RIFF");
-    view.setUint32(4, byteLength - 8, true);
-    setAscii(view, 8, "WAVE");
-    setAscii(view, 12, "fmt ");
-    view.setUint32(16, 16, true);
-    view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true);
-    view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);
-    setAscii(view, 36, "data");
-    view.setUint32(40, samples.length * 2, true);
-    for (let index = 0; index < samples.length; index += 1) {
-      const sample = Math.max(-1, Math.min(1, samples[index]));
-      view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-    }
-    return new Uint8Array(output);
-  }
-
-  // A clip as a base64 WAV: extension messages are JSON, so that is how a line
-  // reaches the worker, from the page as from the recorder frame.
-  function wavBase64({ samples, sampleRate }) {
-    const bytes = encodeMonoWav(samples, sampleRate);
-    if (typeof bytes.toBase64 === "function") return bytes.toBase64();
-    let binary = "";
-    for (let index = 0; index < bytes.length; index += 0x2000) {
-      binary += String.fromCodePoint(...bytes.subarray(index, index + 0x2000));
-    }
-    return globalThis.btoa(binary);
-  }
 
   function median(values) {
     const sorted = [...values].sort((left, right) => left - right);
@@ -462,5 +419,5 @@
     };
   }
 
-  globalThis.HDNetflixAudio = { PAD_MS, clockDomain, createLineAudio, encodeMonoWav, isSilent, monoSamples, wavBase64 };
+  globalThis.HDNetflixAudio = { PAD_MS, clockDomain, createLineAudio, isSilent, monoSamples };
 }());

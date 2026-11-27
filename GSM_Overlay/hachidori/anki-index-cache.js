@@ -51,8 +51,8 @@ const entryFor = (entries, key) => entries.find(entry => entry.sourceKey === key
 const withEntry = (entries, key, entry) => [...entries.filter(item => item.sourceKey !== key), ...(entry ? [entry] : [])];
 
 // The stored record holds today's one `snapshot` and one `attempt` while the
-// profiles' first Templates name at most one source, and one of each per
-// source key (`snapshots`, `attempts`) once they name two (docs/languages.md
+// profiles' first Templates and highlighting need at most one source, and one
+// of each per source key (`snapshots`, `attempts`) once they name two (docs/languages.md
 // 4.3 and 12). Its two revisions cover every snapshot.
 function cacheState(value) {
   const state = value?.version === 1 ? value : {};
@@ -82,25 +82,33 @@ function storedState(state, keys) {
   return { version: 1, configurationRevision, rowRevision, snapshot: only(state.snapshots), attempt: only(state.attempts) };
 }
 
-// [profile id, its first Template's source or null] for every profile, each
+const wordStatusSource = config => ankiIndexSource({ ...config, duplicateScope: "all" });
+
+// [profile id, its sources] for every profile, each
 // keyed with its language's note-type families (docs/languages.md 12); an
-// options record without profiles is the Japanese profile, as today.
+// options record without profiles is the Japanese profile. Highlighting uses
+// All of Anki without widening mining's duplicate checks.
 async function profileSources(options) {
   const layer = globalThis.HDReaderOptions;
   const list = layer.hasProfiles(options) ? layer.profiles(options) : [{ id: layer.JAPANESE_PROFILE_ID, language: "ja" }];
-  return Promise.all(list.map(async profile => [profile.id,
-    await ankiIndexSource(ankiLanguageConfig(layer.projectOptions(options, profile.id).anki, profile.language))]));
+  return Promise.all(list.map(async profile => {
+    const projected = layer.projectOptions(options, profile.id);
+    const config = ankiLanguageConfig(projected.anki, profile.language);
+    const sources = [await ankiIndexSource(config)];
+    if (projected.wordHighlightEnabled && config.duplicateScope !== "all") sources.push(await wordStatusSource(config));
+    return [profile.id, sources.filter(source => source !== null)];
+  }));
 }
 
 /**
- * Every profile's first-Template source, once per key, in profile order: the
+ * Every profile's mining and highlighting sources, once per key, in profile order: the
  * sources the index keeps a snapshot of.
  * @returns {Promise<Map<string, object>>}
  */
 export async function ankiIndexSources(options) {
   const sources = new Map();
-  for (const [, source] of await profileSources(options)) {
-    if (source !== null && !sources.has(source.key)) sources.set(source.key, source);
+  for (const [, profile] of await profileSources(options)) {
+    for (const source of profile) if (!sources.has(source.key)) sources.set(source.key, source);
   }
   return sources;
 }
@@ -108,19 +116,19 @@ export async function ankiIndexSources(options) {
 const sourceKeys = async options => [...(await ankiIndexSources(options)).keys()];
 
 // Called in the storage queue with the options records before and after a
-// write. A change of any profile's first-Template source, compared profile by
+// write. A change of any profile's sources, compared profile by
 // profile, invalidates: the configuration revision moves, and the snapshot of
 // a source no profile uses any more goes. One source's record also drops its
 // attempt so the new source is pulled at once, as it always has; with several
 // sources, each keeps its own schedule.
 export async function ankiIndexConfigurationChange(previous, next, value) {
   const [before, after] = await Promise.all([profileSources(previous), profileSources(next)]);
-  const keyOf = new Map(before.map(([id, source]) => [id, source?.key ?? null]));
-  const nextKeys = new Map(after.map(([id, source]) => [id, source?.key ?? null]));
+  const keyOf = new Map(before.map(([id, sources]) => [id, sources.map(source => source.key)]));
+  const nextKeys = new Map(after.map(([id, sources]) => [id, sources.map(source => source.key)]));
   if ([...new Set([...keyOf.keys(), ...nextKeys.keys()])]
-    .every(id => (keyOf.get(id) ?? null) === (nextKeys.get(id) ?? null))) return undefined;
+    .every(id => JSON.stringify(keyOf.get(id) ?? []) === JSON.stringify(nextKeys.get(id) ?? []))) return undefined;
   const state = cacheState(value);
-  const keys = [...new Set([...nextKeys.values()].filter(key => key !== null))];
+  const keys = [...new Set([...nextKeys.values()].flat())];
   const changed = { ...state, configurationRevision: state.configurationRevision + 1 };
   return storedState(!state.multi && keys.length <= 1 ? { ...changed, attempts: [] } : changed, keys);
 }
@@ -204,33 +212,38 @@ export function createAnkiDuplicateIndex({
     }
   }
 
-  async function updateRow(source, wordKey, change) {
+  async function updateRow(sources, wordKey, change) {
     await hydrate;
     return control(async () => {
       let changed = false;
       const saved = await updateState(async ({ options, state: value }) => {
         const current = cacheState(value);
         const keys = await sourceKeys(options);
-        if (!keys.includes(source.key)) return;
-        const snapshot = entryFor(current.snapshots, source.key);
-        const currentRows = rowMap(snapshot);
-        const previous = currentRows.get(wordKey) ?? null;
-        const next = change(previous);
-        if (next === null) currentRows.delete(wordKey);
-        else currentRows.set(wordKey, {
-          mature: next.mature,
-          noteIds: [...new Set(next.noteIds)].sort((left, right) => left - right),
-        });
-        if (sameRow(previous, next)) return;
-        changed = true;
-        return storedState({
-          ...current,
-          rowRevision: current.rowRevision + 1,
-          snapshots: withEntry(current.snapshots, source.key, {
+        let nextSnapshots = current.snapshots;
+        for (const source of sources) {
+          if (!keys.includes(source.key)) continue;
+          const snapshot = entryFor(nextSnapshots, source.key);
+          const currentRows = rowMap(snapshot);
+          const previous = currentRows.get(wordKey) ?? null;
+          const next = change(previous);
+          if (sameRow(previous, next)) continue;
+          if (next === null) currentRows.delete(wordKey);
+          else currentRows.set(wordKey, {
+            mature: next.mature,
+            noteIds: [...new Set(next.noteIds)].sort((left, right) => left - right),
+          });
+          changed = true;
+          nextSnapshots = withEntry(nextSnapshots, source.key, {
             sourceKey: source.key,
             refreshedAt: snapshot?.refreshedAt ?? now(),
             rows: rowsFromMap(currentRows),
-          }),
+          });
+        }
+        if (!changed) return;
+        return storedState({
+          ...current,
+          rowRevision: current.rowRevision + 1,
+          snapshots: nextSnapshots,
         }, keys);
       });
       if (changed) install(saved);
@@ -383,9 +396,9 @@ export function createAnkiDuplicateIndex({
         .then(value => normalizedLookup(value, wordKey))
         .then(async value => {
           if (value.noteIds.length) {
-            await updateRow(source, wordKey, () => ({ mature: value.mature, noteIds: value.noteIds }));
+            await updateRow([source], wordKey, () => ({ mature: value.mature, noteIds: value.noteIds }));
           } else if (force) {
-            await updateRow(source, wordKey, () => null);
+            await updateRow([source], wordKey, () => null);
           }
           return value;
         })
@@ -414,7 +427,7 @@ export function createAnkiDuplicateIndex({
       [...misses.keys()].forEach((wordKey, position) => live.set(wordKey, normalizedLookup(values[position], wordKey)));
       // The control queue still writes the rows one at a time, in this order.
       await Promise.all([...live].filter(([, value]) => value.noteIds.length).map(([wordKey, value]) =>
-        updateRow(source, wordKey, () => ({ mature: value.mature, noteIds: value.noteIds }))));
+        updateRow([source], wordKey, () => ({ mature: value.mature, noteIds: value.noteIds }))));
     }
     return found.map(({ wordKey, mature, noteIds, cached }) => {
       const value = live.get(wordKey);
@@ -438,7 +451,9 @@ export function createAnkiDuplicateIndex({
       if (!positiveId(noteId)) throw new Error("Anki returned an invalid written note ID.");
       const [source, wordKey] = await Promise.all([ankiIndexSource(config), Promise.resolve(ankiWordKey(expression))]);
       if (source === null || wordKey === null) return;
-      await updateRow(source, wordKey, previous => ({
+      const sources = [source];
+      if (config.duplicateScope !== "all") sources.push(await wordStatusSource(config));
+      await updateRow(sources, wordKey, previous => ({
         mature: previous?.mature ?? mature,
         noteIds: [...(previous?.noteIds ?? []), noteId],
       }));
@@ -450,11 +465,12 @@ export function createAnkiDuplicateIndex({
       return rowsOf(source)?.get(wordKey)?.mature === true;
     },
     // A page's headwords, keyed only by the cached rows of the requested
-    // profile's first Template and answered from memory like `has`, with the
+    // profile's first Template across all decks and recognized note types,
+    // answered from memory like `has`, with the
     // row revision every snapshot shares. A source with no cached snapshot is
     // unavailable (null), not a page of unknown words.
     async statuses(config, headwords) {
-      const source = await ankiIndexSource(config);
+      const source = await wordStatusSource(config);
       await hydrate;
       const rows = rowsOf(source);
       if (rows === undefined) {

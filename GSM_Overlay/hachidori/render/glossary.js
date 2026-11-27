@@ -2424,8 +2424,12 @@
       const style = documentRef.createElement("style");
       style.dataset.hoshidictsDictionaryStyle = dictionary;
       style.dataset.hoshidictsGeneration = String(generation);
-      if (scope) {
-        prefixDictionaryStyleRules(sheet, scope(dictionary));
+      if (scope || typeof documentRef.defaultView.CSSScopeRule !== "function") {
+        // Edge/WebView2 hosts can disable @scope. Reuse the Anki scoper so
+        // dictionary layout rules still apply, with their original specificity.
+        const selector = scope ? scope(dictionary)
+          : `:where(.gsm-hoshidicts-glossary-content[data-hoshidicts-dictionary=${documentRef.defaultView.CSS.escape(dictionary)}])`;
+        prefixDictionaryStyleRules(sheet, selector);
         style.textContent = [...sheet.cssRules].map((rule) => rule.cssText).join("\n");
       } else {
         style.textContent = [
