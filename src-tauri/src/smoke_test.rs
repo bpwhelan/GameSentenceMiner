@@ -298,6 +298,32 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
         .or_else(|_| std::env::var("GSM_SMOKE_SCENARIO"))
         .unwrap_or_else(|_| "foundation".into());
     if suite == "longplay" { return longplay::run(app).await; }
+    if suite == "starter-dictionary" {
+        let channel = "settings.onboarding.dictionary";
+        if let Ok(reader) = std::env::var("GSM_SMOKE_DICTIONARY") {
+            service_call(app, channel, &[json!({"action":"select","reader":reader})]).await?;
+        }
+        let before = service_call(app, channel, &[json!({"action":"status"})]).await?;
+        if before["recommended"]["name"] != "Jitendex" || before["installed"] != json!([]) {
+            return Err(format!("Expected a fresh Japanese dictionary profile: {before}"));
+        }
+        let mut status = service_call(app, channel, &[json!({"action":"install"})]).await?;
+        let started = Instant::now();
+        while status["busy"] == true && started.elapsed() < Duration::from_secs(300) {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            status = service_call(app, channel, &[json!({"action":"status"})]).await?;
+        }
+        if status["busy"] == true || !status["installed"].as_array().is_some_and(|entries|
+            entries.iter().any(|item| item.as_str().is_some_and(|s| s.starts_with("Jitendex")))) {
+            return Err(format!("Starter dictionary was not verified: {status}"));
+        }
+        let result = crate::reader_service::lookup_reader_dictionary(app, "食べる").await?;
+        if !result["entries"].as_array().is_some_and(|entries| entries.iter().any(|entry|
+            entry["term"] == "食べる" && entry["dictionary"].as_str().is_some_and(|name| name.starts_with("Jitendex")))) {
+            return Err("Installed starter dictionary returned no matching definition.".into());
+        }
+        return Ok(status);
+    }
     if suite == "mining-settings" {
         let timeout = Duration::from_secs(25);
         crate::app_lifecycle::create_hub_window(app)?;

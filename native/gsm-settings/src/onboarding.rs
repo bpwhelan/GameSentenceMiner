@@ -4,7 +4,7 @@ use crate::{read_object, with_lock, write_atomic, Result};
 use serde_json::{json, Value};
 
 pub const ONBOARDING_VERSION: i64 = 2;
-pub const ONBOARDING_STEPS: [&str; 5] = ["language", "dictionary", "game", "capture", "finish"];
+pub const ONBOARDING_STEPS: [&str; 6] = ["language", "dictionary", "game", "capture", "anki", "finish"];
 pub const ONBOARDING_STATUSES: [&str; 3] = ["active", "paused", "completed"];
 
 pub fn initial_onboarding_progress(existing_installation: bool) -> Value {

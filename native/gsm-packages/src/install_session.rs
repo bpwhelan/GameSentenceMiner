@@ -11,16 +11,9 @@ use std::{
 
 const STAGES: &[(&str, &str, u64)] = &[
     ("prepare", "Preparing install session", 2),
-    ("uv", "Installing uv runtime", 6),
-    ("python", "Installing Python runtime", 15),
-    ("venv", "Creating virtual environment", 8),
-    ("verify_runtime", "Verifying Python runtime", 5),
-    ("lock_sync", "Syncing lockfile dependencies", 20),
-    ("gsm_package", "Installing GSM backend package", 5),
-    ("backend_boot", "Starting backend process", 4),
-    ("obs", "Installing OBS dependencies", 18),
-    ("ffmpeg", "Installing FFmpeg", 10),
-    ("oneocr", "Installing OneOCR", 6),
+    ("ffmpeg", "Preparing FFmpeg", 45),
+    ("oneocr", "Preparing OneOCR", 25),
+    ("obs", "Preparing OBS", 27),
     ("finalize", "Finalizing setup", 1),
 ];
 const LOG_LIMIT: usize = 250;
@@ -511,19 +504,19 @@ mod tests {
             .update(&lease, &json!({"stageId":"prepare","status":"completed"}))
             .unwrap();
         assert_eq!(sessions.snapshot("active")["overallProgress"], 0.02);
-        sessions.update(&lease,&json!({"stageId":"python","status":"running","progress":0.5,"message":"Installing Python"})).unwrap();
-        assert_eq!(sessions.snapshot("active")["overallProgress"], 0.095);
+        sessions.update(&lease,&json!({"stageId":"ffmpeg","status":"running","progress":0.5,"message":"Downloading FFmpeg"})).unwrap();
+        assert_eq!(sessions.snapshot("active")["overallProgress"], 0.245);
         assert_eq!(
             sessions.snapshot("active")["currentMessage"],
-            "Installing Python"
+            "Downloading FFmpeg"
         );
         sessions
             .update(
                 &lease,
-                &json!({"stageId":"python","progress":null,"progressKind":"indeterminate"}),
+                &json!({"stageId":"ffmpeg","progress":null,"progressKind":"indeterminate"}),
             )
             .unwrap();
-        assert!(sessions.snapshot("active")["stages"][2]["progress"].is_null());
+        assert!(sessions.snapshot("active")["stages"][1]["progress"].is_null());
         sessions
             .finish(&lease, "completed", Some("Ready"), None)
             .unwrap();
@@ -539,12 +532,12 @@ mod tests {
         let sessions = Sessions::default();
         let old = start(&sessions, "repair");
         sessions
-            .update(&old, &json!({"stageId":"uv","status":"skipped"}))
+            .update(&old, &json!({"stageId":"ffmpeg","status":"skipped"}))
             .unwrap();
         sessions
             .update(
                 &old,
-                &json!({"stageId":"lock_sync","status":"failed","error":"network timeout"}),
+                &json!({"stageId":"oneocr","status":"failed","error":"network timeout"}),
             )
             .unwrap();
         sessions.finish(&old, "failed", None, None).unwrap();
@@ -557,14 +550,14 @@ mod tests {
             "skipped"
         );
         assert_eq!(
-            sessions.snapshot("active")["stages"][5]["status"],
+            sessions.snapshot("active")["stages"][2]["status"],
             "pending"
         );
         assert!(sessions.claim_retry(&old).is_err());
         assert!(sessions.accept_retry(claim["ticket"].as_str().unwrap()));
         assert!(!sessions.accept_retry(claim["ticket"].as_str().unwrap()));
         assert!(!sessions
-            .update(&old, &json!({"stageId":"lock_sync","status":"completed"}))
+            .update(&old, &json!({"stageId":"oneocr","status":"completed"}))
             .unwrap());
         assert!(!sessions.append(&old, &json!({"message":"late output"})));
         assert!(sessions
@@ -596,7 +589,7 @@ mod tests {
             .update(&lease, &json!({"stageId":"wrong"}))
             .is_err());
         assert!(sessions
-            .update(&lease, &json!({"stageId":"uv","status":"wrong"}))
+            .update(&lease, &json!({"stageId":"ffmpeg","status":"wrong"}))
             .is_err());
     }
     #[test]

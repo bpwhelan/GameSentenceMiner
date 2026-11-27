@@ -1,5 +1,5 @@
 export const ONBOARDING_VERSION = 2;
-export const ONBOARDING_STEPS = ['language', 'dictionary', 'game', 'capture', 'finish'] as const;
+export const ONBOARDING_STEPS = ['language', 'dictionary', 'game', 'capture', 'anki', 'finish'] as const;
 export type OnboardingStep = typeof ONBOARDING_STEPS[number];
 export interface OnboardingProgress {
     version: number;
@@ -24,6 +24,7 @@ export interface DictionarySetupStatus {
     reader: 'yomitan' | 'hachidori';
     recommended: { name: string; homepage: string } | null;
     installed: string[];
+    recommendedInstalled?: boolean;
     busy: boolean;
     stage?: 'downloading' | 'importing' | 'complete' | 'failed';
     error?: string;
@@ -41,5 +42,3 @@ export interface OnboardingSnapshot {
     targetLanguage: string;
     locale: string;
 }
-
-export type OnboardingHomeAction = { id: number; action: 'game' | 'capture' };

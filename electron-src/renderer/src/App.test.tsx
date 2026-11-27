@@ -65,9 +65,6 @@ vi.mock('./components/tabs/SpeechRecognitionTab', () => ({
         active ? <div>Speech Recognition Tab</div> : null,
 }));
 
-vi.mock('./components/SetupWizard', () => ({
-    SetupWizard: () => null,
-}));
 
 function createSnapshot(
     status: 'running' | 'failed' = 'running',
@@ -781,7 +778,34 @@ describe('App install-session integration', () => {
         expect(container.querySelector('.install-session-overlay')).toBeNull();
     });
 
-    it('shows the blocking install modal automatically for an active failed session', async () => {
+    it('keeps startup downloads beside the guide and highlights the capture tabs in the workspace', async () => {
+        const fallback = invokeMock.getMockImplementation()!;
+        invokeMock.mockImplementation(async (channel, ...args) => {
+            if (channel === 'install-session.getActive') return createSnapshot('running');
+            if (channel === 'settings.onboarding.get') return { progress: { step: 'language', status: 'active' }, targetLanguage: 'ja' };
+            if (channel === 'settings.onboarding.save') return { success: true };
+            if (channel === 'settings.onboarding.dictionary') return { reader: 'yomitan', installed: [], busy: false, recommended: null };
+            return fallback(channel, ...args);
+        });
+        const { default: App } = await import('./App.js');
+        await act(async () => root.render(<App />));
+        expect(container.querySelector('.install-session-overlay')).toBeNull();
+        expect(container.querySelector('.setup-card .setup-downloads')).toBeTruthy();
+        expect(container.querySelector('.setup-card')?.textContent).not.toMatch(/python/i);
+        for (let i = 0; i < 3; i++) {
+            await act(async () => Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Skip this step')!.click());
+        }
+        expect(container.querySelector('.setup-guide')).toBeTruthy();
+        expect(Array.from(container.querySelectorAll('.tab-button[data-setup-target]')).map(b => b.textContent)).toEqual(['OCR', 'Texthook / Agent']);
+        await act(async () => container.querySelector<HTMLButtonElement>('.tab-button[data-setup-target]')!.click());
+        expect(container.textContent).toContain('OCR Tab');
+        expect(container.querySelector('.setup-downloads')).toBeTruthy();
+    });
+
+    it('shows the blocking install modal automatically for a failed repair', async () => {
+        const fallback = invokeMock.getMockImplementation()!;
+        invokeMock.mockImplementation(async (channel, ...args) => channel === 'install-session.getActive'
+            ? createSnapshot('failed', 'repair') : fallback(channel, ...args));
         const { default: App } = await import('./App.js');
 
         await act(async () => {

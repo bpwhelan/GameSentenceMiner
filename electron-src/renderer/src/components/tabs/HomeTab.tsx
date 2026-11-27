@@ -13,7 +13,6 @@ import { CaptureTargetPicker } from "./CaptureTargetPicker";
 import { ReadingPane } from "../reader/ReadingPane";
 import type { GsmStatus, ObsCaptureMode, ObsScene, ObsWindow } from "../../types/models";
 import "./HomeTab.css";
-import type { OnboardingHomeAction } from '../../../../shared/onboarding';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                              */
@@ -21,7 +20,7 @@ import type { OnboardingHomeAction } from '../../../../shared/onboarding';
 
 interface HomeTabProps {
   active: boolean;
-  onboardingAction?: OnboardingHomeAction | null;
+  guideAddGame?: boolean;
   onNavigateTab?: (tab: "ocr" | "texthook" | "launcher" | "settings") => void;
 }
 
@@ -453,7 +452,7 @@ function HomeProfileSelector({ active, scene }: { active: boolean; scene?: strin
   );
 }
 
-export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProps) {
+export function HomeTab({ active, onNavigateTab, guideAddGame }: HomeTabProps) {
   const [readingFocus, setReadingFocus] = useState(false);
   const [gameOptionsOpen, setGameOptionsOpen] = useState(false);
   const toggleReadingFocus = useCallback(() => setReadingFocus(value => !value), []);
@@ -791,19 +790,6 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     setCaptureWizardOpen(true);
   }, [isHelperScene, selectedScene]);
 
-  const handledOnboardingAction = useRef<number | null>(null);
-  useEffect(() => {
-    if (!active || !onboardingAction || handledOnboardingAction.current === onboardingAction.id) return;
-    if (onboardingAction.action === 'game') {
-      setPickerWindowsReady(false);
-      setNewCaptureOpen(true);
-    } else {
-      if (!selectedScene || isHelperScene) return;
-      handleOpenCaptureWizard();
-    }
-    handledOnboardingAction.current = onboardingAction.id;
-  }, [active, onboardingAction, selectedScene, isHelperScene, handleOpenCaptureWizard]);
-
   const handleCreateScene = useCallback(async () => {
     const win = selectedWindow;
     if (!win || sceneCreating) return;
@@ -827,6 +813,7 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
       await refreshAll();
       setNewCaptureOpen(false);
       setGameSearch("");
+      if (guideAddGame) return;
 
       try {
         const [settings, activeScene] = await Promise.all([
@@ -845,7 +832,7 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
     } finally {
       setSceneCreating(false);
     }
-  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll, sceneCreating]);
+  }, [selectedWindow, overrideSceneName, selectedCaptureMode, canSelectCaptureMode, refreshAll, sceneCreating, guideAddGame]);
 
   const handleCaptureCardToggle = useCallback(async (enabled: boolean) => {
     try {
@@ -1156,6 +1143,8 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
                     <button
                       type="button"
                       className="ws-primary home-add-game"
+                      data-setup-target={guideAddGame || undefined}
+                      aria-describedby={guideAddGame ? "setup-guide-hint" : undefined}
                       aria-haspopup="dialog"
                       aria-controls="home-new-capture"
                       onClick={(event) => openNewCapture(event.currentTarget)}
@@ -1219,6 +1208,8 @@ export function HomeTab({ active, onNavigateTab, onboardingAction }: HomeTabProp
                   <button
                     type="button"
                     className="ws-primary home-add-game"
+                    data-setup-target={guideAddGame || undefined}
+                    aria-describedby={guideAddGame ? "setup-guide-hint" : undefined}
                     aria-haspopup="dialog"
                     aria-controls="home-new-capture"
                     onClick={(event) => openNewCapture(event.currentTarget)}

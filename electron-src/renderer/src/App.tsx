@@ -6,8 +6,8 @@ import { GameAutomationTab } from "./components/tabs/GameAutomationTab";
 import type { MiningDestination } from "./types/settings";
 import { SettingsTab } from "./components/tabs/SettingsTab";
 import { SetupWizard } from "./components/SetupWizard";
-import type { OnboardingHomeAction, OnboardingSnapshot } from '../../shared/onboarding';
-import { InstallSessionModal } from "./components/InstallSessionModal";
+import type { OnboardingSnapshot } from '../../shared/onboarding';
+import { InstallSessionModal, StartupDownloads } from "./components/InstallSessionModal";
 import { WhatsChangedDialog } from "./components/WhatsChangedDialog";
 import { AppUpdateNotice } from "./components/AppUpdateNotice";
 import { DictionaryTransferNotice } from "./components/DictionaryTransferNotice";
@@ -630,7 +630,7 @@ export default function App() {
   }, []);
   const [showWizard, setShowWizard] = useState(false);
   const [wizardSession, setWizardSession] = useState(0);
-  const [onboardingAction, setOnboardingAction] = useState<OnboardingHomeAction | null>(null);
+  const [guideStep, setGuideStep] = useState<'game' | 'capture' | null>(null);
   const [installSession, setInstallSession] = useState<InstallSessionSnapshot | null>(null);
   const [desktopChangelog, setDesktopChangelog] =
     useState<DesktopUpdateChangelogSnapshot | null>(null);
@@ -915,21 +915,15 @@ export default function App() {
     }
   }, []);
 
-  const shouldShowInstallSessionModal = useMemo(() => {
-    if (!installSession) {
-      return false;
-    }
-    if (
-      installSession.origin === "repair" ||
-      installSession.origin === "reset_dependencies"
-    ) {
-      return true;
-    }
-    if (installSession.origin === "startup") {
-      return hasCompletedSetup === false;
-    }
-    return false;
-  }, [hasCompletedSetup, installSession]);
+  const shouldShowInstallSessionModal = installSession?.origin === "repair" || installSession?.origin === "reset_dependencies";
+  const startupDownloads = installSession?.origin === "startup" && hasCompletedSetup === false
+    ? <StartupDownloads snapshot={installSession} onRetry={() => void retryInstallSession()} onOpenLogs={() => void openInstallLogs()} />
+    : null;
+  const wizardVisible = showWizard && !shouldShowInstallSessionModal && !desktopChangelog;
+  const guideWorkspace = useCallback((step: 'game' | 'capture' | null) => {
+    setGuideStep(step);
+    if (step === 'game') selectTab('obs');
+  }, [selectTab]);
 
   useEffect(() => {
     const info = {
@@ -958,6 +952,9 @@ export default function App() {
             <button
               key={tab.id}
               className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
+              data-setup-target={((guideStep === 'capture' && (tab.id === 'texthook' || tab.id === 'ocr')) ||
+                (guideStep === 'game' && activeTab !== 'obs' && tab.id === 'obs')) || undefined}
+              aria-describedby={guideStep === 'capture' && (tab.id === 'texthook' || tab.id === 'ocr') ? 'setup-guide-hint' : undefined}
               onClick={() => selectTab(tab.id)}
             >
               {t(tab.labelKey)}
@@ -999,17 +996,12 @@ export default function App() {
 
       <DictionaryTransferNotice />
       <GamePrivilegeNotice />
-      {showWizard && !shouldShowInstallSessionModal && !desktopChangelog && (
-        <SetupWizard key={wizardSession} onComplete={() => setShowWizard(false)} onAction={action => {
-          if (action === 'settings') selectTab('settings');
-          else {
-            selectTab('obs');
-            setOnboardingAction(previous => ({ id: (previous?.id ?? 0) + 1, action }));
-          }
-        }} />
-      )}
+      {wizardVisible ? (
+        <SetupWizard key={wizardSession} onComplete={() => setShowWizard(false)}
+          onGuideStep={guideWorkspace} canTextHook={canTextHook} downloads={startupDownloads} />
+      ) : startupDownloads}
       <main className="tab-content-area">
-        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} onboardingAction={onboardingAction} />
+        <HomeTab active={activeTab === "obs"} onNavigateTab={selectTab} guideAddGame={guideStep === 'game'} />
         <DeferredPanel active={activeTab === 'ocr'}><OCRTab active={activeTab === "ocr"} /></DeferredPanel>
         {canTextHook ? (
           <DeferredPanel active={activeTab === 'texthook'}>

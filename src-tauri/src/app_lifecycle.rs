@@ -369,6 +369,12 @@ pub(crate) async fn boot_desktop_backend(boot_app: AppHandle) {
         );
     }
     if !read_bool_pref(&boot_app, "hasCompletedSetup", false) {
+        let prefs = gsm_settings::preferences::Preferences::new(
+            &boot_app.state::<crate::settings::Settings>().paths.active,
+        );
+        if let Err(error) = gsm_settings::onboarding::get_or_init_onboarding(&prefs) {
+            crate::desktop_log::warn(&boot_app, "onboarding", error);
+        }
         start_startup_install_session(&boot_app);
     }
     let lease = boot_app.state::<crate::install_session::InstallSessions>().model.lease();
@@ -379,7 +385,7 @@ pub(crate) async fn boot_desktop_backend(boot_app: AppHandle) {
 
 pub(crate) async fn start_native_services(app: &AppHandle, lease: Option<gsm_packages::install_session::Lease>) -> Result<(), String> {
     let sessions = app.state::<crate::install_session::InstallSessions>();
-    let result: Result<(), String> = async {
+    let result: Result<Option<String>, String> = async {
         if !crate::mining::native_mining_requested() {
             return Err("Native mining is required for a Pythonless session".into());
         }
@@ -397,22 +403,50 @@ pub(crate) async fn start_native_services(app: &AppHandle, lease: Option<gsm_pac
         if !mining.is_enabled() || !app.state::<crate::text_intake::Intake>().active() {
             return Err("The text intake service or single-port gateway failed to start. Check the desktop log.".into());
         }
-        #[cfg(windows)]
-        crate::startup_tools::prepare(app, lease.clone()).await?;
-        if std::env::var_os("GSM_SMOKE_TEST").is_none()
-            && !app.state::<DesktopState>().quitting.load(Ordering::SeqCst)
-        {
-            if let Err(error) = app.state::<crate::obs::Obs>().launch_on_startup(app).await {
+        if let Some(ref lease) = lease {
+            sessions.model.update(lease, &json!({"stageId":"prepare","status":"completed"}))?;
+            sessions.notify();
+        }
+        let prepare_tools = async {
+            #[cfg(windows)]
+            crate::startup_tools::prepare(app, lease.clone()).await?;
+            Ok::<(), String>(())
+        };
+        let start_obs = async {
+            if std::env::var_os("GSM_SMOKE_TEST").is_some()
+                || app.state::<DesktopState>().quitting.load(Ordering::SeqCst)
+            {
+                return None;
+            }
+            if let Some(ref lease) = lease {
+                let _ = sessions.model.update(lease, &json!({"stageId":"obs","status":"running"}));
+                sessions.notify();
+            }
+            let launched = app.state::<crate::obs::Obs>().launch_on_startup(app).await;
+            if let Err(error) = &launched {
                 crate::desktop_log::warn(app, "obs", format!("Could not start OBS: {error}"));
             }
-        }
+            if let Some(ref lease) = lease {
+                let update = match &launched {
+                    Ok(()) => json!({"stageId":"obs","status":"completed"}),
+                    Err(error) => json!({"stageId":"obs","status":"failed","error":error}),
+                };
+                let _ = sessions.model.update(lease, &update);
+                sessions.notify();
+            }
+            launched.err()
+        };
+        // Adding a game only needs OBS. Let it start while the independent OCR
+        // and media tools are downloading.
+        let (tools, obs_error) = tokio::join!(prepare_tools, start_obs);
+        tools?;
         if app.state::<DesktopState>().quitting.load(Ordering::SeqCst) { return Err("Desktop is shutting down".into()); }
-        Ok(())
+        Ok(obs_error)
     }.await;
     if let Some(ref lease) = lease {
         match result.as_ref() {
-            Ok(()) => { let _ = sessions.model.finish(lease,"completed",Some("Setup complete."),None); }
-            Err(error) => { let _ = sessions.model.finish(lease,"failed",Some("Desktop startup failed."),Some(error)); }
+            Ok(None) => { let _ = sessions.model.finish(lease,"completed",Some("Setup complete."),None); }
+            Ok(Some(error)) | Err(error) => { let _ = sessions.model.finish(lease,"failed",Some("Desktop startup failed."),Some(error)); }
         }
         sessions.notify();
     }

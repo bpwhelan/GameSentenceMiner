@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/install_session";
 
 type DisplayStageId =
+  | "prepare"
   | "python_setup"
   | "gsm_backend"
   | "obs"
@@ -35,9 +36,14 @@ const DISPLAY_STAGE_GROUPS: Array<{
   stageIds: InstallStageState["id"][];
 }> = [
   {
+    id: "prepare",
+    labelKey: "install.preparing",
+    stageIds: ["prepare"]
+  },
+  {
     id: "python_setup",
     labelKey: "install.stages.pythonSetup",
-    stageIds: ["prepare", "uv", "python", "venv", "verify_runtime"]
+    stageIds: ["uv", "python", "venv", "verify_runtime"]
   },
   {
     id: "gsm_backend",
@@ -192,6 +198,34 @@ function ActivityDots() {
   );
 }
 
+export function StartupDownloads({ snapshot, onRetry, onOpenLogs }: {
+  snapshot: InstallSessionSnapshot;
+  onRetry: () => void;
+  onOpenLogs: () => void;
+}) {
+  const t = useTranslation();
+  const failed = snapshot.status === "failed";
+  const active = snapshot.stages.filter(stage => stage.status === "running");
+  const labels = DISPLAY_STAGE_GROUPS.filter(group => active.some(stage => group.stageIds.includes(stage.id))).map(group => t(group.labelKey));
+  const transfer = active.find(stage => stage.downloadedBytes != null && stage.totalBytes != null);
+  const bytes = transfer ? [formatBytes(transfer.downloadedBytes), formatBytes(transfer.totalBytes)].join(" / ") : "";
+  return (
+    <section className="setup-downloads" aria-label={t("onboarding.downloads")}>
+      <strong>{t("onboarding.downloads")}</strong>
+      <span role={failed ? "alert" : "status"}>{failed
+        ? snapshot.error || t("install.status.failed")
+        : labels.join(" · ") || t("install.preparing")}</span>
+      {failed ? <div>
+        <button type="button" onClick={onRetry} disabled={snapshot.retryAvailable === false}>{t("install.retry")}</button>
+        <button type="button" onClick={onOpenLogs}>{t("install.openLogs")}</button>
+      </div> : <>
+        <progress aria-label={t("onboarding.downloads")} max={1} value={snapshot.overallProgress} />
+        <small>{bytes || formatPercent(snapshot.overallProgress)}</small>
+      </>}
+    </section>
+  );
+}
+
 export function InstallSessionModal({
   snapshot,
   onRetry,
@@ -210,11 +244,11 @@ export function InstallSessionModal({
   const visibleLogs = snapshot.logs.slice(-DEBUG_LOG_HISTORY_LIMIT);
 
   const displayStages = useMemo(() => {
-    return DISPLAY_STAGE_GROUPS.map((group) => {
+    return DISPLAY_STAGE_GROUPS.flatMap((group) => {
       const stages = group.stageIds
         .map((id) => snapshot.stages.find((s) => s.id === id))
         .filter((s): s is InstallStageState => Boolean(s));
-      return buildDisplayStage(group.id, group.labelKey, stages);
+      return stages.length ? [buildDisplayStage(group.id, group.labelKey, stages)] : [];
     });
   }, [snapshot.stages]);
 

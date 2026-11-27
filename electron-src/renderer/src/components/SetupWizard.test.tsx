@@ -22,7 +22,6 @@ describe('first-run setup', () => {
     invoke.mockImplementation(async (channel: string) => {
       if (channel === 'settings.onboarding.get') return snapshot;
       if (channel === 'settings.onboarding.dictionary') return { reader: 'yomitan', recommended: { name: 'Jitendex', homepage: 'https://jitendex.org' }, installed: [], busy: false };
-      if (channel === 'settings.onboarding.sudachi') return { state: 'setup_required', dictionary: 'small' };
       if (channel === 'obs.getScenes') return [];
       return { success: true };
     });
@@ -31,7 +30,7 @@ describe('first-run setup', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); });
   async function render(locale = 'en') {
-    await act(async () => root.render(<I18nProvider initialLocale={locale}><SetupWizard onComplete={complete} onAction={action} /></I18nProvider>));
+    await act(async () => root.render(<I18nProvider initialLocale={locale}><SetupWizard onComplete={complete} onGuideStep={action} canTextHook /></I18nProvider>));
   }
   function button(text: string) {
     const element = Array.from(container.querySelectorAll('button')).find(item => item.textContent === text);
@@ -72,15 +71,20 @@ describe('first-run setup', () => {
     expect(complete).toHaveBeenCalledOnce();
   });
 
-  it('hands off to the real game setup and returns to the same guide step', async () => {
+  it('resumes game and capture directly in the workspace and opens optional Anki setup', async () => {
     snapshot.progress.step = 'game';
     await render();
-    await click('Add my first game');
-    expect(action).toHaveBeenCalledWith('game');
+    expect(action).toHaveBeenLastCalledWith('game');
     expect(container.querySelector('[role=dialog]')).toBeNull();
-    await click('Return to guide');
-    expect(container.querySelector('h1')?.textContent).toContain('Bring your game');
-    expect(complete).not.toHaveBeenCalled();
+    await click('Skip this step');
+    expect(action).toHaveBeenLastCalledWith('capture');
+    expect(container.querySelector('[role=dialog]')).toBeNull();
+    await click('Continue');
+    expect(action).toHaveBeenLastCalledWith(null);
+    await click('Set up Anki');
+    expect(invoke).toHaveBeenCalledWith('settings.mining.recommendedAnki');
+    await click('Skip this step');
+    expect(button('Finish setup')).toBeTruthy();
   });
 
   it('does not claim a dictionary is ready just because installation was requested', async () => {
@@ -89,25 +93,33 @@ describe('first-run setup', () => {
     await click('Install or enable Jitendex');
     expect(invoke).toHaveBeenCalledWith('settings.onboarding.dictionary', { action: 'install' });
     expect(button('Continue').disabled).toBe(true);
-    expect(container.textContent).not.toContain('An enabled dictionary is ready.');
+    expect(container.textContent).not.toContain('Ready for lookups with Jitendex.');
   });
 
-  it('downloads only the selected edition after a setup action and exposes retry errors', async () => {
+  it('allows setup during import and verifies the dictionary independently of Sudachi', async () => {
     snapshot.progress.step = 'dictionary';
-    await render();
-    expect(invoke).not.toHaveBeenCalledWith('settings.onboarding.sudachi', expect.objectContaining({ action: 'install' }));
-    await act(async () => {
-      const edition = container.querySelector<HTMLSelectElement>('#sudachi-edition')!;
-      edition.value = 'full'; edition.dispatchEvent(new Event('change', { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(2100);
+    const fallback = invoke.getMockImplementation()!;
+    const state = { reader: 'yomitan', recommended: { name: 'Jitendex' }, installed: [] as string[], recommendedInstalled: false, busy: false };
+    invoke.mockImplementation(async (channel, payload) => {
+      if (channel !== 'settings.onboarding.dictionary') return fallback(channel, payload);
+      if (payload.action === 'install') state.busy = true;
+      return { ...state };
     });
-    expect(container.querySelector<HTMLSelectElement>('#sudachi-edition')!.value).toBe('full');
-    invoke.mockResolvedValueOnce({ state: 'error', error: 'Network unavailable' });
-    await click('Download / use selected dictionary');
-    expect(invoke).toHaveBeenCalledWith('settings.onboarding.sudachi', { action: 'install', dictionary: 'full' });
-    expect(container.textContent).toContain('Network unavailable');
-    expect(button('Try again')).toBeTruthy();
-    expect(button('Continue').disabled).toBe(true);
+    await render();
+    await click('Install or enable Jitendex');
+    expect(button('Continue').disabled).toBe(false);
+    await click('Continue');
+    expect(container.querySelector('.setup-guide')).toBeTruthy();
+    expect(container.textContent).toContain('Downloading and importing');
+    state.busy = false;
+    state.installed = ['Jitendex'];
+    state.recommendedInstalled = true;
+    await act(async () => { await vi.advanceTimersByTimeAsync(2200); });
+    expect(container.textContent).toContain('Ready for lookups with Jitendex.');
+    await click('Back');
+    expect(container.textContent).not.toContain('Install or enable Jitendex');
+    expect(button('Continue').disabled).toBe(false);
+    expect(invoke.mock.calls.some(([channel]) => channel === 'settings.onboarding.sudachi')).toBe(false);
   });
 
   it('waits for successful final persistence before closing', async () => {

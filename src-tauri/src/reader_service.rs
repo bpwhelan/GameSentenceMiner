@@ -75,6 +75,11 @@ pub async fn release_idle_lookup(app: &AppHandle, idle_for: Duration) -> bool {
         *state.last_used.lock().unwrap() = None;
         return false;
     };
+    // The setup request returns as soon as the import starts. Its worker belongs
+    // to this document even after the guide is paused or the Hub is hidden.
+    if evaluate_raw(app, &window, "window.__gsmDictionaryBusy === true").await == Ok(json!(true)) {
+        return false;
+    }
     if destroy_reader_window(app, &window).await.is_ok() {
         *state.last_used.lock().unwrap() = None;
         return true;
@@ -993,7 +998,7 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
                     const api = globalThis.HDReaderOptions;
                     const language = {lang_json};
                     const enableExisting = {enable_bool};
-                    const [run, state, stored] = await Promise.all([
+                    let [run, state, stored] = await Promise.all([
                         chrome.runtime.sendMessage({{ target: 'hachidori-setup', type: 'hd_setup_install', sourceIds: [] }}),
                         chrome.runtime.sendMessage({{ target: 'hoshidicts-worker', type: 'hd_state_read' }}),
                         chrome.storage.local.get(['options', api.LANGUAGE_SELECTION_KEY]),
@@ -1016,16 +1021,18 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
                         }}
                     }}
                     const installed = profile?.language === language ? dictionaries.filter(item => item.enabled !== false && item.termCount > 0).map(item => item.title) : [];
-                    if (enableExisting && !installed.some(title => /^Jitendex(?:\.org)?(?:\s|$)/i.test(title))) {{
+                    const recommendedInstalled = language === 'ja' && installed.some(title => /^Jitendex(?:\.org)?(?:\s|$)/i.test(title));
+                    if (enableExisting && run.finished !== false && !recommendedInstalled) {{
                         const reply = await chrome.runtime.sendMessage({{ target: 'hachidori-setup', type: 'hd_setup_install', sourceIds: ['jitendex'] }});
                         if (!reply?.ok) throw new Error(reply?.error || 'Hachidori could not start the dictionary download.');
+                        run = reply;
                     }}
                     return {{
                         reader: 'hachidori',
                         recommended: language === 'ja' ? {{ name: 'Jitendex', homepage: 'https://jitendex.org' }} : null,
-                        installed,
+                        installed, recommendedInstalled,
                         busy: run.finished === false,
-                        error: installed.some(title => /^Jitendex(?:\.org)?(?:\s|$)/i.test(title)) ? undefined : (run.entries || []).find(item => item.error)?.error,
+                        error: recommendedInstalled ? undefined : (run.entries || []).find(item => item.error)?.error,
                     }};
                 }})()"#,
                 lang_json = json!(language),
@@ -1053,6 +1060,14 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
                     let dictionaries = await api.getDictionaryInfo();
                     const stored = await chrome.storage.local.get('gsmOnboardingDictionaries');
                     const known = stored.gsmOnboardingDictionaries || {{}};
+                    function enabledTerms(options, dictionaries) {{
+                        const current = options.profiles[options.profileCurrent].options;
+                        if (!current.general.enable || current.general.language !== language) return [];
+                        const enabled = new Set(current.dictionaries.filter(item => item.enabled).map(item => item.name));
+                        return dictionaries.filter(item => enabled.has(item.title) && item.importSuccess !== false
+                            && item.counts?.terms?.total > 0 && (!item.sourceLanguage || item.sourceLanguage === language
+                                || (recommendation && (known[recommendation.downloadUrl] === item.title || matches(item, recommendation, language)))));
+                    }}
                     if (action === 'install' && !window.__gsmDictionaryBusy) {{
                         window.__gsmDictionaryBusy = true;
                         window.__gsmDictionaryStage = 'downloading';
@@ -1105,8 +1120,13 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
                                 if (summary.sequenced && !profile.options.general.mainDictionary) {{
                                     targets.push({{ action: 'set', path: `profiles[${{index}}].options.general.mainDictionary`, value: summary.title }});
                                 }}
-                                await api.modifySettings(targets.map(target => ({{ ...target, scope: 'global' }})), 'gsm-onboarding');
+                                const changes = await api.modifySettings(targets.map(target => ({{ ...target, scope: 'global' }})), 'gsm-onboarding');
+                                if (changes.some(change => change.error)) throw new Error('The dictionary was imported but could not be enabled. Retry from dictionary settings.');
                                 known[recommendation.downloadUrl] = summary.title;
+                                const [saved, inventory] = await Promise.all([api.optionsGetFull(), api.getDictionaryInfo()]);
+                                if (!enabledTerms(saved, inventory).some(item => item.title === summary.title)) {{
+                                    throw new Error('The dictionary was imported but could not be verified in the active profile. Retry or open dictionary settings.');
+                                }}
                                 await chrome.storage.local.set({{ gsmOnboardingDictionaries: known }});
                                 window.__gsmDictionaryStage = 'complete';
                             }} catch (err) {{
@@ -1117,16 +1137,13 @@ pub async fn handle_ws2_dictionary_setup(app: &AppHandle, msg: &Value) -> Value 
                             }}
                         }})();
                     }}
-                    const current = options.profiles[options.profileCurrent].options;
-                    const enabled = new Set(current.dictionaries.filter(item => item.enabled).map(item => item.name));
-                    const installed = current.general.enable && current.general.language === language
-                        ? dictionaries.filter(item => enabled.has(item.title) && item.importSuccess !== false
-                            && item.counts?.terms?.total > 0 && (!item.sourceLanguage || item.sourceLanguage === language
-                                || (recommendation && (known[recommendation.downloadUrl] === item.title || matches(item, recommendation, language))))).map(item => item.title) : [];
+                    const enabled = enabledTerms(options, dictionaries);
                     return {{
                         reader: 'yomitan',
                         recommended: recommendation ? {{ name: recommendation.name, homepage: recommendation.homepage }} : null,
-                        installed,
+                        installed: enabled.map(item => item.title),
+                        recommendedInstalled: Boolean(recommendation && enabled.some(item =>
+                            matches(item, recommendation, language) || known[recommendation.downloadUrl] === item.title)),
                         busy: window.__gsmDictionaryBusy === true,
                         stage: window.__gsmDictionaryStage,
                         error: window.__gsmDictionaryError,
