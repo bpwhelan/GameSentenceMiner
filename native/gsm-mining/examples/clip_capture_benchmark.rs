@@ -47,8 +47,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    config.screenshot.width = 160;
-    config.screenshot.height = 0;
     config.screenshot.trim_black_bars_wip = false;
     config.screenshot.extension = "jpg".into();
     config.paths.output_folder = dir.join("exports-rust").to_string_lossy().into_owned();

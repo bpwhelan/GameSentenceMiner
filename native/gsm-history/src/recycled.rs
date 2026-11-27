@@ -1,5 +1,5 @@
 //! The overlay's bounded per-scene history. Read only text, one borrowed SQLite row at a time.
-#[path = "../../gsm-native/src/recycled_index.rs"]
+#[path = "recycled_index.rs"]
 mod recycled_index;
 #[path = "recycled_unicode.rs"]
 mod unicode;

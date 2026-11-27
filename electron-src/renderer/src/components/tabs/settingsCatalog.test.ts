@@ -127,9 +127,9 @@ describe("filterSettingsCatalogEntries", () => {
     ["move appdata folder", "desktop-data-folder"],
     ["clipboard websocket", "gsm-general"],
     ["replacement regex", "gsm-text-processing"],
-    ["confirmation gamepad", "gsm-anki-confirmation"],
+    ["confirmation gamepad", "gsm-hotkeys"],
     ["duplicate field grouping", "gsm-anki-field-grouping"],
-    ["whisper vad", "gsm-voice-detection"],
+    ["firered vad", "gsm-voice-detection"],
     ["mute target window", "gsm-hotkeys"],
     ["translation prompts", "gsm-ai-prompts"],
     ["game pausing denylist", "gsm-experimental"],
@@ -137,7 +137,7 @@ describe("filterSettingsCatalogEntries", () => {
     ["mute minimized game", "gsm-experimental"],
     ["pomodoro goals", "overlay-reading-stats"],
     ["furigana mecab sudachi", "overlay-furigana-tokenization"],
-    ["oneocr image scaling", "overlay-ocr"],
+    ["aggressive ocr retries", "overlay-ocr"],
     ["token mode jpdb", "overlay-gamepad"],
     ["profile specific overlay", "overlay-profiles-system"]
   ])("finds the audited setting for %s", (query, expectedId) => {

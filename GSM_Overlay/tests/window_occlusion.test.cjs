@@ -101,6 +101,69 @@ test('missing coverage from non-Windows or non-window capture clears previous ma
   assert.equal(c.hidden(covered), false);
 });
 
+test('changing the setting restores lookups immediately and reuses the last coverage', t => {
+  const c = setup(t);
+  const covered = c.box(100, 100);
+  c.update([c.cover]);
+  c.controller.setHideCoveredText(false);
+  assert.equal(c.hidden(covered), false);
+  assert.equal(c.window.getComputedStyle(covered).pointerEvents, 'auto');
+  c.controller.setHideCoveredText(true);
+  assert.equal(c.hidden(covered), true);
+  c.controller.setHideCoveredText(false);
+  c.update([]);
+  c.controller.setHideCoveredText(true);
+  assert.equal(c.hidden(covered), false);
+});
+
+test('only actual text overlaps report their window, once across redraws and partial refreshes', t => {
+  const c = setup(t);
+  const messages = [];
+  c.window.ipcRenderer = { send: (...args) => messages.push(args) };
+  const blocker = { ...c.cover, hwnd: 42, pid: 12, window_class: 'HotkeyOSD' };
+  c.box(100, 100, 'line-box');
+  c.update([blocker]);
+  assert.equal(messages.length, 0);
+  c.controller.setHideCoveredText(false);
+  const first = c.box(100, 100);
+  c.box(101, 100);
+  c.controller.refresh();
+  assert.equal(c.hidden(first), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(messages)), [
+    ['overlay-text-covered', [{ window: blocker, textBoxes: 2, hidingEnabled: false }]],
+  ]);
+  first.remove();
+  c.box(100, 100);
+  c.controller.refresh(first);
+  c.update([{ ...blocker, bottom: blocker.bottom + 5 }]);
+  c.controller.refresh();
+  assert.equal(messages.length, 1);
+});
+
+test('flashing and overlapping windows are coalesced without losing a short-lived blocker', t => {
+  const c = setup(t);
+  const messages = [];
+  const timers = [];
+  c.window.ipcRenderer = { send: (_, reports) => messages.push(Array.from(reports, r => r.window.hwnd)) };
+  c.window.setTimeout = (callback, delay) => {
+    timers.push({ callback, delay });
+    return timers.length;
+  };
+  c.box(100, 100);
+  const a = { ...c.cover, hwnd: 1, pid: 10 };
+  const b = { ...c.cover, hwnd: 2, pid: 10 };
+  c.update([a]);
+  c.update([a, b]);
+  c.update([]);
+  c.update([b]);
+  c.update([]);
+  assert.deepEqual(messages, [[1]]);
+  assert.equal(timers.length, 1);
+  assert.ok(timers[0].delay > 0 && timers[0].delay <= 5000);
+  timers[0].callback();
+  assert.deepEqual(messages, [[1], [2]]);
+});
+
 test('controller navigation rejects occluded lookup and navigation boxes', t => {
   const c = setup(t);
   c.window.eval(fs.readFileSync(path.join(__dirname, '../gamepad.js'), 'utf8'));
@@ -129,12 +192,12 @@ test('coverage-only websocket updates do not repeat main-process show/focus work
   `);
   const covered = c.box(100, 100);
   await c.window.receiveWindowState({ type: 'window_state', data: 'background', occlusion_rects: [] });
-  assert.equal(sent.length, 1);
+  assert.deepEqual(sent.map(([channel]) => channel), ['window-state-changed']);
   await c.window.receiveWindowState({ type: 'window_state', data: 'background', occlusion_rects: [c.cover] });
-  assert.equal(sent.length, 1);
+  assert.deepEqual(sent.map(([channel]) => channel), ['window-state-changed', 'overlay-text-covered']);
   assert.equal(c.hidden(covered), true);
   await c.window.receiveWindowState({ type: 'window_state', data: 'active', occlusion_rects: [] });
-  assert.equal(sent.length, 2);
+  assert.deepEqual(sent.map(([channel]) => channel), ['window-state-changed', 'overlay-text-covered', 'window-state-changed']);
   assert.equal(c.hidden(covered), false);
 });
 

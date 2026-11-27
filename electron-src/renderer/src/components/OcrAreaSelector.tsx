@@ -11,7 +11,7 @@ type Flags = { excluded?: boolean; secondary?: boolean; exclusive?: boolean; bla
 export type SelectorArea = Flags & { xywh: Bounds; monitor?: number };
 type Area = SelectorArea;
 type Frame = { image: string; rects: Area[]; width: number; height: number; monitor?: number };
-type Options = { obs: boolean; single: boolean; overlay: boolean; monitorOnly: boolean; live: boolean; help: boolean };
+type Options = { obs: boolean; single: boolean; monitorOnly: boolean; live: boolean; help: boolean };
 type Action = { index: number; area: Area; add: boolean };
 type Menu = { x: number; y: number; hits: number[] };
 const modes: Mode[] = ['normal', 'exclusion', 'secondary', 'exclusive', 'blackHole'];
@@ -42,8 +42,7 @@ function hits(areas: Area[], [x, y]: Point) {
 
 function flagsForDrag(options: Options, mode: Mode | null, event: ReactPointerEvent): Flags {
     if (mode) return modeFlags[mode];
-    if (options.monitorOnly && !options.overlay) return {};
-    if (options.overlay) return { excluded: event.shiftKey };
+    if (options.monitorOnly) return {};
     if (event.altKey) return event.ctrlKey ? { blackHole: true } : { exclusive: true };
     return { secondary: event.ctrlKey, excluded: event.shiftKey };
 }
@@ -109,7 +108,7 @@ export function OcrAreaSelector({ active = true, host, preview, autoRefresh: vie
             if (host) {
                 const layout = await host.load();
                 if (!active) return;
-                setOptions({obs:true, single:false, overlay:false, monitorOnly:false, live:false, help:layout.help});
+                setOptions({obs:true, single:false, monitorOnly:false, live:false, help:layout.help});
                 setHelp(layout.help);
                 capture = layout.capture;
             } else {
@@ -353,10 +352,10 @@ export function OcrAreaSelector({ active = true, host, preview, autoRefresh: vie
         setDraft(undefined);
     }
 
-    const availableModes = modes.slice(0, options?.overlay ? 2 : options?.monitorOnly ? 1 : 5);
+    const availableModes = modes.slice(0, options?.monitorOnly ? 1 : 5);
     const display = preview ?? frame;
     const fit = display ? Math.min(stageSize[0] / display.width, stageSize[1] / display.height) : 0;
-    const instructionMode = options?.single ? 'single' : options?.overlay ? 'overlay' : options?.monitorOnly ? 'monitor' : 'standard';
+    const instructionMode = options?.single ? 'single' : options?.monitorOnly ? 'monitor' : 'standard';
     const menuAction = (callback: () => void) => { closeMenu(); callback(); };
     const putBox = ({ xywh: [x, y, w, h], ...flags }: Area, index: number) => (
         <div key={index} className={`ocr-selector-box${index === highlight ? ' highlighted' : ''}`} style={{

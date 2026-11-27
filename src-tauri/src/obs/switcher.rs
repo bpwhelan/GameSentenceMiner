@@ -587,7 +587,11 @@ impl Obs {
                 if title.is_empty() {
                     Ok(Value::Null)
                 } else {
-                    Ok(json!({"titlePattern":scenes::game_info(&title).1,"executableName":exe}))
+                    Ok(json!({
+                        "windowTitle": title,
+                        "titlePattern": scenes::game_info(&title).1,
+                        "executableName": exe
+                    }))
                 }
             }
             "scene-switcher.matchSceneRules" => {

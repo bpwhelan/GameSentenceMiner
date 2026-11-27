@@ -10,7 +10,7 @@ const context = vm.createContext({
     navigator: { language: 'en-US' },
     document: { addEventListener() {} },
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname, '../../GameSentenceMiner/web/static/js/goals.js'), 'utf8'), context);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../../resources/web/static/js/goals.js'), 'utf8'), context);
 const utils = vm.runInContext('GoalsUtils', context);
 const manager = vm.runInContext('CustomGoalsManager', context);
 const input = () => ({ value: '', dataset: {}, dispatchEvent() {} });

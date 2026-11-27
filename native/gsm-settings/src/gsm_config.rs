@@ -128,17 +128,6 @@ pub fn gsm_backend_url(config_path: &Path, route_path: &str) -> String {
     format!("http://localhost:{}{}", get_configured_single_port(config_path), route_path)
 }
 
-pub fn resolve_hachidori_enabled_from_config_data(config_data: &Value) -> bool {
-    let Some(experimental) = config_data.get("experimental").and_then(Value::as_object) else {
-        return false;
-    };
-    experimental
-        .get("enable_experimental_features")
-        .and_then(Value::as_bool)
-        == Some(true)
-        && experimental.get("enable_hachidori").and_then(Value::as_bool) == Some(true)
-}
-
 // Same accepted values as CommonLanguages in the mining profile schema.
 pub fn learning_languages() -> impl Iterator<Item = &'static str> {
     const CODES: &str = "af ak am apd ar arq ary arz as azb be bg bgc bho bm bn bo brx bs ca ceb cnr crs cs ctg cy da \

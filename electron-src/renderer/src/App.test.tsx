@@ -303,21 +303,18 @@ describe('App install-session integration', () => {
         expect(container.querySelector('[role="status"]')).toBeNull();
     });
 
-    it('makes anonymization visible on the log export action', async () => {
+    it('keeps the log folder action in Logs after moving export to Help', async () => {
         const { default: App } = await import('./App.js');
         await act(async () => {
             root.render(<App />);
         });
-        const exportButton = Array.from(container.querySelectorAll('button')).find(
-            (button) => button.textContent === 'Export Anonymized Logs'
-        );
-        expect(exportButton).toBeDefined();
-        expect(exportButton?.dataset.tip).toContain('redacted');
-        expect(exportButton?.dataset.tip).toContain('Original logs are unchanged');
+        const header = container.querySelector('.console-header')!;
+        expect(header.textContent).not.toMatch(/export/i);
+        const folderButton = header.querySelector('button.console-action-button')!;
         await act(async () => {
-            exportButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+            folderButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
         });
-        expect(invokeMock).toHaveBeenCalledWith('logs.export');
+        expect(invokeMock).toHaveBeenCalledWith('logs.openFolder');
     });
 
     it('defers terminal parsing until the Logs tab and window are visible', async () => {

@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     gsm_overlay::engines::vocr::set_asset_directory(
         std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../GameSentenceMiner/assets/vocr"),
+            .join("../../resources/assets/vocr"),
         root.path().to_owned(),
     )?;
     let image = image::open(&args[2])?.to_rgba8();
@@ -22,7 +22,7 @@ fn main() -> anyhow::Result<()> {
     };
     println!(
         "{}",
-        serde_json::to_string_pretty(&prepare(result.lines, "ja", 0., false, &projection))?
+        serde_json::to_string_pretty(&prepare(result.lines, "ja", 0., &projection))?
     );
     Ok(())
 }

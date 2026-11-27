@@ -11,7 +11,7 @@ impl Stream {
         row.revision += 1;
         row.stats_status = if skipped { "skipped" } else { "accepted" };
         row.excluded_from_stats |= skipped;
-        let row = self.publish(row, false, None, None);
+        let row = self.publish(row, false, None);
         events.push(if skipped {
             Event::StatsExcluded(row)
         } else {
@@ -144,9 +144,9 @@ impl Stream {
             row.captured_at_utc = now.wall;
             row.first_seen_at_utc = now.wall;
             row.first_seen_monotonic_ns = now.ns;
-            events.push(Event::StatsReady(self.publish(row, false, None, None)));
+            events.push(Event::StatsReady(self.publish(row, false, None)));
         } else {
-            let p = json!({"text":text,"source":"overlay","source_instance":"skip-recovery","skip_overlay":true,"remove_matching_prefix":false,"metadata":{"skip_landing_confirmed":true}});
+            let p = json!({"text":text,"source":"overlay","source_instance":"skip-recovery","skip_overlay":true,"metadata":{"skip_landing_confirmed":true}});
             return self.ingest_inner(&p, policy, now, events, true)["status"] == "accepted";
         }
         true

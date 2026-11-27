@@ -287,8 +287,7 @@ async fn show_review(app: &AppHandle, trigger: ReviewTrigger) -> Result<Value, S
 }
 
 pub(crate) fn start(app: &AppHandle) {
-    if !crate::app_lifecycle::native_session_requested()
-        || app.state::<Windows>().started.swap(true, Ordering::AcqRel)
+    if app.state::<Windows>().started.swap(true, Ordering::AcqRel)
     {
         return;
     }
@@ -353,12 +352,12 @@ pub(crate) fn start(app: &AppHandle) {
                 }
                 Some(false) if was_active => {
                     let closed = closed_since.get_or_insert(now);
-                    if now.duration_since(*closed).as_secs() >= review.delay_seconds.max(0) as u64
+                    if now.duration_since(*closed).as_secs() >= 3
                         && windows.confirmation.lock().unwrap().is_none()
                         && service.card_lane.try_lock().is_ok()
                     {
                         was_active = false;
-                        if review.enabled && review.open_on_game_close && reviews::count(&app) > 0 {
+                        if review.enabled && reviews::count(&app) > 0 {
                             let result = if review.open_on_card_queued {
                                 show_review(&app, ReviewTrigger::GameClosed).await
                             } else {

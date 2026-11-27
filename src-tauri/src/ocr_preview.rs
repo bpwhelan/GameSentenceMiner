@@ -98,10 +98,7 @@ async fn capture(
     } else {
         Value::Null
     };
-    let obs_first = !for_overlay
-        || cfg!(windows)
-            && overlay["ocr_full_screen_instead_of_obs"] != true
-            && obs.game_session()["target_client_rect"].is_object();
+    let obs_first = !for_overlay || cfg!(windows) && obs.game_session()["target_client_rect"].is_object();
     let first_try = if obs_first {
         obs.area_screenshot(app).await
     } else {

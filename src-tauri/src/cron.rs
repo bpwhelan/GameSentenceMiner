@@ -626,7 +626,7 @@ impl Database {
 
 fn vocabulary_enabled(config: &Value) -> bool {
     let flags = &config["experimental"];
-    flags["enable_experimental_features"] == true && flags["enable_tokenization"] == true
+    flags["enable_tokenization"] == true
 }
 
 impl Run {

@@ -16,7 +16,7 @@ capture functions. Standalone Python launches retain the existing implementation
   VOCR + Lens detects regions locally before sending those crops to Lens. VOCR's
   existing bundled models run through ONNX Runtime without Python. Model choices
   continue to use the existing profile installation files.
-  The host points Rust at `GameSentenceMiner/assets/vocr` under the application
+  The host points Rust at `resources/assets/vocr` under the application
   resource directory. Rust and Python share those files; the executable does
   not embed another model copy. Every loaded graph is checked against its pinned
   SHA-256 and model metadata before inference. No download is needed for VOCR.
@@ -88,7 +88,6 @@ See [the repair status](TAURI_PARITY_REPAIR_STATUS.md) for the current test resu
 cargo test --manifest-path native/gsm-overlay/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev --bin gsm-desktop overlay::tests
 node --test GSM_Overlay/tests/native_overlay.test.cjs
-.venv/Scripts/python.exe -m pytest tests/util/overlay/test_native_runtime.py tests/util/overlay/test_periodic_scanning.py -q
 npm run build
 node scripts/build-native-dev.mjs
 node scripts/test-native-desktop.mjs overlay
@@ -102,7 +101,7 @@ The capture benchmark launches a native test window, runs MeikiOCR, and checks
 freshness, resizing, reopening, target switching and closure:
 
 ```powershell
-node scripts/benchmark-native-overlay.mjs --python
+node scripts/benchmark-native-overlay.mjs
 node scripts/test-native-desktop.mjs ocr-flow
 ```
 
@@ -148,14 +147,13 @@ builds, while retaining debug symbols and checks. Release builds already use
 optimization. These are stage measurements on a controlled fixture, not a
 claim about first-launch latency or end-to-end hook-to-render timing in every game.
 
-Reproduce the comparison after building the native desktop:
+Run the current native benchmark after building the desktop.
 
 ```powershell
-node scripts/benchmark-native-overlay.mjs --python
+node scripts/benchmark-native-overlay.mjs
 ```
 
-The optional Python comparison uses `.venv`, WGC and the same selected Meiki
-detector on CPU. The Rust benchmark exercises the actual capture/OCR/grouping
+The Rust benchmark exercises the actual capture/OCR/grouping
 functions and also verifies fresh pixels, resizing, session reopening, monitor /
 window target changes and closed-target invalidation. It is an ignored test so
 normal unit tests do not capture the desktop or launch windows.

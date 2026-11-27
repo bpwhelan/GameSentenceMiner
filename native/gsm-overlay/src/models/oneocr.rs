@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Driven by scripts/benchmark_oneocr_bootstrap.py on a machine with Snipping Tool"]
+    #[ignore = "Requires benchmark fixtures and a machine with Snipping Tool"]
     fn benchmark_worker() {
         println!("ready {}", std::process::id());
         for line in std::io::stdin().lock().lines() {

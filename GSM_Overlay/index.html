@@ -995,7 +995,7 @@ background: rgba(202, 12, 12, 0.692);
       </select>
       <button class="control-btn" id="btn-settings">⚙</button>
       <button class="control-btn" id="btn-yomitan" title="Dictionary settings"><img src="yomitan-icon.svg"></button>
-      <button class="control-btn" id="btn-minimize">➖</button>
+      <button class="control-btn" id="btn-minimize" title="Hide floating box" aria-label="Hide floating box">➖</button>
       <button class="control-btn" id="btn-close">✖</button>
     </div>
     <div id="text" class="interactive">Hide this box with Alt+Shift+H</div>
@@ -4015,7 +4015,10 @@ background: rgba(202, 12, 12, 0.692);
     const lineLayouts = Array.from(document.querySelectorAll('.text-box'), box => overlayTextLineLayouts.get(box))
       .filter(Boolean);
     const notation = document.querySelectorAll('.line-box, .recycled-indicator, .furigana-box');
-    if (lineLayouts.length === 0 && notation.length === 0) return;
+    if (lineLayouts.length === 0 && notation.length === 0) {
+      textHover.refresh();
+      return;
+    }
 
     const gamepadSnapshot = prepareGamepadForOverlayTextRender();
     const hiddenBoxes = [];
@@ -4853,8 +4856,19 @@ background: rgba(202, 12, 12, 0.692);
     }
   });
 
+  let mainBoxVisible;
+  function setMainBoxVisible(visible) {
+    if (mainBoxVisible !== visible) {
+      mainBoxVisible = visible;
+      mainBox.style.display = visible ? "" : "none";
+      // A pinned box can cover OCR text from a frame that won't be sent again.
+      reprojectOverlayText();
+    }
+    updateImmediateRecycledIndicator();
+  }
+
   document.getElementById("btn-minimize").addEventListener("click", () => {
-    ipcRenderer.send("app-minimize");
+    setMainBoxVisible(false);
   });
 
   document.getElementById("btn-close").addEventListener("click", () => {
@@ -4961,6 +4975,7 @@ background: rgba(202, 12, 12, 0.692);
       fadeTextIndicators = newsettings.showTextBackground === true;
     }
     document.body.classList.toggle('show-text-hitboxes', newsettings.showTextHitboxes === true);
+    window.GSMWindowOcclusion?.setHideCoveredText(newsettings.hideCoveredText !== false);
     shouldShowReadyIndicator = newsettings.showReadyIndicator !== false;
     showFurigana = newsettings.showFurigana;
     if (Object.prototype.hasOwnProperty.call(newsettings, "readingLanguage")) {
@@ -5146,12 +5161,7 @@ background: rgba(202, 12, 12, 0.692);
     document.body.classList.toggle('force-visible', pinned || manualHotkeyPressed);
     document.getElementById("btn-pin").style.color = pinned ? "#ddd2d2" : "#ddd2d2a3";
 
-    if (hideOnStartup) {
-      mainBox.style.display = "none";
-    } else {
-      mainBox.style.display = "";
-    }
-    updateImmediateRecycledIndicator();
+    setMainBoxVisible(mainBoxVisible ?? !hideOnStartup);
     syncOcrPresencePresentation();
     applyManualInactivePresentation('settings-load');
 
@@ -5257,6 +5267,9 @@ background: rgba(202, 12, 12, 0.692);
           break;
         case "fadeTextIndicators":
           updateTextIndicators(showTextIndicators, value);
+          break;
+        case "hideCoveredText":
+          window.GSMWindowOcclusion?.setHideCoveredText(value !== false);
           break;
         case "showTextHitboxes":
           document.body.classList.toggle('show-text-hitboxes', value === true);
@@ -5542,14 +5555,8 @@ background: rgba(202, 12, 12, 0.692);
   })
 
   ipcRenderer.on('toggle-main-box', () => {
-    const mainBox = document.getElementById('main-box');
-    if (mainBox.style.display === 'none') {
-      mainBox.style.display = '';
-      ipcRenderer.send('overlay-main-box-shown');
-    } else {
-      mainBox.style.display = 'none';
-    }
-    updateImmediateRecycledIndicator();
+    setMainBoxVisible(!mainBoxVisible);
+    if (mainBoxVisible) ipcRenderer.send('overlay-main-box-shown');
   });
 
   ipcRenderer.on('new-manualmode', (event, newValue) => {

@@ -96,6 +96,14 @@ pub(crate) fn prepare(doc: &mut Value, previous: &Value, file: &Path) -> Result<
     if doc[LAYERS]["scenes"].is_null() {
         doc[LAYERS]["scenes"] = json!({});
     }
+    // Older scene profiles could pin OBS settings, including in frozen copies.
+    if let Some(scenes) = doc[LAYERS]["scenes"].as_object_mut() {
+        for scene in scenes.values_mut() {
+            if let Some(overrides) = scene.get_mut("overrides").and_then(Value::as_object_mut) {
+                overrides.retain(|key, _| !(key.starts_with("obs.") && FIELDS.contains_key(key)));
+            }
+        }
+    }
     resolve(doc)
 }
 
@@ -249,7 +257,7 @@ impl View {
     fn includes(self, key: &str) -> bool {
         match self {
             Self::Scope => true,
-            Self::Mining => !["obs.", "overlay.", "text_processing."]
+            Self::Mining => !["obs.", "overlay.", "text_processing.", "advanced.cloud_sync_"]
                 .iter()
                 .any(|prefix| key.starts_with(prefix)),
             Self::Obs => key.starts_with("obs."),
@@ -292,11 +300,17 @@ fn snapshot(doc: &Value, target: Option<&str>, view: View) -> Result<Value> {
         .iter()
         .map(|(n, p)| json!({"name":n,"parent":parent(doc,n),"scenes":p["scenes"]}))
         .collect();
+    let active = current(doc)?;
+    let fps_profile = if view == View::Obs {
+        Some(active)
+    } else {
+        target
+    };
     Ok(
-        json!({"target":target,"active":current(doc)?,"profiles":choices,"fields":fields,
+        json!({"target":target,"active":active,"profiles":choices,"fields":fields,
         "sourceDefaults":if view == View::Mining { Some(&FIELDS["general.websocket_sources"].default) } else { None },
         "ankiFields":if view == View::Mining { target.and_then(|n|get(&profiles[n],"anki.available_fields")) } else { None },
-        "animatedLockFps":target.and_then(|n| {
+        "animatedLockFps":fps_profile.and_then(|n| {
             (get(&profiles[n], "screenshot.animated").and_then(Value::as_bool) == Some(true))
                 .then(|| get(&profiles[n], "screenshot.animated_settings.fps").and_then(Value::as_u64))
                 .flatten()
@@ -379,12 +393,15 @@ pub fn read(path: &Path, request: &Value) -> Result<Value> {
     if doc[LAYERS]["version"] != 1 {
         return Err("Mining settings have not been prepared".into());
     }
-    let target = if request.get("target").is_none() {
+    let view = View::from_request(request)?;
+    let target = if view == View::Obs {
+        None
+    } else if request.get("target").is_none() {
         Some(current(&doc)?)
     } else {
         request["target"].as_str()
     };
-    snapshot(&doc, target, View::from_request(request)?)
+    snapshot(&doc, target, view)
 }
 
 fn edit_fields(doc: &mut Value, target: Option<&str>, changes: &Value, view: View) -> Result<()> {
@@ -462,7 +479,7 @@ pub fn apply(path: &Path, req: &Value) -> Result<Value> {
         if view == View::Obs && req["op"] != "edit" {
             return Err("Expected an OBS settings edit".into());
         }
-        let mut target = req["target"].as_str();
+        let mut target = req["target"].as_str().filter(|_| view != View::Obs);
         if target.is_some_and(|n| !doc["configs"][n].is_object()) {
             return Err("Profile no longer exists".into());
         }

@@ -108,11 +108,34 @@ fn fullscreen(r: RECT, m: RECT) -> bool {
         && (r.right - r.left).abs_diff(m.right - m.left) <= 2
         && (r.bottom - r.top).abs_diff(m.bottom - m.top) <= 2
 }
-fn overlay(hwnd: HWND) -> bool {
+fn is_overlay_process(class: &str, image: &std::path::Path) -> bool {
+    let Some(exe) = image.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    // The lock-key indicator can keep a visible window even at zero opacity.
+    exe.eq_ignore_ascii_case("OSD.exe")
+        || (class.contains("Chrome")
+            && matches!(
+                exe.to_ascii_lowercase().as_str(),
+                "gsm_overlay.exe"
+                    | "obs64.exe"
+                    | "obs32.exe"
+                    | "streamlabs obs.exe"
+                    | "xsplit.broadcaster.exe"
+                    | "gamebar.exe"
+                    | "nvidia share.exe"
+                    | "nvcontainer.exe"
+                    | "lunatranslator.exe"
+                    | "jl.exesharex.exe"
+            ))
+}
+
+// Keep the identity of eligible windows for text coverage diagnostics.
+fn covering_window(hwnd: HWND) -> Option<(u32, String)> {
     let style = unsafe { GetWindowLongW(hwnd, GWL_EXSTYLE) } as u32;
     let passthrough = WS_EX_LAYERED.0 | WS_EX_TRANSPARENT.0;
     if style & passthrough == passthrough {
-        return true;
+        return None;
     }
     let mut buf = [0u16; 256];
     let n = unsafe { GetClassNameW(hwnd, &mut buf) };
@@ -123,7 +146,7 @@ fn overlay(hwnd: HWND) -> bool {
         || class.contains("CEF-OSC-WIDGET")
         || (class.contains("HwndWrapper") && class.contains("[JL;"))
     {
-        return true;
+        return None;
     }
     let n = unsafe { GetWindowTextW(hwnd, &mut buf) };
     let title = String::from_utf16_lossy(&buf[..n as usize]).to_ascii_lowercase();
@@ -139,36 +162,16 @@ fn overlay(hwnd: HWND) -> bool {
     .any(|s| title.contains(s))
         || (class.contains("Chrome") && title.contains("gsm") && title.contains("overlay"))
     {
-        return true;
-    }
-    if !class.contains("Chrome") {
-        return false;
+        return None;
     }
     let mut pid = 0;
     unsafe {
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
     }
-    super::process::image_path(pid)
-        .and_then(|p| {
-            p.file_name()
-                .map(|s| s.to_string_lossy().to_ascii_lowercase())
-        })
-        .is_some_and(|exe| {
-            matches!(
-                exe.as_str(),
-                "gsm_overlay.exe"
-                    | "obs64.exe"
-                    | "obs32.exe"
-                    | "streamlabs obs.exe"
-                    | "xsplit.broadcaster.exe"
-                    | "gamebar.exe"
-                    | "nvidia share.exe"
-                    | "nvcontainer.exe"
-                    | "lunatranslator.exe"
-                    | "jl.exesharex.exe"
-            )
-        })
+    let ignored = super::process::image_path(pid).is_some_and(|p| is_overlay_process(&class, &p));
+    (!ignored).then_some((pid, class))
 }
+
 fn coverage(hwnd: HWND, source: HWND, bounds: RECT) -> (Vec<Value>, bool) {
     let mut rects = Vec::new();
     let mut current = hwnd;
@@ -192,11 +195,17 @@ fn coverage(hwnd: HWND, source: HWND, bounds: RECT) -> (Vec<Value>, bool) {
             || r.top >= bounds.bottom
             || r.right <= bounds.left
             || r.bottom <= bounds.top
-            || overlay(next)
         {
             continue;
         }
-        rects.push(rect_json(r));
+        let Some((pid, class)) = covering_window(next) else {
+            continue;
+        };
+        let mut rect = rect_json(r);
+        rect["hwnd"] = json!(next.0 as usize);
+        rect["pid"] = json!(pid);
+        rect["window_class"] = json!(class);
+        rects.push(rect);
         if r.left <= bounds.left + 10
             && r.right >= bounds.right - 10
             && r.top <= bounds.top + 15
@@ -258,7 +267,7 @@ fn repair_magpie(source: HWND, scaling: HWND, bounds: RECT, last: &mut Vec<usize
             || r.top >= bounds.bottom
             || r.right <= bounds.left
             || r.bottom <= bounds.top
-            || overlay(next)
+            || covering_window(next).is_none()
         {
             continue;
         }
@@ -372,5 +381,24 @@ impl Sampler {
             "is_exclusive_fullscreen":sustained(&mut self.exclusive,exclusive,2),"cursor_hidden":hidden,"recommend_manual_mode":hidden,
             "capture_monitor":capture_monitor,"target_window_rect":rect.map(rect_json),"target_client_rect":rect.and_then(|_|client_rect(hwnd)).map(rect_json),
             "magpie_info":magpie_info_to_renderer_json(magpie.as_ref()),"occlusion_rects":occluders})
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_overlay_process;
+    use std::path::Path;
+
+    #[test]
+    fn lock_key_osd_is_ignored_by_exact_executable_name_across_window_classes() {
+        let class = "IndicatorWindow";
+        assert!(is_overlay_process(class, Path::new(r"C:\Vendor\OSD.exe")));
+        assert!(is_overlay_process(class, Path::new("osd.EXE")));
+        assert!(!is_overlay_process(class, Path::new("GameOSD.exe")));
+        assert!(!is_overlay_process(class, Path::new("obs64.exe")));
+        assert!(is_overlay_process(
+            "Chrome_WidgetWin_1",
+            Path::new("obs64.exe")
+        ));
     }
 }

@@ -3,13 +3,6 @@ document.getElementById("openOffsetHelper").addEventListener("click", () => {
   ipcRenderer.send("open-offset-helper");
 });
 
-const selectOcrAreaButton = document.getElementById("selectOcrAreaButton");
-if (selectOcrAreaButton) {
-  selectOcrAreaButton.addEventListener("click", () => {
-    ipcRenderer.send("overlay-select-ocr-area");
-  });
-}
-
 // Populate the monitor dropdown from the backend-provided monitor list, preserving selection.
 function populateMonitorOptions(monitors) {
   const select = document.getElementById("monitor_to_capture");
@@ -61,6 +54,7 @@ if (openGSMProfileSettingsButton) {
 function buildResolvedUserSettings(userSettings = {}) {
   return {
     ...userSettings,
+    hideCoveredText: userSettings.hideCoveredText !== false,
     showTextIndicators:
       userSettings.showTextIndicators !== undefined ? userSettings.showTextIndicators !== false : true,
     fadeTextIndicators:

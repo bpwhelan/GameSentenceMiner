@@ -24,6 +24,122 @@ pub(super) fn clean_sections(data: &mut Map<String, Value>) {
     }
 }
 
+// Dotted overrides and resolved profiles must migrate together before scope resolution.
+const RETIRED: &[&str] = &[
+    "general.texthook_replacement_regex",
+    "general.merge_matching_sequential_text",
+    "general.remove_matching_prefix_on_subsequent_lines",
+    "features.full_auto",
+    "experimental.enable_experimental_features",
+    "experimental.enable_hachidori",
+    "features.review_after_session.auto_advance",
+    "features.review_after_session.cleanup_anki_media",
+    "features.review_after_session.delay_seconds",
+    "features.review_after_session.delete_local_after_review",
+    "features.review_after_session.open_on_game_close",
+    "screenshot.width",
+    "screenshot.height",
+    "screenshot.screenshot_hotkey_updates_anki",
+    "vad.whisper_model",
+    "vad.use_vad_filter_for_whisper",
+    "vad.use_cpu_for_inference",
+    "vad.use_cpu_for_inference_v2",
+    "hotkeys.relay_outputs_when_text_intake_paused",
+    "hotkeys.open_utility",
+    "ai.add_to_anki",
+    "advanced.audio_player_path",
+    "advanced.video_player_path",
+    "advanced.audio_backend",
+    "advanced.show_screenshot_buttons",
+];
+
+fn remove_path(root: &mut Value, path: &str) {
+    let (section, key) = path
+        .rsplit_once('.')
+        .expect("retired setting has a section");
+    if let Some(map) = section
+        .split('.')
+        .try_fold(root, |v, k| v.get_mut(k))
+        .and_then(Value::as_object_mut)
+    {
+        map.remove(key);
+    }
+}
+
+fn clear_encoder_placeholder(value: Option<&mut Value>) {
+    if let Some(value) = value {
+        if value.as_str().is_some_and(|s| s.trim().eq_ignore_ascii_case("custom ffmpeg settings")) {
+            *value = json!("");
+        }
+    }
+}
+
+pub(super) fn retire_mining_settings(doc: &mut Value) {
+    let mut scene_ai = Map::new();
+    if let Some(links) = doc["profile_layers"]["scenes"].as_object() {
+        for (name, link) in links {
+            let pins = &link["overrides"];
+            let base = &doc["configs"][link["parent"].as_str().unwrap_or("")]["ai"];
+            if pins.get("ai.add_to_anki").is_some() || pins.get("ai.enabled").is_some() {
+                let flag = |key: &str| pins.get(format!("ai.{key}")).unwrap_or(&base[key]) == true;
+                scene_ai.insert(name.clone(), json!(flag("enabled") || flag("add_to_anki")));
+            }
+        }
+    }
+    if let Some(links) = doc
+        .pointer_mut("/profile_layers/scenes")
+        .and_then(Value::as_object_mut)
+    {
+        for (name, link) in links {
+            if let Some(pins) = link["overrides"].as_object_mut() {
+                for key in ["audio.custom_encode_settings", "audio.ffmpeg_reencode_options"] {
+                    clear_encoder_placeholder(pins.get_mut(key));
+                }
+                for &key in RETIRED {
+                    pins.remove(key);
+                }
+                if let Some(enabled) = scene_ai.remove(name) {
+                    pins.insert("ai.enabled".into(), enabled);
+                }
+                for (key, fallback) in [
+                    ("vad.selected_vad_model_v2", "FIRERED"),
+                    ("vad.backup_vad_model", "OFF"),
+                ] {
+                    if pins.get(key).is_some_and(|v| v == "WHISPER") {
+                        pins.insert(key.into(), json!(fallback));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(shared) = doc
+        .pointer_mut("/profile_layers/global")
+        .and_then(Value::as_object_mut)
+    {
+        for &key in RETIRED {
+            shared.remove(key);
+        }
+    }
+    if let Some(profiles) = doc["configs"].as_object_mut() {
+        for profile in profiles.values_mut() {
+            if let Some(audio) = profile.get_mut("audio").and_then(Value::as_object_mut) {
+                for key in ["custom_encode_settings", "ffmpeg_reencode_options"] {
+                    clear_encoder_placeholder(audio.get_mut(key));
+                }
+            }
+            if profile["ai"]["add_to_anki"] == true {
+                profile["ai"]["enabled"] = json!(true);
+            }
+            for &key in RETIRED {
+                remove_path(profile, key);
+            }
+        }
+    }
+    for &key in RETIRED {
+        remove_path(doc, key);
+    }
+}
+
 fn truth(value: &Value) -> bool {
     match value {
         Value::Null => false,
@@ -123,6 +239,11 @@ pub(super) fn profile(data: &mut Map<String, Value>, defaults: &Value, old_obs: 
         {
             vad.insert("backup_vad_model".into(), json!("OFF"));
         }
+        for (key, fallback) in [("selected_vad_model", "FIRERED"), ("selected_vad_model_v2", "FIRERED"), ("backup_vad_model", "OFF")] {
+            if vad.get(key).is_some_and(|v| v == "WHISPER") {
+                vad.insert(key.into(), json!(fallback));
+            }
+        }
     }
     if let Some(general) = data.get_mut("general").and_then(Value::as_object_mut) {
         let port = crate::gsm_config::primary_port(general);
@@ -183,8 +304,6 @@ pub(super) fn toml(bytes: &[u8]) -> Result<Value> {
         (
             "screenshot",
             &[
-                "width",
-                "height",
                 "quality",
                 "extension",
                 "capture_backend",
@@ -236,16 +355,9 @@ pub(super) fn toml(bytes: &[u8]) -> Result<Value> {
         (
             "features",
             "do_vosk_postprocessing",
-            "features",
-            "full_auto",
-        ),
-        (
-            "features",
-            "do_vosk_postprocessing",
             "vad",
             "do_vad_postprocessing",
         ),
-        ("vosk", "whisper_model", "vad", "whisper_model"),
         ("vosk", "url", "vad", "vosk_url"),
         ("audio", "vosk_trim_beginning", "vad", "trim_beginning"),
     ] {

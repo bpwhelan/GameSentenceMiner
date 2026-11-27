@@ -31,7 +31,11 @@ describe("SceneSwitcherSettings", () => {
         };
       }
       if (channel === "scene-switcher.suggestRule") {
-        return { titlePattern: ".*Game Title.*", executableName: "game.exe" };
+        return {
+          windowTitle: "Game (v2.0) - Chapter 1",
+          titlePattern: String.raw`.*Game \(v2\.0\).*`,
+          executableName: "game.exe"
+        };
       }
       return { success: true };
     });
@@ -62,7 +66,7 @@ describe("SceneSwitcherSettings", () => {
       .IS_REACT_ACT_ENVIRONMENT = false;
   });
 
-  it("adds the generated default regular expression from the capture source", async () => {
+  it("loads the capture window title into the builder alongside the suggested pattern", async () => {
     await act(async () => {
       root.render(
         <I18nProvider>
@@ -87,7 +91,10 @@ describe("SceneSwitcherSettings", () => {
     expect(invokeMock).toHaveBeenCalledWith("scene-switcher.suggestRule", "scene-1");
     expect(
       (container.querySelector("#scene-switcher-pattern-scene-1") as HTMLInputElement).value
-    ).toBe(".*Game Title.*");
+    ).toBe(String.raw`.*Game \(v2\.0\).*`);
+    expect(
+      (container.querySelector("#scene-switcher-literal-scene-1") as HTMLInputElement).value
+    ).toBe("Game (v2.0) - Chapter 1");
     expect(container.textContent).toContain("Loaded the current OBS capture source.");
   });
 

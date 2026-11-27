@@ -122,7 +122,7 @@ impl Session {
 }
 impl ReaderEndpoint for Endpoint {
     fn native_only(&self) -> bool {
-        crate::app_lifecycle::native_session_requested()
+        true
     }
     fn submit_text(&self, text: String) -> BoxFuture<'_, Result<Value, String>> {
         Box::pin(super::submit(
@@ -404,7 +404,6 @@ async fn local_overlay_request(app: &AppHandle, frame: &Utf8Bytes) -> bool {
     // constructing a JSON tree before forwarding the original frame upstream.
     let Ok(header) = serde_json::from_str::<Header>(frame) else { return false };
     if !matches!(header.kind.as_ref(), "translate-request" | "quick-action-request") {
-        if !crate::app_lifecycle::native_session_requested() { return false; }
         return super::overlay_control::request(app, header.kind.as_ref(), frame.as_str()).await;
     }
     let Ok(request) = serde_json::from_str(frame) else { return false };
@@ -516,11 +515,9 @@ async fn overlay_socket(
         )
     };
     write_client(&mut socket, Message::text(initial.to_string())).await?;
-    if crate::app_lifecycle::native_session_requested() {
-        let handle = app.clone();
-        if let Ok(Some(frame)) = tauri::async_runtime::spawn_blocking(move || goals_snapshot(&handle)).await {
-            write_client(&mut socket, Message::Text(frame)).await?;
-        }
+    let handle = app.clone();
+    if let Ok(Some(frame)) = tauri::async_runtime::spawn_blocking(move || goals_snapshot(&handle)).await {
+        write_client(&mut socket, Message::Text(frame)).await?;
     }
     loop {
         let upstream = {

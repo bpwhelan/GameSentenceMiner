@@ -19,8 +19,7 @@ impl Options {
         let doc = gsm_settings::read_object(path)?;
         let settings = &doc["experimental"];
         Ok(Self {
-            enabled: settings["enable_experimental_features"] == true
-                && settings["enable_tokenization"] == true,
+            enabled: settings["enable_tokenization"] == true,
             low_performance: settings["tokenize_low_performance"] == true,
             dictionary: dictionary_edition(&doc).to_owned(),
         })

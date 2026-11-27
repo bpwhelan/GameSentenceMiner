@@ -27,8 +27,6 @@ mod archive_files;
 mod longplay;
 #[path = "smoke/pythonless.rs"]
 mod pythonless;
-#[path = "smoke/qt_settings.rs"]
-mod qt_settings;
 
 #[path = "smoke/model_settings.rs"]
 mod model_settings;
@@ -582,39 +580,6 @@ async fn run_smoke(app: &AppHandle) -> Result<Value, String> {
         if !reader.trim().is_empty() {
             return run_dictionary_smoke(app, reader.trim()).await;
         }
-    }
-    if suite == "qt-dialog" {
-        let python = std::env::var("GSM_TEST_QT_PYTHON").map_err(|e| e.to_string())?;
-        let root = app.state::<crate::settings::Settings>().paths.active.join("dialog-fixture");
-        if std::env::var("GSM_QT_FIXTURE_MODE").as_deref() == Ok("settings") {
-            return qt_settings::run(app, python, root).await;
-        }
-        let grouping = std::env::var_os("GSM_SMOKE_ANKI_GROUPING").is_some();
-        let dialog = if grouping { anki_grouping::fixture() } else { crate::gui_dialog::Dialog::TextInput { title:"Fixture".into(), label:"Fixture".into() } };
-        let live = std::env::var("GSM_QT_FIXTURE_MODE").as_deref() == Ok("live");
-        let runtime = crate::runtime::get(app)?;
-        if live {
-            runtime.call("process.start",json!({"id":"backend","command":python,"env":gsm_packages::python::environment(),
-                "args":["-m","GameSentenceMiner.ui.desktop_dialog"],"cwd":root,"windowsHide":true})).await?;
-            let deadline = Instant::now()+Duration::from_secs(20);
-            while !runtime.call("bus.clients",json!({})).await?.as_array().is_some_and(|v|v.iter().any(|id|id=="backend")) {
-                if Instant::now()>=deadline { return Err("Qt fixture failed to connect".into()); }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        }
-        let started = Instant::now();
-        let answer = if live {
-            crate::gui_dialog::open(app,dialog).await?
-        } else {
-            crate::gui_dialog::run_worker(app, dialog, &python, &root).await?
-        };
-        let elapsed = started.elapsed().as_secs_f64()*1000.0;
-        let expected = if grouping {json!({"target_note_id":102,"order":"back","delete_duplicate":false,"overwrite":true})} else {json!("日本語")};
-        if answer != expected { return Err(format!("Unexpected Qt result: {answer}")); }
-        let state = runtime.call("process.state", json!({"id":"qt-dialog"})).await?;
-        if !state["pid"].is_null() { return Err("Qt worker remained resident".into()); }
-        if live { runtime.call("process.stop",json!({"id":"backend"})).await?; }
-        return Ok(json!({"elapsed_ms":elapsed}));
     }
     // The suite dispatcher covers every native feature. Keep its future off
     // the Tokio worker's default stack in unoptimized Windows builds.
@@ -2209,6 +2174,14 @@ async fn run_suite_smoke(app: &AppHandle, suite: &str) -> Result<Value, String> 
             ));
         }
         let host = app.state::<crate::overlay_host::OverlayHost>();
+        host.handle_ws2_text(app, r#"{"type":"sentence_recycled_status","sentence":"続き","is_sentence_recycled":false}"#).await;
+        for ack in ["True", "False"] {
+            host.handle_ws2_text(app, ack).await;
+        }
+        let shown = evaluate_raw(app, &main_win, "document.getElementById('text').textContent").await?;
+        if shown != "続き" {
+            return Err(format!("Overlay command replies replaced the current sentence: {shown}"));
+        }
         #[cfg(windows)]
         smoke_overlay_unclipped(app, &main_win).await?;
         let jiten_ready = evaluate_raw(app, &main_win, r#"new Promise((resolve,reject)=>{

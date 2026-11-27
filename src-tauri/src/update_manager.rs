@@ -1,9 +1,4 @@
-//! Native desktop application & Python backend update coordinator.
-//!
-//! Replaces `electron-src/main/services/update_manager.ts`,
-//! `startup_backend_update.ts`, `update_checker.ts`, and `dev_update_preview.ts`
-//! using `tauri-plugin-updater` (with minisign verification), `semver`, and
-//! `gsm_packages::python` directly in Rust.
+//! Signed desktop updates and release channel selection.
 
 use gsm_packages::changelog::{ChangelogSnapshot, PendingChangelogRecord};
 use gsm_settings::preferences::Preferences;
@@ -23,7 +18,6 @@ const STABLE_MANIFEST_URL: &str =
     "https://github.com/bpwhelan/GameSentenceMiner/releases/latest/download/tauri-latest.json";
 const ALLOWED_RELEASE_DOWNLOAD_PREFIX: &str =
     "https://github.com/bpwhelan/GameSentenceMiner/releases/download/";
-const BACKEND_PACKAGE_NAME: &str = "GameSentenceMiner";
 
 static CACHED_PRERELEASE_BRANCH: OnceLock<Option<String>> = OnceLock::new();
 
@@ -76,9 +70,6 @@ struct GitHubReleaseAsset {
 }
 
 struct UpdateManagerState {
-    last_backend_succeeded: bool,
-    last_backend_error: Option<String>,
-    backend_status: BackendUpdateStatus,
     app_status: AppUpdateStatus,
     pending_update: Option<Update>,
     dev_preview_changelog: Option<ChangelogSnapshot>,
@@ -87,15 +78,13 @@ struct UpdateManagerState {
 
 struct UpdateManagerInner {
     app_version: String,
-    is_updating_backend: AtomicBool,
     is_checking_app: AtomicBool,
     is_downloading_app: AtomicBool,
     app_check_lock: tokio::sync::Mutex<()>,
-    backend_update_lock: tokio::sync::Mutex<()>,
     state: Mutex<UpdateManagerState>,
 }
 
-/// Thread-safe, zero-polling coordinator for Tauri app updates and Python backend syncs.
+/// Thread-safe, zero-polling coordinator for Tauri app updates.
 #[derive(Clone)]
 pub struct UpdateManager(Arc<UpdateManagerInner>);
 
@@ -105,22 +94,10 @@ impl UpdateManager {
         let channel = channel_name(pull_prereleases).to_owned();
         Self(Arc::new(UpdateManagerInner {
             app_version: current.clone(),
-            is_updating_backend: AtomicBool::new(false),
             is_checking_app: AtomicBool::new(false),
             is_downloading_app: AtomicBool::new(false),
             app_check_lock: tokio::sync::Mutex::new(()),
-            backend_update_lock: tokio::sync::Mutex::new(()),
             state: Mutex::new(UpdateManagerState {
-                last_backend_succeeded: true,
-                last_backend_error: None,
-                backend_status: BackendUpdateStatus {
-                    current_version: None,
-                    latest_version: None,
-                    update_available: false,
-                    checked_at: None,
-                    error: None,
-                    checking: false,
-                },
                 app_status: AppUpdateStatus {
                     current_version: current,
                     latest_version: None,
@@ -140,28 +117,8 @@ impl UpdateManager {
     }
 
     pub fn any_update_in_progress(&self) -> bool {
-        self.0.is_updating_backend.load(Ordering::Acquire)
-            || self.0.is_checking_app.load(Ordering::Acquire)
+        self.0.is_checking_app.load(Ordering::Acquire)
             || self.0.is_downloading_app.load(Ordering::Acquire)
-    }
-
-    pub fn last_backend_update_was_successful(&self) -> bool {
-        self.0.state.lock().unwrap().last_backend_succeeded
-    }
-
-    pub fn last_backend_update_failure_reason(&self) -> Option<String> {
-        self.0.state.lock().unwrap().last_backend_error.clone()
-    }
-
-    // Wired into Slice 6 native startup flow.
-    #[allow(dead_code)]
-    pub fn checked_backend_version(&self) -> Option<String> {
-        let guard = self.0.state.lock().unwrap();
-        guard
-            .backend_status
-            .checked_at
-            .as_ref()
-            .and(guard.backend_status.current_version.clone())
     }
 
     /// Return current app update status with channel drift and dev preview applied.
@@ -443,19 +400,7 @@ impl UpdateManager {
                 .ok_or("No download source for the signed update")?
                 .map_err(|e| e.to_string())?;
 
-            // Wait for any in-flight backend update before tearing down child processes.
-            let _backend_guard = self.0.backend_update_lock.lock().await;
-            crate::python_ops::close_all_for_app_update(app).await?;
-
-            if !crate::app_lifecycle::native_session_requested() {
-            let flag_path = app
-                .state::<crate::settings::Settings>()
-                .paths
-                .active
-                .join("update_python.flag");
-            std::fs::write(&flag_path, b"")
-                .map_err(|e| format!("Failed to write backend update marker: {e}"))?;
-            }
+            crate::service_maintenance::close_all_for_app_update(app).await?;
 
             update.install(bytes).map_err(|e| e.to_string())?;
             // NSIS relaunches GSM itself. Unix installers replace the app on disk.
@@ -479,44 +424,29 @@ impl UpdateManager {
         Ok(())
     }
 
-    /// Return current snapshot for both Python backend and desktop app updates.
+    /// Keep the backend version field in sync with the desktop for older renderers.
     pub async fn get_update_status(
         &self,
         app: &tauri::AppHandle,
     ) -> Result<UpdateStatusSnapshot, String> {
-        if crate::app_lifecycle::native_session_requested() {
-            let version = app.package_info().version.to_string();
-            return Ok(UpdateStatusSnapshot {
-                backend: BackendUpdateStatus {current_version:Some(version.clone()),latest_version:Some(version),
-                    update_available:false,checked_at:None,error:None,checking:false},
-                app:self.get_app_update_status(app),any_update_in_progress:self.any_update_in_progress(),
-            });
-        }
-        let python_path = resolve_configured_python_path(app);
-        let backend_current = match python_path {
-            Some(path) => query_installed_backend_version(app, &path).await,
-            None => None,
-        };
-
-        let mut backend = self.0.state.lock().unwrap().backend_status.clone();
-        backend.current_version = backend_current;
-        backend.checking = self.0.is_updating_backend.load(Ordering::Acquire);
-
-        let app_status = self.get_app_update_status(app);
+        let version = app.package_info().version.to_string();
         Ok(UpdateStatusSnapshot {
-            backend,
-            app: app_status,
+            backend: BackendUpdateStatus {
+                current_version: Some(version.clone()),
+                latest_version: Some(version),
+                update_available: false, checked_at: None, error: None, checking: false,
+            },
+            app: self.get_app_update_status(app),
             any_update_in_progress: self.any_update_in_progress(),
         })
     }
 
-    /// Check both backend package availability and GitHub desktop releases.
+    /// Check GitHub desktop releases.
     pub async fn check_for_available_updates(
         &self,
         app: &tauri::AppHandle,
         force_dev: bool,
     ) -> Result<UpdateStatusSnapshot, String> {
-        if !crate::app_lifecycle::native_session_requested() { self.check_backend_update_status(app).await; }
         let _ = self.check_app_update_status(app, force_dev).await;
         self.get_update_status(app).await
     }
@@ -530,262 +460,8 @@ impl UpdateManager {
         let status = self.check_for_available_updates(app, force_dev).await?;
         if status.app.update_available && status.app.preview != Some(true) {
             self.download_and_install_update(app).await?;
-        } else if status.backend.update_available && status.app.preview != Some(true) {
-            self.update_gsm(app, true, false).await;
         }
         self.get_update_status(app).await
-    }
-
-    async fn check_backend_update_status(&self, app: &tauri::AppHandle) -> BackendUpdateStatus {
-        let Some(python_path) = resolve_configured_python_path(app) else {
-            let status = BackendUpdateStatus {
-                current_version: None,
-                latest_version: None,
-                update_available: false,
-                checked_at: Some(iso_now_utc()),
-                error: Some("pythonPath is not initialized".into()),
-                checking: false,
-            };
-            self.0.state.lock().unwrap().backend_status = status.clone();
-            return status;
-        };
-
-        let current_version = query_installed_backend_version(app, &python_path).await;
-        let check = crate::python_install::dispatch(
-            app,
-            json!({
-                "action": "updateCheck",
-                "params": {
-                    "pythonPath": python_path,
-                    "force": false,
-                    "knownInstalledVersion": current_version,
-                }
-            }),
-        )
-        .await;
-
-        let status = match check {
-            Ok(reply) => {
-                let res = &reply["result"];
-                let latest = res["latestVersion"].as_str().map(str::to_owned);
-                let available = res["updateAvailable"].as_bool().unwrap_or(false);
-                BackendUpdateStatus {
-                    current_version,
-                    latest_version: latest.clone(),
-                    update_available: available,
-                    checked_at: Some(iso_now_utc()),
-                    error: latest
-                        .is_none()
-                        .then(|| "Could not determine bundled backend version.".into()),
-                    checking: false,
-                }
-            }
-            Err(error) => BackendUpdateStatus {
-                current_version,
-                latest_version: None,
-                update_available: false,
-                checked_at: Some(iso_now_utc()),
-                error: Some(error),
-                checking: false,
-            },
-        };
-        self.0.state.lock().unwrap().backend_status = status.clone();
-        status
-    }
-
-    /// Synchronize/update the Python backend package inside `InstallSessions`.
-    pub async fn update_gsm(&self, app: &tauri::AppHandle, should_restart: bool, force: bool) {
-        if crate::app_lifecycle::native_session_requested() {
-            self.run_interactive_update_check(app,force).await;
-            return;
-        }
-        let _guard = self.0.backend_update_lock.lock().await;
-        let sessions = app.state::<crate::install_session::InstallSessions>();
-        let _ = sessions.model.call(
-            "ensure",
-            &json!({ "origin": "backend_update", "retry": "native:backend_update" }),
-        );
-        if let Some(lease) = sessions.model.lease() {
-            for (stage, status, prog, msg) in [
-                ("prepare", "completed", 1.0, "Backend update session prepared."),
-                ("python", "skipped", 1.0, "Managed Python runtime already installed."),
-                ("venv", "skipped", 1.0, "Virtual environment already exists."),
-            ] {
-                let _ = sessions.model.update(
-                    &lease,
-                    &json!({
-                        "stageId": stage,
-                        "status": status,
-                        "progressKind": "estimated",
-                        "progress": prog,
-                        "message": msg,
-                        "error": Value::Null
-                    }),
-                );
-            }
-            sessions.notify();
-        }
-        let lease = sessions.model.lease();
-
-        self.0.is_updating_backend.store(true, Ordering::Release);
-        {
-            let mut st = self.0.state.lock().unwrap();
-            st.last_backend_succeeded = false;
-            st.last_backend_error = None;
-            st.backend_status.checking = true;
-            st.backend_status.error = None;
-        }
-
-        let outcome: Result<(), String> = async {
-            let python_path = match resolve_configured_python_path(app) {
-                Some(p) => p,
-                None => crate::python_ops::ensure_python_path(app).await?,
-            };
-            let check = crate::python_install::dispatch(
-                app,
-                json!({
-                    "action": "updateCheck",
-                    "params": { "pythonPath": python_path, "force": force }
-                }),
-            )
-            .await?;
-
-            let current_ver = check["result"]["currentVersion"].as_str().map(str::to_owned);
-            let latest_ver = check["result"]["latestVersion"].as_str().map(str::to_owned);
-            let available = check["result"]["updateAvailable"].as_bool().unwrap_or(false);
-            {
-                let mut st = self.0.state.lock().unwrap();
-                st.backend_status.current_version = current_ver;
-                st.backend_status.latest_version = latest_ver;
-                st.backend_status.update_available = available;
-                st.backend_status.checked_at = Some(iso_now_utc());
-            }
-
-            if available {
-                crate::python_ops::close_all_python_processes(app, true).await?;
-                let extras = read_python_extras_pref(app);
-                let res = crate::python_install::dispatch(
-                    app,
-                    json!({
-                        "action": "maintain",
-                        "params": {
-                            "mode": "update",
-                            "pythonPath": python_path,
-                            "force": force,
-                            "extras": extras,
-                        }
-                    }),
-                )
-                .await?;
-
-                {
-                    let mut st = self.0.state.lock().unwrap();
-                    st.backend_status.current_version =
-                        res["result"]["installedVersion"].as_str().map(str::to_owned);
-                    st.backend_status.latest_version =
-                        res["result"]["latestVersion"].as_str().map(str::to_owned);
-                    st.backend_status.update_available = false;
-                }
-
-                if should_restart {
-                    let next_py = res["result"]["pythonPath"]
-                        .as_str()
-                        .map(str::to_owned);
-                    crate::python_ops::ensure_and_run_gsm(
-                        app,
-                        next_py,
-                        None,
-                        "backend_update",
-                        true,
-                        false,
-                        false,
-                    )
-                    .await?;
-                } else if let Some(lease) = lease.as_ref() {
-                    let _ = sessions.model.finish(
-                        lease,
-                        "completed",
-                        Some("Backend update complete."),
-                        None,
-                    );
-                    sessions.notify();
-                }
-            } else if let Some(lease) = lease.as_ref() {
-                let _ = sessions.model.finish(
-                    lease,
-                    "completed",
-                    Some("Python backend is already up to date."),
-                    None,
-                );
-                sessions.notify();
-            }
-
-            Ok(())
-        }
-        .await;
-
-        self.0.is_updating_backend.store(false, Ordering::Release);
-        {
-            let mut st = self.0.state.lock().unwrap();
-            st.backend_status.checking = false;
-            match &outcome {
-                Ok(()) => {
-                    st.last_backend_succeeded = true;
-                }
-                Err(error) => {
-                    st.last_backend_succeeded = false;
-                    st.last_backend_error = Some(error.clone());
-                    st.backend_status.error = Some(error.clone());
-                    st.backend_status.update_available = false;
-                    st.backend_status.checked_at = Some(iso_now_utc());
-                }
-            }
-        }
-
-        if let Err(error) = outcome {
-            if let Some(lease) = lease.as_ref() {
-                let _ = sessions.model.finish(
-                    lease,
-                    "failed",
-                    Some("Backend update failed."),
-                    Some(&error),
-                );
-                sessions.notify();
-            }
-            crate::desktop_log::error(
-                app,
-                "updater",
-                format!("Python backend update failed: {error}"),
-            );
-        }
-    }
-
-    /// Startup backend sync parity with `syncStartupBackend`: clears `update_python.flag`
-    /// only when backend synchronization succeeds so failed syncs retry on next launch.
-    // Wired into native startup flow in Slice 6 alongside full Node host removal.
-    #[allow(dead_code)]
-    pub async fn sync_startup_backend(
-        &self,
-        app: &tauri::AppHandle,
-        app_version_changed: bool,
-        _has_pending_desktop_update: bool,
-        force_update: bool,
-    ) -> bool {
-        let flag_path = app
-            .state::<crate::settings::Settings>()
-            .paths
-            .active
-            .join("update_python.flag");
-        let flag_exists = flag_path.is_file();
-        let force = should_force_startup_backend_update(app_version_changed, flag_exists, force_update);
-        self.update_gsm(app, false, force).await;
-        if !self.last_backend_update_was_successful() {
-            return false;
-        }
-        if flag_exists {
-            let _ = std::fs::remove_file(&flag_path);
-        }
-        true
     }
 
     /// Trigger the interactive tray "Update GSM" prompt + background download/install.
@@ -952,58 +628,6 @@ pub fn read_pull_prereleases(app: &tauri::AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-fn read_python_extras_pref(app: &tauri::AppHandle) -> Vec<String> {
-    let active = &app.state::<crate::settings::Settings>().paths.active;
-    Preferences::new(active)
-        .get("pythonExtras")
-        .ok()
-        .flatten()
-        .and_then(|arr| {
-            arr.as_array().map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect()
-            })
-        })
-        .unwrap_or_default()
-}
-
-fn resolve_configured_python_path(app: &tauri::AppHandle) -> Option<String> {
-    let paths = &app.state::<crate::settings::Settings>().paths;
-    if let Ok(Some(val)) = Preferences::new(&paths.active).get("pythonPath") {
-        if let Some(py) = val
-            .as_str()
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && Path::new(s).is_file())
-        {
-            return Some(py.to_owned());
-        }
-    }
-    let candidate = if cfg!(windows) {
-        paths.shared.join("python_venv").join("Scripts").join("python.exe")
-    } else {
-        paths.shared.join("python_venv").join("bin").join("python")
-    };
-    candidate
-        .is_file()
-        .then(|| candidate.to_string_lossy().into_owned())
-}
-
-async fn query_installed_backend_version(app: &tauri::AppHandle, python_path: &str) -> Option<String> {
-    let reply = crate::python_install::dispatch(
-        app,
-        json!({
-            "action": "installedVersion",
-            "params": { "pythonPath": python_path, "packageName": BACKEND_PACKAGE_NAME }
-        }),
-    )
-    .await
-    .ok()?;
-    reply["result"].as_str().map(str::to_owned)
-}
-
 fn normalize_version_str(raw: &str) -> String {
     raw.trim().trim_start_matches(['v', 'V']).to_owned()
 }
@@ -1034,14 +658,6 @@ pub fn evaluate_app_update_offer(
         && matches!((&parsed_latest, &parsed_current), (Some(l), Some(c)) if l < c);
 
     !disallow_prerelease_downgrade && (force || is_newer || should_offer_downgrade_to_stable)
-}
-
-pub fn should_force_startup_backend_update(
-    app_version_changed: bool,
-    update_flag_exists: bool,
-    force_update: bool,
-) -> bool {
-    update_flag_exists || app_version_changed || force_update
 }
 
 pub fn apply_dev_preview(

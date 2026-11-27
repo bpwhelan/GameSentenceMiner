@@ -1,5 +1,5 @@
 //! Native system tray, status icon presentation, and dynamic GSM profile menu.
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::Mutex;
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
@@ -20,12 +20,12 @@ pub enum TrayVisualState {
 
 impl TrayVisualState {
     pub fn from_status(
-        python_ipc_connected: bool,
+        backend_connected: bool,
         backend_status_ready: bool,
         ready_indicator_active: bool,
         text_intake_paused: bool,
     ) -> Self {
-        if !python_ipc_connected || !backend_status_ready {
+        if !backend_connected || !backend_status_ready {
             Self::Loading
         } else if text_intake_paused {
             Self::Paused
@@ -180,7 +180,6 @@ pub fn build_tray_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, Strin
             ("tray::dev::test_screenshot_selector", "Screenshot Selector"),
             ("tray::dev::test_furigana_filter", "Furigana Filter Preview"),
             ("tray::dev::test_area_selector", "Area Selector"),
-            ("tray::dev::test_screen_cropper", "Screen Cropper"),
         ] {
             dev_submenu
                 .append(
@@ -199,12 +198,6 @@ pub fn build_tray_menu(app: &tauri::AppHandle) -> Result<Menu<tauri::Wry>, Strin
             .map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    if !crate::app_lifecycle::native_session_requested() {
-        menu.append(
-            &MenuItem::with_id(app, "tray::restart-python", "Restart Python App", true, None::<&str>)
-                .map_err(|e| e.to_string())?,
-        ).map_err(|e| e.to_string())?;
-    }
     menu.append(
         &MenuItem::with_id(app, "tray::open-gsm-folder", "Open GSM Folder", true, None::<&str>)
             .map_err(|e| e.to_string())?,
@@ -400,11 +393,7 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
         id if id.starts_with("tray::dev::") => {
             let fn_name = id["tray::dev::".len()..].to_owned();
             tauri::async_runtime::spawn(async move {
-                if crate::app_lifecycle::native_session_requested() {
-                    if let Err(e)=crate::gui_dialog::preview(&handle,&fn_name).await { crate::desktop_log::warn(&handle,"dialog",e); }
-                } else {
-                    let _ = crate::runtime::backend_command(&handle, &fn_name, json!({})).await;
-                }
+                if let Err(e)=crate::gui_dialog::preview(&handle,&fn_name).await { crate::desktop_log::warn(&handle,"dialog",e); }
             });
         }
         "tray::update-gsm" => {
@@ -415,12 +404,6 @@ pub fn handle_menu_event(app: &tauri::AppHandle, id: &str) {
                     .inner()
                     .clone();
                 mgr.run_interactive_update_check(&handle, true).await;
-            });
-        }
-        "tray::restart-python" => {
-            let handle = app.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::python_ops::restart_gsm(&handle).await;
             });
         }
         "tray::restart-as-admin" => {

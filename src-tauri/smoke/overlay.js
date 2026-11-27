@@ -75,6 +75,10 @@
         occlusion_rects: [{ left: -2560, top: -1440, right: 0, bottom: 0 }] };
       await receive(state);
       check(getComputedStyle(box).visibility === 'hidden', 'Covered lookup text remains visible');
+      dispatch('settings-updated', { hideCoveredText: false });
+      check(getComputedStyle(box).visibility !== 'hidden', 'Disabling the cover mask did not restore lookup text');
+      dispatch('settings-updated', { hideCoveredText: true });
+      check(getComputedStyle(box).visibility === 'hidden', 'Re-enabling the cover mask missed cached bounds');
       await receive({ ...state, occlusion_rects: [] });
       check(getComputedStyle(box).visibility !== 'hidden', 'Uncovered lookup text was not restored');
       window.GSMLiveStatsWidget.applySettings({ showLiveStats: true, liveStatsPositionMode: 'active-window' });

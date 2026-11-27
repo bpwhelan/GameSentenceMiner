@@ -1,9 +1,7 @@
 //! Single-writer dialogue stream. Outputs are immutable record revisions, in commit order.
-#[path = "../../gsm-native/src/dialogue_journal.rs"]
 mod dialogue_journal;
 mod model;
 pub mod reader;
-#[path = "../../gsm-native/src/skip_detection.rs"]
 mod skip_detection;
 mod stats;
 
@@ -15,8 +13,6 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use uuid::Uuid;
 
-type SourceKey = (&'static str, Arc<str>, bool, Arc<str>);
-type Records = Journal<Arc<Record>, SourceKey, (Arc<str>, u64)>;
 const WINDOWS: Windows = Windows {
     same_ns: 2_000_000_000,
     cross_ns: 5_000_000_000,
@@ -25,7 +21,7 @@ const WINDOWS: Windows = Windows {
 
 pub struct Stream {
     id: Arc<str>,
-    journal: Records,
+    journal: Journal<Arc<Record>>,
     speech: Option<(String, i64)>,
     detector: skip_detection::Detector,
     scene: String,
@@ -72,7 +68,6 @@ impl Stream {
         &mut self,
         record: Record,
         append: bool,
-        source: Option<(SourceKey, (Arc<str>, u64))>,
         changed: Option<i64>,
     ) -> Arc<Record> {
         let row = Arc::new(record);
@@ -81,7 +76,6 @@ impl Stream {
                 row.line_id.as_bytes(),
                 Arc::clone(&row),
                 append,
-                source,
                 Stats {
                     status: row.stats_status,
                     frozen: row.state == "frozen",
@@ -104,7 +98,7 @@ impl Stream {
         row.revision += 1;
         row.finalized_at_utc = Some(now.wall);
         self.speech = None;
-        events.push(Event::Freeze(self.publish(row, false, None, None)));
+        events.push(Event::Freeze(self.publish(row, false, None)));
         true
     }
     pub fn next_speech_ns(&self) -> Option<i64> {
@@ -179,9 +173,6 @@ impl Stream {
                 Err(e) => return reject(e),
             }
         };
-        if policy.paused && !policy.relay {
-            return reject("text intake is paused");
-        }
         if !recovered
             && policy.exclusions.get(&policy.scene).is_some_and(|set| {
                 let raw = raw.trim();
@@ -290,16 +281,11 @@ impl Stream {
         let excluded = policy.paused || payload["exclude_from_stats"] == true;
         let track = automatic(source_kind) && !excluded && !landing;
         let scene: Arc<str> = policy.scene.as_str().into();
-        let key = (source_kind, instance.clone(), policy.paused, scene.clone());
         let newest = self.journal.latest();
         let open = self
             .speech
             .as_ref()
             .and_then(|(id, _)| self.journal.get(id.as_bytes()));
-        let prior = self
-            .journal
-            .prefix(&key)
-            .map(|(text, seq)| (text.as_ref(), *seq == self.journal.sequence()));
         let input = Incoming {
             text: &processed,
             source: source_kind,
@@ -307,9 +293,7 @@ impl Stream {
             scene: &scene,
             now_ns: now.ns,
             relay: policy.paused,
-            prefix: payload["remove_matching_prefix"]
-                .as_bool()
-                .unwrap_or(policy.remove_prefix),
+            prefix: false,
             merge: speech,
             final_speech: metadata["speech_final"] == true,
             landing,
@@ -318,7 +302,7 @@ impl Stream {
             &input,
             newest.map(|r| r.line()).as_ref(),
             open.map(|r| r.line()).as_ref(),
-            prior,
+            None,
             self.next_speech_ns(),
             &WINDOWS,
         );
@@ -426,13 +410,7 @@ impl Stream {
                 now.ns.saturating_add(ms.saturating_mul(1_000_000)),
             ));
         }
-        let prefix = if processed == row.text.as_ref() {
-            row.text.clone()
-        } else {
-            processed.as_str().into()
-        };
-        let sequence = row.stream_sequence;
-        let row = self.publish(row, append, Some((key, (prefix, sequence))), Some(now.ns));
+        let row = self.publish(row, append, Some(now.ns));
         events.push(if append {
             Event::Append(row.clone())
         } else {

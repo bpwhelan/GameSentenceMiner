@@ -9,11 +9,12 @@ test('includeSource excludes Node runtime, JS backend, build caches, sourcemaps,
   assert.equal(includeSource('dist/renderer/index.html'), true);
   assert.equal(includeSource('assets/scripts/legacy_dictionary_export.py'), false);
   assert.equal(includeSource('GameSentenceMiner/gsm.py'), false);
+  assert.equal(includeSource('resources/web/static/worker.py'), false);
   for (const name of ['pyproject.toml', 'uv.lock', '.python-version', 'assets/qt/qt-host.json', 'assets/qt/backend.whl', 'electron-src/assets/qt/qt-host.json']) {
     assert.equal(includeSource(name), false, name);
   }
-  assert.equal(includeSource('GameSentenceMiner/assets/vocr/small-faithful.onnx'), false);
-  assert.equal(includeSource('GameSentenceMiner/assets/vocr/manifest.json'), true);
+  assert.equal(includeSource('resources/assets/vocr/small-faithful.onnx'), false);
+  assert.equal(includeSource('resources/assets/vocr/manifest.json'), true);
   assert.equal(includeSource('assets/gsm_cute.ico'), false);
   assert.equal(includeSource('assets/gsm.ico'), true);
   assert.equal(includeSource('GSM_Overlay/yomitan/fonts/NotoSansJP-Regular.ttf'), false);

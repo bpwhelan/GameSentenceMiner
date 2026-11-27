@@ -21,7 +21,6 @@ members = [
 default-members = ["src-tauri"]
 exclude = [
     "GSM_Overlay/input_server",
-    "native/gsm-native",
     "native/windows-audio-capture",
     "scripts/OneShotOCR",
     "build",

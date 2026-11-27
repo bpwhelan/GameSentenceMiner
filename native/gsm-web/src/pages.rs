@@ -77,7 +77,7 @@ impl Page {
             Self::Stats | Self::Overview => {
                 let prefs = reports.preferences()?;
                 let mut context = json!({
-                    "master_config":{"experimental":{"enable_experimental_features":prefs.tokenization,"enable_tokenization":prefs.tokenization}},
+                    "master_config":{"experimental":{"enable_tokenization":prefs.tokenization}},
                     "config":{"advanced":{"streak_requirement_hours":prefs.streak_hours}},
                     "stats_config":{"session_gap_seconds":prefs.gap as i64,"reading_hours_target":prefs.hours_target,
                     "character_count_target":prefs.chars_target,"games_target":prefs.games_target}

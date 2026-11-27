@@ -11,7 +11,7 @@ describe('heatmap date navigation', () => {
         const currentDir = path.dirname(fileURLToPath(import.meta.url));
         const scriptPath = path.resolve(
             currentDir,
-            '../../GameSentenceMiner/web/static/js/heatmap.js'
+            '../../resources/web/static/js/heatmap.js'
         );
         const source = fs.readFileSync(scriptPath, 'utf8');
         const dom = new JSDOM('<div id="heatmapContainer"></div>');

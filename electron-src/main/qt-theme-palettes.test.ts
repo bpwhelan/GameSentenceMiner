@@ -39,6 +39,6 @@ describe('Qt palettes shared with the desktop', () => {
                 if (key !== 'scheme' && key !== 'id') expect(value).toMatch(/^#[0-9a-f]{6}$/);
             }
         }
-        expect(JSON.parse(await fs.readFile('GameSentenceMiner/assets/qt_themes.json', 'utf8'))).toEqual(palettes);
+        expect(JSON.parse(await fs.readFile('resources/assets/qt_themes.json', 'utf8'))).toEqual(palettes);
     });
 });

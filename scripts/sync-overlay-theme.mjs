@@ -7,7 +7,7 @@ import { buildQtThemePalettes } from './qt-theme-palettes.mjs';
 const repoRoot = fileURLToPath(new URL('../', import.meta.url));
 const sourcePath = path.join(repoRoot, 'electron-src/renderer/src/theme.css');
 const targetPath = path.join(repoRoot, 'GSM_Overlay/settings/app-theme.css');
-const qtTargetPath = path.join(repoRoot, 'GameSentenceMiner/assets/qt_themes.json');
+const qtTargetPath = path.join(repoRoot, 'resources/assets/qt_themes.json');
 
 // Compile the same palette definitions and --gsm-* tokens imported by the app.
 // No utility candidates: the overlay keeps its own layout and controls.

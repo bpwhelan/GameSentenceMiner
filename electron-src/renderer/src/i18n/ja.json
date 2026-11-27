@@ -104,7 +104,6 @@
       "instructions": {
         "standard": "操作方法：\n• 左ドラッグ：読み取り範囲（緑）\n• Shift + 左ドラッグ：除外範囲（オレンジ）\n• Ctrl + 左ドラッグ：補助範囲（紫）\n• Alt + 左ドラッグ：自動 OCR 専用範囲（水色）\n• Ctrl + Alt + 左ドラッグ：ブラックホール（黒）\n• Ctrl + A：画面全体を選択\n• 範囲を右クリック：削除（重なる場合は選択）\n• 空白を右クリック：メニューを表示\n\n保存方法：\n• 空白をダブルクリック\n• 中ボタンをクリック\n• 空白を 1 秒長押し\n• Ctrl + S またはツールバー",
         "single": "範囲を追加：\n• 範囲を 1 つ描くと保存して閉じます\n• 既存の範囲は維持されます\n• 通常（緑）：自動 OCR\n• 補助（紫）：メニュー OCR ホットキー\n• Ctrl + ドラッグ：補助範囲\n• ツールバーから他の種類を選択\n• Esc：保存せずに終了",
-        "overlay": "オーバーレイ範囲（モニター {monitor}）：\n• 左ドラッグ：読み取り範囲（緑）\n• Shift + 左ドラッグ：除外範囲（オレンジ）\n• Ctrl + A：全体を選択\n• 範囲を右クリック：削除（重なる場合は選択）\n\n保存方法：\n• 空白をダブルクリック\n• 中ボタンをクリック\n• Ctrl + S またはツールバー",
         "monitor": "メイン範囲（モニター {monitor}）：\n• 左ドラッグ：選択範囲を描く\n• Ctrl + A：全体を選択\n• 範囲を右クリック：削除（重なる場合は選択）\n• 修飾キー（Shift/Ctrl）は無効です\n\n保存方法：\n• 空白をダブルクリック\n• 中ボタンをクリック\n• Ctrl + S またはツールバー"
       }
     }
@@ -417,16 +416,13 @@
       "overlay_scan_on_mouse_move": "マウスを動かすとスキャン",
       "overlay_scan_on_overlay_activation": "オーバーレイを開くとスキャン",
       "overlay_text_appears_instantly": "テキストが一括表示される",
-      "overlay_adaptive_ocr_retries": "OCR の適応再試行",
-      "overlay_base_scale": "基本倍率",
+      "overlay_adaptive_ocr_retries": "OCR の積極的な再試行",
       "overlay_inject_scanned_lines": "スキャンした行をテキストフィードに送信",
       "overlay_minimum_character_size": "最小文字サイズ",
       "overlay_last_sent_ocr_presence_check": "直前の行がまだ表示されているか確認",
       "overlay_last_sent_ocr_presence_remove_notation": "表示確認で注記を除外",
       "overlay_last_sent_ocr_presence_invalidate_lookups": "行が消えたら検索結果を消去",
       "overlay_check_previous_lines_for_recycled_indicator": "既読の行に印を付ける",
-      "overlay_ocr_full_screen_instead_of_obs": "画面全体を OCR の対象にする",
-      "overlay_use_text_filtering": "認識したテキストをフィルタリング",
       "overlay_manual_mode_desktop_background": "手動モードのデスクトップ背景",
       "stats_session_gap_seconds": "セッションの区切り（秒）",
       "stats_day_rollover_hour": "読書日の開始時刻（時）",
@@ -557,6 +553,10 @@
     "promptMissingSentence": "AIに文が渡されるよう、このテンプレートに {sentence} を含めてください。",
     "promptPreviewDesc": "APIリクエストを送らずに、現在のプリセットやテンプレートがどう組み立てられるか確認します。",
     "refresh": "更新",
+    "unsetChoice": "なし",
+    "enterManually": "手動で入力…",
+    "manualValue": "{name} のカスタム値",
+    "choicesUnavailable": "選択肢を取得できませんでした。値を手動で入力できます。",
     "refreshAnkiFields": "AnkiConnectからノートタイプとフィールドを再取得",
     "refreshFields": "更新",
     "refreshScenes": "OBSシーンを更新",
@@ -610,7 +610,7 @@
     },
     "obsFps": {
       "guidelines": "録画FPSの目安: 既定は15 FPS（推奨10〜30）。10未満は実験的、30超は通常のGSM用途では負荷が高すぎます。",
-      "locked": "アニメーションFPSによる制限: アニメーション有効時はOBS録画FPSを {min} 未満にできません。",
+      "locked": "現在のプロファイルでは、アニメーションスクリーンショットのために OBS が {min} FPS 以上で録画します。",
       "low": "実験的: 10 FPS未満ではOCR精度やタイミングが低下し、短い行を取りこぼす可能性があります。",
       "high": "高FPS警告: 30 FPS超は動画撮影を兼ねる場合を除きリソースの無駄になりやすいです。",
       "recommended": "GSM専用キャプチャの推奨範囲: 10〜30 FPS（既定: 15）。"
@@ -979,7 +979,7 @@
       "required": "必須",
       "gameLabel": "ゲーム:",
       "profileLabel": "プロファイル:",
-      "profileTooltip": "プロファイルを使うと、ゲームごとに異なる設定を使用できます。\n\nプロファイル別: 音声（形式・オフセット・VAD）、スクリーンショット（形式・タイミング・品質）、Ankiノートタイプ・タグ、AI・翻訳、テキスト処理、機能設定、オーバーレイOCR。\n\n全プロファイル共通: OBS接続設定、出力フォルダパス、Ankiフィールド名・URL、WebSocketポート。\n\n注: OCRエリアとゲームオートメーションはOBSシーンごとの設定であり、プロファイルとは独立しています。",
+      "profileTooltip": "プロファイルを使うと、ゲームごとに異なる設定を使用できます。\n\nプロファイル別: 音声（形式・オフセット・VAD）、スクリーンショット（形式・タイミング・品質）、Ankiノートタイプ・タグ、AI・翻訳、テキスト処理、機能設定、オーバーレイOCR。\n\n全プロファイル共通: OBS設定、出力フォルダパス、Ankiフィールド名・URL、WebSocketポート。\n\n注: OCRエリアとゲームオートメーションはOBSシーンごとの設定であり、プロファイルとは独立しています。",
       "profileNewOption": "➕ 新しいプロファイル…",
       "profileNewPlaceholder": "新しいプロファイル名",
       "profileCreate": "作成",
@@ -1120,8 +1120,6 @@
     "console": {
       "openLogsFolder": "ログフォルダを開く",
       "openLogsFolderTooltip": "ログフォルダを開く",
-      "exportLogs": "匿名化したログをエクスポート",
-      "exportLogsTooltip": "検出されたユーザー名、ホームパス、コンピューター名、メール・IPアドレス、一般的な認証情報を伏せたZIPを出力します。元のログは変更されません。共有前に内容を確認してください。",
       "modeSimple": "モード: シンプル",
       "modeAdvanced": "モード: 詳細",
       "modeSimpleTooltip": "詳細ログに切替（基本＋バックグラウンドログを表示）",
@@ -1968,7 +1966,7 @@
       },
       "ankiConfirmation": {
         "label": "Anki確認ダイアログ",
-        "description": "カード確認ウィンドウ、自動承認タイマー、音声選択、ゲームパッド入力を設定します。",
+        "description": "カード確認画面、自動承認タイマー、音声の設定を変更します。",
         "notes": "GSMプロファイルごとに保存されます。"
       },
       "ankiFieldGrouping": {
@@ -1983,7 +1981,7 @@
       },
       "screenshot": {
         "label": "スクリーンショット",
-        "description": "スクリーンショットのサイズ、形式、タイミング、アニメーションキャプチャオプション。",
+        "description": "スクリーンショットの形式、タイミング、アニメーションを設定します。",
         "notes": "GSMプロファイルごとに保存されます。"
       },
       "audio": {
@@ -2018,7 +2016,7 @@
       },
       "gsmCloud": {
         "label": "GSM Cloud",
-        "description": "GSM Cloudに認証し、クラウド同期オプションを選択します。",
+        "description": "GSM Cloud の認証と翻訳モデルを設定します。",
         "notes": "GSM Cloudのプレビュー機能が利用できない場合、このタブは非表示になります。"
       },
       "gsmOverlayCapture": {
@@ -2028,7 +2026,7 @@
       },
       "advanced": {
         "label": "詳細設定",
-        "description": "ネットワーク、プレイヤーパス、ポート、メディア再生動作の詳細設定。",
+        "description": "ネットワークポート、キャプチャ、ポーリングを設定します。",
         "notes": "ほとんどのユーザーには頻繁に必要ありません。"
       },
       "experimental": {
@@ -3181,7 +3179,7 @@
     "title": "OBS Studio",
     "description": "GSM がインストールしたポータブル版 OBS を管理します。更新時は録画と配信の終了を待ち、OBS を再起動します。",
     "unknown": "未確認",
-    "custom": "GSM が更新できるのは付属のポータブル版 OBS のみです。このプロファイルは別の OBS または接続先を使用しています。",
+    "custom": "GSM が更新できるのは付属のポータブル版 OBS のみです。現在は別の OBS または接続先を使用しています。",
     "unsupported": "macOS と Linux ではシステムのインストーラーで OBS を管理してください。",
     "pinned": "GSM 承認バージョン: {version}",
     "target": "最新の安定版: {version}",

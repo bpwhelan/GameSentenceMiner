@@ -276,7 +276,6 @@ pub fn prepare(
     lines: Vec<TextBox>,
     language: &str,
     minimum: f64,
-    filter: bool,
     projection: &Projection,
 ) -> Value {
     let mut output = Vec::new();
@@ -317,31 +316,29 @@ pub fn prepare(
         .into_iter()
         .flat_map(|line| visual_lines(line, language))
         .collect();
-    if filter {
-        let decisions = crate::overlay_filter::filter_overlay_language(
-            language,
-            lines
-                .iter()
-                .enumerate()
-                .map(|(i, l)| {
-                    (
-                        i,
-                        l.text.clone(),
-                        l.words
-                            .iter()
-                            .enumerate()
-                            .map(|(j, w)| (j, w.text.clone()))
-                            .collect(),
-                    )
-                })
-                .collect(),
-        );
-        lines = decisions
+    let decisions = crate::overlay_filter::filter_overlay_language(
+        language,
+        lines
             .iter()
-            .map(|d| lines[d.source_id].clone())
-            .collect();
-    }
-    let paragraphs = order_lines(&lines, language, filter && language == "ja");
+            .enumerate()
+            .map(|(i, l)| {
+                (
+                    i,
+                    l.text.clone(),
+                    l.words
+                        .iter()
+                        .enumerate()
+                        .map(|(j, w)| (j, w.text.clone()))
+                        .collect(),
+                )
+            })
+            .collect(),
+    );
+    lines = decisions
+        .iter()
+        .map(|d| lines[d.source_id].clone())
+        .collect();
+    let paragraphs = order_lines(&lines, language, language == "ja");
     let box_json = |b: [f64; 4]| {
         let x = |v| {
             (v * projection.capture[2] / projection.image_size.0 as f64 + projection.capture[0]
@@ -424,7 +421,6 @@ mod tests {
             vec![line("テスト", [50., 50., 150., 70.])],
             "ja",
             0.,
-            true,
             &projection(),
         );
         assert!(
@@ -447,24 +443,20 @@ mod tests {
             ],
             "ja",
             10.,
-            true,
             &projection(),
         );
         assert_eq!(result["data"].as_array().unwrap().len(), 1);
         assert_eq!(result["data"][0]["text"], "日本語");
     }
     #[test]
-    fn japanese_overlay_filters_furigana_with_text_filtering_enabled() {
+    fn japanese_overlay_filters_furigana() {
         let lines = vec![
             line("にほんご", [10., 18., 50., 28.]),
             line("日本語の文章", [10., 30., 130., 50.]),
         ];
-        let filtered = prepare(lines.clone(), "ja", 0., true, &projection());
+        let filtered = prepare(lines, "ja", 0., &projection());
         assert_eq!(filtered["data"].as_array().unwrap().len(), 1);
         assert_eq!(filtered["data"][0]["text"], "日本語の文章");
-
-        let unfiltered = prepare(lines, "ja", 0., false, &projection());
-        assert_eq!(unfiltered["data"].as_array().unwrap().len(), 2);
     }
     #[test]
     fn separate_choices_do_not_join_dialogue() {
@@ -475,7 +467,6 @@ mod tests {
             ],
             "ja",
             0.,
-            true,
             &projection(),
         );
         assert_eq!(result["blocks"].as_array().unwrap().len(), 2);
@@ -486,7 +477,6 @@ mod tests {
             vec![line("日本語", [f64::NAN, 0., 1., 2.])],
             "ja",
             0.,
-            true,
             &projection(),
         );
         assert_eq!(result["data"], json!([]));
@@ -504,7 +494,7 @@ mod tests {
             capture: [0., 0., 2560., 1440.],
             image_size: (2560, 1440),
         };
-        let output = prepare(lines, "ja", 0., true, &p);
+        let output = prepare(lines, "ja", 0., &p);
         assert_eq!(output["blocks"].as_array().unwrap().len(), 1);
         assert_eq!(
             output["data"]
@@ -535,14 +525,14 @@ mod tests {
     fn removing_small_words_does_not_restore_them_as_a_whole_line() {
         let mut source = line("かな", [0., 0., 100., 40.]);
         source.words = vec![line("かな", [0., 0., 40., 4.])];
-        let result = prepare(vec![source], "ja", 10., true, &projection());
+        let result = prepare(vec![source], "ja", 10., &projection());
         assert_eq!(result["data"], json!([]));
     }
     #[test]
     fn absolute_precomputed_boxes_keep_capture_origin() {
         let value = json!({"schema":"gsm_overlay_coords_v1","coordinate_space":{"mode":"absolute_screen","source_width":1000,"source_height":600,"capture_origin":{"x":-1800,"y":100}},"lines":[{"text":"日本語","bounding_rect":{"x1":0,"x2":80,"x3":80,"x4":0,"y1":20,"y2":20,"y3":40,"y4":40}}]});
         let p = projection();
-        let result = prepare(precomputed(&value, &p).unwrap(), "ja", 0., true, &p);
+        let result = prepare(precomputed(&value, &p).unwrap(), "ja", 0., &p);
         assert!(
             (result["data"][0]["bounding_rect"]["x1"].as_f64().unwrap() - 120. / 1920.).abs()
                 < 1e-9

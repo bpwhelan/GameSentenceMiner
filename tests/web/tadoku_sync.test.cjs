@@ -6,8 +6,8 @@ const vm = require('node:vm');
 const { JSDOM } = require('jsdom');
 
 const root = path.join(__dirname, '../..');
-const source = fs.readFileSync(path.join(root, 'GameSentenceMiner/web/static/js/shared.js'), 'utf8');
-const template = fs.readFileSync(path.join(root, 'GameSentenceMiner/web/templates/components/tadoku-sync-card.html'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'resources/web/static/js/shared.js'), 'utf8');
+const template = fs.readFileSync(path.join(root, 'resources/web/templates/components/tadoku-sync-card.html'), 'utf8');
 const title = "Zero Escape: Virtue's Last Reward";
 const originalTitle = '原題';
 const romajiTitle = 'Gendai';

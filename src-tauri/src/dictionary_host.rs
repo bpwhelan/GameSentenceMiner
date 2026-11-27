@@ -40,6 +40,32 @@ pub struct LoadedExtension {
     pub base: String,
 }
 
+impl LoadedExtension {
+    fn options_page(&self) -> &str {
+        self.manifest["options_ui"]["page"]
+            .as_str()
+            .or_else(|| self.manifest["options_page"].as_str())
+            .unwrap_or("settings.html")
+    }
+
+    fn options_window_size(&self, app: &AppHandle) -> (f64, f64) {
+        match extension_kind(&self.name) {
+            "hachidori" => {
+                let Some(monitor) = app.primary_monitor().ok().flatten() else {
+                    return (1440.0, 900.0);
+                };
+                let area = monitor
+                    .work_area()
+                    .size
+                    .to_logical::<f64>(monitor.scale_factor());
+                (area.width.min(1440.0), area.height.min(900.0))
+            }
+            "jiten" => (1100.0, 600.0),
+            _ => (1100.0, 800.0),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransferProgress {
@@ -3713,10 +3739,7 @@ impl DictionaryManager {
     }
 
     async fn open_extension_options(&self, app: &AppHandle, ext: &LoadedExtension) -> Result<(), String> {
-        let default_page = ext.manifest["options_ui"]["page"]
-            .as_str()
-            .or_else(|| ext.manifest["options_page"].as_str())
-            .unwrap_or("settings.html");
+        let default_page = ext.options_page();
         let url_str = if use_windows_native_extensions() {
             format!("chrome-extension://{}/{default_page}", ext.id)
         } else {
@@ -3748,13 +3771,14 @@ impl DictionaryManager {
             Some(self.portable_preload_for_config(&cfg))
         };
         let overlay_data = overlay_data_path(app);
+        let (width, height) = ext.options_window_size(app);
         self.create_managed_window(
             app,
             &label,
             &url_str,
             &ext.name,
-            1000.0,
-            760.0,
+            width,
+            height,
             show,
             &overlay_data,
             "dictionary",
@@ -4440,14 +4464,11 @@ impl DictionaryManager {
             "tabs.create" | "windows.create" | "runtime.openOptionsPage"
         ) {
             let options = args.first().cloned().unwrap_or(Value::Null);
-            let default_page = ext.manifest["options_ui"]["page"]
-                .as_str()
-                .or_else(|| ext.manifest["options_page"].as_str())
-                .unwrap_or("settings.html");
+            let options_url = format!("{}/{}", ext.base, ext.options_page());
             let url_str = options["url"]
                 .as_str()
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("{}/{default_page}", ext.base));
+                .unwrap_or(&options_url)
+                .to_string();
             if !url_str.starts_with(&ext.base) && !url_str.starts_with("chrome-extension:") {
                 crate::native::shell_open_external(&url_str)?;
                 return Ok(Value::Null);
@@ -4465,8 +4486,14 @@ impl DictionaryManager {
                     url: url_str.clone(),
                 },
             );
-            let width = options["width"].as_f64().unwrap_or(1000.0);
-            let height = options["height"].as_f64().unwrap_or(760.0);
+            let is_options_page = url_str.split(['?', '#']).next() == Some(options_url.as_str());
+            let (default_width, default_height) = if is_options_page {
+                ext.options_window_size(app)
+            } else {
+                (1000.0, 760.0)
+            };
+            let width = options["width"].as_f64().unwrap_or(default_width);
+            let height = options["height"].as_f64().unwrap_or(default_height);
             let show = options["active"].as_bool().unwrap_or(true);
             let _ = self.create_managed_window(
                 app,

@@ -1,5 +1,7 @@
 # Tauri architecture and development
 
+This document records the migration at the time it was written. For current source locations and development commands, see the [repository map](AI_AGENT_MAP.md).
+
 ## Recovery checkpoint
 
 The complete pre-redesign tree is commit **7a87ee32** (`Tauri rewrite`) on

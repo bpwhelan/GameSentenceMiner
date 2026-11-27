@@ -12,9 +12,7 @@ pub struct Policy {
     pub processing: Arc<Value>,
     pub language: String,
     pub scene: String,
-    pub remove_prefix: bool,
     pub paused: bool,
-    pub relay: bool,
     pub benchmark: bool,
     pub exclusions: HashMap<String, HashSet<String>>,
 }
@@ -26,9 +24,7 @@ impl Default for Policy {
             processing: Arc::new(Value::Null),
             language: String::new(),
             scene: String::new(),
-            remove_prefix: true,
             paused: false,
-            relay: true,
             benchmark: false,
             exclusions: HashMap::new(),
         }

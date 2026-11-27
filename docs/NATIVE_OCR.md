@@ -207,16 +207,15 @@ Relevant checks:
 ```powershell
 cargo test --locked --manifest-path native/gsm-capture/Cargo.toml
 cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml
-cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev -- --test-threads=1
-.venv/Scripts/python.exe -m pytest tests/ocr/test_native_context.py tests/util/communication/test_ocr_ipc.py -q
+cargo test --locked --manifest-path src-tauri/Cargo.toml -- --test-threads=1
 npm run test:ts -- electron-src/main/services/native_ocr.test.ts electron-src/main/ui/ocr.test.ts electron-src/main/ui/ocr-preview.test.ts electron-src/renderer/src/components/tabs/OCRTab.test.tsx electron-src/renderer/src/components/tabs/OCRTextFeed.test.tsx
 npm run build:tauri
 node scripts/benchmark-native-ocr.mjs .tmp-ocr-benchmark/full-rewrite-final
 ```
 
-The benchmark needs installed local ScreenAI/OneOCR assets, network access to
-Bing, and `ffmpeg` on PATH.
-It opens an isolated fixture window and isolated test desktop, then closes them.
+The benchmark uses installed local ScreenAI/OneOCR assets and network access to
+Bing.
+It measures a native fixture window containing Japanese text and closes it on exit.
 It does not change the user's OCR profile or start OCR in their running app.
 Ordinary Rust tests skip benchmarks that require local models/live capture.
 

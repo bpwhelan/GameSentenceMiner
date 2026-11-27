@@ -61,7 +61,7 @@ fn main() -> Result<()> {
     paths.sort();
     let cache = tempfile::tempdir()?;
     vocr::set_asset_directory(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../GameSentenceMiner/assets/vocr"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../resources/assets/vocr"),
         cache.path().to_owned(),
     )?;
     let mut engines = Engines::new(Path::new(&args[2]));

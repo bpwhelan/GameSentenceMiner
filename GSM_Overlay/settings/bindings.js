@@ -521,19 +521,6 @@ function syncReadingLanguageUi() {
   group.style.display = select.value === "chinese" ? "" : "none";
 }
 
-// The OCR-area subset toggles only apply when OCR Area Config is enabled.
-function syncOcrAreaSubsetUi() {
-  const enabled = document.getElementById("use_overlay_area_config")?.checked === true;
-  [
-    "ocr_area_config_include_primary_areas",
-    "ocr_area_config_include_secondary_areas",
-    "ocr_area_config_use_exclusion_zones",
-  ].forEach((id) => {
-    const control = document.getElementById(id);
-    if (control) control.disabled = !enabled;
-  });
-}
-
 function syncLastSentOcrPresenceUi() {
   const enabled = document.getElementById("last_sent_ocr_presence_check")?.checked === true;
   ["last_sent_ocr_presence_remove_notation", "last_sent_ocr_presence_invalidate_lookups"].forEach((id) => {
@@ -769,9 +756,6 @@ const SETTING_BINDING_DEFINITIONS = [
       return Number.isFinite(numeric) ? numeric : 0;
     },
   },
-  createCheckboxBinding("use_overlay_area_config", "#use_overlay_area_config", {
-    afterApply: () => syncOcrAreaSubsetUi(),
-  }),
   createNumberBinding("minimum_character_size", "#minimum_character_size", {
     fallback: 0,
     min: 0,
@@ -781,15 +765,6 @@ const SETTING_BINDING_DEFINITIONS = [
   createCheckboxBinding("scan_on_overlay_activation", "#scan_on_overlay_activation"),
   createCheckboxBinding("text_appears_instantly", "#text_appears_instantly"),
   createCheckboxBinding("adaptive_ocr_retries", "#adaptive_ocr_retries"),
-  createNumberBinding("base_scale", "#base_scale", {
-    fallback: 0.75,
-    min: 0.5,
-    max: 1,
-    afterApply: (value) => {
-      const output = document.getElementById("base_scale_value");
-      if (output) output.textContent = `${Math.round(value * 100)}%`;
-    },
-  }),
   createCheckboxBinding("periodic", "#periodic"),
   createNumberBinding("periodic_interval", "#periodic_interval", {
     fallback: 1,
@@ -798,21 +773,6 @@ const SETTING_BINDING_DEFINITIONS = [
   }),
   createCheckboxBinding("scan_on_mouse_move", "#scan_on_mouse_move"),
   createCheckboxBinding("inject_scanned_lines", "#inject_scanned_lines"),
-  createCheckboxBinding("use_ocr_result_v2", "#use_ocr_result_v2", {
-    afterApply: (value, options) => {
-      if (value === true && options.source === "user") {
-        void commitSettingValue("supplement_ocr_result_with_overlay", false, null);
-      }
-    },
-  }),
-  createCheckboxBinding("supplement_ocr_result_with_overlay", "#supplement_ocr_result_with_overlay", {
-    afterApply: (value, options) => {
-      if (value === true && options.source === "user") {
-        void commitSettingValue("use_ocr_result_v2", false, null);
-      }
-    },
-  }),
-  createCheckboxBinding("use_text_filtering", "#use_text_filtering"),
   createCheckboxBinding("last_sent_ocr_presence_check", "#last_sent_ocr_presence_check", {
     afterApply: () => syncLastSentOcrPresenceUi(),
   }),
@@ -824,10 +784,6 @@ const SETTING_BINDING_DEFINITIONS = [
     min: 0,
     max: 1,
   }),
-  createCheckboxBinding("ocr_area_config_include_primary_areas", "#ocr_area_config_include_primary_areas"),
-  createCheckboxBinding("ocr_area_config_include_secondary_areas", "#ocr_area_config_include_secondary_areas"),
-  createCheckboxBinding("ocr_area_config_use_exclusion_zones", "#ocr_area_config_use_exclusion_zones"),
-  createCheckboxBinding("ocr_full_screen_instead_of_obs", "#ocr_full_screen_instead_of_obs"),
   {
     key: "manual_mode_desktop_background",
     selectors: ["#manual_mode_desktop_background"],
@@ -931,6 +887,7 @@ const SETTING_BINDING_DEFINITIONS = [
     }),
   ]),
   createCheckboxBinding("focusOverlayOnYomitanLookup", "#focusOverlayOnYomitanLookup"),
+  createCheckboxBinding("hideCoveredText", "#hideCoveredText"),
   createCheckboxBinding("textHoverClickThrough", "#textHoverClickThrough"),
   createHotkeyBinding("toggleClickThroughHotkey", "#toggleClickThroughHotkey"),
   createCheckboxBinding("hideYomitanAfterMine", "#hideYomitanAfterMine"),

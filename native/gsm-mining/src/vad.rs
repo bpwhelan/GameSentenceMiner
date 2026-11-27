@@ -1,6 +1,6 @@
 //! Native ONNX Voice Activity Detection: FireRedVAD (Kaldi 80-bin Fbank + CMVN) and Silero VAD v6.
 //! Whisper VAD has been retired in the Rust mining stack.
-use crate::config::{ProfileConfig, FIRERED, OFF, SILERO, WHISPER};
+use crate::config::{ProfileConfig, FIRERED, OFF, SILERO};
 use crate::ffmpeg::MediaTools;
 use crate::text::GameLine;
 use ort::session::Session;
@@ -1177,24 +1177,17 @@ impl VadSystem {
         if model == OFF || model.is_empty() {
             return VadResult::new(false, 0.0, 0.0, OFF);
         }
-        let effective_model = if model == WHISPER {
-            // Whisper VAD is retired in Rust; degrade cleanly to FireRedVAD.
-            FIRERED
-        } else {
-            model
-        };
-
-        let use_filters = effective_model == SILERO;
+        let use_filters = model == SILERO;
         let pcm = match Self::decode_input_audio(media, input_audio, use_filters) {
             Ok(samples) => samples,
             Err(e) => {
-                let mut r = VadResult::new(false, 0.0, 0.0, effective_model);
-                r.error = format!("Voice detection failed with {effective_model}: {e}");
+                let mut r = VadResult::new(false, 0.0, 0.0, model);
+                r.error = format!("Voice detection failed with {model}: {e}");
                 return r;
             }
         };
 
-        let detect_res = match effective_model {
+        let detect_res = match model {
             FIRERED => self.detect_firered_pcm(&pcm, config),
             SILERO => self.detect_silero_pcm(&pcm),
             other => Err(format!("Unsupported VAD model: {other}")),
@@ -1203,8 +1196,8 @@ impl VadSystem {
         let segments = match detect_res {
             Ok(segs) => segs,
             Err(e) => {
-                let mut r = VadResult::new(false, 0.0, 0.0, effective_model);
-                r.error = format!("Voice detection failed with {effective_model}: {e}");
+                let mut r = VadResult::new(false, 0.0, 0.0, model);
+                r.error = format!("Voice detection failed with {model}: {e}");
                 return r;
             }
         };
@@ -1212,12 +1205,12 @@ impl VadSystem {
         let Some((start_time, end_time)) =
             validate_detection(&segments, game_line, has_next_line, media, input_audio, config)
         else {
-            return VadResult::new(false, 0.0, 0.0, effective_model);
+            return VadResult::new(false, 0.0, 0.0, model);
         };
 
         match self.render_decision(
             media,
-            effective_model,
+            model,
             &segments,
             start_time,
             end_time,
@@ -1228,8 +1221,8 @@ impl VadSystem {
         ) {
             Ok(r) => r,
             Err(e) => {
-                let mut r = VadResult::new(false, 0.0, 0.0, effective_model);
-                r.error = format!("Voice detection failed with {effective_model}: {e}");
+                let mut r = VadResult::new(false, 0.0, 0.0, model);
+                r.error = format!("Voice detection failed with {model}: {e}");
                 r
             }
         }
@@ -1441,7 +1434,7 @@ mod tests {
     #[test]
     fn silero_and_firered_onnx_models_run_on_real_assets() {
         let assets_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../GameSentenceMiner/assets");
+            .join("../../resources/assets");
         if !assets_root.join("fireredvad/fireredvad_vad.onnx").is_file()
             || !assets_root.join("silero/silero_vad_v6.onnx").is_file()
         {

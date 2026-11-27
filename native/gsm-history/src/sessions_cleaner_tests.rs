@@ -37,7 +37,7 @@ fn punctuation_and_repetitions_agree_across_reports_and_live_counts() {
 }
 
 #[test]
-#[ignore = "driven by scripts/benchmark_stats_cleaner.py"]
+#[ignore = "Reads cleaner benchmark requests from stdin"]
 fn benchmark_worker() {
     println!("ready {}", std::process::id());
     for line in std::io::stdin().lock().lines() {

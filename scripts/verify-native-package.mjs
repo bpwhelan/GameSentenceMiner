@@ -7,6 +7,11 @@ import {auditNativePackage} from './native-package-policy.mjs';
 const root=path.resolve(process.argv[2]||'build/native-desktop/app');
 for(const relative of [
   'dist/renderer/index.html',
+  'resources/locales/en_us.json',
+  'resources/assets/fireredvad/fireredvad_vad.onnx',
+  'resources/assets/fireredvad/cmvn.ark',
+  'resources/assets/silero/silero_vad_v6.onnx',
+  'resources/web/templates/components/word_frequency_sources/jiten_global.json',
   'GSM_Overlay/index.html',
   'GSM_Overlay/yomitan/manifest.json',
   'GSM_Overlay/hachidori/manifest.json',
@@ -24,7 +29,7 @@ for(const forbidden of ['runtime','node_modules','desktop-runtime','dist/main','
 }
 const vendor=JSON.parse(await fs.readFile(path.join(root,'GSM_Overlay/hachidori/SOURCE.json')));
 validateReleaseMetadata(vendor.release);
-await verifyVocrBundle(path.join(root,'GameSentenceMiner/assets/vocr'), {downloadable: true});
+await verifyVocrBundle(path.join(root,'resources/assets/vocr'), {downloadable: true});
 const audit=await auditNativePackage(root);
 console.log(`Audited package contents: ${(audit.total/1024**2).toFixed(1)} MiB, ${audit.count} files, zero Node/Electron runtime payloads.`);
 console.log('Verified native services, renderer, dictionary engines, input server, and downloadable Agent runtime metadata.');

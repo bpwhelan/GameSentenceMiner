@@ -5,7 +5,7 @@ import { PROCESSOR_META } from '../../lib/textProcessorMetadata';
 // Load the existing settings translations and help text only when the editor opens.
 type Copy = Record<string, Record<string, string | { label?: string; tooltip?: string }>>;
 const dictionaries = import.meta.glob<{ default: { python: { config: { tabs: Copy } } } }>(
-    '../../../../../GameSentenceMiner/locales/*.json',
+    '../../../../../resources/locales/*.json',
 );
 const localeFiles: Record<string, string> = {
     en: 'en_us',
@@ -20,13 +20,10 @@ const aliases: Record<string, string> = {
     'general.use_websocket': 'general.websocket_enabled',
     'general.use_clipboard': 'general.clipboard_enabled',
     'general.use_both_clipboard_and_websocket': 'general.allow_both_simultaneously',
-    'general.merge_matching_sequential_text': 'general.merge_sequential_text',
     'general.open_multimine_on_startup': 'general.open_texthooker_on_startup',
-    'general.texthook_replacement_regex': 'general.texthook_regex',
     'anki.show_update_confirmation_dialog_v2': 'anki.show_update_confirmation_dialog',
     'features.open_anki_in_browser': 'features.open_anki_browser',
     'screenshot.custom_ffmpeg_settings': 'screenshot.ffmpeg_options',
-    'screenshot.screenshot_hotkey_updates_anki': 'screenshot.hotkey_updates_anki',
     'screenshot.seconds_after_line': 'screenshot.offset',
     'screenshot.screenshot_timing_setting': 'screenshot.timing',
     'screenshot.trim_black_bars_wip': 'screenshot.trim_black_bars',
@@ -46,15 +43,12 @@ const aliases: Record<string, string> = {
     'vad.do_vad_postprocessing': 'vad.do_postprocessing',
     'vad.add_audio_on_no_results': 'vad.add_on_no_results',
     'vad.cut_and_splice_segments': 'vad.cut_and_splice',
-    'vad.use_cpu_for_inference_v2': 'vad.use_cpu_for_inference',
     'ai.use_canned_translation_prompt': 'ai.use_canned_translation',
     'ai.use_canned_context_prompt': 'ai.use_canned_context',
     'ai.dialogue_context_length': 'ai.context_length',
     'ai.open_ai_api_key': 'ai.openai_apikey',
     'overlay.engine_v2': 'overlay.overlay_engine',
     'overlay.monitor_to_capture': 'overlay.overlay_monitor',
-    'overlay.use_ocr_result_v2': 'overlay.use_ocr_result',
-    'hotkeys.relay_outputs_when_text_intake_paused': 'hotkeys.relay_outputs_when_paused',
 };
 export function fieldGroup(path: string) {
     return path.includes('.') ? path.split('.')[0] : 'profiles';
@@ -68,7 +62,7 @@ export function useFieldLabels(active: boolean) {
         let live = true;
         const load =
             dictionaries[
-                '../../../../../GameSentenceMiner/locales/' +
+                '../../../../../resources/locales/' +
                     (localeFiles[locale] || 'en_us') +
                     '.json'
             ];

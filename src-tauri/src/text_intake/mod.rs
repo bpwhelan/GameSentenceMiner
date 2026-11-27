@@ -318,7 +318,7 @@ impl Intake {
         // Complete tray and notification delivery in mutation order without holding
         // up dialogue ingestion or access to the reader snapshot.
         let _control = self.pause_controls.lock().unwrap();
-        let (paused, changed, relay) = {
+        let (paused, changed) = {
             let mut state = self.state.lock().unwrap();
             if !state.native_reader || state.finished { return Err("Native text intake is unavailable".into()); }
             let paused = match command {
@@ -326,11 +326,11 @@ impl Intake {
                 Pause::Set(value) => value,
                 Pause::Toggle => !state.policy.paused,
             };
-            (paused, state.change_pause(paused, self.now()), state.policy.relay)
+            (paused, state.change_pause(paused, self.now()))
         };
         if changed {
             self.wake.notify_one();
-            crate::app_lifecycle::intake_pause_changed(app, paused, relay);
+            crate::app_lifecycle::intake_pause_changed(app, paused);
         }
         Ok(paused)
     }

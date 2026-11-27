@@ -57,17 +57,16 @@ export function includeSource(relative, platform = process.platform) {
     if (name === prefix || name.startsWith(prefix + '/')) return false;
   }
   if (name.split('/').some(part => generatedDirectories.has(part))) return false;
-  if (/\.(?:pyc|pyo|map|pdb|obj|ilk|exp|d\.ts|tsbuildinfo)$|\.(?:test|spec)\.[^/]+$/.test(name)) return false;
+  if (/\.(?:py|pyi|pyw|pyd|pyc|pyo|map|pdb|obj|ilk|exp|d\.ts|tsbuildinfo)$|\.(?:test|spec)\.[^/]+$/.test(name)) return false;
   if (name === 'native/gsm-agent' || name.startsWith('native/gsm-agent/') || /(?:^|\/)gsm-agent-(?:host(?:\.exe)?|runtime-[^/]+\.zip)$/.test(name)) return false;
   if (/^native\/gsm-(settings|packages|intake)(\/|$)/.test(name)) return false;
   if (name.startsWith('native/gsm-runtime/') || name === 'native/gsm-runtime') return false;
-  if (name.startsWith('GameSentenceMiner/') && /\.(?:py|pyi|pyd|so)$/.test(name)) return false;
+  if (name === 'GameSentenceMiner' || name.startsWith('GameSentenceMiner/')) return false;
   if (name === 'electron-src/assets/python' || name.startsWith('electron-src/assets/python/')) return false;
   if (['pyproject.toml', 'uv.lock', '.python-version'].includes(name) || name.endsWith('.whl')) return false;
   if (/^(?:electron-src\/)?assets\/qt(?:\/|$)/.test(name)) return false;
   if (name === 'assets/scripts/legacy_dictionary_export.py' || name.startsWith('assets/scripts/vendor/chromium-reader') || name.startsWith('assets/scripts/vendor/simple-snappy')) return false;
   if (name === 'GSM_Overlay/window.js') return false;
-  if (name === 'GameSentenceMiner/mecab' || name.startsWith('GameSentenceMiner/mecab/')) return false;
   if (name.endsWith('/mecab_bridge.py') || /(?:^|\/)system_(?:small|core|full)\.dic$/.test(name)) return false;
   return true;
 }

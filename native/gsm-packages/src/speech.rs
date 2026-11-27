@@ -212,11 +212,7 @@ pub fn embedded(
         fallback_error =
             prepare_bundle(&cache, url.as_deref().unwrap_or(DEFAULT_URL), progress).err();
     }
-    let bases = [
-        cache,
-        app_root.to_owned(),
-        app_root.join("GameSentenceMiner"),
-    ];
+    let bases = [cache, app_root.to_owned()];
     let search = |overrides: [Option<PathBuf>; 2]| {
         overrides
             .into_iter()

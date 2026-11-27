@@ -3,7 +3,7 @@ use gsm_packages::{
     anki_beacon::write_configured_anki_beacon_addon,
     changelog::PendingChangelogRecord,
     data_relocate::{perform_data_move, validate_target_dir},
-    log_archive::{create_anonymized_logs_archive, list_log_files},
+    log_archive::create_debug_package,
     log_redaction::LogRedactor,
     settings_backup::{
         create_backup_archive, get_default_backup_file_name,
@@ -135,39 +135,10 @@ pub async fn invoke(
         "python.cleanCache" => {
             Some(crate::python_install::environment(app, "cleanCacheStrict").await)
         }
-        "python.installCudaPackage" => {
-            let bundled = args
-                .first()
-                .and_then(|v| v.get("bundledLibraries"))
-                .and_then(Value::as_bool)
-                == Some(true);
-            Some(crate::python_ops::handle_cuda_package(app, label, true, bundled).await)
-        }
-        "python.uninstallCudaPackage" => {
-            Some(crate::python_ops::handle_cuda_package(app, label, false, false).await)
-        }
-        "python.resetDependencies" => Some(Ok(crate::python_ops::run_python_maintenance(
-            app,
-            "reset_dependencies",
-        )
-        .await)),
-        "python.repairGSM" => Some(Ok(
-            crate::python_ops::run_python_maintenance(app, "repair").await
-        )),
-        "python.installCustomPackage" => {
-            let req = args.first().and_then(Value::as_str).unwrap_or_default();
-            Some(Ok(crate::python_ops::install_custom_package(
-                app, req, false,
-            )
-            .await))
-        }
-        "python.reinstallPackage" => {
-            let req = args.first().and_then(Value::as_str).unwrap_or_default();
-            Some(Ok(crate::python_ops::install_custom_package(
-                app, req, true,
-            )
-            .await))
-        }
+        "python.repairGSM" => Some(Ok(crate::service_maintenance::repair(app).await)),
+        "python.installCudaPackage" | "python.uninstallCudaPackage" | "python.resetDependencies"
+        | "python.installCustomPackage" | "python.reinstallPackage" | "settings.reinstallPython"
+        | "settings.runPipInstall" => Some(Ok(json!({"success":false,"message":crate::python_install::RETIRED,"error":crate::python_install::RETIRED}))),
         "python.openCudaGuide" => Some(
             crate::native::shell_open_external("https://pytorch.org/get-started/locally/")
                 .map(|_| Value::Null),
@@ -244,7 +215,6 @@ pub async fn invoke(
             Some(handle_state(app, channel, args))
         }
         "logs.openFolder" => Some(handle_logs_open_folder(app)),
-        "logs.export" => Some(Ok(handle_logs_export(app).await)),
         "logs.getRecent" => Some(Ok(json!(crate::desktop_log::recent_terminal_logs()))),
         "settings.notifications.get"
         | "settings.notifications.save"
@@ -254,7 +224,7 @@ pub async fn invoke(
         | "settings.onboarding.dictionary"
         | "settings.onboarding.sudachi"
         | "settings.onboarding.language" => Some(handle_onboarding(app, channel, args).await),
-        "settings.gpu" => Some(crate::python_ops::handle_gpu_settings(app, args).await),
+        "settings.gpu" => Some(Err(crate::python_install::RETIRED.into())),
         "settings.getSettings" => Some(handle_get_settings(app).await),
         channel if channel.starts_with("settings.mining.") => Some(crate::mining_settings::invoke(
             app, label, channel, args.first().cloned().unwrap_or(Value::Null)).await),
@@ -324,13 +294,6 @@ pub async fn invoke(
                     .await
                     .and_then(|s| serde_json::to_value(s).map_err(|e| e.to_string())),
             )
-        }
-        "settings.reinstallPython" => {
-            Some(Ok(crate::python_ops::handle_reinstall_python(app).await))
-        }
-        "settings.runPipInstall" => {
-            let pkg = args.first().and_then(Value::as_str).unwrap_or_default();
-            Some(Ok(crate::python_ops::handle_run_pip_install(app, pkg).await))
         }
         "settings.saveSettings" => Some(handle_save_settings(app, args).await),
         "settings.setAutoUpdateGSMApp" => Some(
@@ -492,28 +455,6 @@ fn downloads_dir(app: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
-fn current_app_version(app: &tauri::AppHandle) -> String {
-    let app_root = &app.state::<crate::desktop_state::DesktopState>().app_root;
-    if let Ok(raw) = std::fs::read_to_string(app_root.join("package.json")) {
-        if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
-            if let Some(ver) = parsed.get("version").and_then(Value::as_str) {
-                let trimmed = ver.trim();
-                if !trimmed.is_empty() {
-                    return trimmed.to_owned();
-                }
-            }
-        }
-    }
-    app.package_info().version.to_string()
-}
-
-fn is_version_prerelease(version: &str) -> bool {
-    let normalized = version.trim().trim_start_matches(['v', 'V']);
-    semver::Version::parse(normalized)
-        .map(|v| !v.pre.is_empty())
-        .unwrap_or_else(|_| normalized.contains('-'))
-}
-
 fn handle_docs_open_window(
     app: &tauri::AppHandle,
     parent_label: &str,
@@ -591,114 +532,54 @@ fn handle_logs_open_folder(app: &tauri::AppHandle) -> Result<Value, String> {
     }
 }
 
-async fn handle_logs_export(app: &tauri::AppHandle) -> Value {
-    let logs_dir = paths_for(app).active.join("logs");
-    if !logs_dir.exists() {
+pub(crate) async fn export_debug_package(app: &tauri::AppHandle) {
+    if let Err(err) = save_debug_package(app).await {
         let _ = crate::native::dialog_message(&json!({
             "type": "error",
-            "title": "No Logs Found",
-            "message": "No logs directory found. No logs have been generated yet.",
+            "title": "Export Failed",
+            "message": format!("Could not export the debug package: {err}"),
             "buttons": ["OK"],
         }))
         .await;
-        return json!({ "success": true });
     }
+}
 
-    let files = match tokio::task::spawn_blocking({
-        let dir = logs_dir.clone();
-        move || list_log_files(&dir)
-    })
-    .await
-    {
-        Ok(Ok(f)) => f,
-        Ok(Err(err)) => {
-            let _ = crate::native::dialog_message(&json!({
-                "type": "error",
-                "title": "Export Failed",
-                "message": format!("Failed to export logs: {err}"),
-                "buttons": ["OK"],
-            }))
-            .await;
-            return json!({ "success": true });
-        }
-        Err(err) => return json!({ "success": false, "error": err.to_string() }),
-    };
-
-    if files.is_empty() {
-        let _ = crate::native::dialog_message(&json!({
-            "type": "error",
-            "title": "No Log Files",
-            "message": "No log files found in the logs directory.",
-            "buttons": ["OK"],
-        }))
-        .await;
-        return json!({ "success": true });
-    }
-
-    let date_tag = chrono::Utc::now().format("%Y-%m-%d");
-    let default_path = downloads_dir(app).join(format!("GSM_Logs_Anonymized_{date_tag}.zip"));
-    let Ok(save) = crate::native::dialog_save(&json!({
-        "title": "Save Anonymized GSM Logs",
+async fn save_debug_package(app: &tauri::AppHandle) -> Result<(), String> {
+    let date_tag = chrono::Local::now().format("%Y-%m-%d");
+    let default_path = downloads_dir(app).join(format!("GSM_Debug_Package_{date_tag}.zip"));
+    let save = crate::native::dialog_save(&json!({
+        "title": "Export Debug Package",
         "defaultPath": default_path,
         "filters": [{ "name": "ZIP Archive", "extensions": ["zip"] }],
     }))
-    .await
-    else {
-        return json!({ "success": false, "error": "Failed to open save dialog." });
-    };
+    .await?;
 
-    if save
-        .get("canceled")
-        .and_then(Value::as_bool)
-        .unwrap_or(true)
-    {
-        return json!({ "success": true });
+    if save["canceled"].as_bool().unwrap_or(true) {
+        return Ok(());
     }
-    let Some(output_path) = save
-        .get("filePath")
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-    else {
-        return json!({ "success": true });
-    };
-
-    let export_result = tokio::task::spawn_blocking({
-        let out = output_path.clone();
-        move || create_anonymized_logs_archive(&logs_dir, &out, &LogRedactor::default())
+    let output_path = PathBuf::from(save["filePath"].as_str().ok_or("Missing destination path")?);
+    let paths = paths_for(app);
+    let overlay = crate::dictionary_host::overlay_data_path(app);
+    let ini = resolve_owocr_config_path(&paths.active, paths.has_profile)?;
+    let out = output_path.clone();
+    tokio::task::spawn_blocking(move || {
+        create_debug_package(&paths.active, &overlay, &ini, &out, &LogRedactor::default())
     })
     .await
-    .map_err(|e| e.to_string())
-    .and_then(|r| r);
+    .map_err(|e| e.to_string())??;
 
-    match export_result {
-        Ok(()) => {
-            if let Ok(idx) = crate::native::dialog_message(&json!({
-                "type": "info",
-                "title": "Anonymized Logs Exported",
-                "message": format!("Anonymized logs successfully exported to:\n{}", output_path.display()),
-                "detail": "Detected usernames, home paths, computer names, email/IP addresses, and common credentials were redacted before creating the ZIP, including compressed log history. Your original logs are unchanged.\n\nAutomatic redaction may miss personal details in free text. Review the exported logs before sharing.",
-                "buttons": ["OK", "Open Folder"],
-            }))
-            .await
-            {
-                if idx == 1 {
-                    let _ = crate::native::shell_reveal(&output_path);
-                }
-            }
-            json!({ "success": true })
-        }
-        Err(err) => {
-            let _ = crate::native::dialog_message(&json!({
-                "type": "error",
-                "title": "Export Failed",
-                "message": format!("Failed to export logs: {err}"),
-                "buttons": ["OK"],
-            }))
-            .await;
-            json!({ "success": true })
-        }
+    if let Ok(1) = crate::native::dialog_message(&json!({
+        "type": "info",
+        "title": "Debug Package Exported",
+        "message": format!("Saved the debug package to {}", output_path.display()),
+        "detail": "The ZIP contains redacted logs and settings. Review it before sharing, especially free text.",
+        "buttons": ["OK", "Open Folder"],
+    }))
+    .await
+    {
+        let _ = crate::native::shell_reveal(&output_path);
     }
+    Ok(())
 }
 
 async fn handle_notifications(
@@ -907,78 +788,12 @@ async fn patch_bool_pref(
 }
 
 async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<Value, String> {
-    let mut payload = args
+    let payload = args
         .first()
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
     let paths = paths_for(app);
-
-    let native_session = crate::app_lifecycle::native_session_requested();
-    if let Some(requested_pre) = payload.get("pullPreReleases").and_then(Value::as_bool).filter(|_| !native_session) {
-        let paths_read = paths.clone();
-        let current_pre = tokio::task::spawn_blocking(move || -> Result<bool, String> {
-            Ok(Preferences::new(&paths_read.active)
-                .get("pullPreReleases")?
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false))
-        })
-        .await
-        .map_err(|e| e.to_string())??;
-
-        if requested_pre != current_pre {
-            let app_is_pre = is_version_prerelease(&current_app_version(app));
-            let requires_cross_channel =
-                (requested_pre && !app_is_pre) || (!requested_pre && app_is_pre);
-            if requires_cross_channel {
-                let response = crate::native::dialog_message(&json!({
-                    "type": "question",
-                    "buttons": ["Yes", "No"],
-                    "defaultId": 0,
-                    "cancelId": 1,
-                    "title": if requested_pre { "Switch to Beta Updates" } else { "Switch to Stable Updates" },
-                    "message": if requested_pre {
-                        "Enable beta updates and queue the update now?"
-                    } else {
-                        "Disable beta updates and queue the stable update now?"
-                    },
-                    "detail": if requested_pre {
-                        "A backend update will be queued for the next launch. Restart GSM to apply it."
-                    } else {
-                        "A stable backend update will be queued for the next launch. Restart GSM to apply it."
-                    },
-                }))
-                .await?;
-                if response == 0 {
-                    let flag_path = paths.active.join("update_python.flag");
-                    match std::fs::write(&flag_path, "") {
-                        Ok(()) => {
-                            let _ = crate::native::dialog_message(&json!({
-                                "type": "info",
-                                "buttons": ["OK"],
-                                "title": "Update Queued",
-                                "message": "GameSentenceMiner queued an update for the next launch.",
-                                "detail": "Restart GSM to apply the queued update.",
-                            }))
-                            .await;
-                        }
-                        Err(_) => {
-                            let _ = crate::native::dialog_message(&json!({
-                                "type": "error",
-                                "buttons": ["OK"],
-                                "title": "Queue Failed",
-                                "message": "Failed to queue update marker.",
-                                "detail": "Restart GSM and run an update manually from the tray menu.",
-                            }))
-                            .await;
-                        }
-                    }
-                } else {
-                    payload.insert("pullPreReleases".into(), json!(current_pre));
-                }
-            }
-        }
-    }
 
     let paths_write = paths.clone();
     let outcome = tokio::task::spawn_blocking(move || -> Result<SaveOutcome, String> {
@@ -1104,7 +919,7 @@ async fn handle_save_settings(app: &tauri::AppHandle, args: &[Value]) -> Result<
     .await
     .map_err(|e| e.to_string())??;
 
-    if native_session && outcome.update_channel_changed {
+    if outcome.update_channel_changed {
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
             handle.state::<crate::update_manager::UpdateManager>()
@@ -1367,11 +1182,11 @@ async fn create_backup_inner(
 }
 
 async fn handle_restore_backup(app: &tauri::AppHandle, label: &str, args: &[Value]) -> Value {
-    let mut stopped_python = false;
-    match restore_backup_inner(app, label, args.first(), &mut stopped_python).await {
+    let mut stopped_services = false;
+    match restore_backup_inner(app, label, args.first(), &mut stopped_services).await {
         Ok(val) => val,
         Err(error) => {
-            if stopped_python {
+            if stopped_services {
                 emit_backup_progress(
                     app,
                     label,
@@ -1384,7 +1199,7 @@ async fn handle_restore_backup(app: &tauri::AppHandle, label: &str, args: &[Valu
                         progress: None,
                     },
                 );
-                let _ = crate::python_ops::restart_gsm(app).await;
+                let _ = crate::service_maintenance::restart_gsm(app).await;
             }
             emit_backup_progress(
                 app,
@@ -1407,7 +1222,7 @@ async fn restore_backup_inner(
     app: &tauri::AppHandle,
     label: &str,
     payload: Option<&Value>,
-    stopped_python: &mut bool,
+    stopped_services: &mut bool,
 ) -> Result<Value, String> {
     let categories = requested_backup_categories(payload);
     if categories.is_empty() {
@@ -1468,10 +1283,9 @@ async fn restore_backup_inner(
             progress: None,
         },
     );
-    *stopped_python = true;
+    *stopped_services = true;
     app.state::<crate::cron::Scheduler>().drain().await;
-    app.state::<crate::backend::BackendState>().invalidate_prepared_database();
-    crate::python_ops::close_all_python_processes(app, true).await?;
+    crate::service_maintenance::stop_managed_processes(app).await?;
 
     emit_backup_progress(
         app,
@@ -1535,8 +1349,8 @@ async fn restore_backup_inner(
             progress: None,
         },
     );
-    *stopped_python = false;
-    crate::python_ops::restart_gsm(app).await?;
+    *stopped_services = false;
+    crate::service_maintenance::restart_gsm(app).await?;
 
     emit_backup_progress(
         app,

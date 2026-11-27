@@ -1,5 +1,7 @@
 # Incremental Rust migration
 
+This document records the migration at the time it was written. For current source locations and development commands, see the [repository map](AI_AGENT_MAP.md).
+
 The desktop now starts its Rust backend by default and opens the Python Qt host
 on demand. See the [desktop cutover and measurements](PYTHONLESS_DESKTOP_AUDIT.md).
 

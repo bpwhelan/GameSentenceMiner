@@ -23,7 +23,7 @@ fn files(root: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    let root = Path::new("../../GameSentenceMiner/web");
+    let root = Path::new("../../resources/web");
     let dest = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let mut assets = String::from("pub fn asset(path:&str)->Option<Asset>{Some(match path {\n");
     let mut templates =

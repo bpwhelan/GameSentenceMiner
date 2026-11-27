@@ -17,7 +17,7 @@ import {
     CONFIRMATION_GAMEPAD_FIELDS,
     DOCS_LINKS,
     GAMEPAD_BUTTON_OPTIONS,
-    HOTKEY_GROUPS,
+    HOTKEY_BINDINGS,
     RECOMMENDED_GEMINI_MODELS,
     RECOMMENDED_GROQ_MODELS,
     RECOMMENDED_ZAI_MODELS,
@@ -81,6 +81,12 @@ type DangerPromptKind = 'process_pausing' | 'dont_collect_stats';
 
 const DEFAULT_AUTO_ACCEPT_SECONDS = 10;
 const AUTOSAVE_DELAY_MS = 400;
+const AI_MODEL_PREFIXES: Record<string, string> = {
+    Gemini: 'gemini', Groq: 'groq', 'Z.ai': 'zai', OpenAI: 'open_ai', Ollama: 'ollama', 'LM Studio': 'lm_studio',
+};
+const RECOMMENDED_MODELS: Record<string, readonly string[]> = {
+    gemini: RECOMMENDED_GEMINI_MODELS, groq: RECOMMENDED_GROQ_MODELS, zai: RECOMMENDED_ZAI_MODELS,
+};
 const RESTART_PATHS = new Set([
     'advanced.localhost_bind_address',
     'advanced.direct_websocket_port',
@@ -118,7 +124,6 @@ function FieldInput({
     onBrowse,
     scenes,
     onRefreshScenes,
-    minOverride,
     invalid,
 }: {
     field: Field;
@@ -133,11 +138,11 @@ function FieldInput({
     onBrowse?: (directory: boolean) => void;
     scenes?: ObsScene[];
     onRefreshScenes?: () => void;
-    minOverride?: number;
     invalid?: boolean;
 }) {
     const t = useTranslation();
     const meta = getFieldMeta(field.path);
+    const [manual, setManual] = useState(false);
     const props = {
         id: 'mining-field-' + field.path,
         disabled,
@@ -247,7 +252,7 @@ function FieldInput({
     }
 
     if (typeof field.value === 'number') {
-        const min = minOverride ?? field.range?.[0] ?? meta.range?.[0];
+        const min = field.range?.[0] ?? meta.range?.[0];
         const max = field.range?.[1] ?? meta.range?.[1];
         const numVal = value === '' ? '' : Number(value);
         return (
@@ -453,30 +458,31 @@ function FieldInput({
         );
     }
 
-    return (
-        <>
-            <input
-                {...props}
-                list={choices?.length ? props.id + '-choices' : undefined}
-                type="text"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={meta.placeholder}
-                value={String(value ?? '')}
-                onChange={(e) => change(e.target.value)}
-            />
-            {!!choices?.length && (
-                <datalist id={props.id + '-choices'}>
-                    {choices.map((choice) => (
-                        <option
-                            key={choice}
-                            value={choice}
-                        />
-                    ))}
-                </datalist>
-            )}
-        </>
-    );
+    const current = String(value ?? '');
+    if (choices) {
+        const options = [...new Set([...choices, current].filter(Boolean))];
+        let custom = '__manual__';
+        while (options.includes(custom)) custom += '_';
+        return (
+            <>
+                <select {...props} value={manual ? custom : current}
+                    onChange={(event) => {
+                        const selected = event.target.value;
+                        setManual(selected === custom);
+                        if (selected !== custom) change(selected);
+                    }}>
+                    <option value="">{t('mining.unsetChoice')}</option>
+                    {options.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+                    <option value={custom}>{t('mining.enterManually')}</option>
+                </select>
+                {manual && <input autoFocus type="text" disabled={disabled}
+                    aria-label={t('mining.manualValue', { name })} value={current}
+                    onChange={(event) => change(event.target.value)} />}
+            </>
+        );
+    }
+    return <input {...props} type="text" autoComplete="off" spellCheck={false}
+        placeholder={meta.placeholder} value={current} onChange={(event) => change(event.target.value)} />;
 }
 
 interface MiningSettingsProps {
@@ -512,6 +518,7 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
     const [base, setBase] = useState('');
     const [follow, setFollow] = useState(true);
     const [scenes, setScenes] = useState<ObsScene[]>([]);
+    const [customPresetTarget, setCustomPresetTarget] = useState<string | null>(null);
     const [ankiRefreshNonce, setAnkiRefreshNonce] = useState(0);
     const [dismissedMappingModel, setDismissedMappingModel] = useState<string | null>(null);
     const [userChangedNoteType, setUserChangedNoteType] = useState(false);
@@ -534,10 +541,11 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
     const load = useCallback(
         async (which: string | null | undefined) => {
             const ticket = ++serial.current;
+            const requestedTarget = view === 'obs' ? null : which;
             try {
                 const next = await invokeIpc<Snapshot>('settings.mining.read', {
                     view,
-                    ...(which === undefined ? {} : { target: which }),
+                    ...(requestedTarget === undefined ? {} : { target: requestedTarget }),
                 });
                 if (ticket === serial.current) {
                     setData(next);
@@ -577,11 +585,11 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
         setGroup(category);
         setSubtabs((old) => ({ ...old, [category]: nextTab }));
         setSearch('');
-        if (currentTarget.current === null) {
+        if (!obsOnly && currentTarget.current === null) {
             setTarget(undefined);
             void load(undefined);
         }
-    }, [destination, load, pending, busy]);
+    }, [destination, load, pending, busy, obsOnly]);
 
     useEffect(() => {
         if (content.current) content.current.scrollTop = 0;
@@ -604,6 +612,7 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                 setManage(false);
                 setProfileAction(null);
                 setDraft({});
+                setCustomPresetTarget(null);
                 setUserChangedNoteType(false);
             } catch (e) {
                 setError(String(e));
@@ -703,18 +712,20 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
         : (draft['anki.note_type']?.value ??
           data?.fields.find((f) => f.path === 'anki.note_type')?.value);
     const ankiUrl = data?.fields.find((f) => f.path === 'anki.url')?.value;
+    const [ankiUnavailable, setAnkiUnavailable] = useState(false);
     const [noteTypes, setNoteTypes] = useState<string[]>([]);
     const [ankiFields, setAnkiFields] = useState<string[]>([]);
 
     useEffect(() => {
         let live = true;
         setNoteTypes([]);
+        setAnkiUnavailable(false);
         if (showModels && ankiUrl)
             void invokeIpc<string[]>('settings.mining.ankiChoices', {})
                 .then((items) => {
                     if (live && Array.isArray(items)) setNoteTypes(items);
                 })
-                .catch(() => {});
+                .catch(() => { if (live) setAnkiUnavailable(true); });
         return () => {
             live = false;
         };
@@ -747,6 +758,27 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
         }
         return map;
     }, [data, draft]);
+
+    const provider = String(effectiveValues['ai.provider'] ?? '');
+    const modelPrefix = AI_MODEL_PREFIXES[provider];
+    const modelTarget = data?.target;
+    const saved = (path: string) => data?.fields.find((f) => f.path === path)?.value;
+    const modelUrl = saved('ai.' + modelPrefix + '_url');
+    const modelKey = saved('ai.' + modelPrefix + '_api_key');
+    const showAiModels = active && !obsOnly && !manage && (group === 'ai' || !!search.trim());
+    const [providerModels, setProviderModels] = useState<string[]>([]);
+    const [modelsUnavailable, setModelsUnavailable] = useState(false);
+    useEffect(() => {
+        let live = true;
+        setProviderModels([]);
+        setModelsUnavailable(false);
+        if (showAiModels && modelTarget && modelPrefix) {
+            void invokeIpc<string[]>('settings.mining.aiModels', { target: modelTarget, provider })
+                .then((items) => { if (live && Array.isArray(items)) setProviderModels(items); })
+                .catch(() => { if (live) setModelsUnavailable(true); });
+        }
+        return () => { live = false; };
+    }, [showAiModels, modelTarget, provider, modelPrefix, modelUrl, modelKey]);
 
     const openExternal = useCallback((url: string) => {
         void invokeIpc('open-external-link', url).catch((e) => setError(String(e)));
@@ -851,6 +883,7 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
 
     const choose = (next: string | null) => {
         ++serial.current;
+        setCustomPresetTarget(null);
         currentTarget.current = next;
         setTarget(next);
         setData((old) => (old?.target === next ? old : null));
@@ -941,17 +974,13 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
         if (path === 'anki.note_type') return noteTypes;
         if (/^anki\.[^.]+\.name$/.test(path) || path === 'ai.anki_field') {
             if (ankiFields.length) return ankiFields;
-            if (model === byPath.get('anki.note_type')?.value) return data.ankiFields;
-            return undefined;
+            if (model === byPath.get('anki.note_type')?.value) return data.ankiFields ?? [];
+            return [];
         }
-        if (path === 'ai.gemini_model' || path === 'ai.gemini_backup_model') {
-            return [...RECOMMENDED_GEMINI_MODELS];
-        }
-        if (path === 'ai.groq_model' || path === 'ai.groq_backup_model') {
-            return [...RECOMMENDED_GROQ_MODELS];
-        }
-        if (path === 'ai.zai_model' || path === 'ai.zai_backup_model') {
-            return [...RECOMMENDED_ZAI_MODELS];
+        const aiModel = /^ai\.(gemini|groq|zai|open_ai|ollama|lm_studio)_(?:backup_)?model$/.exec(path);
+        if (aiModel) {
+            const prefix = aiModel[1];
+            return [...(RECOMMENDED_MODELS[prefix] ?? []), ...(prefix === modelPrefix ? providerModels : [])];
         }
         return undefined;
     };
@@ -1168,11 +1197,6 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                             onBrowse={meta.browse ? (dir) => void browseForField(f, dir) : undefined}
                             scenes={scenes}
                             onRefreshScenes={refreshObsScenes}
-                            minOverride={
-                                isObsFps && data.animatedLockFps && data.animatedLockFps > 1
-                                    ? data.animatedLockFps
-                                    : undefined
-                            }
                         />
                     )}
 
@@ -1203,6 +1227,10 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                     {inheritanceControl(f, opts?.dashboard)}
                 </div>
 
+                {((isAnkiNoteType && ankiUnavailable) ||
+                    (f.path === 'ai.' + modelPrefix + '_model' && modelsUnavailable)) && (
+                    <p className="mining-row-extra" role="status">{t('mining.choicesUnavailable')}</p>
+                )}
                 {isPort && (
                     <div className="mining-row-extra mining-port-actions">
                         {(['feed', 'stats', 'copyWs'] as const).map((action) => (
@@ -1547,11 +1575,6 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
             'anki.confirmation_restore_focus',
         ].flatMap((p) => (byPath.has(p) ? [byPath.get(p)!] : []));
 
-        const gamepadToggle = byPath.get('anki.confirmation_gamepad_enabled');
-        const gamepadBindings = CONFIRMATION_GAMEPAD_FIELDS.flatMap((p) =>
-            byPath.has(p) ? [byPath.get(p)!] : [],
-        );
-
         const sessionReviewFields = visibleRows.filter((f) =>
             f.path.startsWith('features.review_after_session.'),
         );
@@ -1680,23 +1703,6 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                                 </div>
                             </section>
                         )}
-                        {gamepadToggle && (
-                            <section className="mining-card">
-                                <div className="mining-card-head">
-                                    <h3>{t('mining.cards.gamepadBindings')}</h3>
-                                </div>
-                                <div className="mining-card-body">
-                                    {renderFieldRow(gamepadToggle)}
-                                    {Boolean(effectiveValues['anki.confirmation_gamepad_enabled']) && (
-                                        <div className="mining-gamepad-grid">
-                                            {gamepadBindings.map((f) =>
-                                                renderFieldRow(f, { compact: true }),
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </section>
-                        )}
                     </>
                 )}
 
@@ -1715,115 +1721,91 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
     };
 
     const renderHotkeysPage = () => {
-        const renderedPaths = new Set<string>();
+        const bindings = HOTKEY_BINDINGS.flatMap((key) => {
+            const keyboard = byPath.get('hotkeys.' + key);
+            return keyboard ? [{ keyboard, gamepad: byPath.get('hotkeys.' + key + '_gamepad') }] : [];
+        });
+        const confirmation = ['anki.confirmation_gamepad_enabled', ...CONFIRMATION_GAMEPAD_FIELDS];
         return (
             <div className="mining-cards">
                 <div className="mining-banner mining-banner--info">
                     <MiningIcon name="info" size={16} />
                     <span>{t('mining.hotkeysIntro')}</span>
                 </div>
-                {HOTKEY_GROUPS.map((grp) => {
-                    const activePairs = grp.pairs.filter(
-                        (pair) => byPath.has(pair.keyboard) || (pair.gamepad && byPath.has(pair.gamepad)),
-                    );
-                    const flags = (grp.footerFlags ?? []).flatMap((p) =>
-                        byPath.has(p) ? [byPath.get(p)!] : [],
-                    );
-                    if (!activePairs.length && !flags.length) return null;
-                    activePairs.forEach((p) => {
-                        renderedPaths.add(p.keyboard);
-                        if (p.gamepad) renderedPaths.add(p.gamepad);
-                    });
-                    flags.forEach((f) => renderedPaths.add(f.path));
-
-                    return (
-                        <section
-                            className="mining-card"
-                            key={grp.id}
-                        >
-                            <div className="mining-card-head">
-                                <h3>{t(grp.titleKey)}</h3>
-                            </div>
-                            <div className="mining-card-body">
-                                <div className="mining-hotkey-table-head" aria-hidden="true">
-                                    <span>{t('mining.action')}</span>
-                                    <span>
-                                        <MiningIcon name="keyboard" size={13} />
-                                        {t('mining.keyboard')}
-                                    </span>
-                                    <span>
-                                        <MiningIcon name="gamepad" size={13} />
-                                        {t('mining.gamepad')}
-                                    </span>
-                                </div>
-                                {activePairs.map((pair) => {
-                                    const kbField = byPath.get(pair.keyboard);
-                                    const gpField = pair.gamepad ? byPath.get(pair.gamepad) : undefined;
-                                    if (!kbField) return null;
-                                    const kbLabel = label(kbField.path);
-                                    return (
-                                        <div
-                                            className="mining-hotkey-pair-row mining-row"
-                                            key={pair.keyboard}
-                                        >
-                                            <div
-                                                className="mining-label"
-                                                data-tip={kbLabel.help}
-                                            >
-                                                <label htmlFor={'mining-field-' + kbField.path}>
-                                                    {kbLabel.name}
-                                                </label>
-                                            </div>
-                                            <div className="mining-control">
+                <section className="mining-card">
+                    <div className="mining-card-body">
+                        <div className="mining-hotkey-table-head" aria-hidden="true">
+                            <span>{t('mining.action')}</span>
+                            <span>
+                                <MiningIcon name="keyboard" size={13} />
+                                {t('mining.keyboard')}
+                            </span>
+                            <span>
+                                <MiningIcon name="gamepad" size={13} />
+                                {t('mining.gamepad')}
+                            </span>
+                        </div>
+                        {bindings.map(({ keyboard: kbField, gamepad: gpField }) => {
+                            const kbLabel = label(kbField.path);
+                            return (
+                                <div
+                                    className="mining-hotkey-pair-row mining-row"
+                                    key={kbField.path}
+                                >
+                                    <div
+                                        className="mining-label"
+                                        data-tip={kbLabel.help}
+                                    >
+                                        <label htmlFor={'mining-field-' + kbField.path}>
+                                            {kbLabel.name}
+                                        </label>
+                                    </div>
+                                    <div className="mining-control">
+                                        <FieldInput
+                                            field={kbField}
+                                            value={effectiveValues[kbField.path]}
+                                            name={kbLabel.name}
+                                            hint={kbLabel.help}
+                                            disabled={busy || !!draft[kbField.path]?.inherit}
+                                            change={(v, inv) => change(kbField, v, inv)}
+                                            languageNames={languages}
+                                        />
+                                        {inheritanceControl(kbField, true)}
+                                    </div>
+                                    <div className="mining-control">
+                                        {gpField ? (
+                                            <>
                                                 <FieldInput
-                                                    field={kbField}
-                                                    value={effectiveValues[kbField.path]}
-                                                    name={kbLabel.name}
-                                                    hint={kbLabel.help}
-                                                    disabled={busy || !!draft[kbField.path]?.inherit}
-                                                    change={(v, inv) => change(kbField, v, inv)}
+                                                    field={gpField}
+                                                    value={effectiveValues[gpField.path]}
+                                                    name={label(gpField.path).name}
+                                                    hint={label(gpField.path).help}
+                                                    disabled={
+                                                        busy ||
+                                                        !!draft[gpField.path]?.inherit
+                                                    }
+                                                    change={(v, inv) =>
+                                                        change(gpField, v, inv)
+                                                    }
                                                     languageNames={languages}
                                                 />
-                                                {inheritanceControl(kbField, true)}
-                                            </div>
-                                            <div className="mining-control">
-                                                {gpField ? (
-                                                    <>
-                                                        <FieldInput
-                                                            field={gpField}
-                                                            value={effectiveValues[gpField.path]}
-                                                            name={label(gpField.path).name}
-                                                            hint={label(gpField.path).help}
-                                                            disabled={
-                                                                busy ||
-                                                                !!draft[gpField.path]?.inherit
-                                                            }
-                                                            change={(v, inv) =>
-                                                                change(gpField, v, inv)
-                                                            }
-                                                            languageNames={languages}
-                                                        />
-                                                        {inheritanceControl(gpField, true)}
-                                                    </>
-                                                ) : (
-                                                    <span className="mining-muted-inline">—</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {flags.length > 0 && (
-                                    <div className="mining-card-divider">
-                                        {flags.map((f) => renderFieldRow(f))}
+                                                {inheritanceControl(gpField, true)}
+                                            </>
+                                        ) : (
+                                            <span className="mining-muted-inline">—</span>
+                                        )}
                                     </div>
-                                )}
-                            </div>
-                        </section>
-                    );
-                })}
-                {visibleRows
-                    .filter((f) => !renderedPaths.has(f.path))
-                    .map((f) => renderFieldRow(f))}
+                                </div>
+                            );
+                        })}
+                        {visibleRows.filter((f) => f.path === 'hotkeys.unmute_target_window_on_focus')
+                            .map((f) => renderFieldRow(f))}
+                        {confirmation.map((path) => {
+                            const field = visibleRows.find((f) => f.path === path);
+                            return field && renderFieldRow(field);
+                        })}
+                    </div>
+                </section>
             </div>
         );
     };
@@ -1875,7 +1857,7 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
         const optsField = byPath.get('audio.ffmpeg_reencode_options');
         if (!optsField) return null;
         const currentOpts = String(effectiveValues[optsField.path] ?? '');
-        const activePreset = detectAudioFfmpegPreset(currentOpts);
+        const activePreset = customPresetTarget === data.target ? 'custom' : detectAudioFfmpegPreset(currentOpts);
         const customSaved = String(effectiveValues['audio.custom_encode_settings'] ?? '');
 
         return (
@@ -1896,8 +1878,9 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                         onChange={(e) => {
                             const preset = AUDIO_FFMPEG_PRESETS.find((p) => p.id === e.target.value);
                             if (!preset) return;
+                            setCustomPresetTarget(preset.id === 'custom' ? data.target : null);
                             if (preset.id === 'custom') {
-                                change(optsField, customSaved || currentOpts);
+                                change(optsField, customSaved);
                             } else {
                                 change(optsField, preset.options);
                             }
@@ -2227,16 +2210,16 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
 
     return (
         <div className={obsOnly ? 'mining-editor mining-obs' : 'gsm-workspace mining-editor'}>
-            <header className="mining-window-head">
-                {!obsOnly && (
+            {obsOnly ? (
+                <p className="mining-scope-pill">{t('mining.globalHint')}</p>
+            ) : (
+                <header className="mining-window-head">
                     <div className="mining-brand">
                         <span className="mining-brand-badge" aria-hidden="true">
                             <MiningIcon name="key_settings" size={16} />
                         </span>
                         <h1>{t('mining.title')}</h1>
                     </div>
-                )}
-                {!obsOnly && (
                     <div className="mining-search-box">
                         <MiningIcon name="search" size={14} />
                         <input
@@ -2263,80 +2246,76 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                             </span>
                         )}
                     </div>
-                )}
-                <div className="mining-scope-picker">
-                    <label htmlFor={obsOnly ? 'obs-target' : 'mining-target'}>{t('mining.editing')}</label>
-                    <select
-                        id={obsOnly ? 'obs-target' : 'mining-target'}
-                        title={t('mining.active', { name: data.active })}
-                        disabled={locked}
-                        value={JSON.stringify(data.target)}
-                        onChange={(e) => choose(JSON.parse(e.target.value))}
-                    >
-                        <option value="null">{t('mining.global')}</option>
-                        {[
-                            [t('mining.profiles'), bases],
-                            [t('mining.games'), games],
-                        ].map(([heading, items]) => (
-                            <optgroup
-                                key={heading as string}
-                                label={heading as string}
-                            >
-                                {(items as Profile[]).map((p) => (
-                                    <option
-                                        key={p.name}
-                                        value={JSON.stringify(p.name)}
-                                    >
-                                        {p.name}
-                                        {p.name === data.active ? ' ✓' : ''}
-                                    </option>
-                                ))}
-                            </optgroup>
-                        ))}
-                    </select>
-                    {!obsOnly && (
-                        <>
-                            {([
-                                ['createProfile', 'plus', 'mining.newProfile', false],
-                                ['rename', 'rename', 'mining.renameProfile', !profile || profile.name === 'Default'],
-                                ['delete', 'delete', 'mining.deleteProfile', !profile || profile.name === 'Default' ||
-                                    data.profiles.length <= 1 || games.some(g => g.parent === profile.name)],
-                            ] as const).map(([action, icon, labelKey, unavailable]) => (
-                                <button key={action} type="button" className="mining-icon-btn"
-                                    aria-label={t(labelKey)} title={t(labelKey)} disabled={locked || unavailable}
-                                    onClick={() => startProfileAction(action)}>
-                                    <MiningIcon name={icon} />
-                                </button>
+                    <div className="mining-scope-picker">
+                        <label htmlFor="mining-target">{t('mining.editing')}</label>
+                        <select
+                            id="mining-target"
+                            title={t('mining.active', { name: data.active })}
+                            disabled={locked}
+                            value={JSON.stringify(data.target)}
+                            onChange={(e) => choose(JSON.parse(e.target.value))}
+                        >
+                            <option value="null">{t('mining.global')}</option>
+                            {[
+                                [t('mining.profiles'), bases],
+                                [t('mining.games'), games],
+                            ].map(([heading, items]) => (
+                                <optgroup
+                                    key={heading as string}
+                                    label={heading as string}
+                                >
+                                    {(items as Profile[]).map((p) => (
+                                        <option
+                                            key={p.name}
+                                            value={JSON.stringify(p.name)}
+                                        >
+                                            {p.name}
+                                            {p.name === data.active ? ' ✓' : ''}
+                                        </option>
+                                    ))}
+                                </optgroup>
                             ))}
-                            <button type="button" disabled={locked} onClick={() => startProfileAction('createScene')}>
-                                {t('mining.newSceneProfile')}
+                        </select>
+                        {([
+                            ['createProfile', 'plus', 'mining.newProfile', false],
+                            ['rename', 'rename', 'mining.renameProfile', !profile || profile.name === 'Default'],
+                            ['delete', 'delete', 'mining.deleteProfile', !profile || profile.name === 'Default' ||
+                                data.profiles.length <= 1 || games.some(g => g.parent === profile.name)],
+                        ] as const).map(([action, icon, labelKey, unavailable]) => (
+                            <button key={action} type="button" className="mining-icon-btn"
+                                aria-label={t(labelKey)} title={t(labelKey)} disabled={locked || unavailable}
+                                onClick={() => startProfileAction(action)}>
+                                <MiningIcon name={icon} />
                             </button>
-                        </>
+                        ))}
+                        <button type="button" disabled={locked} onClick={() => startProfileAction('createScene')}>
+                            {t('mining.newSceneProfile')}
+                        </button>
+                    </div>
+                    {profile && profile.name !== data.active && (
+                        <button
+                            type="button"
+                            className="mining-activate-btn"
+                            disabled={locked}
+                            onClick={async () => {
+                                setBusy(true);
+                                try {
+                                    await invokeIpc('settings.mining.activate', {
+                                        name: profile.name,
+                                    });
+                                    await load(profile.name);
+                                } catch (e) {
+                                    setError(String(e));
+                                } finally {
+                                    setBusy(false);
+                                }
+                            }}
+                        >
+                            {t('mining.activate')}
+                        </button>
                     )}
-                </div>
-                {!obsOnly && profile && profile.name !== data.active && (
-                    <button
-                        type="button"
-                        className="mining-activate-btn"
-                        disabled={locked}
-                        onClick={async () => {
-                            setBusy(true);
-                            try {
-                                await invokeIpc('settings.mining.activate', {
-                                    name: profile.name,
-                                });
-                                await load(profile.name);
-                            } catch (e) {
-                                setError(String(e));
-                            } finally {
-                                setBusy(false);
-                            }
-                        }}
-                    >
-                        {t('mining.activate')}
-                    </button>
-                )}
-            </header>
+                </header>
+            )}
 
             <div className="mining-body">
                 {!obsOnly && (
@@ -2682,27 +2661,6 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                                     : renderCardedFields()}
                     </section>
 
-                    {manage && (
-                        <details className="mining-tools mining-card">
-                            <summary>{t('mining.tools')}</summary>
-                            <div className="mining-tools-body">
-                                <p className="mining-muted-inline">{t('mining.toolsHint')}</p>
-                                <button
-                                    type="button"
-                                    disabled={locked}
-                                    data-tip={t('mining.toolsHint')}
-                                    onClick={() =>
-                                        void invokeIpc('settings.mining.tools', {
-                                            root: section,
-                                            subtab: '',
-                                        }).catch((e) => setError(String(e)))
-                                    }
-                                >
-                                    {t('mining.openTools')}
-                                </button>
-                            </div>
-                        </details>
-                    )}
                 </main>
             </div>
 
@@ -2722,6 +2680,7 @@ export function MiningSettings({ obsOnly = false, active = true, destination }: 
                         type="button"
                         onClick={() => {
                             setDraft({});
+                            setCustomPresetTarget(null);
                             setSaveError('');
                             void load(data.target);
                         }}

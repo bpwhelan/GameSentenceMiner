@@ -1,5 +1,4 @@
 use super::*;
-use base64::{engine::general_purpose::STANDARD, Engine};
 pub(super) const HELPER: &str = "GSM Helper - DONT TOUCH";
 pub(super) fn helper_source(scene: &str, source: &str) -> bool {
     scene.trim().eq_ignore_ascii_case(HELPER) || ["window_getter", "game_window_getter", "capture_card_getter", "audio_input_getter"]
@@ -514,8 +513,14 @@ impl Obs {
         name: &str,
         width: u32,
         height: u32,
+        format: &str,
     ) -> Result<Value, String> {
-        Ok(self.call(app,"GetSourceScreenshot",json!({"sourceName":name,"imageFormat":if width==8{"png"}else{"jpg"},"imageWidth":width,"imageHeight":height})).await?["imageData"].clone())
+        let mut result = self
+            .call(app, "GetSourceScreenshot", json!({
+                "sourceName": name, "imageFormat": format, "imageWidth": width, "imageHeight": height
+            }))
+            .await?;
+        Ok(result.get_mut("imageData").map(Value::take).unwrap_or(Value::Null))
     }
     async fn preview(&self, app: &tauri::AppHandle, id: &str) -> Result<Value, String> {
         let scene = if id.is_empty() {
@@ -530,11 +535,11 @@ impl Obs {
         let items = self.fit(app, text(&scene, "id")).await?;
         let item = capture_item(&items, false);
         let source = item.map(|v| text(v, "sourceName"));
-        let image = match self.screenshot(app, text(&scene, "name"), 960, 540).await {
+        let image = match self.screenshot(app, text(&scene, "name"), 960, 540, "jpg").await {
             Ok(v) => v,
             Err(error) => {
                 if let Some(source) = source {
-                    self.screenshot(app, source, 960, 540).await?
+                    self.screenshot(app, source, 960, 540, "jpg").await?
                 } else {
                     return Err(error);
                 }
@@ -844,22 +849,7 @@ impl Obs {
                 .map(|(title, _)| json!(title))
                 .unwrap_or(Value::Null)),
             "obs.sceneHasVisibleOutput" => {
-                let output: Result<Value, String> = async {
-                    let data = self.screenshot(app, text(&arg, "name"), 8, 8).await?;
-                    let raw = data.as_str().unwrap_or("");
-                    if raw.is_empty() {
-                        return Ok(json!(false));
-                    }
-                    let bytes = STANDARD
-                        .decode(raw.split_once(',').map(|(_, s)| s).unwrap_or(raw))
-                        .map_err(err)?;
-                    let image = image::load_from_memory(&bytes).map_err(err)?.to_rgba8();
-                    let mut pixels = image.pixels();
-                    let first = pixels.next();
-                    Ok(json!(pixels.any(|p| Some(p) != first)))
-                }
-                .await;
-                Ok(output.unwrap_or(Value::Null))
+                Ok(json!(self.scene_has_visible_output(app, text(&arg, "name")).await))
             }
             "obs.getWindows" => self.windows(app).await,
             "obs.getCaptureDevices" => self.devices(app, arg).await,

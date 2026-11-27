@@ -136,7 +136,7 @@ struct Inner {
     probe: AsyncMutex<()>,
     scene_edit: AsyncMutex<()>,
     scene_switch_requested: tokio::sync::Notify,
-    suspended_clients: Mutex<(bool, bool)>,
+    suspended_clients: Mutex<bool>,
     updating: AtomicBool,
     suspended: AtomicBool,
     shutting_down: AtomicBool,

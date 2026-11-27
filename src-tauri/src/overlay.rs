@@ -250,11 +250,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
             if let Some(result) = cached.as_mut() {
                 // Moving a window changes its desktop projection, not its OCR.
                 // Read geometry only; do not capture a frame or load an engine.
-                let mut config = state.config.clone();
-                if flag(&config, "ocr_full_screen_instead_of_obs", false) {
-                    config["target_id"] = Value::Null;
-                }
-                if let Ok((monitor, capture)) = gsm_capture::source_projection(&config) {
+                if let Ok((monitor, capture)) = gsm_capture::source_projection(&state.config) {
                     let projection = Projection {
                         monitor,
                         capture,
@@ -433,12 +429,11 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     if cancelled() {
                         return Ok(());
                     }
-                    let Ok((mut image, projection, _)) =
+                    let Ok((image, _, _)) =
                         capture(&config, false, &mut capture_state)
                     else {
                         break;
                     };
-                    mask_areas(&mut image, &projection, &config);
                     if landing.observe(&image) {
                         break;
                     }
@@ -504,7 +499,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                 }
                 let mut timer = gsm_overlay::timing::Timer::new("scan");
                 let captured_at = Instant::now();
-                let (mut image, projection, timing) = capture(&config, false, &mut capture_state)?;
+                let (image, projection, timing) = capture(&config, false, &mut capture_state)?;
                 frame_time += timing.frame;
                 resize_time += timing.resize;
                 if last_projection.as_ref() != Some(&projection) {
@@ -512,8 +507,6 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     last_projection = Some(projection.clone());
                 }
                 timer.mark("capture");
-                mask_areas(&mut image, &projection, &config);
-                timer.mark("mask");
                 let minimum = number(&config, "minimum_character_size", 0.);
                 let forced = request["precomputed"]["bypass_ocr"] == true
                     && request["precomputed"]["producer"]["kind"] == "engine-hook"
@@ -521,16 +514,8 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     && request["precomputed"]["producer"]["integrationId"]
                         .as_str()
                         .is_some_and(|id| !id.is_empty());
-                let supplied = if flag(&config, "use_ocr_result_v2", false)
-                    || flag(&config, "supplement_ocr_result_with_overlay", false)
-                    || forced
-                {
-                    pipeline::precomputed(&request["precomputed"], &projection)
-                } else {
-                    None
-                };
-                let bypass = supplied.is_some()
-                    && (forced || !flag(&config, "supplement_ocr_result_with_overlay", false));
+                let supplied = pipeline::precomputed(&request["precomputed"], &projection);
+                let bypass = forced && supplied.is_some();
                 let mut lines = if bypass {
                     focus.clear();
                     Vec::new()
@@ -538,7 +523,6 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     tries += 1;
                     let use_focus = flag(&config, "adaptive_ocr_retries", false)
                         && !flag(&config, "text_appears_instantly", false)
-                        && !flag(&config, "use_overlay_area_config", false)
                         && request["manual"] != true
                         && local_engine(engine);
                     if !use_focus {
@@ -546,8 +530,6 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     }
                     recognize_frame(
                         &image,
-                        &projection,
-                        &config,
                         reference,
                         use_focus.then_some(&mut focus),
                         captured_at.duration_since(clock).as_secs_f64(),
@@ -575,7 +557,6 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     lines.retain(|l| !supplied.iter().any(|s| pipeline::overlaps(l, s)));
                     lines.extend(supplied);
                 }
-                filter_areas(&mut lines, &projection, &config);
                 if cancelled() {
                     break;
                 }
@@ -583,7 +564,6 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                     lines,
                     language,
                     minimum,
-                    flag(&config, "use_text_filtering", true),
                     &projection,
                 );
                 let rows = payload["data"].as_array().unwrap();
@@ -638,12 +618,7 @@ fn run(app: tauri::AppHandle, shared: Arc<(Mutex<Inner>, Condvar)>) {
                         let total = requested_at.elapsed();
                         let total_ms = total.as_millis();
                         let summary = if bypass {
-                            let coordinates = if forced {
-                                "text-hook"
-                            } else {
-                                "precomputed OCR"
-                            };
-                            format!("Overlay OCR bypass: used {coordinates} coordinates ({box_count} text boxes, total: {total_ms}ms)")
+                            format!("Overlay OCR bypass: used text-hook coordinates ({box_count} text boxes, total: {total_ms}ms)")
                         } else {
                             let source = request["source"].as_str().unwrap_or(if automatic {
                                 "periodic"
@@ -752,37 +727,18 @@ fn local_engine(engine: &str) -> bool {
         "oneocr" | "meikiocr" | "screenai" | "vitaocr" | "mida_vocr" | "alivetext"
     )
 }
-fn configured_region(projection: &Projection, config: &Value) -> Option<Region> {
-    let (includes, _) = area_regions(projection, config);
-    if includes.is_empty() {
-        return Some(Region::full(projection.image_size));
-    }
-    includes
-        .into_iter()
-        .filter_map(|b| Region::from_bounds(b, projection.image_size))
-        .reduce(Region::union)
-}
 fn recognize_frame(
     image: &RgbaImage,
-    projection: &Projection,
-    config: &Value,
     reference: &str,
     mut focus: Option<&mut Focus>,
     now: f64,
     mut recognize: impl FnMut(&RgbaImage) -> Result<Vec<TextBox>, String>,
 ) -> Result<Vec<TextBox>, String> {
-    let Some(base) = configured_region(projection, config) else {
-        return Ok(Vec::new());
-    };
     let full = Region::full(image.dimensions());
     let learned = focus
         .as_deref()
         .and_then(|f| f.region(image.dimensions(), now));
-    let mut region = if base == full {
-        learned.unwrap_or(base)
-    } else {
-        base
-    };
+    let mut region = learned.unwrap_or(full);
     let mut timer = gsm_overlay::timing::Timer::new("scan.ocr");
     timer.input(region.width(), region.height());
     let result = if region == full {
@@ -792,7 +748,6 @@ fn recognize_frame(
     };
     timer.mark(if region == full { "full" } else { "crop" });
     let mut lines = if learned.is_some()
-        && base == full
         && (result.as_ref().is_err()
             || result
                 .as_ref()
@@ -954,8 +909,7 @@ fn poll_watch(
     thread_policy: Option<&ThreadPolicy>,
 ) -> Result<(Vec<Value>, bool), String> {
     watch.deadline = Instant::now() + PRESENCE_POLL_INTERVAL;
-    let (mut image, projection, _) = capture(config, false, capture_state)?;
-    mask_areas(&mut image, &projection, config);
+    let (image, projection, _) = capture(config, false, capture_state)?;
     let mut ran_ocr = false;
     let events = check_watch(
         watch,
@@ -1026,18 +980,13 @@ fn check_watch(
                 "meikiocr"
             };
             let language = config["language"].as_str().unwrap_or("ja");
-            let mut lines = recognize_frame(image, projection, config, "", None, 0., |input| {
-                recognize(input, engine, language)
-            })
-            .unwrap_or_default();
-            filter_areas(&mut lines, projection, config);
+            let lines = recognize(image, engine, language).unwrap_or_default();
             timer.mark("confirm_ocr");
             if let Some(lines) = presence::match_lines(&watch.presence.lines, &lines) {
                 let mut payload = pipeline::prepare(
                     lines,
                     language,
                     number(config, "minimum_character_size", 0.),
-                    flag(config, "use_text_filtering", true),
                     projection,
                 );
                 for key in [
@@ -1117,36 +1066,43 @@ struct CaptureTiming {
 fn capture(
     config: &Value,
     background: bool,
-    _state: &mut Capture,
+    state: &mut Capture,
+) -> Result<(RgbaImage, Projection, CaptureTiming), String> {
+    capture_frame(
+        config,
+        background,
+        || gsm_capture::capture(config, background, state),
+        |source| {
+            let (monitor, bounds) = gsm_capture::source_projection(config)?;
+            let image = OBS_CAPTURE.with(|c| c.borrow_mut().grab(&config["obs"], source))?;
+            Ok(((*image).clone(), monitor, bounds))
+        },
+    )
+}
+
+type SourceFrame = (RgbaImage, [f64; 4], [f64; 4]);
+
+fn capture_frame(
+    config: &Value,
+    background: bool,
+    grab_native: impl FnOnce() -> Result<SourceFrame, String>,
+    grab_obs: impl FnOnce(&str) -> Result<SourceFrame, String>,
 ) -> Result<(RgbaImage, Projection, CaptureTiming), String> {
     let started_at = Instant::now();
     let mut timer = gsm_overlay::timing::Timer::new("capture");
-    let source = config["source_name"].as_str().filter(|s| !s.is_empty());
-    let obs_allowed = !background
-        && !flag(config, "ocr_full_screen_instead_of_obs", false)
-        && source.is_some()
-        && config["obs"].is_object();
-    let capture_obs = || {
-        let (bounds, capture) = gsm_capture::source_projection(config)?;
-        let image = OBS_CAPTURE.with(|c| c.borrow_mut().grab(&config["obs"], source.unwrap()))?;
-        Ok::<_, String>(((*image).clone(), bounds, capture))
-    };
-    let (image, bounds, capture) = if obs_allowed && config["capture_kind"] == "obs" {
-        capture_obs()?
-    } else {
-        match gsm_capture::capture(config, background, _state) {
-            Ok(frame) => frame,
-            Err(_) if obs_allowed => capture_obs()?,
-            Err(error) => return Err(error),
-        }
+    let obs_source = config["source_name"]
+        .as_str()
+        .filter(|s| !s.is_empty() && !background && config["obs"].is_object());
+    let ((image, bounds, capture), scale) = match obs_source {
+        Some(source) if config["capture_kind"] == "obs" => (grab_obs(source)?, 0.75),
+        Some(source) => match grab_native() {
+            Ok(frame) => (frame, 1.0),
+            Err(_) => (grab_obs(source)?, 0.75),
+        },
+        None => (grab_native()?, 1.0),
     };
     let frame = started_at.elapsed();
     timer.mark("frame");
-    let scale = if background {
-        1.
-    } else {
-        number(config, "base_scale", 0.75).clamp(0.25, 1.)
-    };
     let resize_started = Instant::now();
     let image = gsm_capture::scale_for_ocr(image, scale);
     let resize = resize_started.elapsed();
@@ -1159,100 +1115,6 @@ fn capture(
     Ok((image, projection, CaptureTiming { frame, resize }))
 }
 
-fn area_regions(p: &Projection, config: &Value) -> (Vec<[f64; 4]>, Vec<[f64; 4]>) {
-    if !flag(config, "use_overlay_area_config", false) {
-        return (Vec::new(), Vec::new());
-    }
-    let area = &config["areas"];
-    let Some(rectangles) = area["rectangles"].as_array() else {
-        return (Vec::new(), Vec::new());
-    };
-    let screen = area["overlay_coordinate_space"] == "monitor";
-    let source = if screen { p.monitor } else { p.capture };
-    let mut includes = Vec::new();
-    let mut excludes = Vec::new();
-    for rectangle in rectangles {
-        let Some(c) = rectangle["coordinates"].as_array().filter(|c| c.len() == 4) else {
-            continue;
-        };
-        let mut b = [
-            c[0].as_f64().unwrap_or(0.),
-            c[1].as_f64().unwrap_or(0.),
-            c[2].as_f64().unwrap_or(0.),
-            c[3].as_f64().unwrap_or(0.),
-        ];
-        if area["coordinate_system"] == "percentage" {
-            b[0] *= source[2];
-            b[1] *= source[3];
-            b[2] *= source[2];
-            b[3] *= source[3];
-        }
-        let x = (source[0] + b[0] - p.capture[0]) * p.image_size.0 as f64 / p.capture[2];
-        let y = (source[1] + b[1] - p.capture[1]) * p.image_size.1 as f64 / p.capture[3];
-        let r = [
-            x,
-            y,
-            x + b[2] * p.image_size.0 as f64 / p.capture[2],
-            y + b[3] * p.image_size.1 as f64 / p.capture[3],
-        ];
-        if rectangle["is_excluded"] == true {
-            if flag(config, "ocr_area_config_use_exclusion_zones", true) {
-                excludes.push(r);
-            }
-        } else if flag(
-            config,
-            if rectangle["is_secondary"] == true {
-                "ocr_area_config_include_secondary_areas"
-            } else {
-                "ocr_area_config_include_primary_areas"
-            },
-            true,
-        ) {
-            includes.push(r);
-        }
-    }
-    (includes, excludes)
-}
-fn allowed(regions: &(Vec<[f64; 4]>, Vec<[f64; 4]>), x: f64, y: f64) -> bool {
-    let contains = |r: &[f64; 4]| x >= r[0] && x < r[2] && y >= r[1] && y < r[3];
-    (regions.0.is_empty() || regions.0.iter().any(contains)) && !regions.1.iter().any(contains)
-}
-fn mask_areas(image: &mut RgbaImage, p: &Projection, config: &Value) {
-    let regions = area_regions(p, config);
-    if regions.0.is_empty() && regions.1.is_empty() {
-        return;
-    }
-    for (x, y, pixel) in image.enumerate_pixels_mut() {
-        if !allowed(&regions, x as f64, y as f64) {
-            *pixel = image::Rgba([0, 0, 0, 255]);
-        }
-    }
-}
-fn filter_areas(lines: &mut Vec<TextBox>, p: &Projection, config: &Value) {
-    let regions = area_regions(p, config);
-    let keep = |line: &TextBox| {
-        allowed(
-            &regions,
-            (line.bounds[0] + line.bounds[2]) / 2.,
-            (line.bounds[1] + line.bounds[3]) / 2.,
-        )
-    };
-    lines.retain_mut(|line| {
-        if line.words.is_empty() {
-            return keep(line);
-        }
-        let count = line.words.len();
-        line.words.retain(keep);
-        if line.words.len() != count {
-            line.text = line
-                .words
-                .iter()
-                .map(|w| w.text.as_str())
-                .collect::<String>();
-        }
-        !line.words.is_empty()
-    });
-}
 #[cfg(windows)]
 fn cursor() -> Option<(i32, i32)> {
     use windows::Win32::{Foundation::POINT, UI::WindowsAndMessaging::GetCursorPos};
@@ -1268,7 +1130,7 @@ fn cursor() -> Option<(i32, i32)> {
 }
 fn cursor_over_target(config: &Value, point: (i32, i32)) -> bool {
     let Some(id) = config["target_id"].as_u64() else {
-        return flag(config, "ocr_full_screen_instead_of_obs", false);
+        return false;
     };
     xcap::Window::all()
         .ok()
@@ -1290,6 +1152,35 @@ fn cursor_over_target(config: &Value, point: (i32, i32)) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_scale_follows_the_backend_that_supplied_the_pixels() {
+        let monitor = [-1920., 0., 1920., 1080.];
+        let bounds = [-1800., 200., 80., 40.];
+        let frame = || (RgbaImage::new(80, 40), monitor, bounds);
+        for (backend, native_available, background, expected) in [
+            ("window", true, false, (80, 40)),
+            ("obs", true, false, (60, 30)),
+            ("window", false, false, (60, 30)),
+            ("obs", true, true, (80, 40)),
+        ] {
+            let config = json!({"source_name":"game","capture_kind":backend,"obs":{},
+                "settings":{"base_scale":0.5,"ocr_full_screen_instead_of_obs":true}});
+            let (image, projection, _) = capture_frame(
+                &config,
+                background,
+                || native_available.then(frame).ok_or_else(|| "WGC unavailable".into()),
+                |source| {
+                    assert_eq!(source, "game");
+                    Ok(frame())
+                },
+            ).unwrap();
+            assert_eq!(image.dimensions(), expected);
+            assert_eq!(projection.image_size, expected);
+            assert_eq!(projection.monitor, monitor);
+            assert_eq!(projection.capture, bounds);
+        }
+    }
 
     #[test]
     fn ocr_and_manual_scans_finish_without_waiting_for_reference_agreement() {
@@ -1342,7 +1233,7 @@ mod tests {
             }],
             ..Default::default()
         };
-        let mut payload = pipeline::prepare(vec![line], "ja", 0., false, &p);
+        let mut payload = pipeline::prepare(vec![line], "ja", 0., &p);
         payload["is_final"] = json!(true);
         payload["line_id"] = json!("hook-line");
         payload["latest_text"] = json!("日本語");
@@ -1505,52 +1396,8 @@ mod tests {
     }
 
     #[test]
-    fn configured_crop_preserves_masks_words_and_scaled_desktop_coordinates() {
-        let p = Projection {
-            monitor: [-1920., 0., 1920., 1080.],
-            capture: [-1820., 100., 1000., 600.],
-            image_size: (500, 300),
-        };
-        let config = json!({"settings":{"use_overlay_area_config":true},"areas":{"coordinate_system":"percentage","overlay_coordinate_space":"window","rectangles":[
-            {"coordinates":[0.1,0.5,0.8,0.25],"is_excluded":false},
-            {"coordinates":[0.8,0.5,0.1,0.25],"is_excluded":true}
-        ]}});
-        let mut image = RgbaImage::from_pixel(500, 300, image::Rgba([255; 4]));
-        mask_areas(&mut image, &p, &config);
-        let lines = recognize_frame(&image, &p, &config, "", None, 0., |input| {
-            assert_eq!(input.dimensions(), (400, 75));
-            assert_eq!(input.get_pixel(375, 30).0, [0, 0, 0, 255]);
-            Ok(vec![TextBox {
-                text: "日本語".into(),
-                bounds: [0., 0., 200., 30.],
-                words: vec![TextBox {
-                    text: "日".into(),
-                    bounds: [0., 0., 30., 30.],
-                    ..Default::default()
-                }],
-                ..Default::default()
-            }])
-        })
-        .unwrap();
-        assert_eq!(lines[0].bounds, [50., 150., 250., 180.]);
-        assert_eq!(lines[0].words[0].bounds, [50., 150., 80., 180.]);
-        let payload = pipeline::prepare(lines, "ja", 0., false, &p);
-        assert!(
-            (payload["data"][0]["bounding_rect"]["x1"].as_f64().unwrap() - 200. / 1920.).abs()
-                < 1e-6
-        );
-        let restored = payload_lines(&payload, &p);
-        assert!((restored[0].bounds[0] - 50.).abs() < 1e-6);
-        assert!((restored[0].bounds[1] - 150.).abs() < 1e-6);
-    }
-    #[test]
     fn empty_focus_crop_reacquires_on_the_same_frame() {
         let image = RgbaImage::from_pixel(1000, 600, image::Rgba([17, 31, 53, 255]));
-        let p = Projection {
-            monitor: [0., 0., 1000., 600.],
-            capture: [0., 0., 1000., 600.],
-            image_size: (1000, 600),
-        };
         let old = TextBox {
             text: "日本語の文章".into(),
             bounds: [100., 440., 350., 490.],
@@ -1565,8 +1412,6 @@ mod tests {
         let mut calls = 0;
         let lines = recognize_frame(
             &image,
-            &p,
-            &json!({}),
             "日本語の文章",
             Some(&mut focus),
             0.1,
@@ -1586,23 +1431,6 @@ mod tests {
         assert_eq!(calls, 2);
         assert_eq!(lines[0].bounds, moved.bounds);
         assert!(focus.region(image.dimensions(), 0.2).unwrap().top < 100);
-    }
-    #[test]
-    fn area_outside_the_window_does_not_scan_an_unintended_region() {
-        let image = RgbaImage::new(100, 100);
-        let p = Projection {
-            monitor: [0., 0., 100., 100.],
-            capture: [0., 0., 100., 100.],
-            image_size: (100, 100),
-        };
-        let config = json!({"settings":{"use_overlay_area_config":true},"areas":{"rectangles":[{"coordinates":[200,200,10,10],"is_excluded":false}]}});
-        assert!(
-            recognize_frame(&image, &p, &config, "", None, 0., |_| panic!(
-                "outside selection must not OCR the full window"
-            ))
-            .unwrap()
-            .is_empty()
-        );
     }
     #[test]
     fn a_new_scan_interrupts_a_learned_delay() {
@@ -1636,18 +1464,16 @@ mod tests {
         let mut capture_state = Capture::default();
         for sample in 0..10 {
             let start = Instant::now();
-            let (mut image, projection, timing) =
+            let (image, projection, timing) =
                 capture(&config, false, &mut capture_state).unwrap();
             let captured = Instant::now();
-            mask_areas(&mut image, &projection, &config);
-            let masked = Instant::now();
             let result = engines.recognize(&image, "meikiocr", "ja").unwrap();
             let recognized = Instant::now();
-            let payload = pipeline::prepare(result.lines, "ja", 0., false, &projection);
+            let payload = pipeline::prepare(result.lines, "ja", 0., &projection);
             let grouped = Instant::now();
             println!(
                 "BENCH {}",
-                json!({"sample":sample,"capture_ms":captured.duration_since(start).as_secs_f64()*1000.,"frame_ms":timing.frame.as_secs_f64()*1000.,"resize_ms":timing.resize.as_secs_f64()*1000.,"mask_ms":masked.duration_since(captured).as_secs_f64()*1000.,"ocr_ms":recognized.duration_since(masked).as_secs_f64()*1000.,"grouping_ms":grouped.duration_since(recognized).as_secs_f64()*1000.,"lines":payload["data"].as_array().unwrap().len(),"size":[image.width(),image.height()]})
+                json!({"sample":sample,"capture_ms":captured.duration_since(start).as_secs_f64()*1000.,"frame_ms":timing.frame.as_secs_f64()*1000.,"resize_ms":timing.resize.as_secs_f64()*1000.,"ocr_ms":recognized.duration_since(captured).as_secs_f64()*1000.,"grouping_ms":grouped.duration_since(recognized).as_secs_f64()*1000.,"lines":payload["data"].as_array().unwrap().len(),"size":[image.width(),image.height()]})
             );
         }
         #[cfg(windows)]
@@ -1682,9 +1508,7 @@ mod tests {
                 (800, 440),
                 "A released session can reopen"
             );
-            let mut full_screen = config.clone();
-            full_screen["settings"]["ocr_full_screen_instead_of_obs"] = json!(true);
-            let (image, projection, _) = capture(&full_screen, false, &mut capture_state).unwrap();
+            let (image, projection, _) = capture(&config, true, &mut capture_state).unwrap();
             assert_eq!(image.width(), projection.monitor[2] as u32);
             assert_eq!(image.height(), projection.monitor[3] as u32);
             let (image, _, _) = capture(&config, false, &mut capture_state).unwrap();
@@ -1802,34 +1626,6 @@ mod tests {
         assert!(!state.paused);
         assert!(state.pending.is_none());
         assert_eq!(state.label, "new");
-    }
-    #[test]
-    fn exclusions_apply_to_pixels_and_precomputed_words() {
-        let p = Projection {
-            monitor: [-100., 0., 100., 100.],
-            capture: [-100., 0., 100., 100.],
-            image_size: (100, 100),
-        };
-        let config = json!({"settings":{"use_overlay_area_config":true},"areas":{"coordinate_system":"percentage","overlay_coordinate_space":"monitor","rectangles":[{"is_excluded":true,"coordinates":[0.,0.,0.5,1.]}]}});
-        let mut image = RgbaImage::from_pixel(100, 100, image::Rgba([255, 255, 255, 255]));
-        mask_areas(&mut image, &p, &config);
-        assert_eq!(image.get_pixel(10, 10).0, [0, 0, 0, 255]);
-        assert_eq!(image.get_pixel(60, 10).0, [255, 255, 255, 255]);
-        let mut lines = vec![
-            TextBox {
-                text: "hidden".into(),
-                bounds: [0., 0., 20., 20.],
-                ..Default::default()
-            },
-            TextBox {
-                text: "shown".into(),
-                bounds: [60., 0., 80., 20.],
-                ..Default::default()
-            },
-        ];
-        filter_areas(&mut lines, &p, &config);
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].text, "shown");
     }
     #[test]
     fn updating_thread_policy_does_not_reset_overlay_generation() {

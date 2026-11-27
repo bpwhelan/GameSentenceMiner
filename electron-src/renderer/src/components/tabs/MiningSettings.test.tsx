@@ -56,7 +56,7 @@ beforeEach(() => {
                 input.view === 'obs'
                     ? [
                           { ...field, path: 'obs.password', global: true, value: 'local' },
-                          { ...field, path: 'obs.recording_fps', value: 30 },
+                          { ...field, path: 'obs.recording_fps', global: true, value: 30 },
                       ]
                     : target === null
                       ? [{ ...field, path: 'ai.api_key', value: 'private' }]
@@ -307,18 +307,30 @@ it('edits OBS connections and recording in the hub without registering a second 
             </I18nProvider>,
         ),
     );
-    expect(invoke).toHaveBeenCalledWith('settings.mining.read', { view: 'obs' });
+    expect(invoke).toHaveBeenCalledWith('settings.mining.read', { view: 'obs', target: null });
+    expect(node.querySelector('.mining-scope-picker')).toBeNull();
     expect(invoke.mock.calls.some(([channel]) => channel === 'settings.mining.ready')).toBe(false);
     expect(node.querySelector<HTMLInputElement>('input[type=password]')?.value).toBe('local');
     await click('Recording');
-    expect(document.getElementById('mining-field-obs.recording_fps')).toBeTruthy();
+    const fps = document.getElementById('mining-field-obs.recording_fps') as HTMLInputElement;
+    await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(fps, '24');
+        fps.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    active = 'VN';
+    await act(async () => listeners.get('settings.mining.changed')!());
+    await advance();
+    expect(applyCalls()[0][1]).toMatchObject({
+        op: 'edit', view: 'obs', target: null,
+        changes: [{ path: 'obs.recording_fps', before: 30, value: 24, pinned: false }],
+    });
     expect(node.querySelector('nav')).toBeNull();
 });
 
 it('offers AnkiConnect note types and the fields for the selected model on Key Settings', async () => {
     await render();
-    expect(document.getElementById('mining-field-anki.note_type-choices')?.querySelector('option')?.value).toBe('Mining');
+    expect(document.getElementById('mining-field-anki.note_type')?.querySelector<HTMLOptionElement>('option[value="Mining"]')?.value).toBe('Mining');
     await advance(300);
     expect(invoke).toHaveBeenCalledWith('settings.mining.ankiChoices', {model:'Mining'});
-    expect(document.getElementById('mining-field-anki.sentence.name-choices')?.querySelector('option')?.value).toBe('Expression');
+    expect(document.getElementById('mining-field-anki.sentence.name')?.querySelector<HTMLOptionElement>('option[value="Expression"]')?.value).toBe('Expression');
 });

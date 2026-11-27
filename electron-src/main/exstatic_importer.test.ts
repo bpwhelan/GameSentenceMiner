@@ -25,7 +25,7 @@ type Harness = {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const exstaticScriptPath = path.resolve(
     currentDir,
-    '../../GameSentenceMiner/web/static/js/database-exstatic-import.js'
+    '../../resources/web/static/js/database-exstatic-import.js'
 );
 const exstaticScriptSource = fs.readFileSync(exstaticScriptPath, 'utf8');
 

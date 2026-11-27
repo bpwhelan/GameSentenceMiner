@@ -1,4 +1,4 @@
-use super::{Ocr, OcrCoordinator};
+use super::Ocr;
 use crate::obs::Obs;
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde_json::{json, Value};
@@ -102,29 +102,7 @@ fn matching_boxes(context: &Value, width: u32, height: u32, mut geometry: Value)
         .collect()
 }
 
-async fn geometry(app: &tauri::AppHandle, scene: &Value) -> Value {
-    let coord = app.state::<OcrCoordinator>();
-    let python_pid = coord
-        .0
-        .lock()
-        .unwrap()
-        .python_proc
-        .as_ref()
-        .map(|p| p.child.id());
-    if let Some(pid) = python_pid {
-        if let Ok(rt) = crate::runtime::get(app) {
-            return rt
-                .call(
-                    "bus.request",
-                    json!({
-                        "dst":format!("obs-reader-{pid}"), "topic":"ocr.preview",
-                        "data":{"enabled":true,"sceneName":scene}, "timeoutMs":1000
-                    }),
-                )
-                .await
-                .unwrap_or_default();
-        }
-    }
+fn geometry(app: &tauri::AppHandle) -> Value {
     app.state::<Ocr>()
         .command(json!({"action":"preview"}))
         .unwrap_or_default()
@@ -169,7 +147,7 @@ pub(super) async fn get(app: &tauri::AppHandle, request: &Value) -> Option<Value
         }
     };
     let geometry = if request["includeBoxes"] == true {
-        geometry(app, &context["scene"]).await
+        geometry(app)
     } else {
         Value::Null
     };

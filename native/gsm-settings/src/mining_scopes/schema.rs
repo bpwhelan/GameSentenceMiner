@@ -18,10 +18,6 @@ fn shared(key: &str) -> bool {
         "anki.url"
             | "audio.anki_media_collection"
             | "vad.tts_url"
-            | "obs.host"
-            | "obs.port"
-            | "obs.password"
-            | "obs.obs_path"
             | "general.single_port"
             | "general.websocket_sources"
             | "general.websocket_uri"
@@ -31,10 +27,11 @@ fn shared(key: &str) -> bool {
             | "advanced.direct_websocket_port"
             | "advanced.plaintext_websocket_port"
             | "overlay.websocket_port"
-    ) || (key.starts_with("ai.")
-        && (key.ends_with("api_key")
-            || key.ends_with("_url")
-            || (key.starts_with("ai.gsm_cloud_") && !key.ends_with("_models"))))
+    ) || key.starts_with("obs.")
+        || (key.starts_with("ai.")
+            && (key.ends_with("api_key")
+                || key.ends_with("_url")
+                || (key.starts_with("ai.gsm_cloud_") && !key.ends_with("_models"))))
         || key.starts_with("advanced.cloud_sync_")
 }
 
@@ -111,7 +108,6 @@ pub(super) fn editable(key: &str) -> bool {
                 | "anki.overwrite_sentence"
                 | "anki.polling_rate"
                 | "vad.selected_vad_model"
-                | "vad.use_cpu_for_inference"
                 | "advanced.screenshot_capture_backend"
                 | "overlay.engine"
                 | "overlay.monitor_to_capture_bounds"
@@ -168,9 +164,8 @@ pub(super) fn options(key: &str) -> &'static [&'static str] {
         "ai.open_ai_reasoning_effort" => &[
             "", "none", "minimal", "low", "medium", "high", "xhigh", "max",
         ],
-        "vad.whisper_model" => &["tiny", "base", "small", "medium", "large", "turbo"],
-        "vad.selected_vad_model_v2" => &["SILERO", "FIRERED", "WHISPER"],
-        "vad.backup_vad_model" => &["OFF", "SILERO", "FIRERED", "WHISPER"],
+        "vad.selected_vad_model_v2" => &["SILERO", "FIRERED"],
+        "vad.backup_vad_model" => &["OFF", "SILERO", "FIRERED"],
         "experimental.tokenization_backend" => &["sudachi"],
         "experimental.tokenization_sudachi_dictionary" => &["small", "core", "full"],
         "overlay.engine_v2" => &[

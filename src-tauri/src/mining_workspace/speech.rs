@@ -441,7 +441,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "run through scripts/benchmark_speech_pipe.py with the deterministic helper"]
+    #[ignore = "requires a deterministic speech helper"]
     async fn speech_pipe_benchmark() {
         use std::{env, io, time::Instant};
         let helpers = Helpers::locate(

@@ -27,7 +27,7 @@ export const categories: Record<string, string[]> = {
     audio: ['audio', 'vad'],
     hotkeys: ['general'],
     ai: ['general', 'prompts', 'gsm_cloud'],
-    advanced: ['general', 'network', 'stats', 'sync'],
+    advanced: ['general', 'network', 'stats'],
     obs: ['connection', 'recording'],
 };
 
@@ -47,6 +47,7 @@ export function fieldPage(path: string): [string, string] {
         case 'discord':
             return ['general', group];
         case 'anki':
+            if (key.startsWith('confirmation_gamepad_')) return ['hotkeys', 'general'];
             if (key === 'polling_rate_v2') return ['advanced', 'general'];
             if (
                 key.includes('confirmation') ||
@@ -178,8 +179,6 @@ const leadingFields: Record<string, string[]> = {
     ],
     'screenshot.general': [
         'screenshot.enabled',
-        'screenshot.width',
-        'screenshot.height',
         'screenshot.quality',
         'screenshot.extension',
         'screenshot.animated',

@@ -48,7 +48,6 @@ Wheel smoke checks reject either dictionary payload.
 Offline validation:
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests/test_tokenizer.py tests/test_sudachi_client.py tests/util/database/test_tokenization.py tests/web/test_onboarding_api.py
 node --test scripts/native-package-policy.test.mjs GSM_Overlay/tests/gamepad_tokenization.test.cjs
 cargo test --offline --workspace --manifest-path GSM_Overlay/input_server/Cargo.toml
 node GSM_Overlay/tests/sudachi-migration-smoke.cjs GSM_Overlay/input_server/target/release/gsm_overlay_server.exe

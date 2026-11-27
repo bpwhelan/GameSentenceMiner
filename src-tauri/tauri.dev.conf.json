@@ -7,7 +7,7 @@
       "../native/gsm-settings/src", "../native/gsm-packages/src", "../native/gsm-history/src",
       "../native/gsm-text-preview/src", "../native/gsm-runtime/src", "../native/gsm-agent/src",
       "../native/gsm-capture/src", "../native/gsm-texthook/src",
-      "../native/gsm-overlay/src", "../native/gsm-native/src",
+      "../native/gsm-overlay/src", "../native/gsm-intake/src", "../resources/web",
       "../GSM_Overlay/input_server/language/src"
     ]
   }

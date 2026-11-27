@@ -14,9 +14,7 @@ pub fn configure(
 ) -> Result<(), String> {
     let p = gsm_settings::gsm_config::active_profile(doc);
     let section = |key: &str| p.and_then(|p| p.get(key)).unwrap_or(&Value::Null);
-    if crate::app_lifecycle::native_session_requested() {
-        if let Some(keys) = app.try_state::<super::hotkeys::Hotkeys>() { keys.configure(section("hotkeys")); }
-    }
+    if let Some(keys) = app.try_state::<super::hotkeys::Hotkeys>() { keys.configure(section("hotkeys")); }
     let general = section("general");
     let (processing, language) = gsm_settings::workspace::Workspace::text_settings(doc);
     let mut sockets = serde_json::Map::new();
@@ -47,8 +45,7 @@ pub fn configure(
         s.outputs = Some(outputs::start()?);
     }
     let exp = &doc["experimental"];
-    let dictionary = (exp["enable_experimental_features"] == true
-        && exp["enable_tokenization"] == true)
+    let dictionary = (exp["enable_tokenization"] == true)
         .then(|| {
             exp["tokenization_sudachi_dictionary"]
                 .as_str()
@@ -60,9 +57,7 @@ pub fn configure(
     s.projection.configure(app, &cfg, &language)?;
     s.policy.processing = std::sync::Arc::new(processing);
     s.policy.language = language;
-    s.policy.remove_prefix = general["remove_matching_prefix_on_subsequent_lines"] != false;
     s.policy.max_chars = general["texthook_max_buffer_size"].as_u64().unwrap_or(3000) as usize;
-    s.policy.relay = section("hotkeys")["relay_outputs_when_text_intake_paused"] != false;
     s.native_reader = true;
     s.retention = (config.obs.replay_buffer_duration_seconds as i64).max(0) + 5;
     s.sources.configure(
@@ -77,16 +72,13 @@ pub fn configure(
 
 async fn maintain(app: tauri::AppHandle) {
     let intake = app.state::<Intake>();
-    let native = crate::app_lifecycle::native_session_requested();
     loop {
         let due = {
             let scene = app.state::<crate::obs::Obs>().current_scene_name();
             let mut guard = intake.state.lock().unwrap();
             let s = &mut *guard;
             if s.native_reader && !s.finished {
-                if native {
-                    s.feed.refresh_goals_if_due(&app);
-                }
+                s.feed.refresh_goals_if_due(&app);
                 if !scene.is_empty() && s.projection.live.set_scene(&scene) {
                     s.stats_changed("game_changed");
                 }

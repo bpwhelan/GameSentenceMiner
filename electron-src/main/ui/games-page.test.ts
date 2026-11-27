@@ -7,7 +7,7 @@ const requireModule = createRequire(import.meta.url);
 const { JSDOM } = requireModule("jsdom") as {
   JSDOM: new (html: string, options: Record<string, unknown>) => any;
 };
-const webRoot = path.resolve(process.cwd(), "GameSentenceMiner/web");
+const webRoot = path.resolve(process.cwd(), "resources/web");
 
 async function loadGamesPage(confirm = true, failed = false) {
   const dom = new JSDOM(fs.readFileSync(path.join(webRoot, "templates/games.html"), "utf8"), {

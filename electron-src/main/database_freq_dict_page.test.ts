@@ -32,7 +32,7 @@ type TestHarness = {
 };
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const databaseScriptPath = path.resolve(currentDir, '../../GameSentenceMiner/web/static/js/database.js');
+const databaseScriptPath = path.resolve(currentDir, '../../resources/web/static/js/database.js');
 const databaseScriptSource = fs.readFileSync(databaseScriptPath, 'utf8');
 
 function buildDatabasePageHtml(): string {

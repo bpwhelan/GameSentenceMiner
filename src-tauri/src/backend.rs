@@ -1,69 +1,20 @@
-//! Native application owner for backend launch, readiness, recovery and stop.
-use gsm_runtime::backend::{Backend, Call};
+//! Desktop status and compatibility responses for the retired process lifecycle.
 use gsm_settings::gsm_config::get_configured_single_port;
 use reqwest::header::ACCEPT_ENCODING;
 use serde_json::{json, Value};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 
-#[derive(Default)]
-pub struct BackendState {
-    owner: Mutex<Option<Arc<Backend>>>,
-    transition: tokio::sync::Mutex<()>,
-    recheck_database: std::sync::atomic::AtomicBool,
-}
-impl BackendState {
-    pub fn invalidate_prepared_database(&self) {
-        self.recheck_database.store(true, std::sync::atomic::Ordering::Release);
-    }
-    pub fn get(&self, app: &tauri::AppHandle) -> Arc<Backend> {
-        self.owner.lock().unwrap().get_or_insert_with(|| {
-            let handle=app.clone();
-            let call: Call=Arc::new(move |action,args| {
-                let app=handle.clone();
-                Box::pin(async move { operation(&app,action,args).await })
-            });
-            let app=app.clone();
-            Backend::new(call,Arc::new(move |event,data| {
-                if event=="state" && data["state"]=="starting" {
-                    if let Ok(lease)=serde_json::from_value::<gsm_packages::install_session::Lease>(data["session"].clone()) {
-                        let sessions=app.state::<crate::install_session::InstallSessions>();
-                        let _=sessions.model.update(&lease,&json!({"stageId":"backend_boot","status":"running","progressKind":"estimated","progress":0.15,"message":"Starting the GSM backend process..."}));
-                        sessions.notify();
-                    }
-                }
-                if event=="exit" && data["state"]=="failed" {
-                    if let Ok(lease)=serde_json::from_value::<gsm_packages::install_session::Lease>(data["session"].clone()) {
-                        let sessions=app.state::<crate::install_session::InstallSessions>();
-                        let error=data["error"].as_str().map(str::to_owned).unwrap_or_else(||format!("Backend exited with code {}",data["code"]));
-                        let _=sessions.model.finish(&lease,"failed",Some("Failed to initialize the GSM backend process."),Some(&error));
-                        sessions.notify();
-                    }
-                }
-                let message=json!({"type":"native-backend","event":event,"data":data});
-                // Native observers are independent of any renderer listeners.
-                let encoded = message.to_string();
-                for label in crate::desktop_state::desktop_window_labels(&app) {
-                    let _ = app.emit_to(&label, "backend-lifecycle", encoded.clone());
-                }
-                crate::app_lifecycle::on_backend_lifecycle_event(&app, event, &data);
-            }))
-        }).clone()
-    }
-}
-pub fn observe(app: &tauri::AppHandle, event: &str, data: &Value) {
-    let owner = app.state::<BackendState>().owner.lock().unwrap().clone();
-    if let Some(owner) = owner {
-        owner.observe(event, data);
-    }
-}
-pub fn snapshot(app: &tauri::AppHandle) -> Value {
-    app.state::<BackendState>().get(app).snapshot()
+pub fn snapshot(_app: &tauri::AppHandle) -> Value {
+    json!({"state":"stopped","finished":true})
 }
 
 pub async fn fetch_status(app: &tauri::AppHandle, timeout: Duration) -> Result<Value, String> {
-    if app.state::<Arc<crate::mining::MiningService>>().is_enabled() {
+    if app
+        .state::<Arc<crate::mining::MiningService>>()
+        .is_enabled()
+    {
         return Ok(crate::live_status::snapshot(app));
     }
     let config_path = app
@@ -88,215 +39,10 @@ pub async fn fetch_status(app: &tauri::AppHandle, timeout: Duration) -> Result<V
 }
 
 pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, String> {
-    let state = app.state::<BackendState>();
-    let owner = state.get(app);
-    let action = params["action"].as_str().unwrap_or("");
-    if action == "state" {
-        return Ok(owner.snapshot());
-    }
-    if action == "stop" {
-        return owner.stop(params["params"]["runId"].as_str()).await;
-    }
-    if !matches!(action, "start" | "restart") {
-        return Err("Unknown backend lifecycle action".into());
-    }
-    crate::python_install::require_legacy_session()?;
-    let _transition = state
-        .transition
-        .try_lock()
-        .map_err(|_| "A backend launch transition is already in progress")?;
-    if action == "restart" {
-        owner.stop(None).await?;
-    }
-    // Do not take over an unmanaged or separately launched backend.
-    let live = crate::runtime::get(app)?
-        .call("process.state", json!({"id":"backend"}))
-        .await?;
-    if live["pid"].as_u64().is_some()
-        || matches!(
-            live["state"].as_str(),
-            Some("starting" | "restarting" | "stopping")
-        )
-    {
-        return Err("The backend is already running".into());
-    }
-    let mut spec = params["params"]
-        .as_object()
-        .cloned()
-        .map(Value::Object)
-        .unwrap_or(json!({}));
-    package_defaults(app, &mut spec)?;
-    spec["session"] = serde_json::to_value(
-        app.state::<crate::install_session::InstallSessions>()
-            .model
-            .lease(),
-    )
-    .map_err(|e| e.to_string())?;
-    owner.start(spec)
-}
-
-pub(crate) fn package_defaults(app: &tauri::AppHandle, spec: &mut Value) -> Result<(), String> {
-    let paths = &app.state::<crate::settings::Settings>().paths;
-    if spec.get("extras").is_none() {
-        spec["extras"] = gsm_settings::preferences::Preferences::new(&paths.active)
-            .get("pythonExtras")?
-            .unwrap_or(json!([]));
-    }
-    if spec.get("isPreRelease").is_none() {
-        let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
-        spec["isPreRelease"] = json!([
-            root.join("prerelease.json"),
-            root.join("assets/prerelease.json"),
-            root.join("electron-src/assets/prerelease.json")
-        ]
-        .iter()
-        .any(|p| std::fs::read(p)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-            .is_some_and(|v| v["branch"].as_str().is_some_and(|s| !s.trim().is_empty()))));
-    }
-    Ok(())
-}
-pub(crate) fn python_cwd(app: &tauri::AppHandle) -> std::path::PathBuf {
-    let root = &app.state::<crate::desktop_state::DesktopState>().app_root;
-    if crate::python_install::project_root(app) == *root {
-        root.clone()
-    } else {
-        app.state::<crate::settings::Settings>().paths.active.clone()
-    }
-}
-
-async fn operation(app: &tauri::AppHandle, action: &str, args: Value) -> Result<Value, String> {
-    match action {
-        "prepare" => {
-            #[cfg(windows)]
-            crate::startup_tools::prepare(app, serde_json::from_value(args["session"].clone()).ok()).await?;
-            crate::python_install::dispatch(app, json!({"action":"prepare","params":args}))
-                .await
-                .map(|v| v["result"].clone())
-        }
-        "repair" => {
-            let runtime = crate::runtime::get(app)?;
-            // Only owned Python trees are stopped. Native capture and hook
-            // engines do not need to be dismantled to repair Python packages.
-            for id in runtime
-                .call("process.list", json!({}))
-                .await?
-                .as_array()
-                .into_iter()
-                .flatten()
-            {
-                runtime.call("process.stop", json!({"id":id})).await?;
-            }
-            crate::python_install::dispatch(app,json!({"action":"maintain","params":{
-                "mode":"startup_repair","pythonPath":args["prepared"]["pythonPath"],"extras":args["prepared"]["selectedExtras"],"session":args["spec"]["session"]
-            }})).await.map(|v|v["result"].clone())
-        }
-        "launch" => {
-            static SIMULATED: std::sync::atomic::AtomicBool =
-                std::sync::atomic::AtomicBool::new(false);
-            if (std::env::var("GSM_SIMULATE_STARTUP_FAILURE_ONCE").as_deref() == Ok("1")
-                || std::env::args().any(|arg| arg == "--simulate-startup-failure-once"))
-                && !SIMULATED.swap(true, std::sync::atomic::Ordering::SeqCst)
-            {
-                return Err("Simulated failure before starting GSM".into());
-            }
-            let _guard = app
-                .state::<crate::python_install::PythonInstall>()
-                .gate
-                .clone()
-                .lock_owned()
-                .await;
-            let root = app.state::<crate::desktop_state::DesktopState>().app_root.clone();
-            let paths = &app.state::<crate::settings::Settings>().paths;
-            // The desktop already prepared the first session before intake. A
-            // subsequent launch may see restored files or a different backup day.
-            if app.state::<BackendState>().recheck_database.swap(true, std::sync::atomic::Ordering::AcqRel) {
-                let handle = app.clone();
-                tauri::async_runtime::spawn_blocking(move || crate::database_startup::prepare(&handle))
-                    .await.map_err(|e| e.to_string())??;
-            }
-            let mut env = gsm_packages::python::environment();
-            let input_app = app.clone();
-            tauri::async_runtime::spawn_blocking(move || {
-                crate::input_server::wait_ready(&input_app, std::time::Duration::from_secs(5))
-            }).await.map_err(|e| e.to_string())?;
-            crate::input_server::apply_env(app, &mut env);
-            env.insert("GSM_ELECTRON".into(), "1".into());
-            env.insert("GSM_NATIVE_OVERLAY".into(), "1".into());
-            env.insert("GSM_NATIVE_RECYCLED_LINES".into(), "1".into());
-            env.insert("GSM_NATIVE_OBS_OUTPUTS".into(), "1".into());
-            env.insert("GSM_NATIVE_GAME_SESSION".into(), "1".into());
-            env.insert("GSM_NATIVE_HISTORY".into(), "1".into());
-            #[cfg(windows)]
-            env.insert("GSM_DESKTOP_TOOLS_READY".into(), "1".into());
-            env.insert("GSM_NATIVE_SCHEMA".into(), "1".into());
-            env.insert("GSM_DESKTOP_DATABASE_READY".into(), paths.active.join("gsm.db").to_string_lossy().into_owned());
-            env.insert("GSM_DESKTOP_VOCABULARY_READY".into(), "1".into());
-            env.insert("GSM_NATIVE_SEARCH".into(), "1".into());
-            env.insert("GSM_NATIVE_MAINTENANCE".into(), "1".into());
-            env.insert("GSM_NATIVE_TOKENIZATION".into(), "1".into());
-            env.insert("GSM_NATIVE_DASHBOARD_STATS".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_REPORTS".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_SYNC".into(), "1".into());
-            env.insert("GSM_NATIVE_WORD_INDEX".into(), "1".into());
-            env.insert("GSM_NATIVE_WORD_BACKFILL".into(), "1".into());
-            env.insert("GSM_NATIVE_DAILY_ROLLUP".into(), "1".into());
-            env.insert("GSM_NATIVE_CRON".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_MEDIA".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_POLL".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_MONITOR".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_EDIT".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_GROUPING".into(), "1".into());
-            env.insert("GSM_NATIVE_ANKI_CARDS".into(), "1".into());
-            env.insert("GSM_NATIVE_TEXT_CORRELATION".into(), "1".into());
-            env.insert("GSM_NATIVE_TEXT_INTAKE".into(), "1".into());
-            env.insert("GSM_NATIVE_REPLAY_ACQUISITION".into(), "1".into());
-            if let Some(mining) = app.try_state::<Arc<crate::mining::MiningService>>() {
-                if mining.is_enabled() {
-                    env.insert("GSM_NATIVE_MINING".into(), "1".into());
-                    if let Some(port) = mining.bound_gateway_port() {
-                        env.insert("GSM_NATIVE_READER".into(), "1".into());
-                        env.insert("GSM_NATIVE_INTAKE_CONTROLS".into(), "1".into());
-                        env.insert("GSM_NATIVE_LONGPLAY".into(), "1".into());
-                        env.insert("GSM_EXTERNAL_GATEWAY_PORT".into(), port.to_string());
-                    }
-                } else {
-                    env.insert("GSM_NATIVE_MINING".into(), "python".into());
-                }
-            }
-            env.insert(
-                "GSM_DATA_DIR".into(),
-                paths.active.to_string_lossy().into_owned(),
-            );
-            env.insert(
-                "GSM_NATIVE_HELPER_ROOT".into(),
-                root.join("native").to_string_lossy().into_owned(),
-            );
-            env.insert(
-                "GSM_INSTALL_SESSION_ID".into(),
-                args["spec"]["session"]["sessionId"]
-                    .as_str()
-                    .unwrap_or("")
-                    .into(),
-            );
-            let mut argv = vec!["-m", "GameSentenceMiner.gsm"];
-            if cfg!(debug_assertions) {
-                argv.push("--dev");
-            }
-            let cwd = python_cwd(app);
-            crate::runtime::get(app)?.call("process.start",json!({"id":"backend","command":args["prepared"]["pythonPath"],
-                "args":argv,"cwd":cwd,"env":env,"windowsHide":true,"recoverRuntimeCrashes":true,
-                "gracefulStop":{"topic":"backend.command","data":{"function":"quit"},"timeoutMs":5000}})).await
-        }
-        "stop" => {
-            crate::runtime::get(app)?
-                .call(
-                    "process.stop",
-                    json!({"id":"backend","runId":args["runId"]}),
-                )
-                .await
-        }
-        _ => Err("Unknown backend operation".into()),
+    match params["action"].as_str() {
+        Some("state") => Ok(snapshot(app)),
+        Some("stop") => Ok(Value::Null),
+        Some("start" | "restart") => Err(crate::python_install::RETIRED.into()),
+        _ => Err("Unknown backend lifecycle action".into()),
     }
 }

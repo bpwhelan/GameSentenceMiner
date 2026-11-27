@@ -15,13 +15,10 @@ on:
       - 'native/gsm-text-preview/**'
       - 'native/gsm-db/**'
       - 'native/gsm-web/**'
-      - 'GameSentenceMiner/web/templates/**'
-      - 'GameSentenceMiner/web/static/**'
+      - 'resources/**'
       - 'native/gsm-history/**'
       - 'native/gsm-packages/**'
       - 'native/gsm-downloads/**'
-      - 'native/gsm-native/src/**'
-      - 'GameSentenceMiner/assets/vocr/**'
       - 'electron-src/**'
       - 'GSM_Overlay/**'
       - 'scripts/*native*'
@@ -140,7 +137,6 @@ jobs:
           workspaces: |
             . -> src-tauri/target/native-dev
             GSM_Overlay/input_server -> target
-            native/gsm-native -> target
       - name: Record Rust cache restore
         shell: bash
         env:
@@ -213,7 +209,7 @@ jobs:
           if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
           npm run test:ts -- --maxWorkers=2 electron-src/renderer/ electron-src/shared/ release_build_contract.test.ts vocr_package.test.ts
           node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs GSM_Overlay/tests/native_dictionary_transport.test.cjs GSM_Overlay/tests/text_hover.test.cjs
-          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
+          node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
           cargo test --locked --manifest-path src-tauri/Cargo.toml --target-dir src-tauri/target/native-dev
           cargo test --locked --manifest-path native/gsm-overlay/Cargo.toml
           cargo test --locked --manifest-path native/gsm-texthook/Cargo.toml
@@ -227,7 +223,7 @@ jobs:
           cargo test --locked --manifest-path native/gsm-db/Cargo.toml
           cargo test --locked --manifest-path native/gsm-history/Cargo.toml
           # The native preview no longer installs the retired interpreter environment.
-          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml -- --skip python::tests::
+          cargo test --locked --manifest-path native/gsm-packages/Cargo.toml
           cargo test --locked --manifest-path native/gsm-downloads/Cargo.toml
       - name: Exercise the native runtime bus and desktop bridge
         if: runner.os != 'Linux' && !inputs.portable_preview
@@ -236,6 +232,9 @@ jobs:
           if [ -n "$GSM_MACOS_ORT_DIR" ]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
           node scripts/test-native-desktop.mjs runtime
           node scripts/test-native-desktop.mjs foundation
+      - name: Check first install and reopen without Python
+        if: runner.os == 'Windows' && !inputs.portable_preview
+        run: node scripts/test-native-desktop.mjs pythonless
       - name: Exercise native windows, dictionaries, transfer, Home and overlay
         if: runner.os != 'Linux' && !inputs.portable_preview
         shell: bash
@@ -252,7 +251,7 @@ jobs:
           npm run build
           npm run build:input-server
           npm run test:ts -- --maxWorkers=2 electron-src/main/release_build_contract.test.ts electron-src/main/prerelease_build_contract.test.ts
-          node --test scripts/build-native.test.mjs scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
+          node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
       - name: Record prerelease metadata
         if: inputs.prerelease
         run: |

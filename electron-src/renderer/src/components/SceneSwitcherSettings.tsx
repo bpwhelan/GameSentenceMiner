@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invokeIpc, onIpc } from "../lib/ipc";
 import { useTranslation } from "../i18n";
 import type { ObsScene } from "../types/models";
-import type { WindowSceneSwitcherState } from "../../../shared/window_scene_switcher";
+import type { WindowSceneSwitcherState, WindowSceneSwitcherSuggestion } from "../../../shared/window_scene_switcher";
 import { escapeRegexCharacters } from "../../../shared/capture_window_policy";
 
 const titleMatchHelpers = [
@@ -19,10 +19,6 @@ interface SceneSwitcherSettingsProps {
 interface SaveRuleResponse {
   success: boolean;
   error?: string;
-}
-
-interface SuggestedRuleResponse {
-  titlePattern?: string;
 }
 
 function getPatternError(pattern: string): string | null {
@@ -128,18 +124,18 @@ export function SceneSwitcherSettings({ scene }: SceneSwitcherSettingsProps) {
     if (loadingCaptureSource || saving) return;
     setLoadingCaptureSource(true);
     try {
-      const suggested = await invokeIpc<SuggestedRuleResponse | null>(
+      const suggested = await invokeIpc<WindowSceneSwitcherSuggestion | null>(
         "scene-switcher.suggestRule",
         scene.id
       );
-      const pattern = suggested?.titlePattern?.trim();
-      if (!pattern) {
+      if (!suggested?.titlePattern.trim()) {
         setMessage(t("sceneSwitcher.status.noCaptureSource"));
         return;
       }
 
       dirtyRef.current = true;
-      setTitlePattern(pattern);
+      setTitlePattern(suggested.titlePattern.trim());
+      setLiteralTitle(suggested.windowTitle);
       setMessage(t("sceneSwitcher.status.sourceLoaded"));
     } catch {
       setMessage(t("sceneSwitcher.status.noCaptureSource"));

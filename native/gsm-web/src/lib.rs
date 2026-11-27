@@ -279,8 +279,7 @@ impl Preferences {
                 stats["extra_punctuation_regex"].as_str().unwrap_or(""),
                 stats["regex_out_repetitions"] == true,
             )),
-            tokenization: exp["enable_experimental_features"] == true
-                && exp["enable_tokenization"] == true,
+            tokenization: exp["enable_tokenization"] == true,
             language: gsm_settings::gsm_config::target_language_from_config(root),
             dictionary: gsm_settings::gsm_config::dictionary_edition(root),
         }

@@ -7,7 +7,7 @@ const requireModule = createRequire(import.meta.url);
 const { JSDOM } = requireModule("jsdom") as {
   JSDOM: new (html: string, options: Record<string, unknown>) => any;
 };
-const webRoot = path.resolve(process.cwd(), "GameSentenceMiner/web");
+const webRoot = path.resolve(process.cwd(), "resources/web");
 const statusLabels = {
   in_progress: "In Progress",
   completed: "Completed",

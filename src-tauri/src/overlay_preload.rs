@@ -61,7 +61,6 @@ fn desktop_preload(token: &str, restrict_to_feed: bool) -> String {
         .replace("__GSM_RESTRICT_TO_FEED__", if restrict_to_feed { "true" } else { "false" })
         .replace("__GSM_WINDOW_TOKEN__", &token_json)
         .replace("__GSM_PLATFORM__", PRELOAD_PLATFORM_JSON)
-        .replace("__GSM_PYTHON_BACKEND__", if crate::app_lifecycle::native_session_requested() { "false" } else { "true" })
         .replace("__GSM_DEV_ORIGIN__", &json!(dev_origin).to_string())
 }
 

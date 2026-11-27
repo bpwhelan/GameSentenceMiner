@@ -177,7 +177,7 @@ for(const mode of targets) {
     ankiFixture.unref();
   }
   if (capture) {
-    if (!process.env.GSM_SMOKE_FFMPEG_DIR || !process.env.GSM_SMOKE_OBS_PORT) throw Error('Use benchmark_clip_capture.py --desktop to start the OBS fixture.');
+    if (!process.env.GSM_SMOKE_FFMPEG_DIR || !process.env.GSM_SMOKE_OBS_PORT) throw Error('Set GSM_SMOKE_FFMPEG_DIR and GSM_SMOKE_OBS_PORT to the FFmpeg directory and OBS fixture port.');
     await fs.symlink(process.env.GSM_SMOKE_FFMPEG_DIR,path.join(profile,'ffmpeg'),process.platform==='win32'?'junction':'dir');
   }
   if (modelSettings) {
@@ -188,7 +188,7 @@ for(const mode of targets) {
     await fs.mkdir(oldInstall, {recursive:true});
     await fs.writeFile(path.join(oldInstall, 'installation.json'), JSON.stringify({model:'large'}));
     await fs.writeFile(path.join(oldInstall, 'native-runtime.json'), JSON.stringify({backend:'c', library:'legacy.dll'}));
-    await fs.cp(path.join(root, 'GameSentenceMiner', 'assets', 'vocr'), path.join(appRoot, 'GameSentenceMiner', 'assets', 'vocr'), {recursive:true});
+    await fs.cp(path.join(root, 'resources', 'assets', 'vocr'), path.join(appRoot, 'resources', 'assets', 'vocr'), {recursive:true});
   }
   if (hasGateway) {
     const {DatabaseSync} = await import('node:sqlite');
@@ -205,7 +205,7 @@ for(const mode of targets) {
       try {
         db.exec("CREATE TABLE game_lines(id TEXT PRIMARY KEY,line_text TEXT,timestamp TEXT,game_name TEXT); INSERT INTO game_lines VALUES('old','移行','123','fixture')");
         if (mode === 'vocabulary') {
-          const sources = 'GameSentenceMiner/web/templates/components/word_frequency_sources';
+          const sources = 'resources/web/templates/components/word_frequency_sources';
           await fs.cp(path.join(root,sources),path.join(appRoot,sources),{recursive:true});
           const dictionary = JSON.parse(await fs.readFile(path.join(appRoot,sources,'jiten_global.json'),'utf8'));
           expectedFrequency = {count:dictionary.entry_count, rank:dictionary.entries[0][1]};
@@ -262,7 +262,7 @@ for(const mode of targets) {
       ...(hasGateway ? {GSM_NATIVE_MINING:'1', GSM_DB_READ_ONLY:'0', GSM_DISABLE_DB_BACKUP:'0'} : {}),
       ...(speech ? {GSM_SPEECH_FIXTURE:'live'} : {}),
       ...(modelSettings ? {GSM_VOCR_BACKEND:'c'} : {}),
-      ...(pythonless || miningSettings ? {USERPROFILE:profile,HOME:profile} : {GSM_PYTHONLESS:'0'}),
+      ...(pythonless || miningSettings ? {USERPROFILE:profile,HOME:profile} : {}),
       GSM_APP_ROOT:appRoot,
       GSM_PROFILE_DIR:profile,
       GSM_SMOKE_TEST:'1',
@@ -272,7 +272,6 @@ for(const mode of targets) {
       GSM_TEST_RESULT:resultFile,
     };
     delete env.GSM_NODE_EXECUTABLE;delete env.GSM_TEST_SERVICE;delete env.ELECTRON_RUN_AS_NODE;delete env.NODE_PATH;
-    if (pythonless || miningSettings) delete env.GSM_PYTHONLESS;
     if (isolated) {
       delete env.VITE_DEV_SERVER_URL;
       delete env.GSM_INPUT_SERVER_URL;

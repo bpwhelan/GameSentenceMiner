@@ -51,7 +51,7 @@ node scripts/engine-hooks/run-support.mjs --support=<package-id> --pid=<pid> --a
 
 The runner decodes through the decoder registry, so it needs no change for a new package and errors out on an unregistered decoder id. Capture evidence showing: package/build identity, unique signature offsets, one advance result, exact decoded text, current coordinate-space dimensions, line bounds, glyph count, and first/last glyph boxes. Confirm visually that the text and boxes match the displayed game.
 
-14. Run focused Vitest tests, full relevant Electron builds, `.venv` pytest for changed Python paths, and `uv run ruff format GameSentenceMiner tests scripts` after Python changes. Re-run tests after formatting.
+14. Run focused Vitest tests and the relevant native desktop and renderer builds.
 15. Write `docs/[GAME]_ENGINE_HOOK.md` with the supported hash, signatures/selection logic, encoding/control behavior, geometry evidence, advance behavior, attribution, limitations, and exact validation commands.
 
 Acceptance criteria:

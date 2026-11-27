@@ -67,7 +67,7 @@ pub struct AutomationEvalInput<'a> {
     pub run_manual_ocr_on_startup: bool,
     pub run_overlay_on_startup: bool,
     pub run_overlay_with_active_game: bool,
-    pub any_game_active: bool,
+    pub any_game_active: Option<bool>,
     pub scene_game_active: bool,
     pub inactive_for_limit: bool,
     pub ocr_suppressed_for_scene: bool,
@@ -82,14 +82,11 @@ pub fn evaluate_automation_decision(input: &AutomationEvalInput<'_>) -> Automati
 
     let desired_overlay = if input.run_overlay_on_startup {
         Some(true)
-    } else if input.run_overlay_with_active_game {
-        Some(input.obs_connected && input.any_game_active)
-    } else if let Some(prof) = input.profile {
-        if prof.launch_overlay {
-            Some(input.obs_connected && input.any_game_active)
-        } else {
-            Some(false)
-        }
+    } else if input.obs_connected
+        && (input.run_overlay_with_active_game || input.profile.is_some_and(|p| p.launch_overlay))
+    {
+        // An unavailable sample cannot establish that the game ended.
+        input.any_game_active
     } else {
         Some(false)
     };
@@ -400,8 +397,8 @@ async fn run_automation_tick(app: &tauri::AppHandle) {
         None
     };
 
-    let any_game_active = session["active"] == true;
-    let scene_game_active = any_game_active && !scene_name.is_empty();
+    let any_game_active = session["active"].as_bool();
+    let scene_game_active = any_game_active == Some(true) && !scene_name.is_empty();
 
     let switch_running = tauri::async_runtime::spawn_blocking(any_switch_emu_running)
         .await
@@ -414,7 +411,7 @@ async fn run_automation_tick(app: &tauri::AppHandle) {
         s.last_scene_name = scene_name.clone();
         s.switch_emu_active = switch_running.is_some();
 
-        let has_active_capture = scene_game_active || switch_running.is_some() || any_game_active;
+        let has_active_capture = any_game_active == Some(true) || switch_running.is_some();
         if obs_connected && !has_active_capture {
             if s.no_active_game_since.is_none() {
                 s.no_active_game_since = Some(Instant::now());
@@ -682,13 +679,7 @@ async fn run_texthook_automation_step(
     #[cfg(target_os = "linux")]
     {
         let body = json!({"scene":scene_name,"target":exe_name});
-        if crate::app_lifecycle::native_session_requested() {
-            let _ = crate::obs::game_pause::linux_request(app,"/linux/set_scene_target_process",&body);
-        } else {
-            let url = gsm_settings::gsm_config::gsm_backend_url(&paths_for(app).active.join("config.json"),"/linux/set_scene_target_process");
-            let _ = app.state::<crate::desktop_state::DesktopState>().http.post(url).json(&body)
-                .timeout(std::time::Duration::from_secs(2)).send().await;
-        }
+        let _ = crate::obs::game_pause::linux_request(app,"/linux/set_scene_target_process",&body);
     }
 
     let mut launch_opts = json!({
@@ -868,7 +859,7 @@ mod tests {
         let p_auto = sample_profile("textractor", "auto", true);
         let scenes = vec!["OtherScene".to_owned()];
 
-        let d = evaluate_automation_decision(&AutomationEvalInput {
+        let mut input = AutomationEvalInput {
             obs_connected: true,
             scene_id: "s1",
             scene_name: "Steins;Gate",
@@ -879,17 +870,26 @@ mod tests {
             run_manual_ocr_on_startup: false,
             run_overlay_on_startup: false,
             run_overlay_with_active_game: true,
-            any_game_active: true,
+            any_game_active: Some(true),
             scene_game_active: true,
             inactive_for_limit: false,
             ocr_suppressed_for_scene: false,
             ocr_running: false,
             ocr_started_by_auto: false,
             user_ocr_active: false,
-        });
+        };
+        let d = evaluate_automation_decision(&input);
         assert_eq!(d.desired_ocr, DesiredOcr::Auto);
         assert_eq!(d.desired_overlay, Some(true));
         assert!(d.should_run_texthook);
+
+        input.any_game_active = None;
+        input.scene_game_active = false;
+        assert_eq!(evaluate_automation_decision(&input).desired_overlay, None);
+        input.run_overlay_with_active_game = false;
+        assert_eq!(evaluate_automation_decision(&input).desired_overlay, None);
+        input.any_game_active = Some(false);
+        assert_eq!(evaluate_automation_decision(&input).desired_overlay, Some(false));
 
         // Saved TextHook profiles are independent of legacy scene launch modes.
         let no_launcher_hook = sample_profile("none", "manual", false);
@@ -904,7 +904,7 @@ mod tests {
             run_manual_ocr_on_startup: false,
             run_overlay_on_startup: false,
             run_overlay_with_active_game: false,
-            any_game_active: true,
+            any_game_active: Some(true),
             scene_game_active: true,
             inactive_for_limit: false,
             ocr_suppressed_for_scene: false,
@@ -927,7 +927,7 @@ mod tests {
                 run_manual_ocr_on_startup: false,
                 run_overlay_on_startup: false,
                 run_overlay_with_active_game: true,
-                any_game_active: false,
+                any_game_active: Some(false),
                 scene_game_active: false,
                 inactive_for_limit: false,
                 ocr_suppressed_for_scene: false,
@@ -955,7 +955,7 @@ mod tests {
             run_manual_ocr_on_startup: false,
             run_overlay_on_startup: false,
             run_overlay_with_active_game: true,
-            any_game_active: true,
+            any_game_active: Some(true),
             scene_game_active: true,
             inactive_for_limit: false,
             ocr_suppressed_for_scene: false,

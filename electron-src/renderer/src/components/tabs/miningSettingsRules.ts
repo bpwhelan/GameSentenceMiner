@@ -1,5 +1,4 @@
-// Rules, importance markers, presets, visibility/enablement logic, and domain helpers
-// carried over from GameSentenceMiner/ui/config_gui_qt.py and ui/config/.
+// Mining settings presets, validation, field visibility, and importance markers.
 
 export type FieldImportance = 'recommended' | 'important' | 'advanced' | 'warning' | 'deprecated';
 
@@ -228,7 +227,6 @@ export const FIELD_META: Record<string, FieldRuleMeta> = {
     'general.use_websocket': { importance: 'recommended' },
     'general.single_port': { importance: 'recommended', bold: true, range: [1, 65535] },
     'general.use_both_clipboard_and_websocket': { importance: 'advanced', bold: true },
-    'general.remove_matching_prefix_on_subsequent_lines': { importance: 'advanced', bold: true },
 
     // Paths
     'paths.folder_to_watch': { browse: 'directory' },
@@ -267,7 +265,6 @@ export const FIELD_META: Record<string, FieldRuleMeta> = {
         range: [0, 100],
         zeroLabelKey: 'mining.zeroOff',
     },
-    'features.review_after_session.delay_seconds': { unit: 's', range: [0, 120] },
 
     // Anki Field Grouping
     'anki.field_grouping_enabled': { importance: 'recommended', bold: true },
@@ -282,8 +279,6 @@ export const FIELD_META: Record<string, FieldRuleMeta> = {
     'anki.parent_tag': { importance: 'recommended', bold: true },
 
     // Screenshot
-    'screenshot.width': { unit: 'px', zeroLabelKey: 'mining.zeroSource' },
-    'screenshot.height': { unit: 'px', zeroLabelKey: 'mining.zeroSource' },
     'screenshot.quality': { range: [0, 100] },
     'screenshot.seconds_after_line': { importance: 'important', unit: 's' },
     'screenshot.custom_ffmpeg_settings': { importance: 'advanced' },
@@ -324,13 +319,11 @@ export const FIELD_META: Record<string, FieldRuleMeta> = {
     'audio.end_offset': { importance: 'important', unit: 's' },
     'audio.anki_media_collection': { browse: 'directory' },
     'audio.external_tool': { importance: 'deprecated', browse: 'file' },
-    'vad.whisper_model': { options: ['tiny', 'base', 'small', 'medium', 'large', 'turbo'] },
     'vad.beginning_offset': { unit: 's' },
     'vad.splice_padding': { unit: 's' },
     'vad.adaptive_preroll': { importance: 'advanced' },
 
     // Hotkeys
-    'hotkeys.open_utility': { hotkey: true },
     'hotkeys.play_latest_audio': { hotkey: true },
     'hotkeys.mute_target_window': { hotkey: true },
     'hotkeys.manual_overlay_scan': { hotkey: true },
@@ -402,8 +395,6 @@ export const FIELD_META: Record<string, FieldRuleMeta> = {
     },
 
     // Advanced
-    'advanced.audio_player_path': { browse: 'file' },
-    'advanced.video_player_path': { browse: 'file' },
     'advanced.direct_websocket_port': { importance: 'advanced', range: [0, 65535] },
     'advanced.screenshot_capture_backend_v2': { importance: 'advanced' },
     'advanced.wgc_capture_fps': { importance: 'advanced', unit: 'FPS', range: [1, 60], step: 1 },
@@ -461,6 +452,8 @@ export function isFieldVisible(
         afterSession: boolean;
     },
 ): boolean {
+    if (path === 'audio.custom_encode_settings' || path.startsWith('advanced.cloud_sync_')) return false;
+
     // Word field does not expose overwrite/append checkboxes in Qt.
     if (path === 'anki.word.overwrite' || path === 'anki.word.append') {
         return false;
@@ -527,15 +520,12 @@ export function isFieldVisible(
         path === 'anki.confirmation_always_on_top' ||
         path === 'anki.confirmation_focus_on_show' ||
         path === 'anki.confirmation_restore_focus' ||
-        path === 'anki.confirmation_audio_step' ||
-        path === 'anki.confirmation_gamepad_enabled'
+        path === 'anki.confirmation_audio_step'
     ) {
         return context.confirmationEnabled && !context.afterSession;
     }
     if (path.startsWith('anki.confirmation_gamepad_') && path !== 'anki.confirmation_gamepad_enabled') {
         return (
-            context.confirmationEnabled &&
-            !context.afterSession &&
             Boolean(values['anki.confirmation_gamepad_enabled'])
         );
     }
@@ -630,7 +620,7 @@ export function getObsFpsStatus(
     return { tone: 'success', key: 'mining.obsFps.recommended' };
 }
 
-// --- Anki Field Mapping Auto-Suggestion (ported from GameSentenceMiner/anki_setup.py) ---
+// --- Anki Field Mapping Auto-Suggestion ---
 
 const ANKI_PRESET_MAPPINGS = [
     {
@@ -842,9 +832,6 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
             id: 'text-startup',
             titleKey: 'mining.cards.textAndStartup',
             fields: [
-                'general.merge_matching_sequential_text',
-                'general.remove_matching_prefix_on_subsequent_lines',
-                'general.texthook_replacement_regex',
                 'general.texthook_max_buffer_size',
                 'general.open_config_on_startup',
                 'general.open_multimine_on_startup',
@@ -888,7 +875,6 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
             id: 'convenience',
             titleKey: 'mining.cards.convenience',
             fields: [
-                'features.full_auto',
                 'advanced.mute_game_on_minimize',
                 'advanced.mute_game_on_background',
                 'advanced.mute_game_on_background_delay_seconds',
@@ -901,14 +887,6 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
         },
     ],
     'features.tokenization': [
-        {
-            id: 'experimental-master',
-            titleKey: 'mining.cards.experimentalFlags',
-            fields: [
-                'experimental.enable_experimental_features',
-                'experimental.enable_hachidori',
-            ],
-        },
         {
             id: 'tokenization',
             titleKey: 'mining.cards.tokenization',
@@ -1023,12 +1001,9 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
                 'screenshot.enabled',
                 'screenshot.extension',
                 'screenshot.quality',
-                'screenshot.width',
-                'screenshot.height',
                 'screenshot.screenshot_timing_setting',
                 'screenshot.seconds_after_line',
                 'screenshot.trim_black_bars_wip',
-                'screenshot.screenshot_hotkey_updates_anki',
                 'screenshot.custom_ffmpeg_settings',
             ],
         },
@@ -1066,7 +1041,7 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
         {
             id: 'audio-encoding',
             titleKey: 'mining.cards.audioEncoding',
-            fields: ['audio.ffmpeg_reencode_options', 'audio.custom_encode_settings'],
+            fields: ['audio.ffmpeg_reencode_options'],
         },
         {
             id: 'audio-external',
@@ -1086,10 +1061,7 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
                 'vad.do_vad_postprocessing',
                 'vad.selected_vad_model_v2',
                 'vad.backup_vad_model',
-                'vad.whisper_model',
-                'vad.use_vad_filter_for_whisper',
                 'vad.preload_vad_model',
-                'vad.use_cpu_for_inference_v2',
             ],
         },
         {
@@ -1123,7 +1095,7 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
         {
             id: 'ai-anki',
             titleKey: 'mining.cards.aiAnki',
-            fields: ['ai.enabled', 'ai.add_to_anki', 'ai.anki_field'],
+            fields: ['ai.enabled', 'ai.anki_field'],
         },
         {
             id: 'ai-tuning',
@@ -1157,15 +1129,6 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
     ],
     'advanced.general': [
         {
-            id: 'advanced-players',
-            titleKey: 'mining.cards.mediaPlayers',
-            fields: [
-                'advanced.audio_player_path',
-                'advanced.video_player_path',
-                'advanced.audio_backend',
-            ],
-        },
-        {
             id: 'advanced-capture',
             titleKey: 'mining.cards.captureAndPolling',
             fields: [
@@ -1174,7 +1137,6 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
                 'advanced.longest_sleep_time',
                 'advanced.screenshot_capture_backend_v2',
                 'advanced.wgc_capture_fps',
-                'advanced.show_screenshot_buttons',
             ],
         },
         {
@@ -1322,44 +1284,14 @@ export const SECTION_CARDS: Record<string, readonly SectionCardDef[]> = {
     ],
 };
 
-export interface HotkeyGroupDef {
-    id: string;
-    titleKey: string;
-    pairs: readonly { keyboard: string; gamepad?: string }[];
-    footerFlags?: readonly string[];
-}
-
-export const HOTKEY_GROUPS: readonly HotkeyGroupDef[] = [
-    {
-        id: 'input',
-        titleKey: 'mining.sections.input',
-        pairs: [{ keyboard: 'hotkeys.pause_text_intake', gamepad: 'hotkeys.pause_text_intake_gamepad' }],
-        footerFlags: ['hotkeys.relay_outputs_when_text_intake_paused'],
-    },
-    {
-        id: 'capture',
-        titleKey: 'mining.cards.hotkeysOverlay',
-        pairs: [
-            { keyboard: 'hotkeys.manual_overlay_scan', gamepad: 'hotkeys.manual_overlay_scan_gamepad' },
-            { keyboard: 'hotkeys.copy_game_screenshot', gamepad: 'hotkeys.copy_game_screenshot_gamepad' },
-            { keyboard: 'hotkeys.open_utility' },
-        ],
-    },
-    {
-        id: 'audio',
-        titleKey: 'mining.sections.audio',
-        pairs: [
-            { keyboard: 'hotkeys.play_latest_audio', gamepad: 'hotkeys.play_latest_audio_gamepad' },
-            { keyboard: 'hotkeys.mute_target_window', gamepad: 'hotkeys.mute_target_window_gamepad' },
-        ],
-        footerFlags: ['hotkeys.unmute_target_window_on_focus'],
-    },
-    {
-        id: 'process_pausing',
-        titleKey: 'mining.sections.experimental',
-        pairs: [{ keyboard: 'hotkeys.process_pause', gamepad: 'hotkeys.process_pause_gamepad' }],
-    },
-];
+export const HOTKEY_BINDINGS = [
+    'pause_text_intake',
+    'manual_overlay_scan',
+    'copy_game_screenshot',
+    'play_latest_audio',
+    'mute_target_window',
+    'process_pause',
+] as const;
 
 export const CONFIRMATION_GAMEPAD_FIELDS = [
     'anki.confirmation_gamepad_focus_up',

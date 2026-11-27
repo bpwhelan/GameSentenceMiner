@@ -1,4 +1,4 @@
-//! Persistent worker for scripts/benchmark_profile_files.py.
+//! Benchmark profile file operations against a fixture directory.
 use chrono::Local;
 use gsm_db::{profile, Result};
 use serde_json::json;

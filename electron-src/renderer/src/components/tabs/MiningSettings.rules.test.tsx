@@ -63,7 +63,7 @@ function buildRichFields() {
         makeField('anki.confirmation_gamepad_enabled', false),
         makeField('anki.confirmation_gamepad_activate', '0'),
         makeField('anki.autoplay_audio', false),
-        makeField('features.full_auto', true),
+        makeField('features.generate_longplay', false),
         makeField('features.review_after_session.enabled', false),
         makeField('features.review_after_session.open_on_card_queued', true),
         makeField('features.review_after_session.max_future_context_lines', 3, { range: [0, 100] }),
@@ -120,20 +120,21 @@ beforeEach(() => {
     invoke.mockImplementation(async (channel: string, input) => {
         if (channel === 'settings.mining.ready' || channel === 'settings.mining.close') return null;
         if (channel === 'settings.mining.navigation') return null;
+        if (channel === 'settings.mining.aiModels') return [input.provider + '-live-model'];
         if (channel === 'settings.mining.ankiChoices') {
             return input?.model ? ankiModelFields : ['Lapis', 'Custom'];
         }
         if (channel === 'obs.getScenes') return [];
         if (input?.view === 'obs') {
             return {
-                target: 'Default',
+                target: null,
                 active: 'Default',
                 profiles,
                 animatedLockFps,
                 fields: [
                     makeField('obs.host', '127.0.0.1', { global: true }),
-                    makeField('obs.recording_fps', 15, { range: [1, 120] }),
-                    makeField('obs.disable_recording', false),
+                    makeField('obs.recording_fps', 15, { range: [1, 120], global: true }),
+                    makeField('obs.disable_recording', false, { global: true }),
                 ],
                 migrationBackup: null,
                 migrationProfile: null,
@@ -206,6 +207,12 @@ describe('MiningSettings Qt rules parity', () => {
         expect(document.getElementById('mining-field-ai.gemini_api_key')).toBeNull();
         expect(document.getElementById('mining-field-ai.groq_api_key')).toBeTruthy();
         expect(node.textContent).toContain('Connect Groq');
+        const groqModels = document.getElementById('mining-field-ai.groq_model') as HTMLSelectElement;
+        expect(Array.from(groqModels.options, (o) => o.value)).toEqual(expect.arrayContaining([
+            'openai/gpt-oss-20b', 'Groq-live-model',
+        ]));
+        await setInputValue(groqModels, 'Groq-live-model');
+        expect(groqModels.value).toBe('Groq-live-model');
 
         const groqKey = document.getElementById('mining-field-ai.groq_api_key') as HTMLInputElement;
         await setInputValue(groqKey, 'gsk_test_key');
@@ -275,10 +282,13 @@ describe('MiningSettings Qt rules parity', () => {
         expect(document.getElementById('mining-field-anki.skip_confirmation_for_unvoiced')).toBeTruthy();
         expect(document.getElementById('mining-field-anki.confirmation_gamepad_activate')).toBeNull();
 
+        expect(document.getElementById('mining-field-anki.confirmation_gamepad_enabled')).toBeNull();
+        await clickButton('Hotkeys');
         const gamepadCheck = document.getElementById('mining-field-anki.confirmation_gamepad_enabled') as HTMLInputElement;
         await act(async () => gamepadCheck.click());
         expect(document.getElementById('mining-field-anki.confirmation_gamepad_activate')).toBeTruthy();
 
+        await clickButton('Anki');
         const autoAcceptNum = document.getElementById('mining-field-anki.auto_accept_timer') as HTMLInputElement;
         expect(autoAcceptNum.disabled).toBe(true);
         const autoAcceptToggle = node.querySelector<HTMLInputElement>('input[aria-label="Enable auto-accept timer"]')!;
@@ -338,6 +348,9 @@ describe('MiningSettings Qt rules parity', () => {
         expect(document.getElementById('mining-field-audio.end_offset')).toBeNull();
 
         const preset = document.getElementById('mining-audio-ffmpeg-preset') as HTMLSelectElement;
+        expect(document.getElementById('mining-field-audio.custom_encode_settings')).toBeNull();
+        await setInputValue(preset, 'custom');
+        expect(preset.value).toBe('custom');
         await setInputValue(preset, 'none');
         expect((document.getElementById('mining-field-audio.ffmpeg_reencode_options') as HTMLTextAreaElement).value).toBe('');
 
@@ -406,9 +419,10 @@ describe('MiningSettings Qt rules parity', () => {
         animatedLockFps = 20;
         await render(true);
         await clickButton('Recording');
-        expect(node.textContent).toContain('Locked by Animated Screenshot FPS');
+        expect(node.textContent).toContain('Animated screenshots in the active profile require OBS to record at 20 FPS');
 
         const fpsInput = document.getElementById('mining-field-obs.recording_fps') as HTMLInputElement;
+        expect(fpsInput.validity.valid).toBe(true);
         await setInputValue(fpsInput, '60');
         expect(node.textContent).toContain('High FPS warning');
     });

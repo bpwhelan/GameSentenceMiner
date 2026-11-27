@@ -57,7 +57,7 @@ const { shouldRevealAutomaticOverlay, shouldShowOverlayOnReady } = require('./au
 const {
   DICTIONARY_READER_HACHIDORI,
   DICTIONARY_READER_YOMITAN,
-  resolveDictionaryReaderFromConfigData,
+  resolveDictionaryReader,
 } = require('./dictionary_reader');
 const {
   HACHIDORI_EXTERNAL_LINK_CHANNEL,
@@ -964,6 +964,10 @@ ipcMain.handle('gsm-local-vocabulary-sync', async () => {
   finally { notifyLocalVocabularyChanged(); }
 });
 
+ipcMain.on('overlay-text-covered', (_event, windows) => {
+  recordOverlayDiagnostic('overlay-text-covered', { level: 'debug', windows });
+});
+
 // Renderer-process bridge to the cache. The overlay's gamepad/furigana
 // pipeline calls this instead of fetching directly, so cache hits skip
 // the HTTP round-trip entirely.
@@ -1121,6 +1125,7 @@ const DEFAULT_USER_SETTINGS = Object.freeze({
   "showTextIndicators": true,
   "fadeTextIndicators": false,
   "showTextHitboxes": false,
+  "hideCoveredText": true,
   "showLiveStats": true,
   "showLiveGoals": true,
   "hideCompletedGoals": true,
@@ -1283,7 +1288,7 @@ const CONFIGURED_HOTKEY_SETTING_KEY_SET = new Set(CONFIGURED_HOTKEY_SETTING_KEYS
 
 let userSettings = {
   ...DEFAULT_USER_SETTINGS,
-  dictionaryReaderSelection: resolveDictionaryReaderFromConfigData(getGSMSettings()),
+  dictionaryReaderSelection: DICTIONARY_READER_YOMITAN,
   [OVERLAY_PROFILE_SETTINGS_KEY]: {},
 };
 let shouldMigrateLegacyOverlayActivationScan = false;
@@ -2688,9 +2693,10 @@ const handleDictionarySetup = createDictionarySetup({
 });
 
 function handleOverlayWebSocketControlMessage(type, data) {
-  if ((type !== "ws2" && type !== "backend-connector") || data === "True" || data === "False") {
+  if (type !== "ws2" && type !== "backend-connector") {
     return false;
   }
+  if (data === "True" || data === "False") return true;
 
   let message;
   if (data && typeof data === "object") {
@@ -4827,7 +4833,7 @@ if (hasPersistedOverlaySettings) {
       throw new TypeError("settings.json must contain a JSON object");
     }
     userSettings = { ...DEFAULT_USER_SETTINGS, ...userSettings, ...oldUserSettings };
-    userSettings.dictionaryReaderSelection = resolveDictionaryReaderFromConfigData(getGSMSettings(), oldUserSettings);
+    userSettings.dictionaryReaderSelection = resolveDictionaryReader(oldUserSettings);
     if (oldUserSettings.dictionaryReaderSelection !== userSettings.dictionaryReaderSelection) {
       shouldPersistOverlaySettings = true;
     }
@@ -7213,7 +7219,7 @@ async function startOverlayAppImpl() {
   const startupStartedAt = Date.now();
   isDev = !app.isPackaged;
   // Renderer routing changes only after the selected extension is loaded on restart.
-  activeDictionaryReader = resolveDictionaryReaderFromConfigData(getGSMSettings(), userSettings);
+  activeDictionaryReader = resolveDictionaryReader(userSettings);
   const dictionaryReader = activeDictionaryReader;
   let yomitanLowDiskWarningShown = false;
   const canLoadYomitan = async () => {

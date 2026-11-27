@@ -216,20 +216,6 @@ pub fn wait_ready(app: &tauri::AppHandle, timeout: Duration) -> Option<(u16, Str
     }
 }
 
-pub fn apply_env(app: &tauri::AppHandle, env: &mut HashMap<String, String>) {
-    let Some(server) = app.try_state::<InputServer>() else {
-        return;
-    };
-    let Ok(guard) = server.0.state.lock() else {
-        return;
-    };
-    if let (Some(port), Some(url)) = (guard.port, guard.url.as_ref()) {
-        env.insert("GSM_INPUT_SERVER_MANAGED".into(), "1".into());
-        env.insert("GSM_INPUT_SERVER_PORT".into(), port.to_string());
-        env.insert("GSM_INPUT_SERVER_URL".into(), url.clone());
-    }
-}
-
 pub fn stop(app: &tauri::AppHandle) {
     let Some(server) = app.try_state::<InputServer>() else {
         return;

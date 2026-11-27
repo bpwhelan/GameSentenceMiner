@@ -42,15 +42,6 @@ pub async fn invoke(
     if channel == "settings.mining.navigation" {
         return Ok(app.state::<Navigation>().0.lock().unwrap().take().unwrap_or(Value::Null));
     }
-    if channel == "settings.mining.tools" {
-        return crate::gui_dialog::open_settings_with(
-            app,
-            request["root"].as_str().unwrap_or("general").into(),
-            request["subtab"].as_str().unwrap_or("").into(),
-            crate::gui_dialog::prepare_host(app),
-        )
-        .await;
-    }
     if channel == "settings.mining.recommendedAnki" {
         return crate::recommended_anki::open(app).await;
     }
@@ -115,6 +106,17 @@ pub async fn invoke(
         .paths
         .active
         .join("config.json");
+    if channel == "settings.mining.aiModels" {
+        let target = request["target"].as_str().ok_or("Choose a profile")?.to_owned();
+        let provider = request["provider"].as_str().ok_or("Choose a provider")?;
+        let ai = tokio::task::spawn_blocking(move || {
+            let doc = gsm_settings::read_object(&file)?;
+            let profile = doc["configs"][&target].as_object().ok_or("Missing mining profile")?;
+            Ok::<_, String>(gsm_mining::config::ProfileConfig::from_profile_object(&target, profile).ai)
+        }).await.map_err(|e| e.to_string())??;
+        let state = app.state::<crate::desktop_state::DesktopState>();
+        return gsm_mining::ai::list_models(&state.http, &ai, provider).await.map(|models| json!(models));
+    }
     if channel == "settings.mining.ankiChoices" {
         let url = tokio::task::spawn_blocking(move || {
             let doc = gsm_settings::read_object(&file)?;
@@ -138,7 +140,7 @@ pub async fn invoke(
             serde_json::from_str::<Vec<String>>(raw.get()).map_err(|e| e.to_string())
         })
         .await?;
-        return Ok(json!(choices.unwrap_or_default()));
+        return Ok(json!(choices.ok_or(crate::anki_connect::BUSY)?));
     }
     let editing = channel == "settings.mining.apply";
     if !editing && channel != "settings.mining.read" {
@@ -210,8 +212,5 @@ pub async fn changed(app: &AppHandle) {
         .is_enabled()
     {
         crate::desktop_state::emit_to_desktop_windows(app, "settings.mining.changed", &[]);
-    }
-    if !crate::app_lifecycle::native_session_requested() {
-        let _ = crate::runtime::backend_command(app, "reload_settings", Value::Null).await;
     }
 }

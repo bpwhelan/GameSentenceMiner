@@ -82,7 +82,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
 });`;
 
 app.whenReady().then(async () => {
-  const startup = loadOverlayStartup({ experimental: { enable_experimental_features: true, enable_hachidori: true } });
+  const startup = loadOverlayStartup({}, { dictionaryReaderSelection: 'hachidori' });
   const handlerConfig = rendererGamepadConfigSource(startup.settingsPayload(), {
     enabled: true, controllerEnabled: false, keyboardEnabled: false,
     focusOverlayOnEntry: false, initialPosition: 'start',

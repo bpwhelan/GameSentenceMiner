@@ -11,6 +11,15 @@ use std::{
 };
 
 pub fn prepare(paths: &Paths, app_root: &Path, version: &str) -> Result<bool> {
+    prepare_with_overlay(paths, app_root, version, None)
+}
+
+pub fn prepare_with_overlay(
+    paths: &Paths,
+    app_root: &Path,
+    version: &str,
+    overlay_file: Option<&Path>,
+) -> Result<bool> {
     let path = paths.active.join("config.json");
     with_lock(&path, || {
         let local = read_optional(&path)?;
@@ -37,6 +46,23 @@ pub fn prepare(paths: &Paths, app_root: &Path, version: &str) -> Result<bool> {
         let previous = document.clone();
         migrate(&mut document, paths, version)?;
         crate::mining_scopes::prepare(&mut document, &previous, &path)?;
+        if previous["experimental"]["enable_experimental_features"] == true
+            && previous["experimental"]["enable_hachidori"] == true
+        {
+            if let Some(file) = overlay_file {
+                with_lock(file, || {
+                    let mut overlay = crate::read_object(file)?;
+                    if !matches!(
+                        overlay["dictionaryReaderSelection"].as_str(),
+                        Some("yomitan" | "hachidori")
+                    ) {
+                        overlay["dictionaryReaderSelection"] = json!("hachidori");
+                        write_atomic(file, &overlay)?;
+                    }
+                    Ok(())
+                })?;
+            }
+        }
         if local.is_some() && previous == document {
             return Ok(false);
         }
@@ -138,19 +164,11 @@ fn fill(target: &mut Value, defaults: &Value) {
 
 fn migrate(doc: &mut Value, paths: &Paths, version: &str) -> Result<()> {
     let (mut global, profile) = defaults(paths)?;
-    // Startup uses explicit disabling of either setting to drop derived tables.
-    // Keep absent switches absent when recovering a profile with an existing DB.
-    if paths
-        .active
-        .join("gsm.db")
-        .try_exists()
-        .map_err(|e| e.to_string())?
+    // A missing tokenization preference must not drop an existing vocabulary database.
+    if doc["experimental"].get("enable_tokenization").is_none()
+        && paths.active.join("gsm.db").try_exists().map_err(|e| e.to_string())?
     {
-        for key in ["enable_experimental_features", "enable_tokenization"] {
-            if doc["experimental"].get(key).is_none() {
-                global["experimental"].as_object_mut().unwrap().remove(key);
-            }
-        }
+        global["experimental"].as_object_mut().unwrap().remove("enable_tokenization");
     }
     let root = doc
         .as_object_mut()
@@ -175,6 +193,7 @@ fn migrate(doc: &mut Value, paths: &Paths, version: &str) -> Result<()> {
             doc["overlay"] = saved.clone();
         }
     }
+    legacy::retire_mining_settings(doc);
     let root = doc.as_object_mut().unwrap();
     let pausing = root.remove("process_pausing").filter(Value::is_object);
     root.remove("default_config_change_decisions");

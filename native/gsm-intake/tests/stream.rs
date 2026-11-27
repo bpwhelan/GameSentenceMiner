@@ -70,13 +70,7 @@ fn profile_changes_invalidate_filters_and_pause_is_applied_before_acceptance() {
     );
     p.processing = json!({"processor_order":[]}).into();
     p.paused = true;
-    p.relay = false;
     let next = json!({"text":"abc","source":"manual","observationId":"two"});
-    assert_eq!(
-        s.ingest(&next, &p, Clock::at(2), &mut e)["reason"],
-        "text intake is paused"
-    );
-    p.relay = true;
     assert_eq!(
         s.ingest(&next, &p, Clock::at(3), &mut e)["processed_text"],
         "abc"

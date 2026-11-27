@@ -1526,12 +1526,6 @@
     padding: 6px 0 12px;
 }
 
-.mining-obs .mining-window-head {
-    padding: 0 0 12px;
-    background: transparent;
-    border-bottom: 0;
-}
-
 .mining-obs .mining-page-head {
     display: none;
 }

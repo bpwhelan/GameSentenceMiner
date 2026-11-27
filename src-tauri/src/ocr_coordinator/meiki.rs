@@ -50,7 +50,7 @@ pub(crate) async fn invoke(app: &tauri::AppHandle, input: Value) -> Result<Value
 mod tests {
     use super::*;
     #[test]
-    #[ignore = "requires the isolated model fixture from scripts/benchmark_meiki_settings.py"]
+    #[ignore = "requires an isolated model fixture"]
     fn benchmark() {
         use std::{
             io::{self, BufRead},

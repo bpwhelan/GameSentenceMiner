@@ -7,6 +7,15 @@ const { between } = require('./helpers/overlay-startup.cjs');
 
 const main = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
+test('command acknowledgements are consumed on the overlay socket while identical dialogue passes through', () => {
+  const context = vm.createContext({});
+  vm.runInContext(between(main, 'function handleOverlayWebSocketControlMessage(', 'function requestGSMProfileState('), context);
+  for (const text of ['True', 'False']) {
+    assert.equal(context.handleOverlayWebSocketControlMessage('ws2', text), true);
+    assert.equal(context.handleOverlayWebSocketControlMessage('ws1', text), false);
+  }
+});
+
 test('only the matching managed overlay handles a shutdown request', () => {
   let shutdowns = 0;
   const context = vm.createContext({

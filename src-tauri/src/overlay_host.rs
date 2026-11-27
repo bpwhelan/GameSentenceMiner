@@ -710,30 +710,7 @@ impl OverlayHost {
     fn set_process_pause(&self, source: &str, paused: bool) {
         let mut inner = self.inner.lock().unwrap();
         if paused {
-            let profile = inner.backend_config["current_profile"]
-                .as_str()
-                .unwrap_or("Default");
-            let config = inner.backend_config["configs"][profile]
-                .get("process_pausing")
-                .or_else(|| inner.backend_config.get("process_pausing"))
-                .unwrap_or(&Value::Null);
-            let enabled = config["enabled"] == true
-                && match source {
-                    "manual_hotkey" => config["overlay_manual_hotkey_requests_pause"] == true,
-                    "texthooker_hotkey" => {
-                        config["overlay_texthooker_hotkey_requests_pause"] == true
-                    }
-                    "gamepad_navigation" => {
-                        config
-                            .get("overlay_gamepad_navigation_requests_pause")
-                            .unwrap_or(&config["overlay_manual_hotkey_requests_pause"])
-                            == true
-                    }
-                    "gamepad_manual_pause" => true,
-                    _ => false,
-                };
-            if (!enabled && !crate::app_lifecycle::native_session_requested())
-                || !inner.ws2_connected
+            if !inner.ws2_connected
                 || !inner.pause_sources.insert(source.into())
             {
                 return;
@@ -1733,7 +1710,8 @@ impl OverlayHost {
         let builder = dictionary_host::apply_shared_webview_options(
             WebviewWindowBuilder::new(app, OVERLAY_SETTINGS_LABEL, WebviewUrl::External(url))
                 .title("GSM Overlay Settings")
-                .inner_size(980.0, 760.0)
+                .inner_size(1200.0, 980.0)
+                .prevent_overflow()
                 .min_inner_size(720.0, 520.0)
                 .visible(false)
                 .initialization_script(&init_script),
@@ -3866,13 +3844,12 @@ impl OverlayHost {
 
                 let mut capture =
                     Some(crate::text_intake::overlay_control::CaptureConfig::default());
-                let native = crate::app_lifecycle::native_session_requested();
                 let mut refresh = tokio::time::interval(Duration::from_secs(1));
                 refresh.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     tokio::select! {
                         biased;
-                        _ = refresh.tick(), if native => {
+                        _ = refresh.tick() => {
                             if !host.is_running() || host.inner.lock().unwrap().worker_gen != gen { return; }
                             if app.get_webview_window(OVERLAY_MAIN_LABEL).is_some() {
                                 let mut state = capture.take().unwrap_or_default();
@@ -4067,8 +4044,8 @@ impl OverlayHost {
     }
 
     pub(crate) async fn handle_ws2_text(&self, app: &AppHandle, raw_txt: &str) {
-        if raw_txt == "True" || raw_txt == "False" {
-            self.publish_ws2_data(app, raw_txt, None).await;
+        // The overlay socket replies to commands with bare acknowledgement frames.
+        if matches!(raw_txt, "True" | "False") {
             return;
         }
         let Ok(msg) = serde_json::from_str::<Value>(raw_txt) else {
@@ -5118,12 +5095,6 @@ impl OverlayHost {
                 });
                 true
             }
-            "overlay-select-ocr-area" => {
-                if let Some(tx) = &self.inner.lock().unwrap().ws2_tx {
-                    let _ = tx.send(Ws2Outbound::Direct(json!({ "type": "select-ocr-area" })));
-                }
-                true
-            }
             "translate-blocks" | "action-translate" => {
                 let inner = self.inner.lock().unwrap();
                 let payload = Self::build_translate_request(&first, &inner.last_text_payload);
@@ -5337,6 +5308,34 @@ impl OverlayHost {
             "live-goals-availability-changed" => {
                 self.inner.lock().unwrap().goals_available =
                     first["available"] == true || first == true;
+                true
+            }
+            "overlay-text-covered" if label == OVERLAY_MAIN_LABEL => {
+                if let Value::Array(mut reports) = first {
+                    for report in &mut reports {
+                        let Some(owner) = report.get_mut("window").and_then(Value::as_object_mut)
+                        else {
+                            continue;
+                        };
+                        if let Some(path) = owner
+                            .get("pid")
+                            .and_then(Value::as_u64)
+                            .and_then(|pid| u32::try_from(pid).ok())
+                            .and_then(crate::process_probe::process_executable_path)
+                        {
+                            owner.insert(
+                                "executable".into(),
+                                json!(path.file_name().map(|s| s.to_string_lossy())),
+                            );
+                        }
+                    }
+                    crate::desktop_log::emit_rust(
+                        Some(app),
+                        "overlay",
+                        "DEBUG",
+                        &format!("Overlay text covered: {}", Value::Array(reports)),
+                    );
+                }
                 true
             }
             "native-overlay-error" => {

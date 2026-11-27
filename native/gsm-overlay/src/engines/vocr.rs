@@ -49,11 +49,11 @@ fn asset_directory() -> Result<PathBuf> {
         return Ok(directory.clone());
     }
     if let Some(root) = std::env::var_os("GSM_APP_ROOT") {
-        return Ok(PathBuf::from(root).join("GameSentenceMiner/assets/vocr"));
+        return Ok(PathBuf::from(root).join("resources/assets/vocr"));
     }
     #[cfg(any(test, debug_assertions))]
     return Ok(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../GameSentenceMiner/assets/vocr")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../resources/assets/vocr")
     );
     #[cfg(not(any(test, debug_assertions)))]
     anyhow::bail!("The host has not configured the bundled VOCR model directory")

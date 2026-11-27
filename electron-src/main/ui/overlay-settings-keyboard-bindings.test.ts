@@ -304,7 +304,7 @@ describe("overlay settings home dashboard", () => {
       const values = (id: string) => Array.from(doc.getElementById(id).options).map((option: any) => option.value);
       expect(values("home-manualModeType")).toEqual(values("manualModeType"));
       expect(doc.getElementById("home-manualModeType").options[0].textContent).toBe("Hold to show");
-      expect(doc.querySelectorAll("#settingsHome [data-setting-alias]")).toHaveLength(12);
+      expect(doc.querySelectorAll("#settingsHome [data-setting-alias]")).toHaveLength(11);
       expect(doc.querySelectorAll(".home-card")).toHaveLength(4);
       for (const id of ["manualMode", "showHotkey", "engine_v2", "monitor_to_capture", "showFurigana", "showTextIndicators", "dictionaryReaderSelection", "textHoverClickThrough"]) {
         const shortcut = doc.getElementById(`home-${id}`);
@@ -317,6 +317,27 @@ describe("overlay settings home dashboard", () => {
         expect(doc.getElementById(id).closest("[data-page]").dataset.page, id).not.toBe("overview-start");
       }
       expect(page.sent.filter(entry => entry.channel === "setting-changed")).toEqual([]);
+    } finally { page.dom.window.close(); }
+  });
+
+  it("enables covered-text hiding for older profiles and saves the user's override", async () => {
+    const page = loadOverlaySettingsPage();
+    try {
+      await page.ready;
+      page.listeners.get("preload-settings")?.(null, {
+        userSettings: {}, defaultSettings: { hideCoveredText: true },
+        websocketStates: { ws1: false, ws2: false }, runtimeSettings: {}
+      });
+      await nextTick();
+      const checkbox = page.dom.window.document.getElementById("hideCoveredText");
+      expect(checkbox.checked).toBe(true);
+      checkbox.click();
+      await nextTick();
+      expect(page.sent.filter(entry => entry.channel === "setting-changed").at(-1)?.payload)
+        .toEqual({ key: "hideCoveredText", value: false });
+      page.listeners.get("settings-updated")?.(null, { hideCoveredText: true });
+      await nextTick();
+      expect(checkbox.checked).toBe(true);
     } finally { page.dom.window.close(); }
   });
 
@@ -382,8 +403,14 @@ describe("overlay settings home dashboard", () => {
       await nextTick();
       expect(doc.getElementById("showHotkey").value).toBe("Alt+Shift+J");
       expect(page.sent.findLast(entry => entry.channel === "setting-changed")?.payload).toEqual({ key: "showHotkey", value: "Alt+Shift+J" });
-      doc.querySelector('[data-home-action="selectOcrAreaButton"]').click();
-      expect(page.sent.filter(entry => entry.channel === "overlay-select-ocr-area")).toHaveLength(1);
+      expect(doc.querySelector('[data-home-action="selectOcrAreaButton"]')).toBeNull();
+      for (const id of [
+        "selectOcrAreaButton", "use_overlay_area_config", "base_scale", "use_ocr_result_v2",
+        "supplement_ocr_result_with_overlay", "use_text_filtering", "ocr_area_config_include_primary_areas",
+        "ocr_area_config_include_secondary_areas", "ocr_area_config_use_exclusion_zones", "ocr_full_screen_instead_of_obs"
+      ]) {
+        expect(doc.getElementById(id), id).toBeNull();
+      }
       const homeDictionaryButton = doc.querySelector('[data-home-action="openDictionarySettings"]');
       homeDictionaryButton.click();
       doc.getElementById("openYomitanSettings").click();
@@ -578,7 +605,7 @@ describe("overlay live stats period settings", () => {
   });
 });
 
-describe("overlay adaptive OCR retry settings", () => {
+describe("overlay aggressive OCR retry settings", () => {
   it("defaults off, sends edits, and follows the active GSM profile", async () => {
     const page = loadOverlaySettingsPage();
     try {
@@ -589,6 +616,8 @@ describe("overlay adaptive OCR retry settings", () => {
       });
       await nextTick();
       const control = page.dom.window.document.getElementById("adaptive_ocr_retries");
+      expect(control.closest("label").textContent).toContain("Aggressive OCR Retries");
+      expect(control.closest("label").querySelector(".badge-experimental")).toBeNull();
       expect(control.checked).toBe(false);
       expect(control.closest('[data-tab="capture"]')).not.toBeNull();
 

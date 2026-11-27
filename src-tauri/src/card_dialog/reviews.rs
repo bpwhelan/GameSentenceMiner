@@ -52,7 +52,7 @@ impl Entry {
         profile.screenshot =
             serde_json::from_value(snapshot["screenshot"].clone()).unwrap_or(compatible.screenshot);
         profile.ai.anki_field = string(&self.data["translation_field"]).into();
-        profile.ai.add_to_anki = !profile.ai.anki_field.is_empty();
+        profile.ai.enabled &= !profile.ai.anki_field.is_empty();
         profile
     }
 
@@ -73,18 +73,12 @@ impl Entry {
         gsm_settings::with_lock(&path, || gsm_settings::write_atomic(&path, &self.data))
     }
 
-    fn finish(&mut self, config: &ProfileConfig) -> Result<(), String> {
+    fn finish(&mut self) -> Result<(), String> {
         self.data["status"] = json!("reviewed");
         self.persist()?;
         let future = self.path.join("future");
         let future_clean = !future.exists() || fs::remove_dir_all(&future).is_ok();
-        if config
-            .features
-            .review_after_session
-            .delete_local_after_review
-            && future_clean
-            && names(&self.data["cleanup_pending"]).is_empty()
-        {
+        if future_clean && names(&self.data["cleanup_pending"]).is_empty() {
             let _ = fs::remove_dir_all(&self.path);
         }
         Ok(())
@@ -145,7 +139,7 @@ pub(super) fn list(app: &AppHandle) -> Result<Value, String> {
             })
         })
         .collect::<Vec<_>>();
-    Ok(json!({"entries":queue,"autoAdvance":profile.features.review_after_session.auto_advance}))
+    Ok(json!({"entries":queue}))
 }
 
 fn names(value: &Value) -> Vec<String> {
@@ -294,7 +288,7 @@ pub(super) async fn open_in_anki(app: &AppHandle, id: &str) -> Result<Value, Str
         url: &url,
     };
     if current(&anki, &entry, &config).await?.is_none() {
-        entry.finish(&config)?;
+        entry.finish()?;
         return Ok(json!("missing"));
     }
     call(&anki, "guiEditNote", json!({"note":entry.note_id()?})).await?;
@@ -316,13 +310,11 @@ pub(super) async fn discard(app: &AppHandle, id: &str, delete: bool) -> Result<V
         }
         let owned = names(&entry.data["owned_media"]);
         invalidate_media(app, string(&entry.data["line_id"]), &owned);
-        if config.features.review_after_session.cleanup_anki_media {
-            entry.data["cleanup_pending"] = json!(cleanup(&anki, owned).await);
-        }
+        entry.data["cleanup_pending"] = json!(cleanup(&anki, owned).await);
         app.state::<Arc<MiningService>>()
             .forget_note(entry.note_id()?);
     }
-    entry.finish(&config)?;
+    entry.finish()?;
     Ok(json!(if delete { "deleted" } else { "kept" }))
 }
 
@@ -409,7 +401,7 @@ pub(super) async fn save(
         url: &url,
     };
     let Some(note) = current(&anki, &entry, config).await? else {
-        entry.finish(config)?;
+        entry.finish()?;
         return Ok(json!("missing"));
     };
     let meta = &values[7];
@@ -432,7 +424,7 @@ pub(super) async fn save(
         fields.insert(settings.sentence.name.clone(), sentence);
     }
     let translation = string(&values[2]);
-    if config.ai.add_to_anki && translation.trim() != string(&entry.data["translation"]).trim() {
+    if config.ai.enabled && translation.trim() != string(&entry.data["translation"]).trim() {
         fields.insert(config.ai.anki_field.clone(), translation.into());
         history_translation = Some(translation.into());
     }
@@ -513,7 +505,7 @@ pub(super) async fn save(
     }
     normalize_anki_sentence_line_breaks(&mut fields, settings);
     let Some(latest) = current(&anki, &entry, config).await? else {
-        entry.finish(config)?;
+        entry.finish()?;
         return Ok(json!("missing"));
     };
     for (name, value) in &fields {
@@ -612,10 +604,8 @@ pub(super) async fn save(
     if change_audio || meta["picture_changed"] == true || meta["previous_changed"] == true {
         invalidate_media(app, &line_id, &obsolete);
     }
-    if config.features.review_after_session.cleanup_anki_media {
-        entry.data["cleanup_pending"] = json!(cleanup(&anki, obsolete).await);
-    }
-    entry.finish(config)?;
+    entry.data["cleanup_pending"] = json!(cleanup(&anki, obsolete).await);
+    entry.finish()?;
     crate::anki_sync::trigger_incremental(
         app.clone(),
         url,
@@ -821,7 +811,7 @@ pub(super) async fn retry_cleanup(app: &AppHandle) -> Result<Value, String> {
         let retry = cleanup(&anki, names(&entry.data["cleanup_pending"])).await;
         remaining += retry.len();
         entry.data["cleanup_pending"] = json!(retry);
-        entry.finish(&config)?;
+        entry.finish()?;
     }
     Ok(json!(remaining))
 }

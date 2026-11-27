@@ -41,10 +41,6 @@ fs.mkdirSync(gsmDataPath, { recursive: true });
 const configPath = path.join(gsmDataPath, 'config.json');
 if (!fs.existsSync(configPath)) {
   fs.writeFileSync(configPath, JSON.stringify({
-    experimental: {
-      enable_experimental_features: true,
-      enable_hachidori: true,
-    },
     current_profile: 'Default',
     configs: {
       Default: {
@@ -58,6 +54,7 @@ if (!fs.existsSync(configPath)) {
 const settingsPath = path.join(overlayDataPath, 'settings.json');
 if (!fs.existsSync(settingsPath)) {
   fs.writeFileSync(settingsPath, JSON.stringify({
+    dictionaryReaderSelection: 'hachidori',
     pushToShowEnforcedDialogDismissed: true,
     mainBoxStartupWarningAcknowledged: true,
     openSettingsOnStartup: false,

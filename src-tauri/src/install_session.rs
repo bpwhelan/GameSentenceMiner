@@ -15,7 +15,6 @@ pub struct InstallSessions {
     pub model: Arc<Sessions>,
     wake: Mutex<Option<SyncSender<()>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
-    backend: Mutex<Option<(Value, Lease)>>,
 }
 impl InstallSessions {
     pub fn new(app: tauri::AppHandle) -> Self {
@@ -63,7 +62,6 @@ impl InstallSessions {
             model,
             wake: Mutex::new(Some(tx)),
             worker: Mutex::new(Some(worker)),
-            backend: Mutex::new(None),
         }
     }
     pub fn notify(&self) {
@@ -89,7 +87,7 @@ pub async fn retry(app: &tauri::AppHandle, _label: &str, expected: Lease) -> Val
     if let Some(target) = claim["target"].as_str().filter(|t| t.starts_with("native:")) {
         let ticket = claim["ticket"].as_str().unwrap_or_default();
         if state.model.accept_retry(ticket) {
-            tauri::async_runtime::spawn(crate::python_ops::execute_native_retry(
+            tauri::async_runtime::spawn(crate::service_maintenance::execute_native_retry(
                 app.clone(),
                 target.to_owned(),
                 lease,
@@ -106,70 +104,4 @@ pub async fn retry(app: &tauri::AppHandle, _label: &str, expected: Lease) -> Val
     } else {
         json!({"success":false,"error":error})
     }
-}
-pub fn observe(app: &tauri::AppHandle, event: &str, message: &Value) {
-    let state = app.state::<InstallSessions>();
-    if event == "process.spawned" && message["id"] == "backend" {
-        let lifetime=crate::backend::snapshot(app);
-        let lease=if lifetime["processRunId"]==message["runId"] {
-            serde_json::from_value::<Option<Lease>>(lifetime["session"].clone()).ok().flatten()
-        } else { state.model.lease() };
-        *state.backend.lock().unwrap() = lease.map(|lease| (message["runId"].clone(), lease));
-        return;
-    }
-    let Some((run, lease)) = state.backend.lock().unwrap().clone() else {
-        return;
-    };
-    if event == "process.log" && message["id"] == "backend" && message["runId"] == run {
-        let raw = message["message"].as_str().unwrap_or("");
-        let tagged = crate::desktop_log::ensure_origin("py:backend", raw);
-        state.model.append(
-            &lease,
-            &json!({"source":"py:backend","stream":message["stream"],"message":tagged}),
-        );
-        state.notify();
-    }
-    if event != "bus.message"
-        || message["src"] != "backend"
-        || message["topic"] != "backend.event"
-        || message["kind"] != "event"
-    {
-        return;
-    }
-    let data = &message["data"]["data"];
-    match message["data"]["function"].as_str() {
-        Some("install_progress") => {
-            if data["session_id"]
-                .as_str()
-                .is_some_and(|id| !id.is_empty() && id != lease.session_id)
-            {
-                return;
-            }
-            let mut update = json!({});
-            for (from, to) in [
-                ("stage_id", "stageId"),
-                ("status", "status"),
-                ("progress_kind", "progressKind"),
-                ("progress", "progress"),
-                ("message", "message"),
-                ("downloaded_bytes", "downloadedBytes"),
-                ("total_bytes", "totalBytes"),
-                ("error", "error"),
-            ] {
-                if let Some(value) = data.get(from) {
-                    update[to] = value.clone();
-                }
-            }
-            let _ = state.model.update(&lease, &update);
-        }
-        Some("initialized") => {
-            let _ = state.model.update(&lease, &json!({"stageId":"backend_boot","status":"completed","progressKind":"estimated","message":"GSM backend is running."}));
-            let _ = state.model.update(&lease, &json!({"stageId":"finalize","status":"completed","progressKind":"estimated","message":"Setup complete."}));
-            let _ = state
-                .model
-                .finish(&lease, "completed", Some("Setup complete."), None);
-        }
-        _ => return,
-    }
-    state.notify();
 }

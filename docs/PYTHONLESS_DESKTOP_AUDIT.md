@@ -1,4 +1,6 @@
-# What still needs Python in GSM
+# Historical audit of Python dependencies
+
+The desktop now builds and runs from the Rust workspace. The dependency list below describes the November 21 migration snapshot. See the [current source map](AI_AGENT_MAP.md).
 
 **November 21, 2026 · `codex/tauri-architecture` · working tree based on `4fea8c90`**
 

@@ -29,10 +29,10 @@ export async function stageNativeDesktop({portablePreview = false} = {}) {
   await fs.writeFile(marker,'GSM generated native application resources\n');
   await fs.mkdir(destination,{recursive:true});
   const sourceFilter=filename=>includeSource(path.relative(root,filename));
-  for(const directory of ['dist/renderer','GameSentenceMiner/assets','GameSentenceMiner/locales','GameSentenceMiner/web/templates/components/word_frequency_sources']) {
+  for(const directory of ['dist/renderer','resources/assets','resources/locales','resources/web/templates/components/word_frequency_sources']) {
     await copy(path.join(root,directory),path.join(destination,directory),filename=>sourceFilter(filename)&&!path.basename(filename).startsWith('desktop_bridge.'));
   }
-  await verifyVocrBundle(path.join(destination,'GameSentenceMiner/assets/vocr'), {downloadable: true});
+  await verifyVocrBundle(path.join(destination,'resources/assets/vocr'), {downloadable: true});
   await copy(path.join(root,'assets'),path.join(destination,'assets'),sourceFilter);
   await copy(path.join(root,'electron-src/assets'),path.join(destination,'assets'),filename=>sourceFilter(filename)&&!['texthook','changelog','old icon'].includes(path.basename(filename)));
   const packageInfo=JSON.parse(await fs.readFile(path.join(root,'package.json')));

@@ -210,10 +210,6 @@ function ConsolePanel({
     await window.ipcRenderer.invoke("logs.openFolder");
   }, []);
 
-  const exportLogs = useCallback(async () => {
-    await window.ipcRenderer.invoke("logs.export");
-  }, []);
-
   const consoleModeRef = useRef(consoleMode);
   useEffect(() => {
     consoleModeRef.current = consoleMode;
@@ -591,13 +587,6 @@ function ConsolePanel({
           onClick={() => void openLogsFolder()}
         >
           {t("app.console.openLogsFolder")}
-        </button>
-        <button
-          className="console-action-button"
-          onClick={() => void exportLogs()}
-          data-tip={t("app.console.exportLogsTooltip")}
-        >
-          {t("app.console.exportLogs")}
         </button>
         <button
           className={`console-mode-toggle ${consoleMode}`}

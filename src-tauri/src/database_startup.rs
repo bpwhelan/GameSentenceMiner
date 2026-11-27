@@ -154,7 +154,8 @@ pub fn prepare(app: &tauri::AppHandle) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     if std::env::var("GSM_DB_READ_ONLY").as_deref() != Ok("1") {
-        gsm_settings::profile_config::prepare(paths, app_root, &app.package_info().version.to_string())?;
+        let overlay_settings = crate::dictionary_host::overlay_data_path(app).join("settings.json");
+        gsm_settings::profile_config::prepare_with_overlay(paths, app_root, &app.package_info().version.to_string(), Some(&overlay_settings))?;
     }
     prepare_current(app, paths, app_root)?;
     if std::env::var("GSM_DB_READ_ONLY").as_deref() != Ok("1") {
@@ -214,23 +215,10 @@ fn prepare_current(app: &tauri::AppHandle, paths: &Paths, app_root: &Path) -> Re
         .map_err(|e| format!("Initializing background jobs: {e}"))?;
     // A missing or unreadable configuration is insufficient evidence for
     // dropping an existing profile's derived vocabulary and Anki tables.
-    if let Some(experimental) = config["experimental"].as_object() {
-        let master = experimental
-            .get("enable_experimental_features")
-            .and_then(|v| v.as_bool());
-        let words = experimental
-            .get("enable_tokenization")
-            .and_then(|v| v.as_bool());
-        let enabled = match (master, words) {
-            (Some(false), _) | (_, Some(false)) => Some(false),
-            (Some(true), Some(true)) => Some(true),
-            _ => None,
-        };
-        if let Some(enabled) = enabled {
-            gsm_db::vocabulary::configure_desktop(&mut conn, enabled)
-                .map_err(|e| format!("Configuring vocabulary: {e}"))?;
-            schedule_vocabulary(app, enabled)?;
-        }
+    if let Some(enabled) = config["experimental"]["enable_tokenization"].as_bool() {
+        gsm_db::vocabulary::configure_desktop(&mut conn, enabled)
+            .map_err(|e| format!("Configuring vocabulary: {e}"))?;
+        schedule_vocabulary(app, enabled)?;
     }
     if let Some(policy) = backup {
         let handle = app.clone();

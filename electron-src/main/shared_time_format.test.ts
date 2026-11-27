@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 function loadRawHourFormatter(): (hours: number) => string {
     const source = readFileSync(
-        resolve(process.cwd(), 'GameSentenceMiner/web/static/js/shared.js'),
+        resolve(process.cwd(), 'resources/web/static/js/shared.js'),
         'utf8',
     );
     const match = source.match(/window\.formatTimeRaw = function\(hours\) \{[\s\S]*?\n\};/);

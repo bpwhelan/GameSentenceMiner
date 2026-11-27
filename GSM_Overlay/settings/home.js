@@ -46,9 +46,7 @@
       fields: [
         field("engine_v2", "OCR engine"),
         field("monitor_to_capture", "Capture monitor"),
-        field("use_overlay_area_config", "Use my capture areas", "Limit capture to the areas you have selected."),
       ],
-      actions: [["selectOcrAreaButton", "Choose capture areas"]],
     },
     {
       id: "readings",

@@ -32,7 +32,7 @@ function loadSearchBootstrapHooks(): SearchBootstrapHooks {
     const currentDir = path.dirname(fileURLToPath(import.meta.url));
     const searchScriptPath = path.resolve(
         currentDir,
-        '../../GameSentenceMiner/web/static/js/search.js'
+        '../../resources/web/static/js/search.js'
     );
     const source = fs.readFileSync(searchScriptPath, 'utf8');
     const context = {

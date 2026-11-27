@@ -80,7 +80,7 @@ mod bench_tests {
 
         // 1. FireRedVAD & Silero VAD v6 on 10s 16kHz audio (160,000 samples)
         let assets_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../GameSentenceMiner/assets");
+            .join("../../resources/assets");
         let vad = VadSystem::new(vec![assets_root]);
         let pcm: Vec<i16> = (0..160_000)
             .map(|i| {

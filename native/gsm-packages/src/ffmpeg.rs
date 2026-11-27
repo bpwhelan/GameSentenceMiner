@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Driven by scripts/benchmark_ffmpeg_bootstrap.py with pinned release archives"]
+    #[ignore = "Requires pinned release archives"]
     fn benchmark_worker() {
         println!("ready {}", std::process::id());
         for line in std::io::stdin().lock().lines() {

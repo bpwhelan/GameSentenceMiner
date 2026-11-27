@@ -27,10 +27,10 @@
         [
           "source",
           "Capture source",
-          "Choose your OCR engine, monitor, and capture areas. These settings follow your GSM profile.",
+          "Choose your OCR engine and capture monitor. These settings follow your GSM profile.",
         ],
         ["scanning", "Scanning", "Control when the overlay scans for new text."],
-        ["results", "Results", "Decide how captured text is filtered, combined, and kept up to date."],
+        ["results", "Results", "Choose how the overlay handles text that moves or disappears."],
         ["alignment", "Alignment", "Calibrate overlay text if it does not line up with your game."],
         ["advanced", "Advanced", "Extra capture options. Keep the defaults unless you need to troubleshoot."],
       ],

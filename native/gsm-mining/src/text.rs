@@ -611,7 +611,7 @@ pub fn get_mined_expression_spans(sentence: &str, expression: &str) -> (String, 
     (context, spans, has_bold)
 }
 
-// --- Fuzzy card-to-line matcher (exact port of native/gsm-native/src/card_matching.rs) ---
+// --- Fuzzy card-to-line matcher ---
 
 pub struct MatchQuery {
     pub sentence: String,

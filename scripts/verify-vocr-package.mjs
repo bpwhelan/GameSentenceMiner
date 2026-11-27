@@ -45,13 +45,13 @@ export default async function afterPack(context) {
   const root = context.electronPlatformName === 'darwin'
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents')
     : context.appOutDir;
-  const directory = path.join(root, 'resources', 'GameSentenceMiner', 'assets', 'vocr');
+  const directory = path.join(root, 'resources', 'resources', 'assets', 'vocr');
   const result = await verifyVocrBundle(directory);
   console.log(`Verified packaged VOCR: ${result.graphs} graphs (${result.bytes} bytes)`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const directory = process.argv[2] || path.resolve('GameSentenceMiner/assets/vocr');
+  const directory = process.argv[2] || path.resolve('resources/assets/vocr');
   const result = await verifyVocrBundle(directory);
   console.log(`Verified VOCR: ${result.graphs} graphs (${result.bytes} bytes) in ${directory}`);
 }

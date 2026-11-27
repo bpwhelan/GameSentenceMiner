@@ -35,15 +35,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
 pub const HUB_WINDOW_LABEL: &str = "gsm-hub";
 pub const APP_MENU_PREFIX: &str = "app-menu::";
 
-/// Local builds can opt in to the old backend for compatibility tests.
-pub(crate) fn native_session_requested() -> bool {
-    !crate::LOCAL_BUILD || std::env::var("GSM_PYTHONLESS").as_deref() != Ok("0")
-}
-
 const TRAY_READY_INDICATOR_MS: u64 = 10_000;
-const BACKEND_STATUS_POLL_MS: u64 = 2_000;
 const FIRST_EPHEMERAL_NOTIFICATION_ID: i64 = 1_000_000;
-const CRASH_NOTIFICATION_ID: i64 = 941_893;
 const STILL_RUNNING_NOTIFICATION_ID: i64 = 941_894;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -51,7 +44,6 @@ pub struct StartupCliArgs {
     pub scene: Option<String>,
     pub game: Option<String>,
     pub ocr: bool,
-    pub force_python_update: bool,
     pub force_all_updates: bool,
     pub agent_restart_id: Option<String>,
 }
@@ -80,7 +72,6 @@ impl StartupCliArgs {
                     i += 1;
                 }
                 "--ocr" => parsed.ocr = true,
-                "--force-python-update" => parsed.force_python_update = true,
                 "--force-all-updates" => parsed.force_all_updates = true,
                 _ => {}
             }
@@ -101,13 +92,12 @@ enum NotificationClickAction {
 struct LifecycleInner {
     startup_args: Vec<String>,
     cli: StartupCliArgs,
-    python_ipc_connected: bool,
+    backend_bus_connected: bool,
     backend_status_ready: bool,
     backend_initialized: bool,
     text_intake_paused: bool,
     ready_indicator_expires_at_ms: u64,
     ready_timer_gen: u64,
-    poll_gen: u64,
     reopen_settings_after_restart: bool,
     agent_control: Option<Arc<AgentControl>>,
     pending_agent_request_id: Option<String>,
@@ -118,7 +108,6 @@ struct LifecycleInner {
 
 pub struct AppLifecycle {
     inner: Mutex<LifecycleInner>,
-    python_exit_requested: AtomicBool,
     ocr_hook_redundant_shown: AtomicBool,
     shown_close_to_tray_notice: AtomicBool,
     agent_restart_ready_notified: AtomicBool,
@@ -130,7 +119,6 @@ impl Default for AppLifecycle {
     fn default() -> Self {
         Self {
             inner: Mutex::new(LifecycleInner::default()),
-            python_exit_requested: AtomicBool::new(false),
             ocr_hook_redundant_shown: AtomicBool::new(false),
             shown_close_to_tray_notice: AtomicBool::new(false),
             agent_restart_ready_notified: AtomicBool::new(false),
@@ -177,7 +165,7 @@ fn initialize_obs_service(app: &AppHandle) {
     let root = &app.state::<DesktopState>().app_root;
     let paths = &app.state::<crate::settings::Settings>().paths;
     let recordings_dir = default_recordings_dir(app);
-    let policy_path = root.join("GameSentenceMiner/assets/obs-release-policy.json");
+    let policy_path = root.join("resources/assets/obs-release-policy.json");
     if let Err(err) = app.state::<crate::obs::Obs>().initialize(
         app,
         json!({
@@ -242,7 +230,7 @@ pub fn init_startup(app: &AppHandle) -> Result<(), String> {
 
     let bus_info = tauri::async_runtime::block_on(crate::runtime::dispatch(
         app,
-        json!({ "action": "bus.start", "params": {"nativeTextIntake": native_session_requested()} }),
+        json!({ "action": "bus.start", "params": {"nativeTextIntake": true} }),
     ))?;
 
     setup_agent_control(app, &bus_info);
@@ -359,59 +347,34 @@ fn start_desktop_session(app: &AppHandle) -> Result<(), String> {
 }
 
 pub(crate) async fn boot_desktop_backend(boot_app: AppHandle) {
-    if native_session_requested() {
-        let shared = boot_app
-            .state::<crate::settings::Settings>()
-            .paths
-            .shared
-            .clone();
-        let version = boot_app.package_info().version.to_string();
-        let marker = tauri::async_runtime::spawn_blocking(move || {
-            let marked_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-            gsm_packages::legacy_venv::mark_retired(&shared, &version, &marked_at)
-                .map_err(|error| format!("{}: {error}", shared.join("python_venv").display()))
-        })
-        .await
-        .map_err(|error| error.to_string())
-        .and_then(|result| result);
-        if let Err(error) = marker {
-            crate::desktop_log::warn(
-                &boot_app,
-                "startup",
-                format!("Could not mark the legacy Python environment: {error}"),
-            );
-        }
-        if !read_bool_pref(&boot_app, "hasCompletedSetup", false) {
-            start_startup_install_session(&boot_app);
-        }
-        let lease = boot_app.state::<crate::install_session::InstallSessions>().model.lease();
-        if let Err(error) = start_native_services(&boot_app, lease).await {
-            crate::desktop_log::error(&boot_app, "startup", error);
-        }
-        return;
+    let shared = boot_app
+        .state::<crate::settings::Settings>()
+        .paths
+        .shared
+        .clone();
+    let version = boot_app.package_info().version.to_string();
+    let marker = tauri::async_runtime::spawn_blocking(move || {
+        let marked_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        gsm_packages::legacy_venv::mark_retired(&shared, &version, &marked_at)
+            .map_err(|error| format!("{}: {error}", shared.join("python_venv").display()))
+    })
+    .await
+    .map_err(|error| error.to_string())
+    .and_then(|result| result);
+    if let Err(error) = marker {
+        crate::desktop_log::warn(
+            &boot_app,
+            "startup",
+            format!("Could not mark the legacy Python environment: {error}"),
+        );
     }
-    let probe_app = boot_app.clone();
-    let track_startup = tauri::async_runtime::spawn_blocking(move || {
-        should_track_startup_install_session(&probe_app)
-    }).await.unwrap_or(false);
-    if track_startup {
+    if !read_bool_pref(&boot_app, "hasCompletedSetup", false) {
         start_startup_install_session(&boot_app);
     }
-    run_startup_backend_pipeline(boot_app, track_startup).await;
-}
-
-fn should_track_startup_install_session(app: &AppHandle) -> bool {
-    if read_bool_pref(app, "hasCompletedSetup", false) {
-        return false;
+    let lease = boot_app.state::<crate::install_session::InstallSessions>().model.lease();
+    if let Err(error) = start_native_services(&boot_app, lease).await {
+        crate::desktop_log::error(&boot_app, "startup", error);
     }
-    let paths = &app.state::<crate::settings::Settings>().paths;
-    let root = crate::python_install::project_root(app);
-    let present = gsm_packages::python::Python::new(&paths.shared, &root, crate::LOCAL_BUILD)
-        .call("present", &json!({}), Arc::new(|_, _| {}))
-        .ok()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    !present
 }
 
 pub(crate) async fn start_native_services(app: &AppHandle, lease: Option<gsm_packages::install_session::Lease>) -> Result<(), String> {
@@ -501,118 +464,6 @@ fn start_startup_install_session(app: &AppHandle) {
     sessions.notify();
 }
 
-async fn resolve_startup_install_session_after_python_ready(
-    app: &AppHandle,
-    python_path: &str,
-) -> bool {
-    if read_bool_pref(app, "hasCompletedSetup", false) {
-        return false;
-    }
-    let paths = app.state::<crate::settings::Settings>().paths.clone();
-    let root = crate::python_install::project_root(app);
-    let py_str = python_path.to_owned();
-    let installed = tauri::async_runtime::spawn_blocking(move || {
-        gsm_packages::python::Python::new(&paths.shared, &root, crate::LOCAL_BUILD)
-            .call(
-                "installedVersion",
-                &json!({ "pythonPath": py_str, "packageName": "GameSentenceMiner" }),
-                Arc::new(|_, _| {}),
-            )
-            .ok()
-            .and_then(|v| v.as_str().map(|s| !s.trim().is_empty()))
-            .unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false);
-
-    if installed {
-        let active = &app.state::<crate::settings::Settings>().paths.active;
-        let _ = Preferences::new(active).patch(&json!({ "hasCompletedSetup": true }));
-        return false;
-    }
-
-    start_startup_install_session(app);
-    true
-}
-
-async fn run_startup_backend_pipeline(app: AppHandle, mut track_install_session: bool) {
-    if app.state::<DesktopState>().quitting.load(Ordering::SeqCst) {
-        return;
-    }
-
-    let python_path = match crate::python_ops::ensure_python_path(&app).await {
-        Ok(path) => path,
-        Err(err) => {
-            crate::desktop_log::error(
-                &app,
-                "startup",
-                format!("Failed to initialize Python runtime: {err}"),
-            );
-            let sessions = app.state::<crate::install_session::InstallSessions>();
-            let _ = sessions.model.call(
-                "finish",
-                &json!({
-                    "status": "failed",
-                    "message": "Failed to initialize the managed Python runtime.",
-                    "error": err,
-                }),
-            );
-            sessions.notify();
-            process_startup_args_and_features(&app).await;
-            return;
-        }
-    };
-
-    if !track_install_session {
-        track_install_session =
-            resolve_startup_install_session_after_python_ready(&app, &python_path).await;
-    }
-
-    let current_version = app.package_info().version.to_string();
-    let stored_version = read_string_pref(&app, "electronAppVersion");
-    let app_version_changed = !stored_version.is_empty() && stored_version != current_version;
-
-    let mgr = app
-        .state::<crate::update_manager::UpdateManager>()
-        .inner()
-        .clone();
-    let has_pending_changelog = mgr.check_startup_changelog(&app);
-    let backend_sync_ok = mgr
-        .sync_startup_backend(&app, app_version_changed, has_pending_changelog, false)
-        .await;
-    if backend_sync_ok && stored_version != current_version {
-        let active = &app.state::<crate::settings::Settings>().paths.active;
-        let _ = Preferences::new(active).patch(&json!({ "electronAppVersion": current_version }));
-    }
-
-    if app.state::<DesktopState>().quitting.load(Ordering::SeqCst) {
-        return;
-    }
-
-    let checked_version = mgr.checked_backend_version();
-    if let Err(err) = crate::python_ops::ensure_and_run_gsm(
-        &app,
-        Some(python_path),
-        checked_version,
-        "startup",
-        track_install_session,
-        true,
-        false,
-    )
-    .await
-    {
-        crate::desktop_log::error(&app, "startup", format!("Backend launch failed: {err}"));
-    }
-
-    process_startup_args_and_features(&app).await;
-
-    if !app.state::<DesktopState>().quitting.load(Ordering::SeqCst)
-        && read_bool_pref(&app, "autoUpdateGSMApp", true)
-    {
-        let _ = mgr.check_app_update_status(&app, false).await;
-    }
-}
-
 async fn process_startup_args_and_features(app: &AppHandle) {
     let cli = app
         .state::<AppLifecycle>()
@@ -629,16 +480,8 @@ async fn process_startup_args_and_features(app: &AppHandle) {
             .await;
     }
 
-    if native_session_requested() && cli.force_all_updates {
+    if cli.force_all_updates {
         let _ = app.state::<crate::update_manager::UpdateManager>().check_app_update_status(app, true).await;
-    } else if cli.force_python_update && !native_session_requested() {
-        app.state::<crate::update_manager::UpdateManager>()
-            .update_gsm(app, true, true)
-            .await;
-    } else if cli.force_all_updates {
-        app.state::<crate::update_manager::UpdateManager>()
-            .run_interactive_update_check(app, true)
-            .await;
     }
 
     if read_bool_pref(app, "runOverlayOnStartup", false) {
@@ -652,22 +495,20 @@ async fn process_startup_args_and_features(app: &AppHandle) {
         }
     }
 
-    if native_session_requested() {
-        let path = app.state::<crate::settings::Settings>().paths.active.join("config.json");
-        let doc = gsm_settings::read_object(&path).unwrap_or(Value::Null);
-        let general = gsm_settings::gsm_config::active_profile(&doc).and_then(|p| p.get("general")).unwrap_or(&Value::Null);
-        if general["open_config_on_startup"] == true {
-            let handle = app.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(error) = crate::gui_dialog::open_settings(&handle,String::new(),String::new()).await {
-                    crate::desktop_log::warn(&handle, "settings", error);
-                }
-            });
-        }
-        if general["open_multimine_on_startup"] != false && !is_running_as_admin() {
-            if let Err(error) = crate::launchers_ui::open_text_feed(app).await {
-                crate::desktop_log::warn(app, "text-feed", error);
+    let path = app.state::<crate::settings::Settings>().paths.active.join("config.json");
+    let doc = gsm_settings::read_object(&path).unwrap_or(Value::Null);
+    let general = gsm_settings::gsm_config::active_profile(&doc).and_then(|p| p.get("general")).unwrap_or(&Value::Null);
+    if general["open_config_on_startup"] == true {
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = crate::gui_dialog::open_settings(&handle,String::new(),String::new()).await {
+                crate::desktop_log::warn(&handle, "settings", error);
             }
+        });
+    }
+    if general["open_multimine_on_startup"] != false && !is_running_as_admin() {
+        if let Err(error) = crate::launchers_ui::open_text_feed(app).await {
+            crate::desktop_log::warn(app, "text-feed", error);
         }
     }
 
@@ -704,13 +545,6 @@ fn build_hub_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
                 .build(app)
                 .map_err(|e| e.to_string())?,
         );
-    if !native_session_requested() {
-        file_builder = file_builder.item(
-            &MenuItemBuilder::with_id("app-menu::restart-python", "Restart Python App")
-                .build(app)
-                .map_err(|e| e.to_string())?,
-        );
-    }
     file_builder = file_builder.item(
             &MenuItemBuilder::with_id("app-menu::open-folder", "Open GSM Folder")
                 .build(app)
@@ -749,6 +583,11 @@ fn build_hub_menu(app: &AppHandle) -> Result<Menu<tauri::Wry>, String> {
         )
         .item(
             &MenuItemBuilder::with_id("app-menu::discord", "Discord")
+                .build(app)
+                .map_err(|e| e.to_string())?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("app-menu::export-debug-package", "Export Debug Package")
                 .build(app)
                 .map_err(|e| e.to_string())?,
         )
@@ -978,11 +817,6 @@ pub fn handle_app_menu_event(app: &AppHandle, id: &str) {
                 mgr.run_interactive_update_check(&handle, true).await;
             });
         }
-        "app-menu::restart-python" => {
-            tauri::async_runtime::spawn(async move {
-                let _ = crate::python_ops::restart_gsm(&handle).await;
-            });
-        }
         "app-menu::open-folder" => {
             let folder = app
                 .state::<crate::settings::Settings>()
@@ -1023,6 +857,11 @@ pub fn handle_app_menu_event(app: &AppHandle, id: &str) {
         }
         "app-menu::discord" => {
             let _ = crate::native::shell_open_external("https://discord.gg/yP8Qse6bb8");
+        }
+        "app-menu::export-debug-package" => {
+            tauri::async_runtime::spawn(async move {
+                crate::desktop_services::export_debug_package(&handle).await;
+            });
         }
         "app-menu::devtools" =>
         {
@@ -1195,7 +1034,7 @@ fn sync_tray_visual_state(app: &AppHandle) {
         let lc = app.state::<AppLifecycle>();
         let g = lc.inner.lock().unwrap();
         (
-            g.python_ipc_connected || (native_session_requested() && g.backend_initialized),
+            g.backend_bus_connected || g.backend_initialized,
             g.backend_status_ready,
             g.ready_indicator_expires_at_ms,
             g.text_intake_paused,
@@ -1209,44 +1048,25 @@ pub(crate) fn initialized(app: &AppHandle) -> bool {
     app.state::<AppLifecycle>().inner.lock().unwrap().backend_initialized
 }
 
-pub(crate) fn intake_pause_changed(app: &AppHandle, paused: bool, relay: bool) {
+pub(crate) fn intake_pause_changed(app: &AppHandle, paused: bool) {
     app.state::<AppLifecycle>().inner.lock().unwrap().text_intake_paused = paused;
     sync_tray_visual_state(app);
     let (kind, title, message) = if paused {
-        ("GSMTextIntakePaused", "GSM Text Intake Paused", if relay {
-            "Stats collection is paused. Card mining, the overlay, Text Feed, and output relays stay active. Incoming text will not update live stats, Discord activity, or the database."
-        } else {
-            "Clipboard and websocket text intake is paused. Incoming text will be fully ignored until resumed."
-        })
+        ("GSMTextIntakePaused", "GSM Text Intake Paused", "Stats collection is paused. Card mining, the overlay, Text Feed, and output relays stay active. Incoming text will not update live stats, Discord activity, or the database.")
     } else {
         ("GSMTextIntakeResumed", "GSM Text Intake Resumed", "Clipboard and websocket text intake resumed.")
     };
     send_notification_for_event(app, kind, title, message, None);
 }
 
-fn reset_startup_tray_state(app: &AppHandle) {
-    {
-        let lc = app.state::<AppLifecycle>();
-        let mut g = lc.inner.lock().unwrap();
-        g.python_ipc_connected = false;
-        g.backend_status_ready = false;
-        g.backend_initialized = false;
-        g.ready_indicator_expires_at_ms = 0;
-        g.ready_timer_gen = g.ready_timer_gen.wrapping_add(1);
-        g.poll_gen = g.poll_gen.wrapping_add(1);
-        g.text_intake_paused = false;
-    }
-    sync_tray_visual_state(app);
-}
-
-fn mark_python_ipc_connected(app: &AppHandle) {
+fn mark_backend_bus_connected(app: &AppHandle) {
     let changed = {
         let lc = app.state::<AppLifecycle>();
         let mut g = lc.inner.lock().unwrap();
-        if g.python_ipc_connected {
+        if g.backend_bus_connected {
             false
         } else {
-            g.python_ipc_connected = true;
+            g.backend_bus_connected = true;
             true
         }
     };
@@ -1261,7 +1081,7 @@ fn maybe_activate_ready_tray_indicator(app: &AppHandle) {
     let timer_gen = {
         let lc = app.state::<AppLifecycle>();
         let mut g = lc.inner.lock().unwrap();
-        if !(g.python_ipc_connected || (native_session_requested() && g.backend_initialized)) || !g.backend_status_ready || g.ready_indicator_expires_at_ms > 0
+        if !(g.backend_bus_connected || g.backend_initialized) || !g.backend_status_ready || g.ready_indicator_expires_at_ms > 0
         {
             return;
         }
@@ -1312,170 +1132,6 @@ fn maybe_notify_agent_restart_ready(app: &AppHandle) {
     );
 }
 
-fn start_backend_status_polling(app: &AppHandle) {
-    let poll_gen = {
-        let lc = app.state::<AppLifecycle>();
-        let mut g = lc.inner.lock().unwrap();
-        g.poll_gen = g.poll_gen.wrapping_add(1);
-        g.poll_gen
-    };
-
-    let poll_app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            if poll_app
-                .state::<DesktopState>()
-                .quitting
-                .load(Ordering::SeqCst)
-            {
-                break;
-            }
-            let (same_gen, already_done) = {
-                let lc = poll_app.state::<AppLifecycle>();
-                let g = lc.inner.lock().unwrap();
-                (
-                    g.poll_gen == poll_gen,
-                    g.backend_status_ready && g.backend_initialized,
-                )
-            };
-            if !same_gen || already_done {
-                break;
-            }
-
-            if let Ok(body) = crate::backend::fetch_status(&poll_app, Duration::from_millis(1500)).await
-            {
-                {
-                    let lc = poll_app.state::<AppLifecycle>();
-                    let mut g = lc.inner.lock().unwrap();
-                    g.backend_status_ready = true;
-                }
-                let bus_connected = poll_app
-                    .try_state::<crate::python_ops::PythonOpsState>()
-                    .is_some_and(|s| s.is_backend_connected());
-                let already_init = poll_app
-                    .state::<AppLifecycle>()
-                    .inner
-                    .lock()
-                    .unwrap()
-                    .backend_initialized;
-                if !already_init && body["ready"] == true && bus_connected {
-                    on_backend_bus_function(&poll_app, "initialized", &json!({ "status": "ready" }));
-                }
-                maybe_activate_ready_tray_indicator(&poll_app);
-                maybe_notify_agent_restart_ready(&poll_app);
-                sync_tray_visual_state(&poll_app);
-                crate::auto_launcher::sync_process_pausing_for_current_scene(&poll_app).await;
-            }
-
-            let finished = {
-                let lc = poll_app.state::<AppLifecycle>();
-                let g = lc.inner.lock().unwrap();
-                g.poll_gen != poll_gen || (g.backend_status_ready && g.backend_initialized)
-            };
-            if finished {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(BACKEND_STATUS_POLL_MS)).await;
-        }
-    });
-}
-
-#[cfg(test)]
-fn parse_python_log_level(line: &str) -> Option<&'static str> {
-    crate::desktop_log::parse_log_level(line)
-}
-
-/// Observe lifecycle events emitted directly by `src-tauri/src/backend.rs`.
-pub fn on_backend_lifecycle_event(app: &AppHandle, event: &str, data: &Value) {
-    match event {
-        "state" => match data["state"].as_str().unwrap_or("") {
-            "starting" | "restarting" => {
-                crate::desktop_log::background(
-                    app,
-                    "backend",
-                    format!(
-                        "Python backend state -> {}",
-                        data["state"].as_str().unwrap_or("starting")
-                    ),
-                );
-                reset_startup_tray_state(app);
-            }
-            "running" => start_backend_status_polling(app),
-            _ => {}
-        },
-        "spawned" => {
-            if let Some(pid) = data["pid"].as_u64() {
-                crate::desktop_log::background(
-                    app,
-                    "backend",
-                    format!("Python backend process spawned (PID {pid})"),
-                );
-            }
-            start_backend_status_polling(app);
-        }
-        "ready" => {
-            crate::desktop_log::info(app, "backend", "Python backend ready");
-            start_backend_status_polling(app);
-        }
-        "log" => {
-            let stream = data["stream"].as_str().unwrap_or("stdout");
-            let raw_msg = data["message"].as_str().unwrap_or("");
-            crate::desktop_log::emit_python_backend_line(app, stream, raw_msg);
-        }
-        "crash" => {
-            let restarting = data["restarting"] == true;
-            crate::desktop_log::error(
-                app,
-                "backend",
-                if restarting {
-                    "Python backend crashed; restarting..."
-                } else {
-                    "Python backend crashed; automatic restarts stopped."
-                },
-            );
-            if data["beforeInitialization"] == true {
-                return;
-            }
-            let body = if restarting {
-                "GSM crashed. Restarting…"
-            } else {
-                "GSM keeps crashing. Automatic restarts have stopped. Open GSM and check the logs."
-            };
-            show_basic_toast(app, CRASH_NOTIFICATION_ID, "GSM crashed", body, false, None);
-            if restarting {
-                reset_startup_tray_state(app);
-            }
-        }
-        "exit" => {
-            reset_startup_tray_state(app);
-            let exit_req = app
-                .state::<AppLifecycle>()
-                .python_exit_requested
-                .swap(false, Ordering::SeqCst);
-            let intentionally_stopped = data["intentionallyStopped"] == true;
-            let code = data["code"].as_i64().unwrap_or(-1);
-            crate::desktop_log::background(
-                app,
-                "backend",
-                format!(
-                    "Python backend exited (code {code}, intentional={intentionally_stopped})"
-                ),
-            );
-            let update_busy = crate::update_manager::any_app_update_in_progress(app);
-            let obs_busy = app
-                .try_state::<crate::obs::Obs>()
-                .is_some_and(|o| o.state()["updating"] == true);
-            if code == 0 && exit_req && !intentionally_stopped && !update_busy && !obs_busy {
-                let handle = app.clone();
-                tauri::async_runtime::spawn(async move {
-                    quit_app(&handle, None).await;
-                });
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Observe `gsm-runtime` events (`bus.message`, etc.) directly inside Rust.
 pub fn on_runtime_event(app: &AppHandle, event: &str, data: &Value) {
     if event != "bus.message" {
@@ -1508,7 +1164,7 @@ pub fn on_runtime_event(app: &AppHandle, event: &str, data: &Value) {
 
 fn on_backend_bus_function(app: &AppHandle, function: &str, data: &Value) {
     match function {
-        "on_connect" => mark_python_ipc_connected(app),
+        "on_connect" => mark_backend_bus_connected(app),
         "text_intake_state" => {
             let paused = data["paused"] == true;
             app.state::<AppLifecycle>()
@@ -1532,7 +1188,7 @@ fn on_backend_bus_function(app: &AppHandle, function: &str, data: &Value) {
             });
         }
         "initialized" => {
-            mark_python_ipc_connected(app);
+            mark_backend_bus_connected(app);
             let reopen_settings = {
                 let lc = app.state::<AppLifecycle>();
                 let mut g = lc.inner.lock().unwrap();
@@ -1554,12 +1210,6 @@ fn on_backend_bus_function(app: &AppHandle, function: &str, data: &Value) {
                 });
             }
         }
-        "python_exit_requested" => {
-            let is_pickaxe = data["source"].as_str() == Some("pickaxe_icon");
-            app.state::<AppLifecycle>()
-                .python_exit_requested
-                .store(is_pickaxe, Ordering::SeqCst);
-        }
         "restart_python_app" => {
             let open_settings = data["open_settings"] != false;
             if open_settings {
@@ -1571,7 +1221,7 @@ fn on_backend_bus_function(app: &AppHandle, function: &str, data: &Value) {
             }
             let handle = app.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = crate::python_ops::restart_gsm(&handle).await;
+                let _ = crate::service_maintenance::restart_gsm(&handle).await;
             });
         }
         "ocr_hook_redundant" => {
@@ -2225,12 +1875,7 @@ async fn handle_agent_bus_request(app: &AppHandle, mut req: Value) {
             let (ready, blocked) = {
                 let lc = app.state::<AppLifecycle>();
                 let g = lc.inner.lock().unwrap();
-                let owner_ready = if native_session_requested() {
-                    app.state::<Arc<crate::mining::MiningService>>().is_enabled()
-                } else {
-                    app.try_state::<crate::python_ops::PythonOpsState>().is_some_and(|s| s.is_backend_connected())
-                        && crate::backend::snapshot(app)["pid"].is_u64()
-                };
+                let owner_ready = app.state::<Arc<crate::mining::MiningService>>().is_enabled();
                 (
                     g.backend_initialized
                         && g.backend_status_ready
@@ -2338,7 +1983,6 @@ fn hide_user_facing_shutdown_surfaces(app: &AppHandle) {
         let lc = app.state::<AppLifecycle>();
         let mut g = lc.inner.lock().unwrap();
         g.ready_timer_gen = g.ready_timer_gen.wrapping_add(1);
-        g.poll_gen = g.poll_gen.wrapping_add(1);
         g.ready_indicator_expires_at_ms = 0;
     }
     if let Some(hub) = app.get_webview_window(HUB_WINDOW_LABEL) {
@@ -2386,7 +2030,7 @@ async fn stop_all_subsystems(app: &AppHandle, reason: &str) -> Result<(), String
         }
     }
     if let Err(error) = app.state::<crate::longplay::Service>().finish().await { errors.push(error); }
-    if let Err(err) = crate::python_ops::close_all_python_processes(app, true).await {
+    if let Err(err) = crate::service_maintenance::stop_managed_processes(app).await {
         errors.push(err);
     }
     crate::input_server::stop(app);
@@ -2476,24 +2120,12 @@ mod tests {
             "--game",
             "420",
             "--ocr",
-            "--force-python-update",
             "--gsm-agent-restarted=req-123",
         ]);
         assert_eq!(parsed.scene.as_deref(), Some("VN Scene"));
         assert_eq!(parsed.game.as_deref(), Some("420"));
         assert!(parsed.ocr);
-        assert!(parsed.force_python_update);
         assert!(!parsed.force_all_updates);
         assert_eq!(parsed.agent_restart_id.as_deref(), Some("req-123"));
-    }
-
-    #[test]
-    fn detects_python_log_levels_case_insensitively() {
-        assert_eq!(
-            parse_python_log_level("2026-11-13 WARNING: retry"),
-            Some("WARNING")
-        );
-        assert_eq!(parse_python_log_level("[error] failed"), Some("ERROR"));
-        assert_eq!(parse_python_log_level("plain stdout line"), None);
     }
 }

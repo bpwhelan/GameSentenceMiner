@@ -1,5 +1,7 @@
 # Repository Instructions
 
+The desktop entry point is in `src-tauri/`. Edit backend features in the Rust workspace under `native/` and the React UI in `electron-src/renderer/`. Web templates, models and mining field translations live under `resources/`. Run `npm run test:desktop` and `npm run test:ts` for the respective suites.
+
 ## Agent Restart Workflow
 
 - After completing and checking changes the user wants to try, use `npm run agent:restart -- --handoff --reason "Brief description of the changes"` to request a clean restart with a desktop warning, then hand off without waiting for GSM to relaunch. The user can choose **Restart Now** or **Cancel Restart**; otherwise GSM restarts when the countdown ends.
@@ -16,11 +18,6 @@
 - After source edits, rebuild and sync the overlay copy by running:
   - `C:\Users\Beangate\GSM\yomitan-gsm\local-build-chrome-overlay.ps1`
 
-## pytest
-- Always use .venv for running pytest to ensure dependencies are correctly managed.
-- If possible, make tests first, making sure they fail before implementing functionality, and then iterate on your solution until tests pass.
-- Increment coverage where possible.
-
 ## Hachidori Integration Workflow
 
 - Treat `GSM_Overlay/hachidori/` as generated vendor output. Keep GSM logic in `GSM_Overlay/integrations/hachidori/` and shared modules in `GSM_Overlay/`.
@@ -28,10 +25,6 @@
 - Import upstream updates with `node scripts/sync-hachidori.mjs <clean-upstream-checkout>`. The sync applies and validates GSM hooks automatically.
 - Keep upstream touch points in `scripts/hachidori-integration.mjs`; fail if an anchor changes instead of silently skipping a hook.
 - See `GSM_Overlay/HACHIDORI_BRIDGE.md` for the API, ownership, and validation commands.
-
-## Ruff
-- Always run Ruff after Python changes.
-- Use `uv run ruff format GameSentenceMiner tests scripts` from the repo root.
 
 ## Localization (i18n)
 - All user-facing strings in Electron renderer components must use `t("key")` from `useTranslation()`. Never hardcode English text in JSX.

@@ -239,6 +239,77 @@ fn standalone_writer_merges_visible_edits_and_preserves_hidden_game_layers() {
 }
 
 #[test]
+fn obs_settings_migrate_from_the_active_scene_and_stay_global_after_switching() {
+    let tmp = tempdir().unwrap();
+    let paths = Paths {
+        active: tmp.path().into(),
+        shared: tmp.path().into(),
+        has_profile: true,
+    };
+    let file = tmp.path().join("config.json");
+    let old = json!({
+        "current_profile":"Game",
+        "configs":{
+            "Default":{"obs":{"recording_fps":15}},
+            "Game":{"obs":{"recording_fps":24}, "screenshot":{"animated":true}}
+        },
+        "profile_layers":{
+            "version":1, "global":{"obs.port":7333},
+            "scenes":{"Game":{"parent":"Default","overrides":{
+                "obs.recording_fps":24, "screenshot.animated":true
+            }}}
+        }
+    });
+    write_atomic(&file, &old).unwrap();
+    profile_config::prepare(&paths, tmp.path(), "2026.11.0").unwrap();
+    assert_eq!(
+        read_object(&tmp.path().join("config.pre-scopes.json")).unwrap(),
+        old
+    );
+    let doc = read_object(&file).unwrap();
+    let obs = &doc["configs"]["Game"]["obs"];
+    assert_eq!(obs["recording_fps"], 24);
+    assert_eq!(obs["port"], 7333);
+    assert_eq!(&doc["configs"]["Default"]["obs"], obs);
+    assert_eq!(
+        doc["profile_layers"]["scenes"]["Game"]["overrides"],
+        json!({"screenshot.animated":true})
+    );
+    let snapshot = scopes::read(&file, &json!({"view":"obs","target":"Default"})).unwrap();
+    assert!(snapshot["target"].is_null());
+    assert!(snapshot["animatedLockFps"].is_number());
+    for key in obs.as_object().unwrap().keys() {
+        let path = format!("obs.{key}");
+        assert!(snapshot["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["path"] == path && f["global"] == true && f["pinned"] == false));
+    }
+    let edit = json!({"op":"edit","view":"obs","target":null,"changes":[
+        {"path":"obs.recording_fps","before":24,"value":12,"pinned":false}
+    ]});
+    scopes::update(&file, |doc| scopes::activate(doc, "Default")).unwrap();
+    scopes::apply(&file, &edit).unwrap();
+    assert!(scopes::apply(&file, &edit).is_err());
+    scopes::apply(
+        &file,
+        &json!({"op":"createScene","base":"Default","name":"Frozen","follow":false}),
+    )
+    .unwrap();
+    let doc = read_object(&file).unwrap();
+    for profile in doc["configs"].as_object().unwrap().values() {
+        assert_eq!(profile["obs"]["recording_fps"], 12);
+    }
+    assert!(!doc["profile_layers"]["scenes"]["Frozen"]["overrides"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .any(|k| k.starts_with("obs.")));
+    assert!(!profile_config::prepare(&paths, tmp.path(), "2026.11.0").unwrap());
+}
+
+#[test]
 fn key_settings_share_connections_and_keep_game_offsets_in_one_transaction() {
     let tmp = tempdir().unwrap();
     let paths = Paths {

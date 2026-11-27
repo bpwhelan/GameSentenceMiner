@@ -286,10 +286,7 @@ pub fn capture(
         monitor.width().map_err(err)? as f64,
         monitor.height().map_err(err)? as f64,
     ];
-    let (image, capture) = if background
-        || config["settings"]["ocr_full_screen_instead_of_obs"] == true
-        || config["target_id"].is_null()
-    {
+    let (image, capture) = if background || config["target_id"].is_null() {
         #[cfg(windows)]
         let image = {
             _state.grab(
@@ -373,9 +370,7 @@ pub fn capture_window(config: &Value, state: &mut Capture) -> Result<image::Rgba
 
 #[cfg(not(windows))]
 pub fn capture_window(config: &Value, state: &mut Capture) -> Result<image::RgbaImage, String> {
-    let mut config = config.clone();
-    config["settings"]["base_scale"] = serde_json::json!(1.);
-    capture(&config, false, state).map(|(image, _, _)| image)
+    capture(config, false, state).map(|(image, _, _)| image)
 }
 
 #[cfg(test)]

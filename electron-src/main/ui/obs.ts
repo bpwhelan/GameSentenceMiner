@@ -8,6 +8,7 @@ import { BASE_DIR, getGSMBaseDir } from '../util.js';
 import { getDefaultRecordingsDir } from '../data_dir.js';
 import { syncProcessPausingTargetForScene } from '../services/process_pausing_target.js';
 import { installSessionManager } from '../services/install_session_state.js';
+import type { WindowSceneSwitcherSuggestion } from '../../shared/window_scene_switcher.js';
 type ObsCaptureMode = 'window_capture' | 'game_capture';
 export { getGameInfoFromWindow, shouldFilterWindow } from '../../shared/capture_window_policy.js';
 export interface ObsScene { name: string; id: string }
@@ -23,7 +24,7 @@ function native() {
     if (!initialized) {
         transport.callSync('obs.initialize', {
             baseDir: BASE_DIR, recordingsDir: getDefaultRecordingsDir(),
-            policyPath: path.resolve(getGSMBaseDir(), 'GameSentenceMiner/assets/obs-release-policy.json'),
+            policyPath: path.resolve(getGSMBaseDir(), 'resources/assets/obs-release-policy.json'),
             coordinateClients: true,
         });
         initialized = true;
@@ -68,7 +69,7 @@ export const switchOBSSceneCaptureMode = (id: string, mode: ObsCaptureMode): Pro
 export const setOBSScene = (name: string): Promise<void> => nativeOBS('obs.switchScene', name);
 export const setOBSSceneByUuid = (id: string): Promise<void> => nativeOBS('obs.switchScene.id', id);
 export const renameOBSScene = (id: string, name: string): Promise<void> => nativeOBS('obs.renameScene', { sceneUuid: id, newSceneName: name });
-export const suggestWindowSceneSwitcherRule = (id: string): Promise<{ titlePattern: string; executableName?: string } | null> => nativeOBS('scene-switcher.suggestRule', id);
+export const suggestWindowSceneSwitcherRule = (id: string): Promise<WindowSceneSwitcherSuggestion | null> => nativeOBS('scene-switcher.suggestRule', id);
 export const syncProcessPausingTargetForCurrentScene = (force = false): void => {
     void getCurrentScene().then(scene => syncProcessPausingTargetForScene(scene, { force })).catch(console.warn);
 };

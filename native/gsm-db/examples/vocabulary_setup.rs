@@ -1,4 +1,4 @@
-//! Persistent worker for scripts/benchmark_vocabulary_setup.py.
+//! Benchmark vocabulary database setup.
 use gsm_db::{frequency, Result};
 use serde::Deserialize;
 use serde_json::json;

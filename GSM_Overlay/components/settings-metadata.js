@@ -24,10 +24,8 @@
     showMainBoxOnStartup: "Show the floating debug box on startup. Not recommended — use the tray instead.",
 
     // OCR / capture
-    use_overlay_area_config: "Restrict OCR to the capture areas you defined instead of the whole screen.",
     last_sent_ocr_presence_invalidate_lookups:
       "Remove stale OCR text targets so Yomitan and controller lookups cannot select text that is no longer visible.",
-    use_text_filtering: "Filter out junk/noise characters from OCR output.",
 
     // Live stats fields
     liveStatsFieldActiveReadingTime: "Show time spent actively reading this session.",

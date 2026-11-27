@@ -1,4 +1,4 @@
-//! Isolated worker for scripts/benchmark_hook_ranking.py.
+//! Measure hook ranking in an isolated worker.
 use serde_json::Value;
 use std::io::{self, BufRead};
 

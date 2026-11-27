@@ -31,7 +31,7 @@ export default defineConfig({
 						});
 						cpSync(
 							join(__dirname, 'docs', 'index.html'),
-							join(__dirname, '..', 'GameSentenceMiner', 'web', 'templates', 'index.html'),
+							join(__dirname, '..', 'resources', 'web', 'templates', 'index.html'),
 						);
 					},
 				};

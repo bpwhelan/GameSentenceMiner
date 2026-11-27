@@ -153,27 +153,17 @@ pub fn is_non_profile_setting_key(key: &str) -> bool {
             | "scan_on_overlay_activation"
             | "text_appears_instantly"
             | "adaptive_ocr_retries"
-            | "base_scale"
             | "inject_scanned_lines"
             | "minimum_character_size"
-            | "use_ocr_result_v2"
-            | "supplement_ocr_result_with_overlay"
             | "last_sent_ocr_presence_check"
             | "last_sent_ocr_presence_remove_notation"
             | "last_sent_ocr_presence_invalidate_lookups"
-            | "ocr_full_screen_instead_of_obs"
-            | "use_text_filtering"
             | "manual_mode_desktop_background"
             | "showRecycledIndicator"
-            | "use_overlay_area_config"
-            | "ocr_area_config_include_primary_areas"
-            | "ocr_area_config_include_secondary_areas"
-            | "ocr_area_config_use_exclusion_zones"
     )
 }
 
 /// Mapping from GSM backend (`config.json` `overlay.*`) field names to overlay UI setting keys.
-/// Mirrors `GSM_OWNED_OVERLAY_FIELDS` in `GameSentenceMiner/util/config/configuration.py`.
 pub const GSM_OWNED_OVERLAY_FIELD_MAP: &[(&str, &str)] = &[
     ("engine_v2", "engine_v2"),
     ("monitor_to_capture", "monitor_to_capture"),
@@ -185,14 +175,8 @@ pub const GSM_OWNED_OVERLAY_FIELD_MAP: &[(&str, &str)] = &[
     ("scan_on_overlay_activation", "scan_on_overlay_activation"),
     ("text_appears_instantly", "text_appears_instantly"),
     ("adaptive_ocr_retries", "adaptive_ocr_retries"),
-    ("base_scale", "base_scale"),
     ("inject_scanned_lines", "inject_scanned_lines"),
     ("minimum_character_size", "minimum_character_size"),
-    ("use_ocr_result_v2", "use_ocr_result_v2"),
-    (
-        "supplement_ocr_result_with_overlay",
-        "supplement_ocr_result_with_overlay",
-    ),
     (
         "last_sent_ocr_presence_check",
         "last_sent_ocr_presence_check",
@@ -205,11 +189,6 @@ pub const GSM_OWNED_OVERLAY_FIELD_MAP: &[(&str, &str)] = &[
         "last_sent_ocr_presence_invalidate_lookups",
         "last_sent_ocr_presence_invalidate_lookups",
     ),
-    (
-        "ocr_full_screen_instead_of_obs",
-        "ocr_full_screen_instead_of_obs",
-    ),
-    ("use_text_filtering", "use_text_filtering"),
     (
         "manual_mode_desktop_background",
         "manual_mode_desktop_background",
@@ -217,19 +196,6 @@ pub const GSM_OWNED_OVERLAY_FIELD_MAP: &[(&str, &str)] = &[
     (
         "check_previous_lines_for_recycled_indicator",
         "showRecycledIndicator",
-    ),
-    ("use_overlay_area_config", "use_overlay_area_config"),
-    (
-        "ocr_area_config_include_primary_areas",
-        "ocr_area_config_include_primary_areas",
-    ),
-    (
-        "ocr_area_config_include_secondary_areas",
-        "ocr_area_config_include_secondary_areas",
-    ),
-    (
-        "ocr_area_config_use_exclusion_zones",
-        "ocr_area_config_use_exclusion_zones",
     ),
 ];
 
@@ -279,6 +245,7 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "showTextIndicators": true,
         "fadeTextIndicators": false,
         "showTextHitboxes": false,
+        "hideCoveredText": true,
         "showRecycledIndicator": true,
         "afkTimer": 5,
         "dictionaryReaderSelection": "yomitan",
@@ -377,21 +344,12 @@ pub fn default_user_settings_map() -> Map<String, Value> {
         "scan_on_overlay_activation": true,
         "text_appears_instantly": false,
         "adaptive_ocr_retries": true,
-        "base_scale": 0.75,
         "inject_scanned_lines": false,
         "minimum_character_size": 0,
-        "use_ocr_result_v2": true,
-        "supplement_ocr_result_with_overlay": false,
         "last_sent_ocr_presence_check": true,
         "last_sent_ocr_presence_remove_notation": true,
         "last_sent_ocr_presence_invalidate_lookups": true,
-        "ocr_full_screen_instead_of_obs": false,
-        "use_text_filtering": true,
         "manual_mode_desktop_background": "off",
-        "use_overlay_area_config": true,
-        "ocr_area_config_include_primary_areas": true,
-        "ocr_area_config_include_secondary_areas": true,
-        "ocr_area_config_use_exclusion_zones": true,
         // Gamepad / keyboard navigation defaults
         "gamepadEnabled": true,
         "gamepadActivationMode": "modifier",
@@ -1058,11 +1016,12 @@ pub fn apply_gsm_owned_config_update(
     let mut changed = Vec::new();
     for (key, value) in gsm_settings_obj {
         // Inbound keys may already be overlay_key (from serialize_gsm_owned_overlay) or field_name.
-        let target_key = GSM_OWNED_OVERLAY_FIELD_MAP
+        let Some(&(_, target_key)) = GSM_OWNED_OVERLAY_FIELD_MAP
             .iter()
-            .find(|(field, ok)| *field == key.as_str() || *ok == key.as_str())
-            .map(|(_, ok)| *ok)
-            .unwrap_or(key.as_str());
+            .find(|(field, overlay_key)| *field == key || *overlay_key == key)
+        else {
+            continue;
+        };
         if settings.get(target_key) != Some(value) {
             settings.insert(target_key.to_string(), value.clone());
             changed.push((target_key.to_string(), value.clone()));
@@ -1371,6 +1330,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn old_ocr_options_do_not_override_the_native_overlay() {
+        let mut settings = Map::new();
+        let old_profile = json!({
+            "base_scale": 0.5,
+            "use_overlay_area_config": true,
+            "ocr_area_config_include_primary_areas": true,
+            "ocr_area_config_include_secondary_areas": true,
+            "ocr_area_config_use_exclusion_zones": true,
+            "ocr_full_screen_instead_of_obs": true,
+            "use_ocr_result_v2": true,
+            "supplement_ocr_result_with_overlay": false,
+            "use_text_filtering": false,
+            "adaptive_ocr_retries": false,
+        });
+        apply_gsm_owned_config_update(&mut settings, old_profile.as_object().unwrap());
+        assert_eq!(Value::Object(settings), json!({"adaptive_ocr_retries": false}));
+    }
+
+    #[test]
     fn text_click_through_defaults_off_and_loads_saved_choices() {
         let directory = tempfile::tempdir().unwrap();
         let read_preference = || load_settings_from_disk(directory.path(), 7275)["textHoverClickThrough"].as_bool();
@@ -1397,6 +1375,7 @@ mod tests {
         .unwrap();
         let settings = load_settings_from_disk(directory.path(), 7275);
         assert_eq!(settings["showTextIndicators"], true);
+        assert_eq!(settings["hideCoveredText"], true);
         assert_eq!(settings["fadeTextIndicators"], true);
         assert_eq!(settings["dismissedManualModeGames"], json!(["Game A"]));
         assert_eq!(settings["dismissedFullscreenModeGames"], json!(["Game B"]));

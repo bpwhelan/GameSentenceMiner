@@ -294,7 +294,7 @@ impl Editor {
                 && self.config.screenshot.animated_settings.extension.eq_ignore_ascii_case("avif"),
             "reusedPicture": self.request["reusing_screenshot"], "overlayOnly": self.request["overlay_only"],
             "canScreenshot": self.dialogues[0].video.is_some(),
-            "canTranslate": self.config.ai.add_to_anki,
+            "canTranslate": self.config.ai.enabled && !self.config.ai.anki_field.trim().is_empty(),
             "canTts": !matches!(self.config.vad.tts_url.as_str(), "" | "http://127.0.0.1:5050/?term=$s"),
             "audio": self.audio_form(0), "dialogue": self.dialogue_form(app, 0),
             "preferences": self.preferences(app)
@@ -473,7 +473,7 @@ impl Editor {
         }
         let mut translation = string(&payload["translation"]).to_owned();
         let mut regenerated = false;
-        if payload["refreshTranslation"] == true && self.config.ai.add_to_anki {
+        if payload["refreshTranslation"] == true && self.config.ai.enabled {
             if let Ok(result) = super::translate(app, &self.config, &sentence, &lines[0]).await {
                 if !result.trim().is_empty() {
                     translation = result;

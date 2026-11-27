@@ -921,7 +921,6 @@ impl MediaTools {
             let filters = self.build_screenshot_filters(
                 source_video_path,
                 screenshot_timing,
-                true,
                 config,
             );
             if !filters.is_empty() {
@@ -1346,7 +1345,6 @@ impl MediaTools {
         &self,
         source_video_path: Option<&Path>,
         screenshot_timing: Option<f64>,
-        use_negative_two: bool,
         config: &ProfileConfig,
     ) -> Vec<String> {
         let mut vf = Vec::new();
@@ -1356,20 +1354,6 @@ impl MediaTools {
                     vf.push(crop);
                 }
             }
-        }
-        if config.screenshot.width != 0 || config.screenshot.height != 0 {
-            let default = if use_negative_two { -2 } else { -1 };
-            let w = if config.screenshot.width != 0 {
-                config.screenshot.width
-            } else {
-                default
-            };
-            let h = if config.screenshot.height != 0 {
-                config.screenshot.height
-            } else {
-                default
-            };
-            vf.push(format!("scale={w}:{h}"));
         }
         vf
     }

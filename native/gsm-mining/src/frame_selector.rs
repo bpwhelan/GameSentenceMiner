@@ -130,16 +130,6 @@ pub async fn decode_page(
             .map_err(|e| e.to_string())?;
         filters.extend(crop);
     }
-    let (w, h) = (config.screenshot.width, config.screenshot.height);
-    if w > 0 && h > 0 {
-        filters.push(format!(
-            "scale={w}:{h}:force_original_aspect_ratio=decrease"
-        ));
-    } else if w > 0 {
-        filters.push(format!("scale={w}:-2"));
-    } else if h > 0 {
-        filters.push(format!("scale=-2:{h}"));
-    }
     let prefix = uuid::Uuid::new_v4().simple().to_string();
     let frames = positions
         .iter()

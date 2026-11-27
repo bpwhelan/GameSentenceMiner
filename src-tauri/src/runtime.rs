@@ -17,11 +17,6 @@ impl Runtime {
 }
 pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, String> {
     let action = params["action"].as_str().unwrap_or("");
-    // A launch must not race an environment replacement or dependency sync.
-    let _install_guard = if action == "process.start" {
-        Some(app.state::<crate::python_install::PythonInstall>().gate.clone().try_lock_owned()
-            .map_err(|_| "Python environment maintenance is in progress")?)
-    } else { None };
     let args = params["params"].clone();
     let state = app.state::<Runtime>();
     if action == "bus.stop" {
@@ -73,13 +68,7 @@ pub async fn dispatch(app: &tauri::AppHandle, params: Value) -> Result<Value, St
                             app.state::<crate::anki_poll::Notes>().backend_exited();
                         }
                     }
-                    if event == "process.exit" || (event == "bus.message" && data["src"] == "qt-settings") {
-                        app.state::<crate::gui_dialog::DialogHost>().observe(event, &data);
-                    }
-                    crate::backend::observe(&app, event, &data);
-                    crate::python_ops::observe_runtime_event(&app, event, &data);
                     crate::mining_workspace::observe(&app, event, &data);
-                    crate::install_session::observe(&app, event, &data);
                     crate::active_game::observe(&app, event, &data);
                     if event == "text.ack" && data["payload"]["_nativeHook"] == true {
                         preview(&app, &data);
@@ -111,15 +100,6 @@ impl Runtime {
             None => Ok(false),
         }
     }
-}
-
-pub async fn has_live_processes(app:&tauri::AppHandle)->Result<bool,String>{
-    let runtime=app.state::<Runtime>().0.lock().unwrap().clone();
-    let Some(runtime)=runtime else{return Ok(false)};
-    for id in runtime.call("process.list",json!({})).await?.as_array().into_iter().flatten(){
-        let state=runtime.call("process.state",json!({"id":id})).await?;
-        if state["pid"].as_u64().is_some()||matches!(state["state"].as_str(),Some("starting"|"restarting"|"stopping")){return Ok(true);}
-    }Ok(false)
 }
 
 /// Hook output travels directly from native capture to native delivery. The

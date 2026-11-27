@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 const regexPatternsModulePath = path.resolve(
     process.cwd(),
-    'GameSentenceMiner/web/static/js/regex-patterns.js'
+    'resources/web/static/js/regex-patterns.js'
 );
 
 async function loadRegexPatternsModule() {

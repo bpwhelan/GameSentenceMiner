@@ -1,6 +1,0 @@
-{
-  "repository": "https://github.com/cclgroupltd/ccl_chromium_reader",
-  "commit": "1bc482c0078cad4288ad0a0072ef46d7d7929596",
-  "license": "MIT",
-  "purpose": "Read-only migration of legacy GSM dictionary data"
-}

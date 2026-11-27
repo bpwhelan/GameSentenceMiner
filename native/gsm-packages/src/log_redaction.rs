@@ -2,7 +2,7 @@
 use gsm_settings::Result;
 use regex::{Regex, RegexBuilder};
 use std::collections::BTreeSet;
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::OnceLock;
 
 #[derive(Clone, Debug, Default)]
@@ -72,6 +72,7 @@ struct StaticPatterns {
     url_userinfo: Regex,
     http_header: Regex,
     private_field_prefix: Regex,
+    private_field_name: Regex,
     query_secret: Regex,
     bearer_basic: Regex,
     token_literals: Regex,
@@ -80,6 +81,12 @@ struct StaticPatterns {
     mac: Regex,
     ipv4: Regex,
     drive_root: Regex,
+}
+
+const PRIVATE_FIELD: &str = r"(?:[\w.-]*(?:password|passwd|passphrase|api[ _-]?keys?[\w-]*|(?:access|private|subscription|sync|secret)[ _-]?key|token|secret|cookies?|user[ _-]?name|e[ _-]?mail|authorization|credentials?|client[_-]?id|session[_-]?id)|pwd|login|user|key)";
+
+pub(super) fn is_private_field(name: &str) -> bool {
+    static_patterns().private_field_name.is_match(name)
 }
 
 fn static_patterns() -> &'static StaticPatterns {
@@ -102,10 +109,8 @@ fn static_patterns() -> &'static StaticPatterns {
             r#"(?i)(\b(?:Authorization|Proxy-Authorization|Cookie|Set-Cookie)[ \t]*:[ \t]*)[^\r\n]+"#,
         )
         .unwrap(),
-        private_field_prefix: Regex::new(
-            r#"(?i)['"]?(?:[A-Za-z0-9_.-]*(?:password|passwd|passphrase|api[ _-]?key|token|secret|cookie|user[ _-]?name|e[ _-]?mail|authorization|credential|client[_-]?id|session[_-]?id)|pwd|login|user)['"]?\s*[:=]\s*"#,
-        )
-        .unwrap(),
+        private_field_prefix: Regex::new(&format!(r#"(?i)['"]?{PRIVATE_FIELD}['"]?\s*[:=]\s*"#)).unwrap(),
+        private_field_name: Regex::new(&format!("(?i)^{PRIVATE_FIELD}$")).unwrap(),
         query_secret: Regex::new(
             r#"(?i)([?&](?:key|sig|signature|code|auth|session|credential)\s*=)[^&\s#"'<>]+"#,
         )
@@ -119,9 +124,9 @@ fn static_patterns() -> &'static StaticPatterns {
             r#"(?i)[a-z\d.!#$%&'*+/=?^_`{|}~-]+(?:@|%40)(?:[a-z\d-]+\.)+[a-z]{2,63}"#,
         )
         .unwrap(),
-        ipv6: Regex::new(r#"(?i)(?:[a-f\d]*:){2,}[a-f\d.]*(?:%[A-Za-z0-9._-]+)?"#).unwrap(),
+        ipv6: Regex::new(r#"(?i)(?:[a-f\d]*:){2,}(?:\d+(?:\.\d+){3}|[a-f\d]*)(?:%[A-Za-z0-9._-]+)?"#).unwrap(),
         mac: Regex::new(r#"(?i)\b(?:[a-f\d]{2}[:-]){5}[a-f\d]{2}\b"#).unwrap(),
-        ipv4: Regex::new(r#"\b(?:\d{1,3}\.){3}\d{1,3}\b"#).unwrap(),
+        ipv4: Regex::new(r#"(?:[0-9]{1,3}\.){3}[0-9]{1,3}"#).unwrap(),
         drive_root: Regex::new(r#"(?i)^[a-z]:[\\/]?$"#).unwrap(),
     })
 }
@@ -298,6 +303,29 @@ fn scan_quoted_value_end(bytes: &[u8], start: usize, quote: u8) -> usize {
     bytes.len()
 }
 
+fn scan_container_end(bytes: &[u8], start: usize) -> usize {
+    let mut depth = 0;
+    let mut index = start;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'"' | b'\'' => {
+                index = scan_quoted_value_end(bytes, index, bytes[index]);
+                continue;
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return index + 1;
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    index
+}
+
 fn redact_private_fields(text: &str, prefix_re: &Regex) -> String {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0usize;
@@ -324,7 +352,13 @@ fn redact_private_fields(text: &str, prefix_re: &Regex) -> String {
         }
 
         let first = bytes[val_start];
-        if first == b'"' || first == b'\'' {
+        if matches!(first, b'[' | b'{') {
+            // A credential can be a map or list. If incomplete, suppress the
+            // remaining input rather than exposing the tail of the value.
+            out.push_str(&text[cursor..val_start]);
+            out.push_str("\"[REDACTED]\"");
+            cursor = scan_container_end(bytes, val_start);
+        } else if first == b'"' || first == b'\'' {
             let val_end = scan_quoted_value_end(bytes, val_start, first);
             out.push_str(&text[cursor..val_start]);
             out.push(first as char);
@@ -370,23 +404,28 @@ fn redact_ipv6(text: &str, ipv6_re: &Regex) -> String {
             .chars()
             .next_back()
             .is_none_or(|c| c != ':' && !is_word_char(c));
-        let candidate = m.as_str();
+        // A field delimiter can be adjacent to the address (e.g. "peer:2001:db8::4").
+        // The regex can also consume the last hex digit of a label such as "IPv6".
+        let mut candidate = m.as_str();
+        if !prev_ok || (candidate.starts_with(':') && !candidate.starts_with("::")) {
+            candidate = candidate.split_once(':').map_or("", |(_, address)| address);
+        }
+        let start = m.end() - candidate.len();
         let addr_part = candidate.split('%').next().unwrap_or(candidate);
         let parsed = addr_part.parse::<Ipv6Addr>();
-        let keep = !prev_ok
-            || match parsed {
-                Err(_) => true,
-                Ok(ip) => {
-                    ip.is_loopback()
-                        || ip.is_unspecified()
-                        || ip.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
-                }
-            };
+        let keep = match parsed {
+            Err(_) => true,
+            Ok(ip) => ip.is_loopback() || ip.to_ipv4_mapped() == Some(Ipv4Addr::LOCALHOST),
+        };
         if keep {
             out.push_str(&text[cursor..m.end()]);
         } else {
-            out.push_str(&text[cursor..m.start()]);
-            out.push_str("[IP]");
+            out.push_str(&text[cursor..start]);
+            if text[..start].ends_with('[') && text[m.end()..].starts_with(']') {
+                out.push_str("IP");
+            } else {
+                out.push_str("[IP]");
+            }
         }
         cursor = m.end();
     }
@@ -397,8 +436,10 @@ fn redact_ipv4(text: &str, ipv4_re: &Regex) -> String {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0usize;
     for m in ipv4_re.find_iter(text) {
-        let replace = match m.as_str().parse::<IpAddr>() {
-            Ok(IpAddr::V4(v4)) => !v4.is_loopback() && !v4.is_unspecified(),
+        let whole_address = !text[..m.start()].ends_with(|c: char| c.is_ascii_digit())
+            && !text[m.end()..].starts_with(|c: char| c.is_ascii_digit());
+        let replace = whole_address && match m.as_str().parse::<IpAddr>() {
+            Ok(IpAddr::V4(v4)) => v4 != Ipv4Addr::LOCALHOST,
             _ => false,
         };
         out.push_str(&text[cursor..m.start()]);
@@ -502,6 +543,7 @@ impl LogRedactor {
             context
                 .hostnames
                 .iter()
+                .filter(|h| !h.eq_ignore_ascii_case("localhost"))
                 .flat_map(|h| encoded_forms(h)),
         );
 
@@ -634,7 +676,7 @@ mod tests {
         assert!(redacted.contains("[USER] on [HOST]"));
         assert!(redacted.contains("[USER]_note malice alice123"));
         assert!(redacted.contains("127.0.0.1"));
-        assert!(redacted.contains("0.0.0.0"));
+        assert!(redacted.contains("zero=[IP]"));
         assert!(redacted.contains("::1"));
         assert!(redacted.contains("::ffff:127.0.0.1"));
         assert!(redacted.contains("[EMAIL]"));
@@ -642,6 +684,26 @@ mod tests {
         assert!(redacted.contains("encoded=[HOME]"));
         assert!(redacted.contains("[HOME]"));
         assert!(!redacted.contains("12345"));
+    }
+
+    #[test]
+    fn redacts_network_endpoints_and_credential_containers_in_free_text() {
+        let redactor = LogRedactor::new(LogRedactionContext {
+            hostnames: vec!["localhost".into()],
+            ..Default::default()
+        });
+        assert_eq!(
+            redactor.redact("localhost:12 127.0.0.1:34 [::1]:56 [::]:78 127.0.0.2:90 [fe80::af%eth0]:123"),
+            "localhost:12 127.0.0.1:34 [::1]:56 [IP]:78 [IP]:90 [IP]:123"
+        );
+        assert_eq!(
+            redactor.redact(r#"apiKeys={"provider":["first","second"]} port=42"#),
+            r#"apiKeys="[REDACTED]" port=42"#
+        );
+        assert_eq!(
+            redactor.redact("peer:2001:db8::2. IPv6:2001:db8::3. mapped=::ffff:192.0.2.4 scene_10.0.0.1_a"),
+            "peer:[IP]. IPv6:[IP]. mapped=[IP] scene_[IP]_a"
+        );
     }
 
     #[test]

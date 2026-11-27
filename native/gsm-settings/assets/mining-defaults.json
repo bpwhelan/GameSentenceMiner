@@ -7,8 +7,6 @@
         "use_websocket": true,
         "use_clipboard": false,
         "use_both_clipboard_and_websocket": false,
-        "merge_matching_sequential_text": false,
-        "remove_matching_prefix_on_subsequent_lines": true,
         "websocket_uri": "localhost:6677,localhost:9001,localhost:2333",
         "websocket_sources": [
           {
@@ -29,7 +27,6 @@
         ],
         "open_config_on_startup": false,
         "open_multimine_on_startup": true,
-        "texthook_replacement_regex": "",
         "texthook_max_buffer_size": 3000,
         "single_port": 7275,
         "native_language": "en",
@@ -212,7 +209,6 @@
         "remove_overlay_tag": false
       },
       "features": {
-        "full_auto": true,
         "open_anki_edit": false,
         "open_anki_in_browser": false,
         "browser_query": "",
@@ -220,23 +216,15 @@
         "review_after_session": {
           "enabled": false,
           "open_on_card_queued": true,
-          "open_on_game_close": true,
-          "delay_seconds": 3,
-          "auto_advance": true,
-          "delete_local_after_review": true,
-          "cleanup_anki_media": true,
           "max_future_context_lines": 3
         }
       },
       "screenshot": {
         "enabled": true,
-        "width": 0,
-        "height": 0,
         "quality": 85,
         "extension": "avif",
         "custom_ffmpeg_settings": "",
         "custom_ffmpeg_option_selected": "",
-        "screenshot_hotkey_updates_anki": false,
         "animated": false,
         "animated_settings": {
           "fps": 15,
@@ -286,7 +274,6 @@
         "disable_desktop_audio_on_connect": false
       },
       "hotkeys": {
-        "open_utility": "ctrl+m",
         "play_latest_audio": "f7",
         "play_latest_audio_gamepad": "",
         "mute_target_window": "",
@@ -299,11 +286,9 @@
         "process_pause": "",
         "process_pause_gamepad": "",
         "pause_text_intake": "",
-        "pause_text_intake_gamepad": "",
-        "relay_outputs_when_text_intake_paused": true
+        "pause_text_intake_gamepad": ""
       },
       "vad": {
-        "whisper_model": "base",
         "do_vad_postprocessing": true,
         "selected_vad_model": "FIRERED",
         "selected_vad_model_v2": "FIRERED",
@@ -318,22 +303,15 @@
         "tts_url": "http://127.0.0.1:5050/?term=$s",
         "cut_and_splice_segments": false,
         "splice_padding": 0.1,
-        "use_cpu_for_inference": false,
-        "use_cpu_for_inference_v2": true,
-        "use_vad_filter_for_whisper": true,
         "preload_vad_model": true
       },
       "advanced": {
         "plaintext_websocket_port": 0,
         "direct_websocket_port": 0,
-        "audio_player_path": "",
-        "video_player_path": "",
-        "show_screenshot_buttons": false,
         "multi_line_line_break": "<br>",
         "texthooker_communication_websocket_port": 7276,
         "localhost_bind_address": "127.0.0.1",
         "dont_collect_stats": false,
-        "audio_backend": "sounddevice",
         "slowest_polling_rate": 5000,
         "longest_sleep_time": 5.0,
         "screenshot_capture_backend": "obs",
@@ -358,7 +336,6 @@
       },
       "ai": {
         "enabled": false,
-        "add_to_anki": false,
         "auto_generate_character_summary": false,
         "anki_field": "",
         "deepl_api_key": "",
@@ -498,26 +475,15 @@
     "scan_on_overlay_activation": false,
     "text_appears_instantly": false,
     "adaptive_ocr_retries": false,
-    "base_scale": 0.75,
     "inject_scanned_lines": false,
     "minimum_character_size": 0,
-    "use_overlay_area_config": false,
-    "ocr_area_config_include_primary_areas": true,
-    "ocr_area_config_include_secondary_areas": true,
-    "ocr_area_config_use_exclusion_zones": true,
-    "use_ocr_result_v2": false,
-    "supplement_ocr_result_with_overlay": false,
     "last_sent_ocr_presence_check": false,
     "last_sent_ocr_presence_remove_notation": true,
     "last_sent_ocr_presence_invalidate_lookups": true,
     "check_previous_lines_for_recycled_indicator": false,
-    "ocr_full_screen_instead_of_obs": false,
-    "use_text_filtering": true,
     "manual_mode_desktop_background": "off"
   },
   "experimental": {
-    "enable_experimental_features": false,
-    "enable_hachidori": false,
     "enable_tokenization": false,
     "tokenization_backend": "sudachi",
     "tokenization_sudachi_dictionary": "small",

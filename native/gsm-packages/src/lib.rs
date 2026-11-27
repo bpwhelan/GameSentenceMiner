@@ -9,7 +9,6 @@ pub mod legacy_venv;
 pub mod log_archive;
 pub mod log_redaction;
 pub mod overlay_directory;
-pub mod python;
 pub mod scripts;
 pub mod speech;
 pub mod settings_backup;

@@ -30,7 +30,7 @@ type Harness = {
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const thirdPartyScriptPath = path.resolve(
     currentDir,
-    '../../GameSentenceMiner/web/static/js/database-third-party-stats.js'
+    '../../resources/web/static/js/database-third-party-stats.js'
 );
 const thirdPartyScriptSource = fs.readFileSync(thirdPartyScriptPath, 'utf8');
 

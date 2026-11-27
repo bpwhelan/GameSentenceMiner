@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const bundledTextFeedUrl = new URL('../docs/index.html', import.meta.url);
-const servedTextFeedUrl = new URL('../../GameSentenceMiner/web/templates/index.html', import.meta.url);
+const servedTextFeedUrl = new URL('../../resources/web/templates/index.html', import.meta.url);
 
 test('the bundled and served TextFeed understand authoritative v2 frames', async () => {
 	const [bundled, served] = await Promise.all([

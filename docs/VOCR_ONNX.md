@@ -1,5 +1,7 @@
 # Bundled VOCR ONNX
 
+The current Rust runtime uses `resources/assets/vocr/`. Run `npm run verify:vocr-package` to check the model bundle. The conversion commands and measurements below describe the [original export environment](https://github.com/bpwhelan/GameSentenceMiner/tree/107f310ea86b55add2d2ee9e2a1abbfd29b32d07).
+
 Unconfigured GSM uses the bundled **FP32 faithful ONNX** versions of all three VOCR 6.2
 recognizers and the textspot8 detector by default, on CPU with one inference
 thread. A fresh installation works offline without either VOCR native library.

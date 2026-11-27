@@ -133,74 +133,6 @@ fn normalize_level(raw: &str) -> Option<&'static str> {
     }
 }
 
-fn starts_with_timestamp(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    bytes.len() >= 19
-        && bytes[0..4].iter().all(u8::is_ascii_digit)
-        && bytes[4] == b'-'
-        && bytes[5..7].iter().all(u8::is_ascii_digit)
-        && bytes[7] == b'-'
-        && bytes[8..10].iter().all(u8::is_ascii_digit)
-        && bytes[10] == b' '
-        && bytes[11..13].iter().all(u8::is_ascii_digit)
-        && bytes[13] == b':'
-        && bytes[14..16].iter().all(u8::is_ascii_digit)
-        && bytes[16] == b':'
-        && bytes[17..19].iter().all(u8::is_ascii_digit)
-}
-
-fn contains_word(haystack_upper: &str, needle: &str) -> bool {
-    let mut start = 0;
-    while let Some(pos) = haystack_upper[start..].find(needle) {
-        let abs = start + pos;
-        let before_ok = abs == 0
-            || !haystack_upper.as_bytes()[abs - 1].is_ascii_alphanumeric()
-                && haystack_upper.as_bytes()[abs - 1] != b'_';
-        let after = abs + needle.len();
-        let after_ok = after == haystack_upper.len()
-            || !haystack_upper.as_bytes()[after].is_ascii_alphanumeric()
-                && haystack_upper.as_bytes()[after] != b'_';
-        if before_ok && after_ok {
-            return true;
-        }
-        start = abs + 1;
-    }
-    false
-}
-
-/// Parse log level from structured Python/Rust log lines (with or without leading `[origin]` tag)
-/// or unstructured fallback lines.
-pub fn parse_log_level(line: &str) -> Option<&'static str> {
-    let clean = strip_ansi(line);
-    let body = match split_origin_prefix(&clean) {
-        Some((_, rest)) => rest,
-        None => clean.trim_start(),
-    };
-
-    if starts_with_timestamp(body) {
-        let mut parts = body.split('|');
-        let _ts = parts.next();
-        if let Some(second) = parts.next() {
-            if let Some(level) = normalize_level(second) {
-                return Some(level);
-            }
-            if let Some(third) = parts.next() {
-                if let Some(level) = normalize_level(third) {
-                    return Some(level);
-                }
-            }
-        }
-    }
-
-    let upper = body.to_ascii_uppercase();
-    for lvl in ["CRITICAL", "ERROR", "WARNING", "WARN", "INFO", "DEBUG"] {
-        if contains_word(&upper, lvl) {
-            return normalize_level(lvl);
-        }
-    }
-    None
-}
-
 fn rotate_log_file(file_path: &Path, backup_count: usize) {
     let Some(parent) = file_path.parent() else {
         return;
@@ -249,18 +181,6 @@ fn truncate_message(message: &str) -> String {
         out.push_str("...[truncated]");
         out
     }
-}
-
-fn record_terminal_payload(payload: &mut Value) -> u64 {
-    let mut guard = state().lock().unwrap();
-    let seq = guard.next_seq;
-    guard.next_seq = guard.next_seq.wrapping_add(1);
-    payload["seq"] = json!(seq);
-    if guard.recent.len() >= RECENT_TERMINAL_LIMIT {
-        guard.recent.pop_front();
-    }
-    guard.recent.push_back(payload.clone());
-    seq
 }
 
 /// Emit a structured Rust component log to stderr, `desktop.log`, the recent buffer,
@@ -379,33 +299,6 @@ pub fn renderer(window_label: &str, level: &str, message: impl AsRef<str>) {
     }
 }
 
-/// Forward a Python backend stdout/stderr line to desktop windows with `[py:backend]` origin tagging.
-pub fn emit_python_backend_line(app: &tauri::AppHandle, stream: &str, raw_msg: &str) {
-    let tagged = ensure_origin("py:backend", raw_msg);
-    let channel_name = if stream == "stderr" {
-        "terminal-error"
-    } else {
-        "terminal-output"
-    };
-    let level = parse_log_level(&tagged).or_else(|| (stream == "stderr").then_some("ERROR"));
-    let channel = if matches!(level, Some("BACKGROUND" | "DEBUG" | "TRACE")) {
-        "background"
-    } else {
-        "basic"
-    };
-    let mut payload = json!({
-        "message": tagged,
-        "stream": stream,
-        "channel": channel,
-        "source": "py:backend",
-    });
-    if let Some(lvl) = level {
-        payload["level"] = json!(lvl);
-    }
-    record_terminal_payload(&mut payload);
-    crate::desktop_state::emit_to_desktop_windows(app, channel_name, &[payload]);
-}
-
 /// Return buffered recent terminal log entries for newly mounted desktop windows.
 pub fn recent_terminal_logs() -> Vec<Value> {
     state().lock().unwrap().recent.iter().cloned().collect()
@@ -440,33 +333,6 @@ mod tests {
             ensure_origin("rust:agent", "[Agent] Attach: hook"),
             "[rust:agent] [Agent] Attach: hook"
         );
-    }
-
-    #[test]
-    fn parse_log_level_handles_origin_prefixed_python_and_rust_lines() {
-        assert_eq!(
-            parse_log_level("[py:backend] 2026-11-19 12:30:01 | MAIN       | BACKGROUND | Boot"),
-            Some("BACKGROUND")
-        );
-        assert_eq!(
-            parse_log_level("[py:backend] 2026-11-19 12:30:01 | GAMETEXT   | TEXT_RECEIVED | Hi"),
-            Some("TEXT_RECEIVED")
-        );
-        assert_eq!(
-            parse_log_level("[rust:obs] 2026-11-19 12:30:01 | WARNING    | Scene missing"),
-            Some("WARNING")
-        );
-        assert_eq!(
-            parse_log_level("[rust:startup] 2026-11-19 12:30:01 | BACKGROUND | Update info"),
-            Some("BACKGROUND")
-        );
-        assert_eq!(
-            parse_log_level("2026-11-13 WARNING: retry"),
-            Some("WARNING")
-        );
-        assert_eq!(parse_log_level("[error] failed"), Some("ERROR"));
-        assert_eq!(parse_log_level("plain stdout line"), None);
-        assert_eq!(parse_log_level("Updating information now"), None);
     }
 
     #[test]

@@ -2,9 +2,6 @@ use super::*;
 use futures_util::{SinkExt, StreamExt};
 
 pub(super) async fn run(app: &AppHandle) -> Result<Value, String> {
-    if !crate::app_lifecycle::native_session_requested() {
-        return Err("Expected a Pythonless desktop session".into());
-    }
     for action in ["ensure", "prepare", "reinstall", "ensureUv"] {
         let result =
             crate::python_install::dispatch(app, json!({"action":action,"params":{}})).await;

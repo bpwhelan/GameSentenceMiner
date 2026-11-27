@@ -1,5 +1,5 @@
 //! Native OCR coordinator owning OCR config/backups, replacements, model status,
-//! preview captures/areas, dependency installs, furigana preview, and native/Python OCR runtime sessions.
+//! preview captures/areas, furigana preview, and OCR runtime sessions.
 
 pub(crate) mod meiki;
 pub(crate) mod area_selector;
@@ -8,30 +8,20 @@ pub(crate) mod desktop_selector;
 pub(crate) mod vocr;
 use crate::desktop_services::paths_for;
 use crate::desktop_state::emit_to_desktop_windows;
-use crate::native::{dialog_message, shell_open_path};
+use crate::native::shell_open_path;
 use crate::obs::Obs;
 use crate::ocr::Ocr;
-use crate::python_ops;
-use crate::runtime;
 use gsm_settings::paths::owocr_config_path;
-use gsm_settings::preferences::Preferences;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, VecDeque};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 pub(crate) const NATIVE_ENGINES: &[&str] = &[
     "oneocr",
@@ -106,24 +96,16 @@ struct ActiveSession {
     source: OcrStartSource,
     mode: OcrRunMode,
     paused: bool,
-    native: bool,
     force_stable: bool,
     last_activity: Option<Value>,
     config: Value,
     stop_flag: Arc<AtomicBool>,
 }
 
-struct PythonOcrProcess {
-    generation: u64,
-    child: Child,
-    stdin: Option<ChildStdin>,
-}
-
 #[derive(Default)]
 struct OcrState {
     generation: u64,
     active: Option<ActiveSession>,
-    python_proc: Option<PythonOcrProcess>,
     delivery_queue: VecDeque<(String, String, Value)>,
     delivery_worker_active: bool,
     scene_debounce: HashMap<PathBuf, u64>,
@@ -135,7 +117,7 @@ pub struct OcrCoordinator(Arc<Mutex<OcrState>>);
 impl OcrCoordinator {
     pub fn is_running(&self) -> bool {
         let state = self.0.lock().unwrap();
-        state.active.is_some() || state.python_proc.is_some()
+        state.active.is_some()
     }
 
     pub fn active_source(&self) -> Option<OcrStartSource> {
@@ -151,7 +133,7 @@ impl OcrCoordinator {
         let state = self.0.lock().unwrap();
         let active = state.active.as_ref();
         json!({
-            "isRunning": active.is_some() || state.python_proc.is_some(),
+            "isRunning": active.is_some(),
             "source": active.map(|s| s.source.as_str()),
             "mode": active.map(|s| s.mode.as_str()),
         })
@@ -195,11 +177,6 @@ pub fn get_ocr_area_revision(config: &Value) -> String {
 }
 
 pub fn is_native_ocr_supported(ocr_config: &Value, manual: bool) -> bool {
-    if !crate::app_lifecycle::native_session_requested() && (std::env::var("GSM_DISABLE_NATIVE_OCR").as_deref() == Ok("1")
-        || ocr_config.get("disableNativeOcr").and_then(Value::as_bool) == Some(true))
-    {
-        return false;
-    }
     let settings = runtime_ocr_settings(ocr_config.clone());
     let is_engine_supported = |name: &str| NATIVE_ENGINES.contains(&name);
     let ocr1 = settings["ocr1"].as_str().unwrap_or("");
@@ -597,45 +574,6 @@ pub async fn resolve_active_scene_name(
     "Default".to_owned()
 }
 
-fn should_enable_keep_newline(ocr_config: &Value) -> bool {
-    let specific: Vec<bool> = [
-        "keep_newline_auto",
-        "keep_newline_menu",
-        "keep_newline_area_select",
-    ]
-    .iter()
-    .filter_map(|k| ocr_config.get(*k).and_then(Value::as_bool))
-    .collect();
-    if !specific.is_empty() {
-        return specific.into_iter().any(|v| v);
-    }
-    ocr_config
-        .get("keep_newline")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-fn append_hotkey_args(args: &mut Vec<String>, ocr_config: &Value) {
-    let pairs = [
-        ("--area_select_ocr_hotkey", "areaSelectOcrHotkey", ""),
-        ("--add_area_ocr_hotkey", "addAreaOcrHotkey", "Alt+Shift+N"),
-        ("--manual_ocr_hotkey", "manualOcrHotkey", ""),
-        ("--menu_ocr_hotkey", "menuOcrHotkey", ""),
-        ("--whole_window_ocr_hotkey", "wholeWindowOcrHotkey", ""),
-        ("--global_pause_hotkey", "globalPauseHotkey", ""),
-    ];
-    for (flag, key, fallback) in pairs {
-        args.push(flag.into());
-        args.push(
-            ocr_config
-                .get(key)
-                .and_then(Value::as_str)
-                .unwrap_or(fallback)
-                .to_owned(),
-        );
-    }
-}
-
 async fn build_native_ocr_config(
     app: &tauri::AppHandle,
     mode: &OcrRunMode,
@@ -755,63 +693,22 @@ pub fn stop_ocr_sync(
     let Some(coord) = app.try_state::<OcrCoordinator>() else {
         return false;
     };
-    let (was_native, session_id, python_child, stopped) = {
-        let mut s = coord.0.lock().unwrap();
-        if let Some(req_source) = only_if_source {
-            if s.active.as_ref().map(|a| &a.source) != Some(req_source) {
-                return false;
-            }
-        }
-        let had_active = s.active.is_some() || s.python_proc.is_some();
-        if !had_active {
-            return false;
-        }
-        s.generation += 1;
-        s.delivery_queue.clear();
-        let active = s.active.take();
-        if let Some(ref a) = active {
-            a.stop_flag.store(true, Ordering::SeqCst);
-        }
-        let py = s.python_proc.take();
-        (
-            active.as_ref().is_some_and(|a| a.native),
-            active.as_ref().map(|a| a.id.clone()).unwrap_or_default(),
-            py,
-            true,
-        )
+    let session_id = {
+        let mut state = coord.0.lock().unwrap();
+        let Some(active) = &state.active else { return false };
+        if only_if_source.is_some_and(|source| source != &active.source) { return false; }
+        active.stop_flag.store(true, Ordering::SeqCst);
+        let id = active.id.clone();
+        state.active = None;
+        state.generation += 1;
+        state.delivery_queue.clear();
+        id
     };
-    if !stopped {
-        return false;
+    if let Some(ocr) = app.try_state::<Ocr>() {
+        let _ = ocr.command(json!({"action": "stop", "session": session_id, "reason": reason}));
+        if matches!(reason, "app-shutdown" | "data-relocate") { let _ = ocr.wait_stopped(); }
     }
-
-    if was_native {
-        if let Some(ocr) = app.try_state::<Ocr>() {
-            let _ =
-                ocr.command(json!({ "action": "stop", "session": session_id, "reason": reason }));
-            if matches!(reason, "app-shutdown" | "data-relocate") {
-                let _ = ocr.wait_stopped();
-            }
-        }
-        emit_to_desktop_windows(app, "ocr-ipc-stopped", &[]);
-    }
-    if let Some(mut py) = python_child {
-        if let Some(mut stdin) = py.stdin.take() {
-            let _ = writeln!(
-                stdin,
-                "{}",
-                python_ocr_command("stop", json!({"reason":reason}))
-            );
-        }
-        std::thread::spawn(move || {
-            for _ in 0..20 {
-                if let Ok(Some(_)) = py.child.try_wait() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            let _ = py.child.kill();
-        });
-    }
+    emit_to_desktop_windows(app, "ocr-ipc-stopped", &[]);
     emit_to_desktop_windows(app, "ocr-stopped", &[]);
     crate::text_intake::producer_activity(app, crate::text_intake::Producer::Ocr, false);
     true
@@ -822,32 +719,14 @@ pub async fn start_ocr(
     source: OcrStartSource,
     mode: OcrRunMode,
 ) -> Result<(), String> {
-    if !app
-        .try_state::<python_ops::PythonOpsState>()
-        .is_some_and(|s| s.is_backend_connected())
-        && std::env::var("GSM_SMOKE_TEST").is_ok()
-    {
-        // Smoke tests may inspect commands without live Python backend unless requested.
-    }
-    if is_python_update_blocking(app) {
-        return Err("Python environment maintenance is in progress.".into());
-    }
     stop_ocr_sync(app, "restart", None);
 
     let ocr_config = read_ocr_config(app);
     if is_native_ocr_supported(&ocr_config, mode != OcrRunMode::Auto) {
         start_native_ocr(app, source, mode, ocr_config).await
-    } else if crate::app_lifecycle::native_session_requested() {
-        Err("The saved OCR engine is unavailable. Choose an installed engine in OCR settings.".into())
     } else {
-        start_python_ocr(app, source, mode, ocr_config).await
+        Err("The saved OCR engine is unavailable. Choose an installed engine in OCR settings.".into())
     }
-}
-
-fn is_python_update_blocking(app: &tauri::AppHandle) -> bool {
-    app.try_state::<crate::python_install::PythonInstall>()
-        .map(|pi| pi.gate.try_lock().is_err())
-        .unwrap_or(false)
 }
 
 async fn start_native_ocr(
@@ -889,7 +768,6 @@ async fn start_native_ocr(
             source,
             mode: mode.clone(),
             paused: false,
-            native: true,
             force_stable: config["settings"]["force_stable"]
                 .as_bool()
                 .unwrap_or(false),
@@ -956,7 +834,7 @@ fn spawn_context_heartbeat(
                 let s = coord.0.lock().unwrap();
                 s.active
                     .as_ref()
-                    .filter(|a| a.generation == generation && a.native)
+                    .filter(|a| a.generation == generation)
                     .map(|a| (a.mode.clone(), a.force_stable))
             };
             let Some((mode, force_stable)) = current else {
@@ -1016,216 +894,6 @@ fn publish_native_status(app: &tauri::AppHandle, status: &Value, force: bool) {
     }
 }
 
-fn configure_obs_reader(app: &tauri::AppHandle, cmd: &mut Command) -> Result<(), String> {
-    let broker = crate::runtime::get(app)?.info();
-    cmd.env("GSM_PROFILE_DIR", &paths_for(app).active)
-        .env("GSM_OBS_READER_PORT", broker["port"].as_u64().ok_or("Desktop bus unavailable")?.to_string())
-        .env("GSM_OBS_READER_TOKEN", broker["token"].as_str().ok_or("Desktop bus unavailable")?)
-        .env_remove("GSM_OBS_BACKEND_PID")
-        .env_remove("GSM_BROKER_PORT")
-        .env_remove("GSM_BROKER_TOKEN")
-        .env_remove("GSM_CLIENT_ID");
-    Ok(())
-}
-
-async fn start_python_ocr(
-    app: &tauri::AppHandle,
-    source: OcrStartSource,
-    mode: OcrRunMode,
-    ocr_config: Value,
-) -> Result<(), String> {
-    let python_path = python_ops::ensure_python_path(app).await?;
-    let Some(coord) = app.try_state::<OcrCoordinator>() else {
-        return Err("OcrCoordinator unavailable".into());
-    };
-    let ocr_config = runtime_ocr_settings(ocr_config);
-    let lang = ocr_config["language"].as_str().unwrap_or("ja");
-    let ocr1 = ocr_config["ocr1"].as_str().unwrap_or("screenai");
-    let ocr2 = ocr_config["ocr2"].as_str().unwrap_or("glens");
-    let two_pass = ocr_config["twoPassOCR"].as_bool().unwrap_or(true);
-    let adv = ocr_config["advancedMode"].as_bool().unwrap_or(false);
-    let screenshots = ocr_config["ocr_screenshots"].as_bool().unwrap_or(false);
-    let send_clip = ocr_config["sendToClipboard"].as_bool().unwrap_or(false);
-    let furi = ocr_config["furigana_filter_sensitivity"]
-        .as_f64()
-        .unwrap_or(0.0);
-    let optimize = ocr_config["optimize_second_scan"].as_bool().unwrap_or(true);
-
-    let mut args = vec![
-        "-m".to_owned(),
-        "GameSentenceMiner.ocr.gsm_ocr".to_owned(),
-        "--language".to_owned(),
-        lang.to_owned(),
-    ];
-    match mode {
-        OcrRunMode::Auto => {
-            args.extend([
-                "--ocr1".into(),
-                ocr1.into(),
-                "--ocr2".into(),
-                ocr2.into(),
-                "--twopassocr".into(),
-                if two_pass { "1" } else { "0" }.into(),
-                "--obs_ocr".into(),
-            ]);
-            if screenshots && adv {
-                args.push("--clipboard".into());
-            }
-            if optimize || !adv {
-                args.push("--optimize_second_scan".into());
-            }
-        }
-        OcrRunMode::Manual => {
-            args.extend([
-                "--ocr1".into(),
-                ocr2.into(),
-                "--ocr2".into(),
-                ocr2.into(),
-                "--manual".into(),
-                "--obs_ocr".into(),
-            ]);
-            if screenshots && adv {
-                args.push("--clipboard".into());
-            }
-        }
-        OcrRunMode::SsOnly => {
-            args.extend([
-                "--ocr1".into(),
-                ocr2.into(),
-                "--ocr2".into(),
-                ocr2.into(),
-                "--manual".into(),
-                "--obs_ocr".into(),
-            ]);
-            if screenshots {
-                args.push("--clipboard".into());
-            }
-        }
-    }
-    if send_clip {
-        args.push("--clipboard-output".into());
-    }
-    if furi > 0.0 {
-        args.extend(["--furigana_filter_sensitivity".into(), furi.to_string()]);
-    }
-    append_hotkey_args(&mut args, &ocr_config);
-    if should_enable_keep_newline(&ocr_config) {
-        args.push("--keep_newline".into());
-    }
-
-    let mut cmd = Command::new(&python_path);
-    configure_obs_reader(app, &mut cmd)?;
-    cmd.args(&args)
-        .env("PYTHONIOENCODING", "utf-8")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(windows)]
-    {
-        let hide_console = matches!(
-            (&source, &mode),
-            (OcrStartSource::Auto | OcrStartSource::System, _)
-                | (OcrStartSource::User, OcrRunMode::SsOnly)
-        );
-        if hide_console {
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-    }
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed starting Python OCR: {e}"))?;
-    let stdin = child.stdin.take();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let session_id = uuid::Uuid::new_v4().to_string();
-    let generation = {
-        let mut s = coord.0.lock().unwrap();
-        s.generation += 1;
-        let gen = s.generation;
-        s.active = Some(ActiveSession {
-            id: session_id.clone(),
-            generation: gen,
-            source,
-            mode,
-            paused: false,
-            native: false,
-            force_stable: false,
-            last_activity: None,
-            config: json!({}),
-            stop_flag: Arc::new(AtomicBool::new(false)),
-        });
-        s.python_proc = Some(PythonOcrProcess {
-            generation: gen,
-            child,
-            stdin,
-        });
-        gen
-    };
-
-    emit_to_desktop_windows(app, "ocr-started", &[]);
-    emit_ocr_log(app, "rust:ocr-coordinator", "Started Python OCR process.");
-    crate::desktop_log::background(app, "ocr-coordinator", "Started Python OCR process.");
-    crate::text_intake::producer_activity(app, crate::text_intake::Producer::Ocr, true);
-
-    if let Some(out) = stdout {
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(out).lines().map_while(Result::ok) {
-                match parse_python_ocr_event(&line) {
-                    Ok(Some((event, data))) => {
-                        on_session_ocr_event(&app_clone, &session_id, false, &event, data)
-                    }
-                    Ok(None) => emit_ocr_log(&app_clone, "py:ocr", &line),
-                    Err(error) => {
-                        emit_to_desktop_windows(&app_clone, "ocr-ipc-error", &[json!(error)])
-                    }
-                }
-            }
-        });
-    }
-    if let Some(err) = stderr {
-        let app_clone = app.clone();
-        std::thread::spawn(move || {
-            for line in BufReader::new(err).lines().map_while(Result::ok) {
-                emit_ocr_log(&app_clone, "py:ocr", &line);
-            }
-        });
-    }
-    let app_wait = app.clone();
-    let coord_arc = coord.0.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(Duration::from_millis(250));
-        let exited = {
-            let mut s = coord_arc.lock().unwrap();
-            let Some(ref mut proc_ref) = s.python_proc else {
-                break;
-            };
-            if proc_ref.generation != generation {
-                break;
-            }
-            match proc_ref.child.try_wait() {
-                Ok(Some(_status)) => {
-                    s.python_proc = None;
-                    s.active = None;
-                    true
-                }
-                Ok(None) => false,
-                Err(_) => {
-                    s.python_proc = None;
-                    s.active = None;
-                    true
-                }
-            }
-        };
-        if exited {
-            emit_to_desktop_windows(&app_wait, "ocr-stopped", &[]);
-            crate::text_intake::producer_activity(&app_wait, crate::text_intake::Producer::Ocr, false);
-            break;
-        }
-    });
-    Ok(())
-}
-
 fn emit_ocr_log(app: &tauri::AppHandle, origin: &str, message: &str) {
     let payload = if message.trim() == "COMMAND_FINISHED" {
         message.to_owned()
@@ -1237,37 +905,6 @@ fn emit_ocr_log(app: &tauri::AppHandle, origin: &str, message: &str) {
 
 /// Forward events raised by `crate::ocr::Ocr` (`emit(...)`) to backend ingestion and desktop windows.
 pub fn on_native_ocr_event(app: &tauri::AppHandle, session: &str, event: &str, data: Value) {
-    on_session_ocr_event(app, session, true, event, data);
-}
-
-fn parse_python_ocr_event(line: &str) -> Result<Option<(String, Value)>, String> {
-    let Some(raw) = line.strip_prefix("OCRMSG:") else {
-        return Ok(None);
-    };
-    let payload: Value =
-        serde_json::from_str(raw).map_err(|e| format!("Invalid OCR message: {e}"))?;
-    let event = payload["event"]
-        .as_str()
-        .ok_or("OCR message has no event")?;
-    Ok(Some((event.to_owned(), payload["data"].clone())))
-}
-
-fn python_ocr_command(action: &str, data: Value) -> String {
-    let action = if action == "status" {
-        "get_status"
-    } else {
-        action
-    };
-    format!("OCRCMD:{}", json!({"command":action, "data":data}))
-}
-
-fn on_session_ocr_event(
-    app: &tauri::AppHandle,
-    session: &str,
-    native: bool,
-    event: &str,
-    data: Value,
-) {
     if std::env::var("GSM_SMOKE_TEST").is_ok() && matches!(event, "error" | "ocr_result") {
         eprintln!("[ocr smoke] {event}: {data}");
     }
@@ -1279,7 +916,7 @@ fn on_session_ocr_event(
         let Some(active) = s.active.as_mut() else {
             return;
         };
-        if active.native != native || active.id != session {
+        if active.id != session {
             return;
         }
         if event == "force_stable_changed" {
@@ -1324,8 +961,7 @@ fn on_session_ocr_event(
         "status" => emit_to_desktop_windows(app, "ocr-ipc-status", &[data]),
         "log" => {
             if let Some(msg) = data["message"].as_str() {
-                let origin = if native { "rust:ocr" } else { "py:ocr" };
-                emit_ocr_log(app, origin, msg);
+                emit_ocr_log(app, "rust:ocr", msg);
             }
         }
         "error" => emit_to_desktop_windows(
@@ -1364,27 +1000,25 @@ fn spawn_ocr_result_worker(app: tauri::AppHandle, shared: Arc<Mutex<OcrState>>) 
             if !valid {
                 continue;
             }
-            let ack = match runtime::get(&app) {
-                Ok(rt) => if app.state::<crate::text_intake::Intake>().active() {
-                    loop {
-                        let receipt = crate::text_intake::submit(&app, payload.clone(), None).await;
-                        if !matches!(&receipt, Ok(ack) if ack["status"] == "backpressured") {
-                            break receipt;
-                        }
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                        if !shared.lock().unwrap().active.as_ref().is_some_and(|a| a.id == session_id) {
-                            break Err("OCR session ended during text delivery".into());
-                        }
+            // The OCR integration fixture supplies an isolated Rust bus consumer.
+            let fixture = std::env::var_os("GSM_SMOKE_TEST").is_some()
+                && !app.state::<crate::text_intake::Intake>().active();
+            let ack = if fixture {
+                match crate::runtime::get(&app) {
+                    Ok(rt) => request_ocr_backend(&rt, "ocr.native.result", payload.clone(), 5000).await,
+                    Err(e) => Err(e),
+                }
+            } else {
+                loop {
+                    let receipt = crate::text_intake::submit(&app, payload.clone(), None).await;
+                    if !matches!(&receipt, Ok(ack) if ack["status"] == "backpressured") { break receipt; }
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    if !shared.lock().unwrap().active.as_ref().is_some_and(|a| a.id == session_id) {
+                        break Err("OCR session ended during text delivery".into());
                     }
-                } else {
-                    request_ocr_backend(&rt, "ocr.native.result", payload.clone(), 5000).await
                 }
-                    .unwrap_or_else(|e| json!({ "status": "error", "reason": e })),
-                Err(e) => {
-                    emit_to_desktop_windows(&app, "ocr-ipc-error", &[json!(e)]);
-                    continue;
-                }
-            };
+            }
+            .unwrap_or_else(|e| json!({"status":"error","reason":e}));
             let excluded = ack["reason"]
                 .as_str()
                 .is_some_and(|r| r.contains("excluded"));
@@ -1418,44 +1052,35 @@ pub async fn reload_active_ocr(app: &tauri::AppHandle) {
         let s = coord.0.lock().unwrap();
         s.active
             .as_ref()
-            .map(|a| (a.id.clone(), a.mode.clone(), a.native, a.force_stable))
+            .map(|a| (a.id.clone(), a.mode.clone(), a.force_stable))
     };
-    let Some((session_id, mode, is_native, force_stable)) = active_info else {
+    let Some((session_id, mode, force_stable)) = active_info else {
         return;
     };
-    if is_native {
-        let context = fetch_native_context(app).await;
-        let mut ocr_config = read_ocr_config(app);
-        if let Some(obj) = ocr_config.as_object_mut() {
-            obj.insert("force_stable".into(), json!(force_stable));
-        }
-        let input_url =
-            crate::input_server::url(app).or_else(|| std::env::var("GSM_INPUT_SERVER_URL").ok());
-        let next_config =
-            build_native_ocr_config(app, &mode, &ocr_config, &context, &input_url).await;
-        if let Some(ocr) = app.try_state::<Ocr>() {
-            if ocr
-                .command(json!({
-                    "action": "configure",
-                    "session": session_id,
-                    "config": next_config,
-                }))
-                .is_ok()
-            {
-                if let Ok(mut s) = coord.0.try_lock() {
-                    if let Some(active) = s.active.as_mut() {
-                        active.config = next_config;
-                    }
+    let context = fetch_native_context(app).await;
+    let mut ocr_config = read_ocr_config(app);
+    if let Some(obj) = ocr_config.as_object_mut() {
+        obj.insert("force_stable".into(), json!(force_stable));
+    }
+    let input_url =
+        crate::input_server::url(app).or_else(|| std::env::var("GSM_INPUT_SERVER_URL").ok());
+    let next_config =
+        build_native_ocr_config(app, &mode, &ocr_config, &context, &input_url).await;
+    if let Some(ocr) = app.try_state::<Ocr>() {
+        if ocr
+            .command(json!({
+                "action": "configure",
+                "session": session_id,
+                "config": next_config,
+            }))
+            .is_ok()
+        {
+            if let Ok(mut s) = coord.0.try_lock() {
+                if let Some(active) = s.active.as_mut() {
+                    active.config = next_config;
                 }
-                emit_to_desktop_windows(app, "ocr-ipc-config-reloaded", &[]);
             }
-        }
-    } else {
-        let mut s = coord.0.lock().unwrap();
-        if let Some(ref mut py) = s.python_proc {
-            if let Some(ref mut stdin) = py.stdin {
-                let _ = writeln!(stdin, r#"{{"command":"reload_config"}}"#);
-            }
+            emit_to_desktop_windows(app, "ocr-ipc-config-reloaded", &[]);
         }
     }
 }
@@ -1467,65 +1092,55 @@ fn send_runtime_ocr_command(app: &tauri::AppHandle, action: &str, data: Value) {
     };
     let info = {
         let s = coord.0.lock().unwrap();
-        s.active.as_ref().map(|a| (a.id.clone(), a.native))
+        s.active.as_ref().map(|a| a.id.clone())
     };
-    let Some((session_id, is_native)) = info else {
+    let Some(session_id) = info else {
         emit_to_desktop_windows(app, "ocr-ipc-error", &[json!("No active OCR process")]);
         return;
     };
-    if is_native {
-        if let Some(ocr) = app.try_state::<Ocr>() {
-            let mut msg = json!({ "action": action, "session": session_id });
-            if let Some(obj) = msg.as_object_mut() {
-                if let Some(extra) = data.as_object() {
-                    for (k, v) in extra {
-                        obj.insert(k.clone(), v.clone());
-                    }
+    if let Some(ocr) = app.try_state::<Ocr>() {
+        let mut msg = json!({ "action": action, "session": session_id });
+        if let Some(obj) = msg.as_object_mut() {
+            if let Some(extra) = data.as_object() {
+                for (k, v) in extra {
+                    obj.insert(k.clone(), v.clone());
                 }
-            }
-            match ocr.command(msg) {
-                Ok(res) => {
-                    publish_native_status(app, &res, action == "status");
-                    if action == "force_stable_changed"
-                        || action == "toggle_force_stable"
-                        || action == "set_force_stable"
-                    {
-                        let fs = res["force_stable"].as_bool().unwrap_or(false);
-                        if let Some(active) = coord.0.lock().unwrap().active.as_mut() {
-                            active.force_stable = fs;
-                        }
-                        emit_to_desktop_windows(
-                            app,
-                            "ocr-ipc-force-stable-changed",
-                            &[json!({ "force_stable": fs })],
-                        );
-                    }
-                    if matches!(action, "pause" | "unpause" | "toggle_pause") {
-                        let paused = res["paused"].as_bool().unwrap_or(false);
-                        if let Some(active) = coord.0.lock().unwrap().active.as_mut() {
-                            active.paused = paused;
-                        }
-                        emit_to_desktop_windows(
-                            app,
-                            if paused {
-                                "ocr-ipc-paused"
-                            } else {
-                                "ocr-ipc-unpaused"
-                            },
-                            &[res],
-                        );
-                    }
-                }
-                Err(e) => emit_to_desktop_windows(app, "ocr-ipc-error", &[json!(e)]),
             }
         }
-    } else {
-        let mut s = coord.0.lock().unwrap();
-        if let Some(ref mut py) = s.python_proc {
-            if let Some(ref mut stdin) = py.stdin {
-                let line = python_ocr_command(action, data);
-                let _ = writeln!(stdin, "{line}");
+        match ocr.command(msg) {
+            Ok(res) => {
+                publish_native_status(app, &res, action == "status");
+                if action == "force_stable_changed"
+                    || action == "toggle_force_stable"
+                    || action == "set_force_stable"
+                {
+                    let fs = res["force_stable"].as_bool().unwrap_or(false);
+                    if let Some(active) = coord.0.lock().unwrap().active.as_mut() {
+                        active.force_stable = fs;
+                    }
+                    emit_to_desktop_windows(
+                        app,
+                        "ocr-ipc-force-stable-changed",
+                        &[json!({ "force_stable": fs })],
+                    );
+                }
+                if matches!(action, "pause" | "unpause" | "toggle_pause") {
+                    let paused = res["paused"].as_bool().unwrap_or(false);
+                    if let Some(active) = coord.0.lock().unwrap().active.as_mut() {
+                        active.paused = paused;
+                    }
+                    emit_to_desktop_windows(
+                        app,
+                        if paused {
+                            "ocr-ipc-paused"
+                        } else {
+                            "ocr-ipc-unpaused"
+                        },
+                        &[res],
+                    );
+                }
             }
+            Err(e) => emit_to_desktop_windows(app, "ocr-ipc-error", &[json!(e)]),
         }
     }
 }
@@ -1694,80 +1309,6 @@ async fn handle_save_preview_areas(app: &tauri::AppHandle, req: Value) -> Value 
         "revision": get_ocr_area_revision(&saved),
         "config": saved,
     })
-}
-
-async fn run_python_streaming_to_ocr_log(
-    app: &tauri::AppHandle,
-    python_path: &str,
-    args: Vec<String>,
-) -> Result<(), String> {
-    let app_clone = app.clone();
-    let py = python_path.to_owned();
-    let res = tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = Command::new(&py);
-        cmd.args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        #[cfg(windows)]
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| format!("Failed starting uv/pip: {e}"))?;
-        let stderr_handle = child.stderr.take().map(|err| {
-            let app_err = app_clone.clone();
-            std::thread::spawn(move || {
-                for line in BufReader::new(err).lines().map_while(Result::ok) {
-                    emit_ocr_log(&app_err, "py:ocr-deps", &line);
-                }
-            })
-        });
-        if let Some(out) = child.stdout.take() {
-            for line in BufReader::new(out).lines().map_while(Result::ok) {
-                emit_ocr_log(&app_clone, "py:ocr-deps", &line);
-            }
-        }
-        if let Some(h) = stderr_handle {
-            let _ = h.join();
-        }
-        let status = child.wait().map_err(|e| e.to_string())?;
-        if status.success() {
-            Ok(())
-        } else {
-            Err(format!("Command exited with code {:?}", status.code()))
-        }
-    })
-    .await
-    .map_err(|e| e.to_string())?;
-    res
-}
-
-async fn sync_locked_ocr_env(app: &tauri::AppHandle, python_path: &str) -> Result<(), String> {
-    let paths = paths_for(app);
-    let extras = Preferences::new(&paths.active)
-        .get("pythonExtras")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| json!(["base"]));
-    let selection = gsm_packages::python::Python::new(
-        &paths.shared,
-        &crate::python_install::project_root(app),
-        crate::LOCAL_BUILD,
-    )
-    .call("extras", &json!({ "extras": extras }), Arc::new(|_, _| {}))?;
-    crate::python_install::dispatch(
-        app,
-        json!({
-            "action": "sync",
-            "params": {
-                "pythonPath": python_path,
-                "extras": selection["selectedExtras"],
-                "checkOnly": false,
-                "options": {}
-            }
-        }),
-    )
-    .await
-    .map(|_| ())
 }
 
 async fn run_furigana_preview(
@@ -2100,160 +1641,7 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
             });
             true
         }
-        "ocr.install-recommended-deps" | "ocr.install-selected-dep" | "ocr.uninstall-selected-dep"
-            if crate::app_lifecycle::native_session_requested() => true,
-        "ocr.install-recommended-deps" => {
-            tauri::async_runtime::spawn(async move {
-                let _ = python_ops::close_all_python_processes(&app, false).await;
-                let Ok(py) = python_ops::ensure_python_path(&app).await else {
-                    emit_ocr_log(&app, "rust:ocr-coordinator", "Python executable not found.");
-                    return;
-                };
-                #[cfg(windows)]
-                {
-                    emit_ocr_log(&app, "rust:ocr-coordinator", "Downloading OneOCR files...");
-                    let _ = run_python_streaming_to_ocr_log(
-                        &app,
-                        &py,
-                        vec![
-                            "-m".into(),
-                            "GameSentenceMiner.util.downloader.oneocr_dl".into(),
-                        ],
-                    )
-                    .await;
-                }
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    "Restoring recommended dependencies from the lockfile...",
-                );
-                let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    "\x1b[32mRecommended dependencies restored successfully!\x1b[0m",
-                );
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    "\x1b[32mYou can now close this console.\x1b[0m",
-                );
-            });
-            true
-        }
-        "ocr.install-selected-dep" => {
-            let dep = args
-                .first()
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_owned();
-            if dep.is_empty() {
-                return true;
-            }
-            tauri::async_runtime::spawn(async move {
-                let _ = python_ops::close_all_python_processes(&app, false).await;
-                let Ok(py) = python_ops::ensure_python_path(&app).await else {
-                    return;
-                };
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    &format!("Installing {dep} dependencies..."),
-                );
-                let uv_args: Vec<String> = if dep.contains("numpy") {
-                    vec![
-                        "-m".into(),
-                        "uv".into(),
-                        "--no-progress".into(),
-                        "pip".into(),
-                        "install".into(),
-                        "--no-deps".into(),
-                        "numpy==2.2.6".into(),
-                    ]
-                } else {
-                    let mut v = vec!["-m".into(), "uv".into(), "--no-progress".into()];
-                    v.extend(dep.split_whitespace().map(str::to_owned));
-                    v
-                };
-                let _ = run_python_streaming_to_ocr_log(&app, &py, uv_args).await;
-                let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    &format!("\x1b[32mInstalled {dep} successfully.\x1b[0m"),
-                );
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    "\x1b[32mYou can now close this console.\x1b[0m",
-                );
-            });
-            true
-        }
-        "ocr.uninstall-selected-dep" => {
-            let dep = args
-                .first()
-                .and_then(Value::as_str)
-                .unwrap_or("")
-                .trim()
-                .to_owned();
-            if dep.is_empty() {
-                return true;
-            }
-            tauri::async_runtime::spawn(async move {
-                let Ok(choice) = dialog_message(&json!({
-                    "type": "warning",
-                    "title": "Confirm Uninstall",
-                    "message": format!("Are you sure you want to uninstall the dependency: {dep}?"),
-                    "buttons": ["Yes", "No"],
-                    "defaultId": 1,
-                    "cancelId": 1,
-                }))
-                .await
-                else {
-                    return;
-                };
-                if choice != 0 {
-                    emit_ocr_log(
-                        &app,
-                        "rust:ocr-coordinator",
-                        &format!("Uninstall canceled for {dep}."),
-                    );
-                    return;
-                }
-                let _ = python_ops::close_all_python_processes(&app, false).await;
-                let Ok(py) = python_ops::ensure_python_path(&app).await else {
-                    return;
-                };
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    &format!("Uninstalling {dep} dependencies..."),
-                );
-                let mut uv_args = vec![
-                    "-m".into(),
-                    "uv".into(),
-                    "--no-progress".into(),
-                    "pip".into(),
-                    "uninstall".into(),
-                ];
-                uv_args.extend(dep.split_whitespace().map(str::to_owned));
-                let _ = run_python_streaming_to_ocr_log(&app, &py, uv_args).await;
-                let _ = sync_locked_ocr_env(&app, &py).await;
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    &format!("\x1b[32mUninstalled {dep} successfully.\x1b[0m"),
-                );
-                emit_ocr_log(
-                    &app,
-                    "rust:ocr-coordinator",
-                    "\x1b[32mYou can now close this console.\x1b[0m",
-                );
-            });
-            true
-        }
+        "ocr.install-recommended-deps" | "ocr.install-selected-dep" | "ocr.uninstall-selected-dep" => true,
         _ => false,
     }
 }
@@ -2262,23 +1650,6 @@ pub fn try_send(app: &tauri::AppHandle, channel: &str, args: &[Value]) -> bool {
 mod tests {
     use super::*;
     use std::time::Instant;
-
-    #[test]
-    fn python_fallback_messages_and_commands_preserve_the_wire_protocol() {
-        let (event, data) = parse_python_ocr_event(
-            "OCRMSG:{\"event\":\"ocr_result\",\"data\":{\"text\":\"日本語\"}}",
-        )
-        .unwrap()
-        .unwrap();
-        assert_eq!(event, "ocr_result");
-        assert_eq!(data["text"], "日本語");
-        assert!(parse_python_ocr_event("log: OCRMSG:{}").unwrap().is_none());
-        assert!(parse_python_ocr_event("OCRMSG:broken").is_err());
-        let command = python_ocr_command("status", json!({}));
-        let payload: Value =
-            serde_json::from_str(command.strip_prefix("OCRCMD:").unwrap()).unwrap();
-        assert_eq!(payload["command"], "get_status");
-    }
 
     #[test]
     fn advanced_defaults_to_two_pass_lens_and_basic_follows_online_switch() {

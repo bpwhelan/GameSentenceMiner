@@ -1,29 +1,29 @@
 {
   "vocr/large-faithful.onnx": {
-    "source": "GameSentenceMiner/assets/vocr/large-faithful.onnx",
+    "source": "resources/assets/vocr/large-faithful.onnx",
     "bytes": 9400009,
     "sha256": "b67831a53fef77510d931fb00f4b05bd0b4ee588692cf1f4ca2da695c04eb0a2",
     "origin": "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/cc3e429e39c4cce0bf3341910ed53f495571961e/GameSentenceMiner/assets/vocr/large-faithful.onnx"
   },
   "vocr/large-fast.onnx": {
-    "source": "GameSentenceMiner/assets/vocr/large-fast.onnx",
+    "source": "resources/assets/vocr/large-fast.onnx",
     "bytes": 9338604,
     "sha256": "c1a36ae7313d3ff39a2100bbd6aa88509836fb22e947d08c2b5d8fe06e47c4bc"
   },
   "vocr/normal-faithful.onnx": {
-    "source": "GameSentenceMiner/assets/vocr/normal-faithful.onnx",
+    "source": "resources/assets/vocr/normal-faithful.onnx",
     "bytes": 4391905,
     "sha256": "8e067c0e2ea895813367d84f492a268618ef2885dc01c536e95ef90ede28c9ac",
     "origin": "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/cc3e429e39c4cce0bf3341910ed53f495571961e/GameSentenceMiner/assets/vocr/normal-faithful.onnx"
   },
   "vocr/small-faithful.onnx": {
-    "source": "GameSentenceMiner/assets/vocr/small-faithful.onnx",
+    "source": "resources/assets/vocr/small-faithful.onnx",
     "bytes": 2983204,
     "sha256": "b8a7207d8323c9468833676fdf09199bf793644b126db9038862d2d7b41ee36e",
     "origin": "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/cc3e429e39c4cce0bf3341910ed53f495571961e/GameSentenceMiner/assets/vocr/small-faithful.onnx"
   },
   "vocr/textspot8-faithful.onnx": {
-    "source": "GameSentenceMiner/assets/vocr/textspot8-faithful.onnx",
+    "source": "resources/assets/vocr/textspot8-faithful.onnx",
     "bytes": 193390,
     "sha256": "030c4a7441b5bd92cb0812a86cb00ada19ee0cade8b48af602552fc8fcb9ed28",
     "origin": "https://raw.githubusercontent.com/bpwhelan/GameSentenceMiner/cc3e429e39c4cce0bf3341910ed53f495571961e/GameSentenceMiner/assets/vocr/textspot8-faithful.onnx"

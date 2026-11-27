@@ -328,11 +328,6 @@ impl AnkiConfig {
 pub struct ReviewAfterSessionConfig {
     pub enabled: bool,
     pub open_on_card_queued: bool,
-    pub open_on_game_close: bool,
-    pub delay_seconds: i64,
-    pub auto_advance: bool,
-    pub delete_local_after_review: bool,
-    pub cleanup_anki_media: bool,
     pub max_future_context_lines: i64,
 }
 
@@ -341,11 +336,6 @@ impl Default for ReviewAfterSessionConfig {
         Self {
             enabled: false,
             open_on_card_queued: true,
-            open_on_game_close: true,
-            delay_seconds: 3,
-            auto_advance: true,
-            delete_local_after_review: true,
-            cleanup_anki_media: true,
             max_future_context_lines: 3,
         }
     }
@@ -353,7 +343,6 @@ impl Default for ReviewAfterSessionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeaturesConfig {
-    pub full_auto: bool,
     pub open_anki_edit: bool,
     pub open_anki_in_browser: bool,
     pub browser_query: String,
@@ -364,7 +353,6 @@ pub struct FeaturesConfig {
 impl Default for FeaturesConfig {
     fn default() -> Self {
         Self {
-            full_auto: true,
             open_anki_edit: false,
             open_anki_in_browser: false,
             browser_query: String::new(),
@@ -449,8 +437,6 @@ impl AnimatedScreenshotConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenshotConfig {
     pub enabled: bool,
-    pub width: i32,
-    pub height: i32,
     pub quality: String,
     pub extension: String,
     pub custom_ffmpeg_settings: String,
@@ -465,8 +451,6 @@ impl Default for ScreenshotConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            width: 0,
-            height: 0,
             quality: "85".into(),
             extension: "avif".into(),
             custom_ffmpeg_settings: String::new(),
@@ -603,7 +587,6 @@ pub struct VadConfig {
     pub tts_url: String,
     pub cut_and_splice_segments: bool,
     pub splice_padding: f64,
-    pub use_cpu_for_inference_v2: bool,
     pub preload_vad_model: bool,
     pub short_audio_min_seconds: f64,
     pub short_audio_seconds_per_char: f64,
@@ -630,7 +613,6 @@ impl Default for VadConfig {
             tts_url: "http://127.0.0.1:5050/?term=$s".into(),
             cut_and_splice_segments: false,
             splice_padding: 0.1,
-            use_cpu_for_inference_v2: true,
             preload_vad_model: true,
             short_audio_min_seconds: 0.5,
             short_audio_seconds_per_char: 0.05,
@@ -647,7 +629,10 @@ impl Default for VadConfig {
 
 impl VadConfig {
     pub fn normalize(&mut self) {
-        if self.selected_vad_model_v2 == self.backup_vad_model {
+        if self.selected_vad_model_v2 == WHISPER {
+            self.selected_vad_model_v2 = FIRERED.into();
+        }
+        if self.backup_vad_model == WHISPER || self.selected_vad_model_v2 == self.backup_vad_model {
             self.backup_vad_model = OFF.into();
         }
     }
@@ -663,7 +648,7 @@ impl VadConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiConfig {
-    pub add_to_anki: bool,
+    pub enabled: bool,
     pub auto_generate_character_summary: bool,
     pub anki_field: String,
     pub deepl_api_key: String,
@@ -708,7 +693,7 @@ pub struct AiConfig {
 impl Default for AiConfig {
     fn default() -> Self {
         Self {
-            add_to_anki: false,
+            enabled: false,
             auto_generate_character_summary: false,
             anki_field: String::new(),
             deepl_api_key: String::new(),
@@ -766,7 +751,7 @@ impl AiConfig {
             _ => false,
         }
     }
-    pub fn normalize(&mut self, legacy_enabled: bool, legacy_api_key: &str) {
+    pub fn normalize(&mut self, legacy_api_key: &str) {
         self.provider = match self.provider.trim().to_ascii_lowercase().as_str() {
             "gemini" => AI_GEMINI.into(),
             "groq" => AI_GROQ.into(),
@@ -810,9 +795,6 @@ impl AiConfig {
         }
         if self.deepl_api_key == OFF {
             self.deepl_api_key.clear();
-        }
-        if legacy_enabled {
-            self.add_to_anki = true;
         }
         self.zai_api_key = self.zai_api_key.trim().to_string();
         self.zai_model = self.zai_model.trim().to_string();
@@ -901,7 +883,6 @@ impl AiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdvancedConfig {
     #[serde(default)]
-    pub video_player_path: String,
     pub multi_line_line_break: String,
     pub localhost_bind_address: String,
     pub direct_websocket_port: u16,
@@ -914,7 +895,6 @@ pub struct AdvancedConfig {
 impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
-            video_player_path: String::new(),
             multi_line_line_break: "<br>".into(),
             localhost_bind_address: "127.0.0.1".into(),
             direct_websocket_port: 0,
@@ -1116,9 +1096,6 @@ impl ProfileConfig {
         }
 
         if let Some(f) = p.get("features").and_then(Value::as_object) {
-            if let Some(v) = get_bool(f, "full_auto") {
-                cfg.features.full_auto = v;
-            }
             if let Some(v) = get_bool(f, "open_anki_edit") {
                 cfg.features.open_anki_edit = v;
             }
@@ -1138,21 +1115,6 @@ impl ProfileConfig {
                 if let Some(v) = get_bool(r, "open_on_card_queued") {
                     cfg.features.review_after_session.open_on_card_queued = v;
                 }
-                if let Some(v) = get_bool(r, "open_on_game_close") {
-                    cfg.features.review_after_session.open_on_game_close = v;
-                }
-                if let Some(v) = get_i64(r, "delay_seconds") {
-                    cfg.features.review_after_session.delay_seconds = v;
-                }
-                if let Some(v) = get_bool(r, "auto_advance") {
-                    cfg.features.review_after_session.auto_advance = v;
-                }
-                if let Some(v) = get_bool(r, "delete_local_after_review") {
-                    cfg.features.review_after_session.delete_local_after_review = v;
-                }
-                if let Some(v) = get_bool(r, "cleanup_anki_media") {
-                    cfg.features.review_after_session.cleanup_anki_media = v;
-                }
                 if let Some(v) = get_i64(r, "max_future_context_lines") {
                     cfg.features.review_after_session.max_future_context_lines = v;
                 }
@@ -1162,18 +1124,6 @@ impl ProfileConfig {
         if let Some(s) = p.get("screenshot").and_then(Value::as_object) {
             if let Some(v) = get_bool(s, "enabled") {
                 cfg.screenshot.enabled = v;
-            }
-            if let Some(v) = get_i64(s, "width") {
-                cfg.screenshot.width = v as i32;
-            }
-            if let Some(v) = get_i64(s, "height") {
-                cfg.screenshot.height = v as i32;
-            }
-            if cfg.screenshot.width != 0 && cfg.screenshot.height == 0 {
-                cfg.screenshot.height = -1;
-            }
-            if cfg.screenshot.width == 0 && cfg.screenshot.height != 0 {
-                cfg.screenshot.width = -1;
             }
             if let Some(v) = get_str_or_num(s, "quality") {
                 cfg.screenshot.quality = v;
@@ -1311,9 +1261,6 @@ impl ProfileConfig {
             if let Some(x) = get_f64(v, "splice_padding") {
                 cfg.vad.splice_padding = x;
             }
-            if let Some(b) = get_bool(v, "use_cpu_for_inference_v2") {
-                cfg.vad.use_cpu_for_inference_v2 = b;
-            }
             if let Some(b) = get_bool(v, "preload_vad_model") {
                 cfg.vad.preload_vad_model = b;
             }
@@ -1348,11 +1295,8 @@ impl ProfileConfig {
         }
 
         if let Some(ai) = p.get("ai").and_then(Value::as_object) {
-            let legacy_enabled = get_bool(ai, "enabled").unwrap_or(false);
+            cfg.ai.enabled = get_bool(ai, "enabled").unwrap_or(false) || get_bool(ai, "add_to_anki").unwrap_or(false);
             let legacy_api_key = get_str(ai, "api_key").unwrap_or_default();
-            if let Some(v) = get_bool(ai, "add_to_anki") {
-                cfg.ai.add_to_anki = v;
-            }
             if let Some(v) = get_bool(ai, "auto_generate_character_summary") {
                 cfg.ai.auto_generate_character_summary = v;
             }
@@ -1470,13 +1414,10 @@ impl ProfileConfig {
             if let Some(v) = get_f64(ai, "top_p") {
                 cfg.ai.top_p = v;
             }
-            cfg.ai.normalize(legacy_enabled, &legacy_api_key);
+            cfg.ai.normalize(&legacy_api_key);
         }
 
         if let Some(adv) = p.get("advanced").and_then(Value::as_object) {
-            if let Some(v) = get_str(adv, "video_player_path") {
-                cfg.advanced.video_player_path = v;
-            }
             if let Some(v) = get_str(adv, "multi_line_line_break") {
                 cfg.advanced.multi_line_line_break = v;
             }
@@ -1996,7 +1937,6 @@ mod tests {
             cfg.anki.field_grouping_additional_fields,
             vec!["MiscInfo", "Tag"]
         );
-        assert_eq!(cfg.screenshot.height, -1);
         assert_eq!(cfg.screenshot.animated_settings.scaled_quality, 28);
         assert_eq!(cfg.ai.provider, AI_GEMINI);
         assert_eq!(cfg.ai.gemini_api_key, "legacy-key");

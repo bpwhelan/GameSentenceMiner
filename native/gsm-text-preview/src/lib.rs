@@ -1,13 +1,10 @@
 //! Preview the submitted settings against the active profile's language.
-#[path = "../../gsm-native/src/correlation.rs"]
 pub mod correlation;
 mod hook_ranking;
 pub use hook_ranking::HookFinder;
 mod language;
 mod replacements;
-// Share the kernels with Python's PyO3 facade without linking the facade.
 #[allow(dead_code)]
-#[path = "../../gsm-native/src/text_cleanup.rs"]
 mod text_cleanup;
 
 use gsm_settings::workspace::text_defaults;

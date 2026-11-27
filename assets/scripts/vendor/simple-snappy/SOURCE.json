@@ -1,6 +1,0 @@
-{
-  "repository": "https://github.com/cclgroupltd/ccl_simplesnappy",
-  "commit": "3d085230baa8c46cf2090ebba29bf6e8eab31087",
-  "license": "MIT",
-  "purpose": "Read-only migration of legacy GSM dictionary data"
-}

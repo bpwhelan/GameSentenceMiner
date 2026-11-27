@@ -70,16 +70,12 @@ fn coerce(field: &str, raw: &Value) -> Option<Value> {
         "monitor_to_capture" | "minimum_character_size" => {
             json!(raw.as_i64().or_else(|| string.parse().ok())?)
         }
-        "periodic_interval" | "periodic_ratio" | "base_scale" => {
+        "periodic_interval" | "periodic_ratio" => {
             let value = raw
                 .as_f64()
                 .or_else(|| string.parse().ok())
                 .filter(|v| v.is_finite())?;
-            json!(if field == "base_scale" {
-                value.clamp(0.5, 1.)
-            } else {
-                value
-            })
+            json!(value)
         }
         "monitor_to_capture_id" | "engine_v2" | "manual_mode_desktop_background" => {
             json!(raw.as_str().or_else(|| raw.is_null().then_some(""))?)
@@ -177,34 +173,6 @@ fn update_settings(app: &AppHandle, request: &Value, screens: &[Value]) -> Resul
     Ok(response)
 }
 
-fn areas(mut area: Value) -> Value {
-    if !area.is_object() {
-        return Value::Null;
-    }
-    if area["rectangles"].is_array() {
-        area["overlay_coordinate_space"] = json!("window");
-    } else if let Some(rects) = area["rects"].as_array() {
-        let rows: Vec<_> = rects
-            .iter()
-            .map(|r| {
-                json!({
-                    "monitor":{"index":area["monitor_index"].as_i64().unwrap_or(0)},
-                    "coordinates":[r["x"],r["y"],r["w"],r["h"]],
-                    "is_excluded":r["is_excluded"]==true,"is_secondary":false
-                })
-            })
-            .collect();
-        area["rectangles"] = json!(rows);
-        area["overlay_coordinate_space"] = json!("monitor");
-        if area["coordinate_system"].is_null() {
-            area["coordinate_system"] = json!("percentage");
-        }
-    } else {
-        return Value::Null;
-    }
-    area
-}
-
 type FileStamp = Option<(u64, SystemTime)>;
 fn stamp(path: &Path) -> FileStamp {
     let m = std::fs::metadata(path).ok()?;
@@ -249,19 +217,16 @@ impl CaptureConfig {
         let profile = active(doc);
         let overlay = settings(doc);
         let mut config = target.clone();
-        let area = gsm_settings::read_object(&area_file).unwrap_or(Value::Null);
-        let prefs = gsm_settings::read_object(&prefs_file).unwrap_or(Value::Null);
-        let size = if prefs.as_object().is_some_and(|m| !m.is_empty()) {
-            &prefs
-        } else {
-            &area
-        };
+        let prefs = gsm_settings::read_object(&prefs_file)
+            .ok()
+            .filter(|prefs| prefs.as_object().is_some_and(|m| !m.is_empty()))
+            .or_else(|| gsm_settings::read_object(&area_file).ok());
         config["settings"] = overlay.clone();
         // Older OCR area files can carry a per-scene size. An explicit
         // override in the scoped editor takes precedence for that game.
         let name = doc["current_profile"].as_str().unwrap_or("Default");
-        if let Some(size) = size
-            .get("minimum_character_size")
+        if let Some(size) = prefs.as_ref()
+            .and_then(|prefs| prefs.get("minimum_character_size"))
             .and_then(|v| coerce("minimum_character_size", v))
             .filter(|_|doc["profile_layers"]["scenes"][name]["overrides"].get("overlay.minimum_character_size").is_none())
         {
@@ -272,11 +237,6 @@ impl CaptureConfig {
         }
         config["language"] = profile["general"]["target_language"].clone();
         config["profile"] = json!(base);
-        config["areas"] = if overlay["use_overlay_area_config"] == true {
-            areas(area)
-        } else {
-            Value::Null
-        };
         let mut updates = Vec::new();
         if profile_changed {
             updates.push(profiles(doc));
@@ -381,36 +341,12 @@ pub(super) async fn request(app: &AppHandle, kind: &str, frame: &str) -> bool {
             };
             intake.overlay_event(json!({"type":"native-overlay-command","action":action,"manual":true,"source":"hotkey","retries":0}));
         }
-        "open-gsm-settings" | "select-ocr-area" => {
+        "open-gsm-settings" => {
             let Ok(req) = serde_json::from_str::<Value>(frame) else { return false };
             let handle = app.clone();
-            let dialog = if kind == "open-gsm-settings" {
-                Dialog::Settings {
-                    root_tab_key: req["root_tab_key"].as_str().unwrap_or("profiles").into(),
-                    subtab_key: req["subtab_key"].as_str().unwrap_or("").into(),
-                }
-            } else {
-                let session = app.state::<Obs>().game_session();
-                let doc = gsm_settings::read_object(&app.state::<Settings>().paths.active.join("config.json"))
-                    .unwrap_or(Value::Null);
-                let overlay = settings(&doc);
-                if cfg!(windows) && session["target_client_rect"].is_object()
-                    && overlay["ocr_full_screen_instead_of_obs"] != true
-                {
-                    Dialog::AreaSelector {
-                        window_name: String::new(),
-                        use_window_as_config: false,
-                        use_obs_screenshot: true,
-                        overlay_config_mode: true,
-                        live_mode: false,
-                        single_area_mode: false,
-                    }
-                } else {
-                    Dialog::MonitorSelector {
-                        monitor_index: overlay["monitor_to_capture"].as_u64().unwrap_or(0) as usize,
-                        overlay_config_mode: true,
-                    }
-                }
+            let dialog = Dialog::Settings {
+                root_tab_key: req["root_tab_key"].as_str().unwrap_or("profiles").into(),
+                subtab_key: req["subtab_key"].as_str().unwrap_or("").into(),
             };
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = open(&handle, dialog).await {

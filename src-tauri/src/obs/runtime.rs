@@ -439,35 +439,18 @@ impl Obs {
                 let ocr_running = app
                     .try_state::<crate::ocr_coordinator::OcrCoordinator>()
                     .is_some_and(|ocr| ocr.is_running());
-                let backend_running = crate::backend::snapshot(app)["pid"].is_u64();
-                *self.0.suspended_clients.lock().unwrap() = (backend_running, ocr_running);
+                *self.0.suspended_clients.lock().unwrap() = ocr_running;
                 if ocr_running {
                     let _ = crate::ocr_coordinator::stop_ocr_sync(app, "managed-obs-update", None);
                 }
-                if backend_running {
-                    let _ = crate::backend::dispatch(app, json!({"action": "stop", "params": {}}))
-                        .await;
-                }
             }
             "resume" => {
-                let (backend_running, ocr_running) = {
+                let ocr_running = {
                     let mut guard = self.0.suspended_clients.lock().unwrap();
                     let prev = *guard;
-                    *guard = (false, false);
+                    *guard = false;
                     prev
                 };
-                if backend_running {
-                    crate::python_ops::ensure_and_run_gsm(
-                        app,
-                        None,
-                        None,
-                        "obs-update-resume",
-                        false,
-                        false,
-                        false,
-                    )
-                    .await?;
-                }
                 if ocr_running {
                     let _ = crate::ocr_coordinator::start_ocr(
                         app,

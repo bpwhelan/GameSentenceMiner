@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 const { JSDOM } = createRequire(import.meta.url)("jsdom");
-const root = path.resolve(process.cwd(), "GameSentenceMiner/web");
+const root = path.resolve(process.cwd(), "resources/web");
 
 async function page() {
   const dom = new JSDOM(fs.readFileSync(path.join(root, "templates/components/kechimochi-sync-card.html"), "utf8"), {

@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-pub const DIRECTORY: &str = "GameSentenceMiner/web/templates/components/word_frequency_sources";
+pub const DIRECTORY: &str = "resources/web/templates/components/word_frequency_sources";
 
 #[derive(Default, Deserialize)]
 #[serde(default)]

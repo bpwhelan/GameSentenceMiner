@@ -42,7 +42,7 @@ type Draft = {
 };
 type Document = { form: Form; past: Draft[]; draft: Draft; future: Draft[] };
 type Entry = { id: string; expression: string; sentence: string; scene: string; created: string };
-type Queue = { entries: Entry[]; autoAdvance: boolean };
+type Queue = { entries: Entry[] };
 type Prompt = "discard" | "delete" | "later" | "keepAudio" | "skipAudio";
 type Result = "saved" | "kept" | "deleted" | "missing";
 
@@ -535,7 +535,7 @@ export function CardReviewWindow() {
   const live = useRef(backgroundLaunch);
   const [quietSelection, setQuietSelection] = useState(backgroundLaunch);
   const [docs, setDocs] = useState<Record<string, Document>>({});
-  const [queue, setQueue] = useState<Queue>({ entries: [], autoAdvance: true });
+  const [queue, setQueue] = useState<Queue>({ entries: [] });
   const [current, setCurrent] = useState<string | null>(review ? null : "");
   const [filter, setFilter] = useState("");
   const [error, setError] = useState("");
@@ -595,7 +595,7 @@ export function CardReviewWindow() {
   }, [backgroundLaunch, refresh, review, showError, title]);
 
   useEffect(() => {
-    if (live.current && current === null && queue.autoAdvance && !saving.length && queue.entries.length) {
+    if (live.current && current === null && !saving.length && queue.entries.length) {
       setQuietSelection(true);
       setCurrent(queue.entries[0].id);
     }
@@ -660,7 +660,7 @@ export function CardReviewWindow() {
       const nearby = [...visible.slice(index + 1), ...visible.slice(0, index)];
       const next = nearby.find(entry => !saveGuard.current.has(entry.id))?.id ?? null;
       setQuietSelection(false);
-      setCurrent(queue.autoAdvance ? next : null);
+      setCurrent(next);
       setStatus(t("cardReview.savingBackground"));
     }
     try {

@@ -425,35 +425,6 @@
                     </select>
                   </label>
                   <label>
-                    <span class="label-text">OCR Capture Area</span>
-                    <button type="button" id="selectOcrAreaButton" class="secondary">Select OCR Area...</button>
-                  </label>
-                  <label>
-                    <span class="label-text">Use OCR Area Config</span>
-                    <input type="checkbox" id="use_overlay_area_config" />
-                  </label>
-                  <label>
-                    <span class="label-text">
-                      Image Scaling
-                      <div class="hotkey-info">
-                        Scale screenshots before OCR. Lower values scan faster and use less CPU; higher values improve
-                        accuracy for small text.
-                      </div>
-                    </span>
-                    <span class="input-container">
-                      <input
-                        class="range-input"
-                        type="range"
-                        id="base_scale"
-                        value="0.75"
-                        min="0.5"
-                        max="1"
-                        step="0.05"
-                      />
-                      <output class="range-value" id="base_scale_value" for="base_scale">75%</output>
-                    </span>
-                  </label>
-                  <label>
                     <span class="label-text">Minimum Character Size (0 = disabled)</span>
                     <input type="number" id="minimum_character_size" value="0" min="0" max="500" />
                   </label>
@@ -470,8 +441,7 @@
                   </label>
                   <label>
                     <span class="label-text">
-                      Adaptive OCR Retries
-                      <span class="setting-badge badge-experimental">Experimental</span>
+                      Aggressive OCR Retries
                       <div class="hotkey-info">
                         Retry almost immediately while text is clearly expanding, and gradually wait longer when
                         progress is uncertain. Off by default; applies when Text Appears Instantly is off.
@@ -516,31 +486,7 @@
 
               <section class="settings-page" data-page="capture-results">
                 <div class="setting-group" data-tab="capture">
-                  <h4>OCR Results &amp; Filtering</h4>
-                  <label>
-                    <span class="label-text">
-                      Use OCR Result V2
-                      <div class="hotkey-info">
-                        Use only the dedicated OCR-result pipeline for overlay text. Mutually exclusive with "Supplement
-                        With Overlay".
-                      </div>
-                    </span>
-                    <input type="checkbox" id="use_ocr_result_v2" />
-                  </label>
-                  <label>
-                    <span class="label-text">
-                      Supplement OCR Result With Overlay
-                      <div class="hotkey-info">
-                        Merge overlay-scanned text into the OCR result for more complete lines. Mutually exclusive with
-                        "Use OCR Result V2".
-                      </div>
-                    </span>
-                    <input type="checkbox" id="supplement_ocr_result_with_overlay" />
-                  </label>
-                  <label>
-                    <span class="label-text">Apply Text Filtering</span>
-                    <input type="checkbox" id="use_text_filtering" />
-                  </label>
+                  <h4>OCR Text Visibility</h4>
                   <label>
                     <span class="label-text">
                       Check Whether the Last OCR Text Is Still Visible
@@ -608,41 +554,6 @@
                       </span>
                       <input type="number" id="periodic_ratio" value="0.9" min="0" max="1" step="0.05" />
                     </label>
-                    <label class="sub-option">
-                      <span class="label-text">
-                        Include Primary OCR Areas
-                        <div class="hotkey-info">
-                          When OCR Area Config is on, include primary (main) areas in the overlay.
-                        </div>
-                      </span>
-                      <input type="checkbox" id="ocr_area_config_include_primary_areas" />
-                    </label>
-                    <label class="sub-option">
-                      <span class="label-text">
-                        Include Secondary OCR Areas
-                        <div class="hotkey-info">
-                          When OCR Area Config is on, include secondary areas in the overlay.
-                        </div>
-                      </span>
-                      <input type="checkbox" id="ocr_area_config_include_secondary_areas" />
-                    </label>
-                    <label class="sub-option">
-                      <span class="label-text">
-                        Apply Exclusion Zones
-                        <div class="hotkey-info">When OCR Area Config is on, drop text inside exclusion zones.</div>
-                      </span>
-                      <input type="checkbox" id="ocr_area_config_use_exclusion_zones" />
-                    </label>
-                    <label>
-                      <span class="label-text">
-                        OCR Full Screen Instead of OBS
-                        <span class="setting-badge badge-legacy">Legacy</span>
-                        <div class="hotkey-info">
-                          Legacy/debug capture method: captures the full screen instead of the OBS game window.
-                        </div>
-                      </span>
-                      <input type="checkbox" id="ocr_full_screen_instead_of_obs" />
-                    </label>
                   </details>
                 </div>
               </section>
@@ -652,6 +563,13 @@
               <section class="settings-page" data-page="interaction-mouse">
                 <div class="setting-group" data-tab="interaction">
                   <h4>Mouse &amp; Text</h4>
+                  <label>
+                    <span class="label-text">
+                      Hide text covered by other windows
+                      <div class="hotkey-info">On Windows, hide lookup boxes and reading indicators where another window overlaps the game.</div>
+                    </span>
+                    <input type="checkbox" id="hideCoveredText" />
+                  </label>
                   <label>
                     <span class="label-text">
                       Click through overlay text

@@ -19,19 +19,3 @@ updates:
         applies-to: "version-updates"
         patterns:
           - "*"
-
-  - package-ecosystem: "uv"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-      time: "07:00"
-      timezone: "America/New_York"
-    cooldown:
-      default-days: 30
-      include:
-        - "*"
-    groups:
-      uv-batch:
-        applies-to: "version-updates"
-        patterns:
-          - "*"

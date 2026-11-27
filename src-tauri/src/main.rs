@@ -77,7 +77,7 @@ mod process_probe;
 #[cfg(windows)]
 mod resource_usage;
 mod python_install;
-mod python_ops;
+mod service_maintenance;
 mod reader_service;
 mod runtime;
 mod settings;
@@ -507,7 +507,7 @@ fn main() {
                 None => app.path().resource_dir()?.join("app"),
             };
             gsm_overlay::engines::vocr::set_asset_directory(
-                root.join("GameSentenceMiner/assets/vocr"),
+                root.join("resources/assets/vocr"),
                 gsm_packages::download_cache().map_err(std::io::Error::other)?,
             )
             .map_err(std::io::Error::other)?;
@@ -534,9 +534,7 @@ fn main() {
             app.manage(agent::Agent::default());
             app.manage(runtime::Runtime::default());
             app.manage(text_intake::Intake::default());
-            app.manage(backend::BackendState::default());
             app.manage(mining_workspace::MiningWorkspace::default());
-            app.manage(gui_dialog::DialogHost::default());
             app.manage(card_dialog::Windows::default());
             app.manage(mining_settings::Navigation::default());
             app.manage(anki_group::chooser::GroupingWindows::default());
@@ -552,7 +550,6 @@ fn main() {
             app.manage(anki_poll::monitor::Monitor::default());
             app.manage(anki_sync::SyncLane::default());
             app.manage(anki_group::MergeLane::default());
-            app.manage(python_install::PythonInstall::default());
             let paths = gsm_settings::paths::Paths::resolve().map_err(std::io::Error::other)?;
             desktop_log::init(paths.active.join("logs"));
             if std::env::var_os("GSM_OVERLAY_DATA_PATH").is_none() {
@@ -609,7 +606,7 @@ fn main() {
             app.manage(app_identity::IconPresentation::new());
             app.manage(tray::TrayState::default());
             app.manage(desktop_changelog::DesktopChangelog::default());
-            app.manage(python_ops::PythonOpsState::default());
+            app.manage(service_maintenance::MaintenanceState::default());
             app.manage(update_manager::UpdateManager::new(pkg_version, pull_pre));
             app_identity::init_process_identity(app.handle());
             app.manage(install_session::InstallSessions::new(app.handle().clone()));
@@ -627,9 +624,8 @@ fn main() {
             app.manage(overlay_host::OverlayHost::default());
             memory::start(app.handle());
             input_server::start_background(app.handle());
-            if app_lifecycle::native_session_requested() { text_intake::hotkeys::start(app.handle()); }
+            text_intake::hotkeys::start(app.handle());
             if let Err(error) = database_startup::prepare(app.handle()) {
-                app.state::<backend::BackendState>().invalidate_prepared_database();
                 desktop_log::error(app.handle(), "database", format!("Database startup failed. Settings and backup restore remain available. {error}"));
             }
             app_lifecycle::init_startup(app.handle()).map_err(std::io::Error::other)?;

@@ -268,7 +268,7 @@ pub fn save_pending_review(
             "model_name": card.model_name,
             "audio_config": serde_json::to_value(&config.audio).unwrap_or_default(),
             "screenshot_config": serde_json::to_value(&config.screenshot).unwrap_or_default(),
-            "translation_field": if config.ai.add_to_anki { &config.ai.anki_field } else { "" },
+            "translation_field": if config.ai.enabled { &config.ai.anki_field } else { "" },
             "expression": card.get_field(&config.anki.word.name).unwrap_or(""),
             "sentence": sentence,
             "translation": translation,

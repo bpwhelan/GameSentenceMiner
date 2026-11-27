@@ -1,4 +1,4 @@
-//! Replay the same timed observations used by scripts/benchmark_intake_stream.py.
+//! Replay timed intake observations from a fixture.
 use gsm_intake::{Clock, Event, Policy, Stream};
 use serde::Deserialize;
 use serde_json::{json, Value};

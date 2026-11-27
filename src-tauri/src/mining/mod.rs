@@ -36,13 +36,7 @@ pub fn native_mining_requested() -> bool {
     if std::env::var_os("GSM_SMOKE_TEST").is_some() {
         return std::env::var("GSM_NATIVE_MINING").as_deref()==Ok("1");
     }
-    match std::env::var("GSM_NATIVE_MINING") {
-        Ok(val) => !matches!(
-            val.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "python" | "off" | "no"
-        ),
-        Err(_) => true,
-    }
+    true
 }
 
 pub struct WordGuard {
@@ -134,7 +128,7 @@ impl MiningService {
         let _ = std::fs::create_dir_all(&temp_dir);
         let (beacon, beacon_rx) = BeaconReceiver::new(256);
         let asset_roots = vec![
-            app_root.join("GameSentenceMiner/assets"),
+            app_root.join("resources/assets"),
             data_dir.join("assets"),
         ];
         Arc::new(Self {

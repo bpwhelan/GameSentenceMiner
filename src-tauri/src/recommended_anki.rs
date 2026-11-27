@@ -371,7 +371,6 @@ fn apply_fields(profile: &mut Value, preset: &Preset, model: &str, fields: &[Str
         ai["anki_field"] = translation.into();
     } else if !ai["anki_field"].as_str().is_some_and(has) {
         ai["anki_field"] = "".into();
-        ai["add_to_anki"] = false.into();
     }
 }
 
@@ -529,7 +528,7 @@ mod tests {
             .collect::<Vec<_>>();
         fields.extend(["sentenceEng", "pitch", "reading"].map(str::to_owned));
         let mut profile = json!({"anki":{"picture":{"enabled":false},"sentence_audio":{"enabled":true},
-            "video":{"name":"Video","enabled":true},"field_grouping_enabled":true},"ai":{"add_to_anki":true}});
+            "video":{"name":"Video","enabled":true},"field_grouping_enabled":true},"ai":{"enabled":true}});
         apply_fields(&mut profile, preset, "Senren", &fields);
         assert_eq!(
             profile["anki"]["picture"],
@@ -540,7 +539,7 @@ mod tests {
         assert_eq!(profile["anki"]["video"]["enabled"], false);
         assert_eq!(
             profile["ai"],
-            json!({"anki_field":"sentenceEng","add_to_anki":true})
+            json!({"anki_field":"sentenceEng","enabled":true})
         );
         assert!(
             yomitan_fields(preset, &fields).contains(&("reading".into(), "{pitch-accents}".into()))

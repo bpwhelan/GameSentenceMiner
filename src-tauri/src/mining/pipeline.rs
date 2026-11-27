@@ -782,7 +782,7 @@ async fn process_card(
     } else {
         String::new()
     };
-    let want_ai = config.ai.add_to_anki
+    let want_ai = config.ai.enabled
         && !config.ai.anki_field.trim().is_empty()
         && existing_translation.trim().is_empty();
     if want_ai {

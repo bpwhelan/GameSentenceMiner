@@ -44,7 +44,7 @@ async function click(text: string) {
 
 function areaFixture(single: boolean) {
     invoke.mockImplementation(async (channel) => {
-        if (channel === 'ocrArea.options') return { obs: true, single, overlay: false, monitorOnly: false, live: !single, help: false };
+        if (channel === 'ocrArea.options') return { obs: true, single, monitorOnly: false, live: !single, help: false };
         if (channel === 'ocrArea.capture') return {
             image: '/frame.jpg', width: 1000, height: 500,
             rects: [{ xywh: [0.1, 0.2, 0.3, 0.4], excluded: true }],

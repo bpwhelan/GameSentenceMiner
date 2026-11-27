@@ -1,4 +1,5 @@
-//! Anonymized log archive builder (`.log`/`.txt`/`.jsonl`, `.gz`, `.zip` rotations).
+//! Debug package builder for GSM settings, current logs and compressed rotations.
+mod configs;
 use crate::log_redaction::LogRedactor;
 use flate2::read::GzDecoder;
 use gsm_settings::Result;
@@ -13,20 +14,21 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 const MAX_LOG_BYTES: u64 = 64 * 1024 * 1024;
 
-pub const LOG_ANONYMIZATION_NOTICE: &str = "\
-GSM anonymized log export\n\
+const PACKAGE_NOTICE: &str = "\
+GSM debug package\n\
 \n\
 These copies were automatically redacted before being added to this ZIP.\n\
 Redaction covers local usernames, home folders, computer names, email addresses,\n\
 remote IP/MAC addresses, and common password, API key, token and cookie formats.\n\
-Compressed log history is decompressed and redacted too. Original logs are unchanged.\n\
-Loopback addresses, timestamps, error messages and diagnostic context are retained.\n\
+The configs/ folder contains redacted copies of the available GSM settings.\n\
+Compressed log history is decompressed and redacted too.\n\
+Localhost endpoints, port numbers, timestamps and error messages are retained.\n\
 Current logs are at the top level; rotated and imported logs are in history/.\n\
 ocr.log contains persistent OCR diagnostics. ocr-debug.jsonl is present when advanced\n\
 OCR debugging has recorded events. Empty logs and internal lock files are omitted.\n\
 \n\
 Automatic redaction may miss personal details in free text, game text or unusual formats.\n\
-Review the exported logs before sharing them.\n";
+Review the exported logs and settings before sharing them.\n";
 
 fn text_log_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
@@ -218,48 +220,49 @@ fn unique_archive_name(names: &mut HashSet<String>, base_name: &str) -> String {
     candidate
 }
 
-pub fn create_anonymized_logs_archive(
-    logs_directory: &Path,
+pub fn create_debug_package(
+    profile: &Path,
+    overlay: &Path,
+    owocr_ini: &Path,
     output_path: &Path,
     redactor: &LogRedactor,
 ) -> Result<()> {
-    let files = list_log_files(logs_directory)?;
-    if files.is_empty() {
-        return Err("No log files found in the logs directory.".into());
+    let logs_directory = profile.join("logs");
+    let files = match fs::symlink_metadata(&logs_directory) {
+        Ok(meta) if meta.is_dir() => list_log_files(&logs_directory)?,
+        Ok(_) => Vec::new(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e.to_string()),
+    };
+    let configs = configs::list_configs(profile, overlay, owocr_ini)?;
+    if files.is_empty() && configs.is_empty() {
+        return Err("No logs or settings were found to export.".into());
     }
 
-    let source_dir = fs::canonicalize(logs_directory).map_err(|e| e.to_string())?;
     let out_parent = output_path
         .parent()
         .ok_or("Output path missing parent directory")?;
     fs::create_dir_all(out_parent).map_err(|e| e.to_string())?;
     let out_dir = fs::canonicalize(out_parent).map_err(|e| e.to_string())?;
-    let out_file_name = output_path
-        .file_name()
-        .ok_or("Output path missing file name")?;
-    let dest_key = path_key(&out_dir.join(out_file_name));
-    if files
-        .iter()
-        .any(|f| path_key(&source_dir.join(f)) == dest_key)
-    {
-        return Err("Choose an export location that does not overwrite a source log.".into());
+    if output_path.try_exists().map_err(|e| e.to_string())? {
+        let dest_key = path_key(&fs::canonicalize(output_path).map_err(|e| e.to_string())?);
+        let sources = files.iter().map(|f| logs_directory.join(f))
+            .chain(configs.iter().map(|f| f.source.clone()));
+        if sources.filter_map(|p| fs::canonicalize(p).ok()).any(|p| path_key(&p) == dest_key) {
+            return Err("Choose an export location that does not overwrite a log or settings file.".into());
+        }
     }
 
-    let temp_path = out_dir.join(format!(".gsm-log-export-{}.zip.tmp", uuid::Uuid::new_v4()));
-    let write_result = (|| -> Result<()> {
-        let out_file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)
-            .map_err(|e| e.to_string())?;
+    let mut temp = tempfile::NamedTempFile::new_in(out_dir).map_err(|e| e.to_string())?;
+    {
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        let mut writer = ZipWriter::new(out_file);
+        let mut writer = ZipWriter::new(temp.as_file_mut());
 
         writer
             .start_file("ANONYMIZATION.txt", options)
             .map_err(|e| e.to_string())?;
         writer
-            .write_all(LOG_ANONYMIZATION_NOTICE.as_bytes())
+            .write_all(PACKAGE_NOTICE.as_bytes())
             .map_err(|e| e.to_string())?;
 
         let mut names = HashSet::from([
@@ -267,6 +270,18 @@ pub fn create_anonymized_logs_archive(
             "export_notes.txt".to_owned(),
         ]);
         let mut skipped: Vec<String> = Vec::new();
+
+        for config in &configs {
+            let name = format!("configs/{}", sanitize_archive_path(redactor, &config.relative));
+            match configs::read_config(config, redactor) {
+                Ok(content) => {
+                    writer.start_file(unique_archive_name(&mut names, &name), options)
+                        .map_err(|e| e.to_string())?;
+                    writer.write_all(content.as_bytes()).map_err(|e| e.to_string())?;
+                }
+                Err(error) => skipped.push(format!("{name} ({error})")),
+            }
+        }
 
         for rel in &files {
             let source = logs_directory.join(rel);
@@ -366,9 +381,12 @@ pub fn create_anonymized_logs_archive(
             }
         }
 
+        if names.len() == 2 {
+            return Err("No readable logs or settings were available to export.".into());
+        }
         if !skipped.is_empty() {
             let notes = redactor.redact(&format!(
-                "These logs rotated or were removed while the export was being read:\n{}\n",
+                "The following files could not be included:\n{}\n",
                 skipped.join("\n")
             ));
             writer
@@ -381,21 +399,8 @@ pub fn create_anonymized_logs_archive(
 
         let file = writer.finish().map_err(|e| e.to_string())?;
         file.sync_all().map_err(|e| e.to_string())?;
-        Ok(())
-    })();
-
-    if let Err(err) = write_result {
-        let _ = fs::remove_file(&temp_path);
-        return Err(err);
     }
-
-    if output_path.exists() {
-        fs::remove_file(output_path).map_err(|e| e.to_string())?;
-    }
-    fs::rename(&temp_path, output_path).map_err(|e| {
-        let _ = fs::remove_file(&temp_path);
-        e.to_string()
-    })?;
+    temp.persist(output_path).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -406,6 +411,62 @@ mod tests {
     use flate2::write::GzEncoder;
     use flate2::Compression;
     use tempfile::tempdir;
+
+    #[test]
+    fn debug_package_includes_redacted_configs_without_logs() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        let overlay = root.join("separate-overlay");
+        let ini = root.join("owocr_config_gsm.ini");
+        for subdir in ["electron", "separate-overlay", "ocr_config/backup"] {
+            fs::create_dir_all(root.join(subdir)).unwrap();
+        }
+        let config = serde_json::json!({"configs":{"Default":{
+            "gemini_api_key":"opaque secret", "cloud_sync_key":"sync-secret",
+            "apiKeys":{"provider":["array-secret"]}, "hotkey":"F8",
+            "port":7275, "host":"127.0.0.1:7275", "local":"http://localhost:8123",
+            "remote":"http://192.168.1.80:4400/path?key=query-secret",
+            "v6":"http://[2001:db8::cafe]:4210", "bind":"0.0.0.0:8123"
+        }}});
+        fs::write(root.join("config.json"), config.to_string()).unwrap();
+        fs::write(root.join("electron/config.json"), r#"{"port":22}"#).unwrap();
+        fs::write(overlay.join("settings.json"), r#"{"gamepadJitenApiKey":"overlay-secret"}"#).unwrap();
+        fs::write(root.join("ocr_config/192.168.1.80.json"), r#"{"scene":"192.168.1.80"}"#).unwrap();
+        for path in ["google_vision.json", "electron/Cookies", "ocr_config/backup/old.json"] {
+            fs::write(root.join(path), "excluded-secret").unwrap();
+        }
+        fs::write(&ini, "[ocr]\napi_key = ini secret with spaces\n    continued-secret\nurl = http://10.0.0.2:9900\n").unwrap();
+
+        let out = root.join("debug.zip");
+        let redactor = LogRedactor::new(Default::default());
+        create_debug_package(root, &overlay, &ini, &out, &redactor).unwrap();
+        let mut archive = ZipArchive::new(File::open(out).unwrap()).unwrap();
+        let mut entries = std::collections::BTreeMap::new();
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            let mut content = String::new();
+            file.read_to_string(&mut content).unwrap();
+            entries.insert(file.name().to_owned(), content);
+        }
+        let output = format!("{entries:?}");
+        for private in ["secret", "192.168.1.80", "2001:db8::cafe", "10.0.0.2", "0.0.0.0"] {
+            assert!(!output.contains(private), "{private} escaped redaction");
+        }
+        assert!(entries.contains_key("configs/ocr_config/[IP].json"));
+        assert!(entries.contains_key("configs/overlay/settings.json"));
+        assert!(entries.contains_key("configs/electron/config.json"));
+        assert!(entries["configs/owocr_config_gsm.ini"].contains("[IP]:9900"));
+        let exported: serde_json::Value = serde_json::from_str(&entries["configs/config.json"]).unwrap();
+        let profile = &exported["configs"]["Default"];
+        assert_eq!(profile["port"], 7275);
+        assert_eq!(profile["hotkey"], "F8");
+        assert_eq!(profile["host"], "127.0.0.1:7275");
+        assert_eq!(profile["local"], "http://localhost:8123");
+        assert_eq!(profile["remote"], "http://[IP]:4400/path?key=[REDACTED]");
+        assert_eq!(profile["v6"], "http://[IP]:4210");
+        assert!(create_debug_package(root, &overlay, &ini, &root.join("config.json"), &redactor).is_err());
+        assert_eq!(fs::read_to_string(root.join("config.json")).unwrap(), config.to_string());
+    }
 
     #[test]
     fn archives_plain_utf16le_gz_and_rotated_zip_logs_while_redacting_contents_and_paths() {
@@ -447,10 +508,12 @@ mod tests {
         });
 
         // Refuse overwriting a source log.
-        assert!(create_anonymized_logs_archive(&logs_dir, &logs_dir.join("gsm.log"), &redactor).is_err());
+        let overlay = dir.path().join("overlay");
+        let ini = dir.path().join("owocr_config_gsm.ini");
+        assert!(create_debug_package(dir.path(), &overlay, &ini, &logs_dir.join("gsm.log"), &redactor).is_err());
 
         let out_zip = dir.path().join("export.zip");
-        create_anonymized_logs_archive(&logs_dir, &out_zip, &redactor).unwrap();
+        create_debug_package(dir.path(), &overlay, &ini, &out_zip, &redactor).unwrap();
 
         let mut reader = ZipArchive::new(File::open(&out_zip).unwrap()).unwrap();
         let mut entry_names = Vec::new();
@@ -487,8 +550,32 @@ mod tests {
         fs::write(logs_dir.join("bad.log.zip"), inner.finish().unwrap().into_inner()).unwrap();
 
         let out_zip = dir.path().join("export.zip");
-        let err = create_anonymized_logs_archive(&logs_dir, &out_zip, &LogRedactor::new(Default::default())).unwrap_err();
+        let err = create_debug_package(dir.path(), &dir.path().join("overlay"),
+            &dir.path().join("owocr_config_gsm.ini"), &out_zip, &LogRedactor::new(Default::default())).unwrap_err();
         assert!(err.contains("unsupported entries"));
         assert!(!out_zip.exists());
+    }
+
+    #[test]
+    fn skips_malformed_settings_and_preserves_previous_export_on_failure() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("config.json"), r#"{"api_key":"broken-secret","#).unwrap();
+        fs::create_dir(root.join("logs")).unwrap();
+        fs::write(root.join("logs/gsm.log"), "listening on localhost:7275").unwrap();
+        let out = root.join("debug.zip");
+        let export = || create_debug_package(root, &root.join("overlay"), &root.join("owocr.ini"),
+            &out, &LogRedactor::new(Default::default()));
+        export().unwrap();
+        let saved = fs::read(&out).unwrap();
+        let mut zip = ZipArchive::new(std::io::Cursor::new(&saved)).unwrap();
+        assert!(zip.by_name("configs/config.json").is_err());
+        let mut notes = String::new();
+        zip.by_name("EXPORT_NOTES.txt").unwrap().read_to_string(&mut notes).unwrap();
+        assert!(notes.contains("configs/config.json (invalid JSON)"));
+        assert!(!notes.contains("broken-secret"));
+        fs::remove_file(root.join("logs/gsm.log")).unwrap();
+        assert!(export().is_err());
+        assert_eq!(fs::read(&out).unwrap(), saved);
     }
 }

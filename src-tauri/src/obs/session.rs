@@ -12,6 +12,37 @@ use std::{
 };
 use tokio::sync::{watch, Notify};
 
+const OUTPUT_PROBE_SIZE: (u32, u32) = (192, 108);
+const OUTPUT_PROBE_INTERVAL: Duration = Duration::from_secs(1);
+const OUTPUT_BLANK_GRACE: Duration = Duration::from_secs(15);
+
+#[derive(Default)]
+struct SceneOutputProbe {
+    last_sample: Option<Instant>,
+    blank_since: Option<Instant>,
+    active: Option<bool>,
+}
+
+impl SceneOutputProbe {
+    fn due(&self, now: Instant) -> bool {
+        self.last_sample
+            .is_none_or(|last| now.duration_since(last) >= OUTPUT_PROBE_INTERVAL)
+    }
+
+    fn record(&mut self, visible: Option<bool>, now: Instant) {
+        self.last_sample = Some(now);
+        if visible == Some(false) {
+            // Keep a previously usable capture available through a fade to black.
+            if now.duration_since(*self.blank_since.get_or_insert(now)) >= OUTPUT_BLANK_GRACE {
+                self.active = Some(false);
+            }
+        } else {
+            self.blank_since = None;
+            self.active = visible;
+        }
+    }
+}
+
 fn empty(scene: &str, id: &str) -> Value {
     json!({"scene":scene,"scene_id":id,"capture_source":scene,"capture_kind":"window","source_name":"",
         "window_info":null,"target_id":null,"target_pid":null,"process_path":scene,"available":false,"obs_fallback_available":false,"active":null})
@@ -217,8 +248,9 @@ fn visual(item: &Value) -> bool {
 }
 
 fn nonblank(data: &Value) -> Option<bool> {
+    let raw = data.as_str()?;
     let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data.as_str()?.split_once(',')?.1)
+        .decode(raw.split_once(',').map_or(raw, |(_, encoded)| encoded))
         .ok()?;
     let image = image::load_from_memory(&bytes).ok()?.into_rgb8();
     Some(nonblank_pixels(&image, 1))
@@ -227,17 +259,32 @@ fn nonblank(data: &Value) -> Option<bool> {
 pub(super) fn nonblank_pixels(image: &image::RgbImage, step: usize) -> bool {
     let mut lo = [255u8; 3];
     let mut hi = [0u8; 3];
-    for pixel in image.rows().step_by(step).flat_map(|row| row.step_by(step)) {
-        for c in 0..3 {
-            lo[c] = lo[c].min(pixel[c]);
-            hi[c] = hi[c].max(pixel[c])
+    for row in image.rows().step_by(step) {
+        for pixel in row.step_by(step) {
+            for c in 0..3 {
+                lo[c] = lo[c].min(pixel[c]);
+                hi[c] = hi[c].max(pixel[c]);
+            }
+        }
+        let range = (0..3).map(|i| hi[i].saturating_sub(lo[i])).max().unwrap();
+        if range > 5 && (range > 15 || *hi.iter().max().unwrap() > 30) {
+            return true;
         }
     }
-    let range = (0..3).map(|i| hi[i].saturating_sub(lo[i])).max().unwrap();
-    range > 5 && (range > 15 || *hi.iter().max().unwrap() > 30)
+    false
 }
 
 impl Obs {
+    pub(super) async fn scene_has_visible_output(
+        &self,
+        app: &tauri::AppHandle,
+        scene: &str,
+    ) -> Option<bool> {
+        let (width, height) = OUTPUT_PROBE_SIZE;
+        let data = self.screenshot(app, scene, width, height, "png").await.ok()?;
+        nonblank(&data)
+    }
+
     #[cfg(windows)]
     pub(crate) fn set_smoke_target(&self, scene: &str, hwnd: u64) {
         let session = &self.0.session;
@@ -379,11 +426,10 @@ impl Obs {
         let mut refreshed = Instant::now();
         let mut target: Option<Target> = None;
         let mut tracked = false;
-        let mut empty_since = None;
+        let mut output_probe = SceneOutputProbe::default();
         let mut fit_scene = None;
         let mut dictionary_scene = String::new();
         let mut fit_at = None;
-        let present_native_window = cfg!(windows) || crate::app_lifecycle::native_session_requested();
         #[cfg(windows)]
         let mut window_state = super::window_state::Sampler::default();
         #[cfg(windows)]
@@ -413,7 +459,7 @@ impl Obs {
                 if source != next || epoch != last_epoch {
                     target = None;
                     tracked = false;
-                    empty_since = None;
+                    output_probe = SceneOutputProbe::default();
                 }
                 source = next;
                 generation = Some(current);
@@ -461,27 +507,14 @@ impl Obs {
                 if s.inspected && s.name.is_empty() {
                     state["active"] = json!(false);
                 } else if s.inspected && state["active"].is_null() {
-                    let frame = self
-                        .screenshot(&app, &s.scene, 8, 8)
-                        .await
-                        .ok()
-                        .as_ref()
-                        .and_then(nonblank);
-                    match frame {
-                        Some(true) => {
-                            empty_since = None;
-                            state["active"] = json!(true);
-                            state["available"] = json!(s.selector.is_none());
-                            state["obs_fallback_available"] = json!(s.selector.is_some());
-                        }
-                        Some(false) => {
-                            if empty_since.get_or_insert_with(Instant::now).elapsed()
-                                >= Duration::from_secs(15)
-                            {
-                                state["active"] = json!(false)
-                            }
-                        }
-                        None => empty_since = None,
+                    if output_probe.due(Instant::now()) {
+                        let visible = self.scene_has_visible_output(&app, &s.scene).await;
+                        output_probe.record(visible, Instant::now());
+                    }
+                    state["active"] = json!(output_probe.active);
+                    if output_probe.active == Some(true) {
+                        state["available"] = json!(s.selector.is_none());
+                        state["obs_fallback_available"] = json!(s.selector.is_some());
                     }
                 }
             }
@@ -489,7 +522,7 @@ impl Obs {
             {
                 state["displays"] = json!(displays.bounds());
             }
-            if present_native_window && state["window_state"].is_null() {
+            if state["window_state"].is_null() {
                 let available =
                     state["available"] == true || state["obs_fallback_available"] == true;
                 let status = if available {
@@ -544,9 +577,7 @@ impl Obs {
                 (changed, previous_profile != control.profiles.name)
             };
             #[cfg(windows)]
-            if crate::app_lifecycle::native_session_requested() {
-                audio.update(&app, audio_target).await;
-            }
+            audio.update(&app, audio_target).await;
             if changed || profile_changed {
                 crate::auto_launcher::notify_signal(&app);
             }
@@ -559,7 +590,7 @@ impl Obs {
                 );
             }
             if let Some(host) = tauri::Manager::try_state::<crate::overlay_host::OverlayHost>(&app) {
-                if present_native_window && host.is_running() {
+                if host.is_running() {
                     host.present_session(&app, &self.game_session()).await;
                 }
             }
@@ -594,6 +625,71 @@ impl Obs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_scene_thumbnail_retains_small_bottom_text_and_corner_sprites() {
+        use image::{imageops, Rgb, RgbImage};
+
+        let mut dialogue = RgbImage::new(1920, 1080);
+        // A single small 日 near the bottom of an otherwise black 1080p scene.
+        for y in 0..24 {
+            for x in 0..18 {
+                if x < 2 || x >= 16 || y < 2 || y >= 22 || (11..13).contains(&y) {
+                    dialogue.put_pixel(127 + x, 997 + y, Rgb([225; 3]));
+                }
+            }
+        }
+        let mut sprite = RgbImage::new(1920, 1080);
+        imageops::replace(&mut sprite, &RgbImage::from_pixel(24, 32, Rgb([32, 64, 95])), 1891, 7);
+
+        for scene in [dialogue, sprite] {
+            let (w, h) = OUTPUT_PROBE_SIZE;
+            let thumbnail = imageops::resize(&scene, w, h, imageops::FilterType::Triangle);
+            let old = imageops::resize(&scene, 8, 8, imageops::FilterType::Triangle);
+            assert!(!nonblank_pixels(&old, 1));
+
+            let mut png = std::io::Cursor::new(Vec::new());
+            thumbnail.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            let encoded = base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+            assert_eq!(nonblank(&json!(format!("data:image/png;base64,{encoded}"))), Some(true));
+        }
+        let (w, h) = OUTPUT_PROBE_SIZE;
+        let near_black = RgbImage::from_fn(w, h, |x, y| Rgb([((x + y) % 5) as u8; 3]));
+        assert!(!nonblank_pixels(&RgbImage::new(w, h), 1));
+        assert!(!nonblank_pixels(&near_black, 1));
+        assert_eq!(nonblank(&json!("invalid")), None);
+    }
+
+    #[test]
+    fn output_probe_limits_requests_and_keeps_capture_through_brief_blackouts() {
+        let start = Instant::now();
+        let at = |seconds| start + Duration::from_secs(seconds);
+        let mut probe = SceneOutputProbe::default();
+        assert!(probe.due(start));
+        probe.record(Some(false), start);
+        assert_eq!(probe.active, None);
+        assert!(!probe.due(start + Duration::from_millis(999)));
+        assert!(probe.due(at(1)));
+
+        probe.record(Some(true), at(1));
+        probe.record(Some(false), at(2));
+        probe.record(Some(false), at(16));
+        assert_eq!(probe.active, Some(true));
+        probe.record(Some(true), at(17));
+        probe.record(Some(false), at(18));
+        probe.record(Some(false), at(32));
+        assert_eq!(probe.active, Some(true));
+        probe.record(Some(false), at(33));
+        assert_eq!(probe.active, Some(false));
+        probe.record(Some(true), at(34));
+        assert_eq!(probe.active, Some(true));
+
+        probe.record(Some(false), at(35));
+        probe.record(None, at(49));
+        probe.record(Some(false), at(50));
+        assert_eq!(probe.active, None);
+    }
+
     #[test]
     fn parses_obs_selectors_and_ignores_disabled_or_audio_sources() {
         let target = selector(&json!({"window":"Game#3A#22:Class:Game.exe"})).unwrap();

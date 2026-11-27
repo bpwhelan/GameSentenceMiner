@@ -72,6 +72,12 @@ export interface WindowSceneSwitcherState {
     foreground: ForegroundWindowSnapshot | null;
 }
 
+export interface WindowSceneSwitcherSuggestion {
+    windowTitle: string;
+    titlePattern: string;
+    executableName?: string;
+}
+
 export interface SaveWindowSceneSwitcherRulePayload {
     sceneUuid: string;
     sceneName: string;

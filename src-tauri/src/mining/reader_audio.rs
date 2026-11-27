@@ -135,12 +135,7 @@ pub(crate) fn queue(app: &AppHandle, body: &Value) -> (StatusCode, Value) {
         .as_str()
         .is_some_and(|s| s.eq_ignore_ascii_case("native"));
     let vad = body["trim_with_vad"].as_bool().unwrap_or(false);
-    let external = !browser && !config.advanced.video_player_path.is_empty();
-    let cache = if external {
-        None
-    } else {
-        service.audio_playback.cached(id, vad)
-    };
+    let cache = service.audio_playback.cached(id, vad);
     let reply = if cache.is_some() {
         json!({"queued":false,"line_id":id,"from_cache":true})
     } else {
@@ -171,9 +166,6 @@ pub(crate) fn queue(app: &AppHandle, body: &Value) -> (StatusCode, Value) {
         let result = async {
             let shared = app.state::<Settings>().paths.shared.clone();
             let media = MediaTools::discover(Some(&shared), service.temp_dir());
-            if external {
-                return play_external(&app, &service, selection, config, media).await;
-            }
             let file = match cache {
                 Some(file) => file,
                 None => prepare(&app, &service, selection, config, vad, media.clone()).await?,
@@ -199,41 +191,6 @@ pub(crate) fn queue(app: &AppHandle, body: &Value) -> (StatusCode, Value) {
         }
     });
     (StatusCode::OK, reply)
-}
-
-async fn play_external(
-    app: &AppHandle,
-    service: &MiningService,
-    selection: Selection,
-    config: ProfileConfig,
-    media: MediaTools,
-) -> Result<(), String> {
-    let input = selection.acquire(app, service).await?;
-    let remove = config.paths.remove_video;
-    let (mut child, input) = tauri::async_runtime::spawn_blocking(move || {
-        let replay = input.line_replay(&selection);
-        let (start, ..) =
-            media.get_video_timings(replay.path, replay.line, replay.recording_end, &config);
-        let player = &config.advanced.video_player_path;
-        let mut cmd = tokio::process::Command::new(player);
-        if start != 0.0 {
-            if player.to_ascii_lowercase().contains("vlc") {
-                cmd.args(["--start-time", &start.to_string(), "--one-instance"]);
-            } else {
-                cmd.arg(format!("--start={start}"));
-            }
-        }
-        let child = cmd.arg(&input.path).spawn().map_err(|e| e.to_string())?;
-        input.finished(remove);
-        Ok::<_, String>((child, input))
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    tauri::async_runtime::spawn(async move {
-        let _ = child.wait().await;
-        drop(input);
-    });
-    Ok(())
 }
 
 async fn prepare(

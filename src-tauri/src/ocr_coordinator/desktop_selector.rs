@@ -23,7 +23,6 @@ pub(crate) struct Options {
     pub window_name: String,
     pub use_window_as_config: bool,
     pub obs: bool,
-    pub overlay: bool,
     pub monitor: Option<usize>,
     pub live: bool,
     pub single: bool,
@@ -95,15 +94,15 @@ struct Rect {
 }
 
 impl Rect {
-    fn from_file(row: &Value, xywh: [f64; 4], monitor: Option<usize>, overlay: bool) -> Self {
+    fn from_file(row: &Value, xywh: [f64; 4], monitor: Option<usize>) -> Self {
         let flag = |key| row[key] == true;
         Self {
             xywh,
             monitor,
             excluded: flag("is_excluded"),
-            secondary: !overlay && flag("is_secondary"),
-            exclusive: !overlay && flag("is_exclusive"),
-            black_hole: !overlay && flag("is_black_hole"),
+            secondary: flag("is_secondary"),
+            exclusive: flag("is_exclusive"),
+            black_hole: flag("is_black_hole"),
         }
     }
 
@@ -141,17 +140,10 @@ impl Space {
             .unwrap_or(self.displays[0])
     }
 
-    fn load(&self, config: &Value, overlay: bool, monitor_only: bool) -> Vec<Rect> {
+    fn load(&self, config: &Value) -> Vec<Rect> {
         let percentages = config["coordinate_system"] == "percentage";
         if let Some(rows) = config["rectangles"].as_array() {
-            let target = if monitor_only {
-                serde_json::from_value::<Geometry>(config["window_geometry"].clone())
-                    .ok()
-                    .filter(|g| g.width > 0 && g.height > 0)
-                    .unwrap_or(self.target)
-            } else {
-                self.target
-            };
+            let target = self.target;
             return rows
                 .iter()
                 .filter_map(|row| {
@@ -173,7 +165,7 @@ impl Space {
                             .as_u64()
                             .and_then(|i| i.try_into().ok())
                     });
-                    Some(Rect::from_file(row, xywh, index, overlay || monitor_only))
+                    Some(Rect::from_file(row, xywh, index))
                 })
                 .collect();
         }
@@ -209,7 +201,6 @@ impl Space {
                     row,
                     self.capture.fraction(absolute),
                     self.monitor.or(Some(index)),
-                    overlay || monitor_only,
                 ))
             })
             .collect()
@@ -268,7 +259,7 @@ pub(crate) async fn open(app: &AppHandle, options: Options) -> Result<Value, Str
     } else {
         "OCR Area Selector"
     };
-    let fixed = options.overlay || options.monitor.is_some();
+    let fixed = options.monitor.is_some();
     let dir = Arc::new(tempfile::tempdir().map_err(|e| e.to_string())?);
     let selector = Selector {
         options,
@@ -325,7 +316,7 @@ pub(crate) async fn invoke(
     }
     if command == "ocrArea.options" {
         return Ok(
-            json!({"obs":options.obs,"single":options.single,"overlay":options.overlay,
+            json!({"obs":options.obs,"single":options.single,
             "monitorOnly":options.monitor.is_some(),"live":options.live && !options.single,
             "help":read_help(&root)}),
         );
@@ -529,18 +520,9 @@ async fn initialize(
             image::ImageReader::with_format(std::io::Cursor::new(&bytes), image::ImageFormat::Jpeg);
         let size = reader.into_dimensions().map_err(|e| e.to_string())?;
         let bounds = Geometry::at(0, 0, size);
-        let game = obs.game_session();
-        let target = if options.overlay && game["scene"] == scene {
-            serde_json::from_value::<Geometry>(game["target_client_rect"].clone())
-                .ok()
-                .filter(|g| g.width > 0 && g.height > 0)
-                .unwrap_or(bounds)
-        } else {
-            bounds
-        };
         let space = Space {
-            capture: target,
-            target,
+            capture: bounds,
+            target: bounds,
             displays: vec![Display { index: 0, bounds }],
             monitor: None,
             base_size: crate::ocr_preview::preview_size(size.0, size.1),
@@ -570,13 +552,13 @@ async fn initialize(
         .await
         .map_err(|e| e.to_string())?;
     let name = sanitize_ocr_filename(
-        if options.use_window_as_config && !options.overlay && options.monitor.is_none() {
+        if options.use_window_as_config && options.monitor.is_none() {
             &options.window_name
         } else {
             &scene
         },
     );
-    let suffix = if options.overlay || options.monitor.is_some() {
+    let suffix = if options.monitor.is_some() {
         "_overlay.json"
     } else {
         ".json"
@@ -590,10 +572,10 @@ async fn initialize(
     } else {
         json!({})
     };
-    let rects = if options.monitor.is_some() && !options.overlay {
+    let rects = if options.monitor.is_some() {
         Vec::new()
     } else {
-        space.load(&config, options.overlay, options.monitor.is_some())
+        space.load(&config)
     };
     fit_window(app, label, options, &space)?;
     Ok(Opening {
@@ -613,7 +595,7 @@ fn fit_window(
     let window = app
         .get_webview_window(label)
         .ok_or("OCR area selector closed")?;
-    let monitor = if !options.obs || options.overlay {
+    let monitor = if !options.obs {
         let [x, y, _, _] = space.target.pixel([0.5, 0.5, 0., 0.]);
         window.monitor_from_point(x, y).ok().flatten()
     } else {
@@ -637,7 +619,7 @@ fn fit_window(
     } else {
         let _ = window.set_size(LogicalSize::new(width, height + TOOLBAR_HEIGHT));
     }
-    if options.overlay || options.monitor.is_some() {
+    if options.monitor.is_some() {
         let _ = window.set_resizable(false);
     } else {
         let aspect = width / height;
@@ -686,12 +668,10 @@ fn submitted(value: &Value, options: &Options) -> Result<Vec<Rect>, String> {
         if w <= 0. || h <= 0. {
             return Err("Invalid OCR area dimensions".into());
         }
-        if options.overlay || options.monitor.is_some() {
+        if options.monitor.is_some() {
             rect.secondary = false;
             rect.exclusive = false;
             rect.black_hole = false;
-        }
-        if options.monitor.is_some() && !options.overlay {
             rect.excluded = false;
         }
     }
@@ -818,7 +798,7 @@ pub(super) async fn preview_layout(
         };
         if !saving {
             return Ok(
-                json!({"rects":space.load(&config, false, false), "revision":revision, "help":read_help(&root)}),
+                json!({"rects":space.load(&config), "revision":revision, "help":read_help(&root)}),
             );
         }
         let options = Options {
@@ -864,7 +844,7 @@ mod tests {
             ],
         };
         let xywh = capture.fraction(target.pixel([-1.0, 0.25, 0.25, 0.5]));
-        let rect = Rect::from_file(&Value::Null, xywh, None, false);
+        let rect = Rect::from_file(&Value::Null, xywh, None);
         assert_eq!(space.display(&rect).index, 1);
         for (actual, expect) in space
             .target_rect(&rect)
@@ -903,7 +883,6 @@ mod tests {
             &json!({"is_black_hole":true}),
             [0.25, 0.5, 0.5, 0.25],
             None,
-            false,
         );
         save(&initial, &options, &[new_rect]).unwrap();
         let edited = gsm_settings::read_object(&path).unwrap();

@@ -1,7 +1,7 @@
 # Contributing to GameSentenceMiner
 
-GSM uses a Tauri/Rust desktop, a React frontend, and a Python backend.
-Start with [architecture, development commands and restoration notes](../docs/TAURI_ARCHITECTURE.md).
+GSM uses a Tauri/Rust desktop, a React frontend, and native Rust services.
+Start with [the repository map](../docs/AI_AGENT_MAP.md).
 
 ## Quick start
 
@@ -21,11 +21,7 @@ Run checks appropriate to your change:
 - `npm run check:desktop` and `npm run test:desktop` for Rust changes.
 - `npm run test:ts` for frontend changes.
 - `npm run build:tauri`, then `node scripts/test-native-desktop.mjs overlay yomitan hachidori` for native integration.
-- Run pytest through `.venv/Scripts/python.exe` for Python changes.
-- `uv run ruff format GameSentenceMiner tests scripts` for Python formatting.
 
-If the app has the Python native module loaded, set UV_NO_SYNC=1 for formatting
-to avoid reinstalling that loaded module.
 Follow [AGENTS.md](../AGENTS.md) for localization, vendor source ownership and
 [restart handoff](../docs/AGENT_RESTART.md). Yomitan and Hachidori output must be
 regenerated from their sources, not patched in place.
