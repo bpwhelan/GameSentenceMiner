@@ -111,8 +111,10 @@ jobs:
         with:
           node-version: '22.23.1'
           cache: npm
-      - uses: ./.github/actions/desktop-rust
+      - id: rust
+        uses: ./.github/actions/desktop-rust
         with:
+          profile: release
           webviews: ${{ !inputs.portable_preview }}
       - name: Set the coordinated release version
         run: |
@@ -149,16 +151,6 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - name: Exercise the packaged desktop and its native services
-        if: ${{ !inputs.portable_preview }}
-        shell: bash
-        run: |
-          if [[ -n "${GSM_MACOS_ORT_DIR:-}" ]]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
-          if [[ "$RUNNER_OS" == Linux ]]; then
-            bash scripts/test-native-linux.sh package --all
-          else
-            node scripts/test-native-package.mjs --all
-          fi
       - name: Build and package the portable preview
         if: inputs.portable_preview
         shell: bash
@@ -172,6 +164,22 @@ jobs:
             otool -l "$app/MacOS/gsm-desktop" | grep -F 'path @executable_path/../Frameworks (offset'
           fi
           node scripts/package-native-preview.mjs
+      - name: Save compiler outputs
+        if: steps.rust.outputs.save-key != ''
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-sccache
+          key: ${{ steps.rust.outputs.save-key }}
+      - name: Exercise the packaged desktop and its native services
+        if: ${{ !inputs.portable_preview }}
+        shell: bash
+        run: |
+          if [[ -n "${GSM_MACOS_ORT_DIR:-}" ]]; then export DYLD_LIBRARY_PATH="$GSM_MACOS_ORT_DIR"; fi
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            bash scripts/test-native-linux.sh package --all
+          else
+            node scripts/test-native-package.mjs --all
+          fi
       - uses: actions/upload-artifact@v4
         if: inputs.portable_preview
         with:

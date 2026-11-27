@@ -14,7 +14,7 @@ runs:
     - name: Check renderer, shared code and packaging contracts
       shell: bash
       run: |
-        npm run test:ts -- --maxWorkers=2 electron-src/renderer/ electron-src/shared/ release_build_contract.test.ts electron_build_contract.test.ts vocr_package.test.ts
+        npm run test:ts -- --maxWorkers=3
         node --test scripts/hachidori-integration.test.mjs scripts/sync-hachidori.test.mjs GSM_Overlay/tests/hachidori_engine_host.test.cjs GSM_Overlay/tests/native_dictionary_transport.test.cjs GSM_Overlay/tests/text_hover.test.cjs
         node --test scripts/native-package-policy.test.mjs scripts/package-agent-runtime.test.mjs scripts/native-paths.test.mjs scripts/package-native-portable.test.mjs
     - uses: actions/upload-artifact@v4

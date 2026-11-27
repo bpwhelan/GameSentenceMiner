@@ -21,11 +21,17 @@ jobs:
         os: [ubuntu-24.04, windows-2025, macos-15]
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/desktop-rust
+      - id: rust
+        uses: ./.github/actions/desktop-rust
         with:
+          profile: test
           webviews: ${{ inputs.smoke }}
       - name: Test the Rust workspace
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace --exclude gsm-agent
+      # The desktop uses gsm-agent without Frida. Building both feature sets in one
+      # Cargo invocation links Frida's SQLite into the desktop test harness on macOS.
+      - name: Test the standalone agent runtime
+        run: cargo test --locked -p gsm-agent
       - uses: actions/setup-node@v6
         if: inputs.smoke
         with:
@@ -40,6 +46,12 @@ jobs:
       - name: Build the development desktop for smoke tests
         if: inputs.smoke
         run: node scripts/build-native-dev.mjs --debug
+      - name: Save compiler outputs
+        if: steps.rust.outputs.save-key != ''
+        uses: actions/cache/save@v6
+        with:
+          path: .ci-sccache
+          key: ${{ steps.rust.outputs.save-key }}
       - name: Exercise the development desktop
         if: inputs.smoke
         shell: bash

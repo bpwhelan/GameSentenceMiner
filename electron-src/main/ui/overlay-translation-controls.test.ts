@@ -14,7 +14,7 @@ function setup() {
   const source = fs.readFileSync(path.resolve("GSM_Overlay/main.js"), "utf8");
   const send = vi.fn();
   const listeners = new Map<string, (...args: any[]) => void>();
-  let hotkey: () => void = () => {};
+  const hotkeys = new Map<string, () => void>();
   const state = {
     translationRequested: false,
     userSettings: { gamepadEnabled: true, gamepadControllerEnabled: true, translateHotkey: "Alt+T" },
@@ -22,7 +22,7 @@ function setup() {
     backend: { connected: true },
     console: { log() {}, error() {} },
     TOGGLE_HOTKEY_COOLDOWN_MS: 250,
-    setAppHotkey: (_id: string, _key: string, callback: () => void) => { hotkey = callback; },
+    setAppHotkey: (id: string, _key: string, callback: () => void) => hotkeys.set(id, callback),
     ipcMain: { on: (channel: string, callback: (...args: any[]) => void) => listeners.set(channel, callback) },
   };
   vm.runInNewContext([
@@ -31,7 +31,7 @@ function setup() {
     between(source, '  ipcMain.on("translation-request-failed"', '  ipcMain.on("action-tts"'),
   ].join("\n"), state);
   const controller = () => listeners.get("gamepad-translate")!({ sender: state.mainWindow.webContents });
-  return { state, send, listeners, hotkey: () => hotkey(), controller };
+  return { state, send, listeners, hotkey: () => hotkeys.get("translate")!(), controller };
 }
 
 describe("overlay translation controls", () => {

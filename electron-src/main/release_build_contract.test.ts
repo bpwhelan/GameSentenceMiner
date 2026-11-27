@@ -42,15 +42,16 @@ describe('coordinated native release',()=>{
         const steps = native.jobs.build.steps as Array<{uses?:string;run?:string;with?:{name?:string}}>;
         const commands = steps.map(step => step.run || '').join('\n');
         expect(native.on.pull_request).toBeUndefined();
-        expect(native.jobs.version.steps).toContainEqual({uses:'./.github/actions/desktop-frontend'});
+        expect(native.jobs.version.steps).toContainEqual(expect.objectContaining({uses:'./.github/actions/desktop-frontend'}));
         expect(steps.find(step => step.uses?.startsWith('actions/download-artifact@'))?.with?.name).toBe('desktop-web-resources');
         expect(commands).not.toMatch(/build:tauri|build-native-dev|npm run build(?:\s|$)/m);
         expect(commands).toContain('test-native-package.mjs --all');
         expect(commands).toContain('test-native-linux.sh package --all');
         const checks = workflow('desktop_verify.yml').jobs.test;
-        expect(checks.steps.filter((step:{run?:string}) => step.run?.startsWith('cargo test'))).toEqual([
-            {name:'Test the Rust workspace', run:'cargo test --locked --workspace'},
-        ]);
+        const cargoTests = checks.steps.flatMap((step:{run?:string}) => step.run?.match(/^cargo test\b[^\n]*/gm) || []);
+        expect(cargoTests).toHaveLength(2);
+        expect(cargoTests).toContainEqual(expect.stringContaining('--workspace --exclude gsm-agent'));
+        expect(cargoTests).toContainEqual(expect.stringContaining('-p gsm-agent'));
     });
     it('exercises the final Windows installer before publishing an Electron beta',()=>{
         const handoff = native.jobs.build.steps.filter((step:{run?:string})=>step.run?.includes('scripts/windows-handoff-test/'));

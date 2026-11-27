@@ -6,19 +6,39 @@ additionally creates signed updater artifacts. These commands package native
 desktop resources and leave publication to the release workflow.
 
 Tauri packages exclude the Qt host wheel, `pyproject.toml`, `uv.lock` and
-`.python-version`. The release workflow still uses Python for developer
-compatibility tests. Local desktop builds can set `GSM_PYTHONLESS=0` for those
-tests. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md) for the legacy
-environment marker and Windows installer handoff.
+`.python-version`. See [Electron to Tauri first install](ELECTRON_TO_TAURI.md)
+for the legacy environment marker and Windows installer handoff.
 
-Build reporting, asset collection and package smoke tests resolve Cargo's actual
-`target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR` overrides.
-With the checkout's current configuration, release bundles are under
-`src-tauri/target/native-dev/release/bundle`; older files under
-`src-tauri/target/release/bundle` are not the current build. Collected installers
-and portable ZIPs are written to `dist/native-release/<platform>-<arch>`.
-Portable packaging validates the native executable, renderer, license and Agent
-runtime manifest.
+Build reporting, asset collection and package smoke tests resolve Cargo's
+`target_directory`, including `.cargo/config.toml` and `CARGO_TARGET_DIR`
+overrides. Bundles are under `<target_directory>/release/bundle`. Collected
+installers and portable ZIPs are written to `dist/native-release/<platform>-<arch>`.
+
+## Desktop CI
+
+- **Development checks** run on desktop pull requests and pushes to `main`.
+  A Linux job builds the renderer and runs the full Vitest suite. Renderer-only
+  changes finish there. Changes to Rust, shared code, packaging or
+  resources also run the Rust workspace tests and development desktop
+  smoke tests on Linux, Windows and Apple Silicon. A new commit cancels the
+  superseded development run.
+- **Preview and release builds** share the same renderer artifact across Windows
+  x64, Linux x64, Apple Silicon and Intel macOS. Each platform stages its native
+  helpers and builds the shipping desktop once. Full builds run the desktop
+  scenarios against that executable and its staged resources outside the
+  checkout. Workspace unit tests run concurrently on the three operating
+  systems. Cargo tests the standalone Agent separately so its Frida build cannot
+  supply SQLite to the desktop test binary. Publication waits for the tests and
+  all four packages.
+- **Rust caching** uses a pinned toolchain and `sccache` with GitHub Actions
+  storage. Each OS, architecture and Cargo profile restores a disk cache capped
+  at 1 GiB. A successful compile can save the archive before GUI smoke tests.
+  The post-job statistics report actual compiler hits, misses and uncached work.
+- **Overlay latency** is recorded during the dictionary reopen smoke test.
+  To check the five-sample median against the 500 ms budget on a controlled
+  machine, set `GSM_BENCHMARK_WARM_ACTIVATION=1` before running
+  `node scripts/test-native-desktop.mjs yomitan` (on Linux, use
+  `bash scripts/test-native-linux.sh yomitan`).
 
 ## Development build storage
 
@@ -152,14 +172,11 @@ node scripts/verify-native-package.mjs
 node scripts/test-native-package.mjs
 ```
 
-The package smoke test copies the release executable, bundled Node and staged
-files outside the checkout so missing dependencies cannot resolve from the
-developer's `node_modules`. It adds test fixtures and replaces only that isolated
-copy's service entrypoint. It exercises the workspace, settings, both dictionary
-readers and persistence, and real window capture through VOCR into the overlay.
-Production resources are unchanged. Native Save dialogs are exercised by the
-separate debug desktop dictionary tests, whose automatic save location is not
-available in a release binary. Windows CI runs the isolated package test.
+The package smoke test copies the release executable, staged application and
+test fixtures into an isolated directory. Use `node scripts/test-native-package.mjs --all`
+to exercise the same scenarios as the full release workflow. On Linux,
+`bash scripts/test-native-linux.sh package --all` provides Xvfb, the window
+manager and the D-Bus session.
 
 Unsigned rebuilds remove an earlier installer's signature, and collection removes
 stale output signatures. Release publication still signs and verifies the final

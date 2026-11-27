@@ -1,13 +1,21 @@
 name: Set up the native desktop toolchain
 description: Install platform dependencies and cache Rust compilation by compiler and crate inputs.
 inputs:
+  profile:
+    description: Cargo profile used by this job (test or release)
+    required: true
   webviews:
     description: Install the tested WebView2 runtime on Windows
     required: true
+outputs:
+  save-key:
+    description: Archive key to save after compilation, empty on an exact restore
+    value: ${{ steps.cache.outputs.cache-hit != 'true' && steps.cache.outputs.cache-primary-key || '' }}
 runs:
   using: composite
   steps:
-    - uses: dtolnay/rust-toolchain@stable
+    - id: rust
+      uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: '1.100.0'
     - name: Configure Cargo
@@ -18,11 +26,21 @@ runs:
           echo "CARGO_INCREMENTAL=0"
           echo "CARGO_PROFILE_DEV_DEBUG=0"
           echo "RUSTC_WRAPPER=sccache"
-          echo "SCCACHE_GHA_ENABLED=true"
+          echo "SCCACHE_DIR=$GITHUB_WORKSPACE/.ci-sccache"
+          echo "SCCACHE_BASEDIRS=$GITHUB_WORKSPACE"
+          echo "SCCACHE_CACHE_SIZE=1G"
           # ort-sys locates DLLs using Cargo's previous OUT_DIR layout.
           if [[ "$RUNNER_OS" == Windows ]]; then echo "__CARGO_TEMPORARY_BUILD_DIR_NEW_LAYOUT_OPT_OUT=1"; fi
         } >> "$GITHUB_ENV"
-    - name: Cache compiler outputs
+    # One bounded archive per platform/profile avoids a cache API upload for every rustc call.
+    - name: Restore compiler outputs
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: .ci-sccache
+        key: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ inputs.profile }}-${{ hashFiles('Cargo.lock', 'GSM_Overlay/input_server/Cargo.lock', '**/Cargo.toml', '.cargo/config.toml') }}
+        restore-keys: desktop-rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.rust.outputs.cachekey }}-${{ inputs.profile }}-
+    - name: Set up the compiler cache
       uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       with:
         version: v0.20.1
