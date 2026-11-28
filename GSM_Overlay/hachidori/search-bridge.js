@@ -12,7 +12,7 @@
 (function () {
   "use strict";
   // Firefox before 154 loads the frame as an ordinary extension page, with its
-  // own API: Custom JavaScript cannot run there, and only the Clipboard monitor
+  // own API: user scripts cannot run there, and only the Clipboard monitor
   // uses the channel.
   const sandboxed = !globalThis.chrome?.runtime?.id;
   const base = new URL(".", location.href);

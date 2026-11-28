@@ -57,13 +57,13 @@ const SCENE_MEDIA_MARKERS = new Set(["screenshot", "gif", "sentence-audio"]);
 // takes a word typed alone for its sentence, as Yomitan's does
 // (yomidevs/yomitan@ac1d839 search-display-controller.js, `sentence: {text:
 // query, offset: 0}`), where Append then adds the word to the note's sentences
-// (display-anki.js `_getOverwrittenField`). A Netflix or YouTube cue is a line
-// even when it is one word: its own audio and GIF go with it.
+// (display-anki.js `_getOverwrittenField`). A Netflix, YouTube or Crunchyroll
+// cue is a line even when it is one word: its own audio and GIF go with it.
 export function ankiUpdateKeepsField(template, request) {
   const markers = ankiTemplateMarkerNames(template.value);
   const scene = markers.some(name => SENTENCE_MARKERS.has(name))
     || (markers.length > 0 && markers.every(name => SCENE_MEDIA_MARKERS.has(name)));
-  if (!scene || request.netflix?.cue || request.youtube?.cue) return false;
+  if (!scene || request.netflix?.cue || request.youtube?.cue || request.crunchyroll?.cue) return false;
   // Only the sentence markers need the request's sentence to render, so a
   // request without one can still fill media fields: it follows the modes.
   const { sentence, matchOffset, matched } = request;

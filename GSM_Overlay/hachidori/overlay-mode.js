@@ -12,6 +12,10 @@ export const HOST_CAPABILITIES = Object.freeze({
   // projection.
   customLinks: true,
   customJavaScript: true,
+  // Electron has no userScripts API, so an overlay runs user scripts'
+  // JavaScript in the page's own world (custom-javascript.js). In
+  // GameSentenceMiner's overlay window, that world can use Node.
+  pageWorldUserScripts: OVERLAY_MODE,
   linkButtons: true,
   externalLinkHost: OVERLAY_MODE,
   localFileAccessPrompt: !OVERLAY_MODE,

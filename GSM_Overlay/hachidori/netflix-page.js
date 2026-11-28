@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Experimental Netflix and YouTube mining, the page's side. netflix.js registers
-// this script in the main world of https://www.netflix.com/* at document_start
+// Netflix and YouTube mining, the page's side. netflix.js registers this
+// script in the main world of https://www.netflix.com/* at document_start
 // while Settings → Advanced → Experimental features → Netflix mining is on, so
 // the JSON hooks are in place before Netflix's own bundle runs, and youtube.js
 // registers it in the main world of https://www.youtube.com/* while YouTube
 // mining is on, so the caption hook is in place before YouTube's player loads a
-// caption file. No extension API is available here; it talks to the site's
-// reader (netflix-content.js) through DOM events whose detail is a JSON string.
-// Both sites share the replay, pause and resume below; each has its own way of
-// reading subtitles and its own player controls.
+// caption file, and crunchyroll.js in the main world of
+// https://www.crunchyroll.com/* while Crunchyroll mining is on. No extension
+// API is available here; it talks to the site's reader (netflix-content.js)
+// through DOM events whose detail is a JSON string. The sites share the
+// replay, pause and resume below; each has its own player controls, and
+// Netflix and YouTube their own way of reading subtitles. On Crunchyroll this
+// script reads none: a user script shows them and posts their timing to the
+// reader itself (crunchyroll-content.js).
 //
 // YouTube's player loads the caption track it shows as json3 from
 // /api/timedtext, with a proof-of-origin token that a request of Hachidori's
@@ -48,10 +52,13 @@
 (function () {
   "use strict";
 
-  // The site this script serves: YouTube on www.youtube.com, else Netflix.
-  const YOUTUBE = location.hostname === "www.youtube.com";
-  const PAGE_EVENT = YOUTUBE ? "hachidori-youtube-page" : "hachidori-netflix-page";
-  const COMMAND_EVENT = YOUTUBE ? "hachidori-youtube-command" : "hachidori-netflix-command";
+  // The site this script serves: YouTube on www.youtube.com, Crunchyroll on
+  // www.crunchyroll.com, else Netflix.
+  const SITE = { "www.youtube.com": "youtube", "www.crunchyroll.com": "crunchyroll" }[location.hostname] ?? "netflix";
+  const YOUTUBE = SITE === "youtube";
+  const CRUNCHYROLL = SITE === "crunchyroll";
+  const PAGE_EVENT = `hachidori-${SITE}-page`;
+  const COMMAND_EVENT = `hachidori-${SITE}-command`;
   // Subadub's profile: asked for, Netflix lists a WebVTT download for each track.
   const WEBVTT_PROFILE = "webvtt-lssdh-ios8";
   // Subadub's profiles, which identify the manifest request's profile list.
@@ -217,7 +224,9 @@
     try {
       const data = youtubePlayer()?.getVideoData?.();
       const movieId = typeof data?.video_id === "string" && VIDEO_ID.test(data.video_id) ? data.video_id : null;
-      return { movieId, live: movieId !== null && data.isLive === true };
+      return { movieId, live: movieId !== null && data.isLive === true,
+        ...(typeof data?.title === "string" ? { title: data.title } : {}),
+        ...(typeof data?.author === "string" ? { author: data.author } : {}) };
     } catch {
       return { movieId: null, live: false };
     }
@@ -227,9 +236,11 @@
   // asks. A live stream's captions are not read: their times are the stream's.
   function report(always = false) {
     const current = playerVideo();
-    const changed = current.movieId !== reported.movieId || current.live !== reported.live;
+    const changed = current.movieId !== reported.movieId || current.live !== reported.live
+      || current.title !== reported.title || current.author !== reported.author;
     reported = current;
-    if (changed || always) post({ kind: "video", movieId: current.movieId });
+    if (changed || always) post({ kind: "video", movieId: current.movieId,
+      ...(current.title ? { title: current.title } : {}), ...(current.author ? { author: current.author } : {}) });
     if (changed && current.live) {
       publishCaption(current.movieId, "status", { kind: "status", movieId: current.movieId, subtitles: "live" });
     }
@@ -294,7 +305,7 @@
 
   if (YOUTUBE) {
     hookCaptions();
-  } else {
+  } else if (!CRUNCHYROLL) {
     JSON.stringify = function stringify() {
       const text = Reflect.apply(originalStringify, this, arguments);
       // Most of Netflix's calls carry no profile list. One scan of their output
@@ -404,9 +415,29 @@
     };
   }
 
+  // Crunchyroll's player follows its <video>: the element's own seeking,
+  // playing, pausing and speed are the player's.
+  const crunchyrollVideo = () => document.querySelector(".bitmovinplayer-container video") ?? document.querySelector("video");
+  function elementControls(video) {
+    return {
+      video,
+      seek(ms) { video.currentTime = Math.max(0, Math.round(ms)) / 1000; },
+      play: () => video.play(),
+      pause: () => video.pause(),
+      position: () => video.currentTime * 1000,
+      rate: () => video.playbackRate,
+      setRate(rate) { video.playbackRate = rate; },
+      interrupted: () => null,
+    };
+  }
+
   // The controls a replay uses, or why there are none: Netflix needs its
-  // player session, YouTube its video and no ad playing.
+  // player session, YouTube its video and no ad playing, Crunchyroll its video.
   function replayTarget() {
+    if (CRUNCHYROLL) {
+      const video = crunchyrollVideo();
+      return video === null ? { error: "player" } : { controls: elementControls(video) };
+    }
     if (YOUTUBE) {
       const video = youtubeVideo();
       if (video === null) return { error: "player" };
@@ -532,8 +563,12 @@
   // The controls hover pause uses: on Netflix's watch page, its player session,
   // or the watch video's native media methods when the session's metadata is
   // unavailable, since hover needs only play/pause, not the private seek API
-  // replay requires; on YouTube, its player's.
+  // replay requires; on YouTube, its player's; on Crunchyroll, its video's.
   function hoverControls() {
+    if (CRUNCHYROLL) {
+      const video = crunchyrollVideo();
+      return video === null ? null : elementControls(video);
+    }
     if (YOUTUBE) {
       const video = youtubeVideo();
       return video === null ? null : youtubeControls(youtubePlayer(), video);
@@ -573,7 +608,7 @@
       void replay(command);
     } else if (command?.type === "pause" || command?.type === "resume") {
       pauseOrResume(command.type);
-    } else if (!YOUTUBE && command?.type === "language" && typeof command.language === "string"
+    } else if (SITE === "netflix" && command?.type === "language" && typeof command.language === "string"
         && /^[a-z]{2,3}$/u.test(command.language) && command.language !== subtitleLanguage) {
       // The reader reads another language: the kept manifests' tracks of it
       // are posted instead (docs/languages.md 8.5).

@@ -1,8 +1,30 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { extensionApi } from "./browser-api.js";
-import { decodeBase64 } from "./base64.js";
+import { decodeBase64, encodeBase64 } from "./base64.js";
 import { buildAnkiResourceFields } from "./anki-resources.js";
 import { exportAnkiAudio } from "./anki-audio.js";
+
+async function encodeScreenshot(window, dataUrl) {
+  if (typeof dataUrl !== "string" || !dataUrl.startsWith("data:image/png;base64,")) {
+    throw new Error("Anki screenshot encoding requires a captured PNG.");
+  }
+  const image = await window.createImageBitmap(await (await window.fetch(dataUrl)).blob());
+  const canvas = new window.OffscreenCanvas(image.width, image.height);
+  try {
+    canvas.getContext("2d").drawImage(image, 0, 0);
+  } finally {
+    image.close();
+  }
+  try {
+    const { encodeStillAvif } = await import("./video-avif.js");
+    const bytes = await encodeStillAvif(canvas);
+    return { dataUrl: `data:image/avif;base64,${encodeBase64(bytes)}` };
+  } catch {
+    // The browser may lack AV1 encoding or refuse this frame's dimensions.
+    const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.95 });
+    return { dataUrl: `data:image/jpeg;base64,${encodeBase64(new Uint8Array(await jpeg.arrayBuffer()))}` };
+  }
+}
 
 // Resolve and parse the complete scoped note set away from the background and
 // engine request threads; only compact index rows cross back to the commit.
@@ -59,6 +81,7 @@ function linkedSpeechRecorder(window, message) {
 
 export function createAnkiOffscreenService(window, getAudioRepository) {
   return async message => {
+    if (message.type === "hd_anki_encode_screenshot") return encodeScreenshot(window, message.dataUrl);
     if (message.type === "hd_anki_index_refresh") return refreshAnkiIndex(window, message.source);
     if (message.type === "hd_anki_audio") {
       return exportAnkiAudio(window, await getAudioRepository(), message, window.AbortSignal.timeout(30_000), {

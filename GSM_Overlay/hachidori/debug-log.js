@@ -36,7 +36,9 @@ export const REDACTED_JAPANESE = "[ja]";
 
 // Settings keys and message fields that hold a credential.
 const SECRET_KEY = /api.?key|token|secret|password/iu;
-const SECRET_FIELD = new RegExp(String.raw`(["']?[\w-]*(?:${SECRET_KEY.source})[\w-]*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s"',;&}]+)`, "giu");
+// Start at a field boundary: exported user code can contain long identifiers
+// or encoded strings, which must not retry the greedy name at every character.
+const SECRET_FIELD = new RegExp(String.raw`(?<![\w-])(["']?[\w-]*(?:${SECRET_KEY.source})[\w-]*["']?\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s"',;&}]+)`, "giu");
 const AUTHORIZATION = /\b(Bearer|Basic)\s+[\w.~+/=-]+/gu;
 const WEB_ADDRESS = /\b(?:https?|wss?|ftp|file):\/\/[^\s"'<>`]+/giu;
 const DATA_URL = /\bdata:([^,\s"'<>`]*),[^\s"'<>`)]*/giu;
@@ -64,9 +66,11 @@ export function setDebugLogLanguages(codes) {
   });
 }
 
-// Replace every non-empty string under a credential-like key, at any depth.
+// Replace credentials in structured values and embedded assignments, including
+// custom JavaScript and CSS, without truncating code or redacting its labels.
 // An empty value stays empty so the report still shows it was never set.
 export function redactSecrets(value) {
+  if (typeof value === "string") return value.replace(AUTHORIZATION, `$1 ${REDACTED}`).replace(SECRET_FIELD, redactSecretField);
   if (Array.isArray(value)) return value.map(redactSecrets);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,

@@ -286,7 +286,9 @@ export async function buildAnkiFields(request, templates, { definition, audio = 
     },
     // Yomitan's getMedia keeps a multi-line selection's breaks visible in the HTML field.
     "popup-selection-text": () => escape(request.popupSelectionText).replaceAll("\n", "<br>\n"), "search-query": () => escape(request.searchQuery),
-    "document-title": () => escape(request.documentTitle), url: pageLink, "url-plain": pageUrl, sentence: isolatedSentence,
+    "document-title": () => escape(request.documentTitle),
+    miscinfo: () => escape(request.miscInfo || request.documentTitle),
+    url: pageLink, "url-plain": pageUrl, sentence: isolatedSentence,
     "sentence-furigana": () => sentenceFurigana(false), "sentence-furigana-plain": () => sentenceFurigana(true),
     "cloze-prefix": () => parts()[0], "cloze-body": () => parts()[1], "cloze-suffix": () => parts()[2],
     frequencies: () => frequencyHtml(request, request.term.frequencies, rtlRules),
@@ -304,11 +306,11 @@ export async function buildAnkiFields(request, templates, { definition, audio = 
     // rather than referring to a picture Anki does not have.
     screenshot: () => request.screenshot?.filename && !request.captureUnavailable?.includes("screenshot")
       ? `<img src="${escape(request.screenshot.filename)}">` : "",
-    // Experimental Netflix and YouTube mining: the recorded subtitle line, on
+    // Netflix and YouTube mining: the recorded subtitle line, on
     // the same terms as the screenshot.
     "sentence-audio": () => request.sentenceAudio?.filename && !request.captureUnavailable?.includes("sentence-audio")
       ? `[sound:${escape(request.sentenceAudio.filename)}]` : "",
-    // Experimental Netflix and YouTube mining: the line's animated GIF when one
+    // Netflix and YouTube mining: the line's animated GIF when one
     // was recorded, otherwise the screenshot's <img>. Off a subtitle line, with
     // the switch off, or when the line could not be recorded there is no GIF,
     // so a Picture field mapped to {gif} still gets the screenshot. A held GIF
